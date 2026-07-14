@@ -219,6 +219,134 @@ fn orphan_impl_links_when_impl_module_sorts_after_the_dispatcher() {
 }
 
 #[test]
+fn self_orphan_dispatch_links_when_impl_module_sorts_after_the_type() {
+    // The *self-orphan* case: `common` both declares `Widget`/`Describe` AND
+    // dispatches on `Widget` (`poke` calls `Widget{..}.describe()`), while the
+    // `impl Describe for Widget` lives in later-sorting `zebra`. Compile order
+    // therefore needs `common -> zebra` (so `zebra`'s dispatch symbol exists
+    // when `common` links). That edge is acyclic only because `zebra -> common`
+    // is a `use`/type-target edge (check-order-only, not a link dep): basing the
+    // order on `link_deps` drops it, so `common -> zebra` survives. Before that,
+    // the build failed with `undefined function: <uuid>::describe`.
+    let files: &[(&str, &str)] = &[
+        (
+            "common.ab",
+            "pub unique(DEADBEEF-0000-0000-0000-0000000000BA) struct Widget { size: Number }\n\
+             pub unique(DEADBEEF-0000-0000-0000-0000000000BB) trait Describe { fn describe(self): Number; }\n\
+             pub fn poke(): Number { Widget { size: 5 }.describe() }\n",
+        ),
+        (
+            "main.ab",
+            "use pkg::common::poke;\n\
+             pub fn run(): Number { poke() }\n",
+        ),
+        (
+            "zebra.ab",
+            "use pkg::common::Widget;\n\
+             use pkg::common::Describe;\n\
+             impl Describe for Widget { fn describe(self): Number { self.size * 3 } }\n",
+        ),
+    ];
+
+    // Whole-package build must link `common`'s self-dispatch against `zebra`.
+    let full = build(files, None).expect("full build must link the self-orphan dispatch");
+    assert_eq!(package_modules(&full).len(), 3);
+
+    // Lazy build reaches all three (`zebra` is pulled in via `Widget`).
+    let lazy = build(files, Some("run")).expect("lazy build must link the self-orphan dispatch");
+    assert_eq!(package_modules(&lazy), package_modules(&full));
+    for id in package_modules(&lazy) {
+        assert_eq!(
+            lazy.module_outputs[&id].objects, full.module_outputs[&id].objects,
+            "reached module `{id}` must produce identical objects lazily vs. whole-package"
+        );
+    }
+}
+
+#[test]
+fn ambient_run_executes_self_orphan_dispatch() {
+    // End-to-end: `poke` dispatches `Widget{size:5}.describe()` in `common`
+    // itself; the impl (`self.size * 3` = 15) lives in later-sorting `zebra`.
+    let dir = TempDir::new().expect("temp");
+    write_pkg(
+        dir.path(),
+        &[
+            (
+                "common.ab",
+                "pub unique(CAFE0000-0000-0000-0000-0000000000BA) struct Widget { size: Number }\n\
+                 pub unique(CAFE0000-0000-0000-0000-0000000000BB) trait Describe { fn describe(self): Number; }\n\
+                 pub fn poke(): Number { Widget { size: 5 }.describe() }\n",
+            ),
+            (
+                "main.ab",
+                "use pkg::common::poke;\n\
+                 pub fn run(): Number { poke() }\n",
+            ),
+            (
+                "zebra.ab",
+                "use pkg::common::Widget;\n\
+                 use pkg::common::Describe;\n\
+                 impl Describe for Widget { fn describe(self): Number { self.size * 3 } }\n",
+            ),
+        ],
+    );
+
+    let out = Command::new(ambient_bin())
+        .arg("run")
+        .arg(dir.path())
+        .output()
+        .expect("spawn ambient run");
+    assert!(
+        out.status.success(),
+        "ambient run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("15"), "expected result 15, got: {stdout}");
+}
+
+#[test]
+fn genuine_dispatch_cycle_still_fails_to_link() {
+    // The self-orphan shape, but `zebra`'s impl body now *link*-depends on
+    // `common` (`common::helper(...)`), so the structural `common -> zebra`
+    // dispatch edge meets a real `zebra -> common` link dep: a genuine cycle
+    // single-pass linking cannot satisfy. The ordering pass detects the cycle
+    // and falls back to the full-`deps` order (`common` before `zebra`), so
+    // `common`'s self-dispatch fails to link exactly as it did before — the
+    // deliberate, correct outcome for a truly cyclic dispatch dependency.
+    let files: &[(&str, &str)] = &[
+        (
+            "common.ab",
+            "pub unique(DEADBEEF-0000-0000-0000-0000000000CA) struct Widget { size: Number }\n\
+             pub unique(DEADBEEF-0000-0000-0000-0000000000CB) trait Describe { fn describe(self): Number; }\n\
+             pub fn helper(n: Number): Number { n + 1 }\n\
+             pub fn poke(): Number { Widget { size: 5 }.describe() }\n",
+        ),
+        (
+            "main.ab",
+            "use pkg::common::poke;\n\
+             pub fn run(): Number { poke() }\n",
+        ),
+        (
+            "zebra.ab",
+            "use pkg::common::Widget;\n\
+             use pkg::common::Describe;\n\
+             use pkg::common::helper;\n\
+             impl Describe for Widget { fn describe(self): Number { helper(self.size) } }\n",
+        ),
+    ];
+
+    let err = match build(files, None) {
+        Ok(_) => panic!("a genuine dispatch cycle must fail to link"),
+        Err(e) => e,
+    };
+    assert!(
+        err.contains("describe") || err.to_lowercase().contains("undefined"),
+        "expected an undefined-dispatch-symbol link error, got: {err}"
+    );
+}
+
+#[test]
 fn ambient_run_executes_orphan_impl_module_sorted_after_dispatcher() {
     // End-to-end: the run result (15 = 10 + size 5) proves the dispatch reached
     // `zebra`'s impl even though `zebra` sorts after the dispatching `main`.
