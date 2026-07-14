@@ -147,8 +147,40 @@ fn full_transport_roundtrip() {
         "the type error should have been published over the transport"
     );
 
+    // A malformed notification (garbage params for a known method) must not
+    // kill the loop: the server logs and ignores it. Send one, then prove the
+    // session is still alive with another hover round-trip (a dead loop would
+    // close the channel and panic the next `recv`).
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            lsp_types::notification::DidChangeTextDocument::METHOD.to_string(),
+            serde_json::json!({ "not": "a valid didChange" }),
+        )))
+        .unwrap();
+
+    let hover_after: Option<Hover> = request::<HoverRequest>(
+        &client,
+        3,
+        HoverParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                position: Position {
+                    line: 0,
+                    character: 3,
+                },
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        },
+        &mut diagnostics,
+    );
+    assert!(
+        hover_after.is_some(),
+        "server should still serve requests after a malformed notification"
+    );
+
     // Clean shutdown of the production loop.
-    let _: () = request::<Shutdown>(&client, 3, (), &mut diagnostics);
+    let _: () = request::<Shutdown>(&client, 4, (), &mut diagnostics);
     notify::<lsp_types::notification::Exit>(&client, ());
     server.join().unwrap().expect("server loop exited cleanly");
 }

@@ -250,10 +250,21 @@ fn main_loop(connection: &Connection) -> anyhow::Result<()> {
                 connection.sender.send(Message::Response(response))?;
             }
             Message::Notification(notif) => {
-                for update in handle_notification(&notif, &mut state)? {
-                    connection
-                        .sender
-                        .send(crate::reanalyze::diagnostics_message(update)?)?;
+                // A malformed notification (e.g. `didChange` params that fail to
+                // deserialize) must not kill the server: the renderer logs it and
+                // keeps serving. A conformant client never sends one, but a bad
+                // one is the client's bug, not grounds to drop the session.
+                match handle_notification(&notif, &mut state) {
+                    Ok(updates) => {
+                        for update in updates {
+                            connection
+                                .sender
+                                .send(crate::reanalyze::diagnostics_message(update)?)?;
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("ignoring malformed notification `{}`: {err}", notif.method);
+                    }
                 }
             }
             Message::Response(_) => {
