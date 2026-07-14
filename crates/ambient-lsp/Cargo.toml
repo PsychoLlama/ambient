@@ -30,6 +30,10 @@ anyhow.workspace = true
 # UUID generation for completions
 uuid.workspace = true
 
-# Testing dependencies (used by test_harness module)
-tempfile.workspace = true
+# Snapshot assertions, used by the `test_harness` module (compiled into the lib).
 insta = "1.44"
+
+[dev-dependencies]
+# Only the one transport smoke test (tests/transport.rs) still needs a real
+# on-disk package; the rest of the harness is in-memory.
+tempfile.workspace = true
