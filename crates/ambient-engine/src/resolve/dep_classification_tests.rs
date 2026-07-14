@@ -6,13 +6,15 @@
 //! compiler emits a link-time artifact for). These tests pin the boundary:
 //!
 //! - value positions (calls, consts, variant/unit-struct construction,
-//!   ability performs, typed-record construction) land in **both** sets;
+//!   ability performs) land in **both** sets;
 //! - pure type positions (qualified type annotations, impl targets/headers,
-//!   the `use` statement itself, associated `Type::method` calls) land in
+//!   the `use` statement itself, associated `Type::method` calls, and
+//!   typed-record construction — the compiler discards the type name) land in
 //!   `deps` **only**;
 //! - `link_deps ⊆ deps` on every fixture.
 //!
-//! No consumer reads `link_deps` yet (phase 3 will); these guard the data.
+//! `link_deps`'s sole consumer is the compile-ordering graph
+//! (`dispatch_ordering_graph`); these guard the boundary it keys off.
 
 use std::sync::Arc;
 
@@ -354,13 +356,19 @@ fn qualified_function_call_is_a_link_dep() {
     assert_subset(&outcome);
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// TYPE positions: recorded in `deps` only, never `link_deps`
+// ─────────────────────────────────────────────────────────────────────────
+
 #[test]
-fn imported_typed_record_construction_is_a_link_dep() {
-    // Classified VALUE conservatively. The phase-2 investigation found the
-    // compiler emits *no* link artifact for foreign struct construction
-    // (`TypedRecord` lowers to a plain `MakeRecord`, discarding the type
-    // name); this pins the current conservative choice, which phase 3 may
-    // revisit. See `resolve_type_ref`.
+fn imported_typed_record_construction_is_check_only() {
+    // CHECK-ONLY: the compiler emits *no* link artifact for foreign struct
+    // construction — `TypedRecord` lowers to a plain `MakeRecord`, discarding
+    // the type name — so a typed record must not manufacture a link-order
+    // edge. Recording one would let the candidate-skip in
+    // `dispatch_ordering_graph` drop a needed self-orphan dispatch edge. The
+    // `use Widget` still records a check-only `deps` edge. See
+    // `resolve_type_ref`. (Bare/imported spelling.)
     let (outcome, defs) = resolve_main(
         vec![record_struct("Widget")],
         vec![
@@ -372,14 +380,41 @@ fn imported_typed_record_construction_is_a_link_dep() {
             ),
         ],
     );
-    assert!(outcome.deps.contains(&defs));
-    assert!(outcome.link_deps.contains(&defs));
+    assert!(
+        outcome.deps.contains(&defs),
+        "the checker needs the type's module registered"
+    );
+    assert!(
+        !outcome.link_deps.contains(&defs),
+        "typed-record construction emits no link artifact"
+    );
     assert_subset(&outcome);
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// TYPE positions: recorded in `deps` only, never `link_deps`
-// ─────────────────────────────────────────────────────────────────────────
+#[test]
+fn qualified_typed_record_construction_is_check_only() {
+    // The qualified spelling `pkg::defs::Widget { .. }` (no `use`) flows
+    // through the shared `resolve_path_ref`/`lookup_item` with `RefPos::Type`,
+    // so it agrees with the bare/imported spelling above: a check-only `deps`
+    // edge, never a `link_deps` edge.
+    let (outcome, defs) = resolve_main(
+        vec![record_struct("Widget")],
+        vec![func(
+            "g",
+            typed_record_expr(QualifiedName::qualified(vec!["pkg", "defs"], "Widget")),
+            vec![],
+        )],
+    );
+    assert!(
+        outcome.deps.contains(&defs),
+        "the checker needs the type's module registered"
+    );
+    assert!(
+        !outcome.link_deps.contains(&defs),
+        "a qualified typed-record construction emits no link artifact either"
+    );
+    assert_subset(&outcome);
+}
 
 #[test]
 fn qualified_type_annotation_is_check_only() {

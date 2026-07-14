@@ -306,6 +306,104 @@ fn ambient_run_executes_self_orphan_dispatch() {
 }
 
 #[test]
+fn ambient_run_self_orphan_dispatch_with_typed_record_in_impl_body() {
+    // Regression: the self-orphan dispatch must still link when `zebra`'s impl
+    // body itself *constructs* the foreign `Widget` (`Widget { size: 1 }`).
+    // Constructing a foreign typed record emits no link artifact (it lowers to a
+    // plain `MakeRecord`, discarding the type name), so it must be a CHECK-only
+    // dep, not a link dep. If it were misclassified as a link dep, `zebra ->
+    // common` would become a link edge, the candidate-skip would drop the needed
+    // `common -> zebra` dispatch edge, and the build would fail with `undefined
+    // function: <uuid>::describe`.
+    //
+    // `describe(self)` returns `Widget { size: 1 }.size + self.size * 3`; `poke`
+    // dispatches `Widget { size: 5 }.describe()`, so the result is
+    // `1 + 5 * 3 = 16`.
+    let dir = TempDir::new().expect("temp");
+    write_pkg(
+        dir.path(),
+        &[
+            (
+                "common.ab",
+                "pub unique(CAFE0000-0000-0000-0000-0000000000CA) struct Widget { size: Number }\n\
+                 pub unique(CAFE0000-0000-0000-0000-0000000000CB) trait Describe { fn describe(self): Number; }\n\
+                 pub fn poke(): Number { Widget { size: 5 }.describe() }\n",
+            ),
+            (
+                "main.ab",
+                "use pkg::common::poke;\n\
+                 pub fn run(): Number { poke() }\n",
+            ),
+            (
+                "zebra.ab",
+                "use pkg::common::Widget;\n\
+                 use pkg::common::Describe;\n\
+                 impl Describe for Widget { fn describe(self): Number { Widget { size: 1 }.size + self.size * 3 } }\n",
+            ),
+        ],
+    );
+
+    let out = Command::new(ambient_bin())
+        .arg("run")
+        .arg(dir.path())
+        .output()
+        .expect("spawn ambient run");
+    assert!(
+        out.status.success(),
+        "ambient run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("16"), "expected result 16, got: {stdout}");
+}
+
+#[test]
+fn ambient_run_self_orphan_dispatch_with_qualified_typed_record_in_impl_body() {
+    // The qualified-spelling twin of the test above: `zebra`'s impl body
+    // constructs the foreign record via its fully-qualified path
+    // (`pkg::common::Widget { size: 1 }`). Per the `Fqn` invariant, the qualified
+    // and bare spellings must classify identically — both CHECK-only — so this
+    // resolves through the shared `resolve_path_ref`/`lookup_item` path carrying
+    // an explicit type position. Same arithmetic: `1 + 5 * 3 = 16`.
+    let dir = TempDir::new().expect("temp");
+    write_pkg(
+        dir.path(),
+        &[
+            (
+                "common.ab",
+                "pub unique(CAFE0000-0000-0000-0000-0000000000DA) struct Widget { size: Number }\n\
+                 pub unique(CAFE0000-0000-0000-0000-0000000000DB) trait Describe { fn describe(self): Number; }\n\
+                 pub fn poke(): Number { Widget { size: 5 }.describe() }\n",
+            ),
+            (
+                "main.ab",
+                "use pkg::common::poke;\n\
+                 pub fn run(): Number { poke() }\n",
+            ),
+            (
+                "zebra.ab",
+                "use pkg::common::Widget;\n\
+                 use pkg::common::Describe;\n\
+                 impl Describe for Widget { fn describe(self): Number { pkg::common::Widget { size: 1 }.size + self.size * 3 } }\n",
+            ),
+        ],
+    );
+
+    let out = Command::new(ambient_bin())
+        .arg("run")
+        .arg(dir.path())
+        .output()
+        .expect("spawn ambient run");
+    assert!(
+        out.status.success(),
+        "ambient run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("16"), "expected result 16, got: {stdout}");
+}
+
+#[test]
 fn genuine_dispatch_cycle_still_fails_to_link() {
     // The self-orphan shape, but `zebra`'s impl body now *link*-depends on
     // `common` (`common::helper(...)`), so the structural `common -> zebra`

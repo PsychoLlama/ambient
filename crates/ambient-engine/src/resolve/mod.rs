@@ -70,19 +70,34 @@ pub fn resolve_module(
             resolver.deps.insert(id);
         }
     }
-    // `link_deps ⊆ deps` by construction: the only writer of `link_deps`
-    // (`canonical_value`) writes the same edge into `deps`, and the two
-    // check-only writers (this loop and the qualified-type path in `types`)
-    // touch `deps` alone.
-    debug_assert!(
-        resolver.link_deps.is_subset(&resolver.deps),
-        "link_deps must be a subset of deps",
-    );
+    // `link_deps ⊆ deps` holds by construction, so there is nothing to
+    // assert at runtime: the only writer of `link_deps` (`canonical_value`)
+    // writes the same edge into `deps` in the same call, and every other dep
+    // writer (`canonical_type`, this `use`-import loop, the qualified-type
+    // path in `types`) touches `deps` alone. `same_module` writes neither.
     ResolveOutcome {
         deps: resolver.deps,
         link_deps: resolver.link_deps,
         errors: resolver.import_errors,
     }
+}
+
+/// The syntactic position a resolved reference occupies, which decides
+/// whether it records a **link-order** dependency.
+///
+/// A value/symbol position (a call, const ref, variant/unit-struct
+/// construction, ability perform) links a compile-time artifact, so it
+/// writes `link_deps`; a type position (a typed-record construction — the
+/// compiler discards the type name) emits nothing at link time, so it records
+/// the check-order `deps` edge alone. The shared, syntactically-ambiguous
+/// entry points (`resolve_path_ref` / `lookup_item`, reached both by a
+/// qualified value call `pkg::m::foo` and a qualified typed-record
+/// construction `pkg::m::Foo{..}`) take this explicitly, so the classification
+/// is a required parameter rather than a per-method-name convention.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum RefPos {
+    Value,
+    Type,
 }
 
 /// What the resolve pass learned about a module.
@@ -100,15 +115,18 @@ pub struct ResolveOutcome {
     /// module-alias method call) — the edges whose compiled output the
     /// referencing module's bytecode must link against.
     ///
-    /// Excludes the pure check-order edges: `use`-import statements and
-    /// qualified type paths in annotations/signatures/impl targets, which
-    /// the checker consumes but the compiler emits nothing against.
+    /// Excludes the pure check-order edges: `use`-import statements,
+    /// qualified type paths in annotations/signatures/impl targets, and
+    /// typed-record *construction* (the compiler discards the type name), all
+    /// of which the checker consumes but the compiler emits nothing against.
     /// `link_deps ⊆ deps` always holds.
     ///
-    /// Introduced in phase 2 as data only: no consumer reads it yet. Phase
-    /// 3 will build the compile-ordering graph from `link_deps ∪ structural
-    /// dispatch edges` instead of the full `deps`, fixing the self-orphan
-    /// dispatch cycle.
+    /// Its sole consumer is the compile-ordering graph
+    /// ([`dispatch_ordering_graph`](crate::build::reachability::dispatch_ordering_graph)),
+    /// which bases compile order on `link_deps ∪ structural dispatch edges`
+    /// (not the full `deps`) so the self-orphan dispatch case links. Every
+    /// other consumer — cache keys, `ModuleEnv` scoping, cycle detection,
+    /// lazy reachability — reads the full [`Self::deps`].
     pub link_deps: BTreeSet<ModuleId>,
     /// Failed block-scoped imports. (Module-level import failures are
     /// reported by the checker from the module scope; block-level `use`
@@ -280,10 +298,23 @@ impl<'r> Resolver<'r> {
     // ─────────────────────────────────────────────────────────────────────
 
     /// Build the [`Fqn`] identity for `ident` defined in `module`, recording
+    /// the dependency edge classified by `pos`. The single position-aware
+    /// entry point the shared, syntactically-ambiguous callers
+    /// (`resolve_path_ref` / `lookup_item`, reached by both a qualified value
+    /// call and a qualified typed-record construction) route through, so the
+    /// value/type classification is a *required parameter* rather than a
+    /// per-method-name convention.
+    fn canonical(&mut self, module: &ModulePath, ident: Vec<Arc<str>>, pos: RefPos) -> Fqn {
+        match pos {
+            RefPos::Value => self.canonical_value(module, ident),
+            RefPos::Type => self.canonical_type(module, ident),
+        }
+    }
+
+    /// Build the [`Fqn`] identity for `ident` defined in `module`, recording
     /// a foreign module as a **link-order** dependency (both `deps` and
-    /// `link_deps`). Same-module references resolve to their *full* `Fqn`
-    /// (current module + ident) and record nothing — there is no bare
-    /// special case.
+    /// `link_deps`). Same-module references record nothing (use
+    /// [`Self::same_module`] where the module is statically the current one).
     ///
     /// This is the sole value/symbol-position dep writer: every call site
     /// reaching it names a reference the compiler emits a link-time artifact
@@ -291,7 +322,8 @@ impl<'r> Resolver<'r> {
     /// construction, an ability perform/handler, or a module-alias method
     /// call. It is also the only writer of `link_deps`, which keeps
     /// `link_deps ⊆ deps` true by construction. Pure type-position edges use
-    /// the check-only `deps.insert` paths instead (the `use`-import loop in
+    /// the check-only [`Self::canonical_type`] (typed-record construction) or
+    /// the direct `deps.insert` paths (the `use`-import loop in
     /// [`resolve_module`] and the qualified type path in `types`).
     fn canonical_value(&mut self, module: &ModulePath, ident: Vec<Arc<str>>) -> Fqn {
         let module_id = self.registry.module_id(module);
@@ -300,6 +332,33 @@ impl<'r> Resolver<'r> {
             self.link_deps.insert(module_id.clone());
         }
         Fqn::new(module_id, ident)
+    }
+
+    /// Build the [`Fqn`] identity for `ident` defined in `module`, recording
+    /// a foreign module as a **check-order** dependency (`deps` only, never
+    /// `link_deps`). The type-position twin of [`Self::canonical_value`]:
+    /// typed-record *construction* of a foreign type (`Foo{..}`) names it
+    /// type-side, but the compiler lowers `TypedRecord` to a plain
+    /// `MakeRecord` and discards the type name (the nominal identity is a
+    /// compile-time concept), so it emits no link artifact against the type's
+    /// module and must not manufacture a link-order edge. Same-module
+    /// references record nothing.
+    fn canonical_type(&mut self, module: &ModulePath, ident: Vec<Arc<str>>) -> Fqn {
+        let module_id = self.registry.module_id(module);
+        if module != self.current {
+            self.deps.insert(module_id.clone());
+        }
+        Fqn::new(module_id, ident)
+    }
+
+    /// Build the [`Fqn`] for `ident` declared in the *current* module,
+    /// recording nothing — a same-module reference is never a cross-module
+    /// dependency. Call sites that always name the current module route here
+    /// instead of `canonical_value(current, …)`, whose `module != current`
+    /// guard makes both inserts unreachable; the honest name documents "this
+    /// records no dep" at the call site for future auditors.
+    fn same_module(&self, ident: Vec<Arc<str>>) -> Fqn {
+        Fqn::new(self.registry.module_id(self.current), ident)
     }
 
     /// Whether `module` exports `name` (publicly), or `module` is the
