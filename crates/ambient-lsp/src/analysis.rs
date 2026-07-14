@@ -6,7 +6,8 @@
 //! says. This module only re-exports it.
 
 pub use ambient_analysis::queries::{
-    find_definition, find_expr_at_offset, find_item_at_offset, format_type, format_type_hover,
+    definition_item, find_definition, find_expr_at_offset, find_item_at_offset, format_type,
+    format_type_hover,
 };
 pub use ambient_analysis::{
     AnalysisResult, analyze, analyze_with_registry, platform_prelude_resolver,

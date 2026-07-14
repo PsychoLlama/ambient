@@ -7,12 +7,15 @@
 use std::sync::Arc;
 
 use ambient_engine::ast::{
-    BindingId, Expr, ExprKind, FunctionDef, Item, ItemKind, Module, Pattern, PatternKind,
-    QualifiedName, Span, StmtKind,
+    Expr, ExprKind, Item, ItemKind, Module, Pattern, PatternKind, QualifiedName, Span, StmtKind,
 };
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::{ExportKind, ModuleRegistry, ResolvedImport};
 use ambient_engine::types::Type;
+
+mod bindings;
+
+use bindings::find_binding_definition;
 
 /// Find the expression at a given byte offset in the module.
 #[must_use]
@@ -267,6 +270,51 @@ pub fn find_definition(
     // registry path a constructor uses.
     let qname = find_variant_pattern_at_offset(module, offset)?;
     resolve_qualified_name(module, module_path, registry, qname)
+}
+
+/// Resolve the name/callee at `offset` to the declaring [`Item`], for hover.
+///
+/// A callsite name (`title_case(x)`) or a bare name reference is an
+/// `ExprKind::Name`; on its own it only carries the checker-*inferred*
+/// (instantiated) type, so hover would show a bare type with no parameter
+/// names or doc. This runs the same registry-backed resolution as
+/// go-to-definition ([`resolve_qualified_name`]) and maps the resulting
+/// [`Definition`] back to the `&Item` in its defining module's AST, so the
+/// caller can render a full signature (params + doc) via `format_item_hover` —
+/// for package items and builtins alike (the registry holds their ASTs).
+///
+/// Locals are deliberately excluded: a local keeps type-shaped hover (there is
+/// no item to render). Returns `None` when the cursor isn't on a name/callee,
+/// or the name doesn't resolve to an item this walk can locate (e.g. an enum
+/// variant, whose `Definition` points at the variant, not an item name span).
+#[must_use]
+pub fn definition_item<'a>(
+    module: &'a Module,
+    module_path: &ModulePath,
+    registry: &'a ModuleRegistry,
+    offset: u32,
+) -> Option<&'a Item> {
+    let expr = find_expr_at_offset(module, offset)?;
+    let qname = match &expr.kind {
+        ExprKind::Name(qname) => qname,
+        ExprKind::Call(callee, _) => match &callee.kind {
+            ExprKind::Name(qname) => qname,
+            _ => return None,
+        },
+        // Locals keep type hover; other expressions have no declaring item.
+        _ => return None,
+    };
+    let def = resolve_qualified_name(module, module_path, registry, qname)?;
+    // The defining module's AST: the current module when the definition is
+    // local, else the origin module from the registry.
+    let origin = match &def.module {
+        Some(path) => &registry.get(path)?.module,
+        None => module,
+    };
+    origin
+        .items
+        .iter()
+        .find(|item| item_name_span(item) == Some(def.span))
 }
 
 /// Find the enum-variant pattern whose name span contains `offset`, scanning
@@ -842,128 +890,4 @@ fn resolve_module_reference(
     let mut segments: Vec<_> = base.segments().to_vec();
     segments.extend(rest.iter().cloned());
     ModulePath::from_segments(segments)
-}
-
-fn find_binding_definition(func: &FunctionDef, target_id: BindingId) -> Option<Span> {
-    // Check parameters.
-    for param in &func.params {
-        if param.id == target_id {
-            return Some(param.span);
-        }
-    }
-
-    // Check body.
-    find_binding_in_expr(&func.body, target_id)
-}
-
-fn find_binding_in_expr(expr: &Expr, target_id: BindingId) -> Option<Span> {
-    match &expr.kind {
-        ExprKind::Block(stmts, result) => {
-            for stmt in stmts {
-                if let StmtKind::Let(binding) = &stmt.kind {
-                    if binding.id == target_id {
-                        return Some(stmt.span);
-                    }
-                    if let Some(span) = find_binding_in_expr(&binding.init, target_id) {
-                        return Some(span);
-                    }
-                }
-                if let StmtKind::Const(const_def) = &stmt.kind {
-                    if const_def.id == target_id {
-                        return Some(stmt.span);
-                    }
-                    if let Some(span) = find_binding_in_expr(&const_def.value, target_id) {
-                        return Some(span);
-                    }
-                }
-            }
-            if let Some(result) = result {
-                find_binding_in_expr(result, target_id)
-            } else {
-                None
-            }
-        }
-        ExprKind::Match(scrutinee, arms) => {
-            if let Some(span) = find_binding_in_expr(scrutinee, target_id) {
-                return Some(span);
-            }
-            for arm in arms {
-                if let Some(span) = find_binding_in_pattern(&arm.pattern, target_id) {
-                    return Some(span);
-                }
-                if let Some(span) = find_binding_in_expr(&arm.body, target_id) {
-                    return Some(span);
-                }
-            }
-            None
-        }
-        ExprKind::Lambda(lambda) => {
-            for param in &lambda.params {
-                if param.id == target_id {
-                    return Some(param.span);
-                }
-            }
-            find_binding_in_expr(&lambda.body, target_id)
-        }
-        ExprKind::If(condition, then_branch, else_branch) => {
-            find_binding_in_expr(condition, target_id)
-                .or_else(|| find_binding_in_expr(then_branch, target_id))
-                .or_else(|| {
-                    else_branch
-                        .as_ref()
-                        .and_then(|e| find_binding_in_expr(e, target_id))
-                })
-        }
-        ExprKind::Binary { left, right, .. } => {
-            find_binding_in_expr(left, target_id).or_else(|| find_binding_in_expr(right, target_id))
-        }
-        ExprKind::Unary(_, operand) => find_binding_in_expr(operand, target_id),
-        ExprKind::Call(callee, args) => find_binding_in_expr(callee, target_id)
-            .or_else(|| args.iter().find_map(|a| find_binding_in_expr(a, target_id))),
-        ExprKind::Tuple(elements) | ExprKind::List(elements) => elements
-            .iter()
-            .find_map(|e| find_binding_in_expr(e, target_id)),
-        ExprKind::Record(fields) => fields
-            .iter()
-            .find_map(|(_, e)| find_binding_in_expr(e, target_id)),
-        ExprKind::RecordField(object, _) => find_binding_in_expr(object, target_id),
-        ExprKind::TupleIndex(tuple, _) => find_binding_in_expr(tuple, target_id),
-        ExprKind::Handle(handle) => find_binding_in_expr(&handle.body, target_id)
-            .or_else(|| {
-                handle
-                    .handlers
-                    .iter()
-                    .find_map(|h| find_binding_in_expr(h, target_id))
-            })
-            .or_else(|| {
-                handle
-                    .else_clause
-                    .as_ref()
-                    .and_then(|e| find_binding_in_expr(e, target_id))
-            }),
-        ExprKind::Sandbox(sandbox) => find_binding_in_expr(&sandbox.body, target_id),
-        _ => None,
-    }
-}
-
-fn find_binding_in_pattern(pattern: &Pattern, target_id: BindingId) -> Option<Span> {
-    match &pattern.kind {
-        PatternKind::Binding(id, _) => {
-            if *id == target_id {
-                Some(pattern.span)
-            } else {
-                None
-            }
-        }
-        PatternKind::Tuple(elements) => elements
-            .iter()
-            .find_map(|p| find_binding_in_pattern(p, target_id)),
-        PatternKind::Record(fields) => fields
-            .iter()
-            .find_map(|(_, p)| find_binding_in_pattern(p, target_id)),
-        PatternKind::Variant(_, payload) => payload
-            .as_ref()
-            .and_then(|p| find_binding_in_pattern(p, target_id)),
-        _ => None,
-    }
 }

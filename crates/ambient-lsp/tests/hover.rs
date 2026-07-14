@@ -77,6 +77,8 @@ fn test_hover_on_binary_expression() {
 
 #[test]
 fn test_hover_on_function_call() {
+    // A callsite resolves to the declaring item and shows its full signature
+    // (params + return), not the bare inferred return type.
     LspTest::new()
         .with_source(
             r#"
@@ -85,7 +87,7 @@ fn test() { add(1, 2)/*h*/ }
 "#,
         )
         .hover_at("h")
-        .expect_type("core::primitives::number")
+        .expect_contains("fn add(a: Number, b: Number): Number")
         .shutdown();
 }
 
@@ -183,6 +185,56 @@ fn test_hover_on_type_alias_stays_type() {
         .with_source("type Meters/*h*/ = Number;")
         .hover_at("h")
         .expect_contains("type Meters = Number")
+        .shutdown();
+}
+
+#[test]
+fn test_hover_on_callsite_shows_signature_and_doc() {
+    // A callsite of a documented multi-param function shows the full signature
+    // with parameter names AND the doc text — not the bare inferred type.
+    LspTest::new()
+        .with_source(
+            "/// Sums two numbers.\nfn add(a: Number, b: Number): Number { a + b }\nfn test() { add/*h*/(1, 2) }",
+        )
+        .hover_at("h")
+        .expect_contains("fn add(a: Number, b: Number): Number")
+        .hover_at("h")
+        .expect_contains("Sums two numbers.")
+        .shutdown();
+}
+
+#[test]
+fn test_hover_on_cross_module_callsite_shows_signature_and_doc() {
+    // Resolving a callsite crosses module boundaries: the item's signature and
+    // doc come from the declaring module's AST via the registry.
+    LspTest::new()
+        .with_package()
+        .with_file(
+            "src/mathlib.ab",
+            "/// Multiplies two numbers.\npub fn mul(a: Number, b: Number): Number { a * b }",
+        )
+        .with_file(
+            "src/main.ab",
+            "use pkg::mathlib::{mul};\nfn run() { mul/*h*/(2, 3) }",
+        )
+        .open_file("src/main.ab")
+        .hover_at("h")
+        .expect_contains("fn mul(a: Number, b: Number): Number")
+        .hover_at("h")
+        .expect_contains("Multiplies two numbers.")
+        .shutdown();
+}
+
+#[test]
+fn test_hover_on_builtin_callsite_shows_signature() {
+    // A builtin (`core::…`) callsite resolves through the registry to the
+    // declaration's AST, so its signature and doc render like any other item.
+    LspTest::new()
+        .with_source("fn run() { core::convert::to_string/*h*/(42) }")
+        .hover_at("h")
+        .expect_contains("extern fn to_string")
+        .hover_at("h")
+        .expect_contains("Render any value as a human-readable string.")
         .shutdown();
 }
 

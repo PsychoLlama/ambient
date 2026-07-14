@@ -37,7 +37,7 @@ use ambient_analysis::queries::{find_qname_module_at_offset, find_use_module_at_
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
 
-use crate::analysis::{find_definition, find_expr_at_offset, find_item_at_offset};
+use crate::analysis::{definition_item, find_definition, find_expr_at_offset, find_item_at_offset};
 use crate::completions::{CompletionContext, get_completions};
 use crate::convert::{diagnostic_to_lsp, offset_range_to_lsp_range};
 use crate::documents::DocumentStore;
@@ -452,6 +452,25 @@ fn handle_hover(id: RequestId, params: &HoverParams, state: &ServerState) -> Res
                 occ.span.start as usize,
                 occ.span.end as usize,
             )),
+        };
+        return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
+    }
+
+    // A callsite/reference to an item (function, const, struct, …): resolve
+    // the name to its declaring item through the registry — the same path
+    // go-to-definition uses — and render its full signature (params + doc),
+    // for package items and builtins alike. Locals are excluded by
+    // `definition_item` (they keep type-shaped hover below).
+    if let Some(item) = definition_item(module, &analysis.module_path, registry, offset) {
+        let content = format_item_hover(item);
+        let expr_span = find_expr_at_offset(module, offset).map(|e| e.span);
+        let hover = Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: content,
+            }),
+            range: expr_span
+                .map(|span| offset_range_to_lsp_range(doc, span.start as usize, span.end as usize)),
         };
         return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
     }
