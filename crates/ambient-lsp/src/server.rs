@@ -20,11 +20,11 @@ use lsp_types::request::{
 use lsp_types::{
     CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, Location, MarkedString, MarkupContent, MarkupKind, OneOf,
-    PrepareRenameResponse, ReferenceParams, RenameOptions, RenameParams, SemanticTokens,
-    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
+    Location, MarkedString, MarkupContent, MarkupKind, OneOf, PrepareRenameResponse,
+    ReferenceParams, RenameOptions, RenameParams, SemanticTokens, SemanticTokensFullOptions,
+    SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
     SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
     SymbolKind as LspSymbolKind, TextDocumentPositionParams, TextDocumentSyncCapability,
     TextDocumentSyncKind, TextEdit, Uri, WorkDoneProgressOptions, WorkspaceEdit,
@@ -37,17 +37,15 @@ use ambient_analysis::package::AnalysisPackage;
 use ambient_analysis::queries::{
     find_qname_module_at_offset, find_use_module_at_offset, resolve_qualified_name,
 };
-use ambient_engine::ast::{ItemKind, Module, QualifiedName};
+use ambient_engine::ast::QualifiedName;
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::{ExportKind, ModuleRegistry};
 
-use crate::analysis::{find_definition, find_expr_at_offset, find_item_at_offset, format_type};
+use crate::analysis::{find_definition, find_expr_at_offset, find_item_at_offset};
 use crate::completions::{CompletionContext, get_completions};
 use crate::convert::{diagnostic_to_lsp, offset_range_to_lsp_range};
 use crate::documents::DocumentStore;
-use crate::hover_format::{
-    format_expr_hover, format_extern_fn_hover, format_item_hover, format_module_hover,
-};
+use crate::hover_format::{format_expr_hover, format_item_hover, format_module_hover};
 use crate::semantic_tokens::{create_legend, extract_semantic_tokens};
 use crate::util::{path_to_uri, uri_to_path};
 
@@ -370,6 +368,27 @@ fn handle_hover(id: RequestId, params: &HoverParams, state: &ServerState) -> Res
         return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
     }
 
+    // A method call/perform whose name is under the cursor: render the resolved
+    // method's declaration signature, located through the occurrence index (the
+    // same checked-AST-derived resolution goto/references use).
+    if let Some((_, occ)) = occurrence_at(state, uri, offset)
+        && let SymbolTarget::Method { .. } = &occ.target
+        && let Some(content) = method_hover_content(state, registry, &occ.target)
+    {
+        let hover = Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: content,
+            }),
+            range: Some(offset_range_to_lsp_range(
+                doc,
+                occ.span.start as usize,
+                occ.span.end as usize,
+            )),
+        };
+        return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
+    }
+
     // Fall back to expression-level hover.
     let Some(expr) = find_expr_at_offset(module, offset) else {
         return Response::new_ok(id, Value::Null);
@@ -424,15 +443,32 @@ fn handle_goto_definition(
     };
 
     let offset = doc.position_to_offset(position.line, position.character);
-
     #[allow(clippy::cast_possible_truncation)]
+    let offset = offset as u32;
+
     let Some(definition) = find_definition(
         &analysis.result.module,
         &analysis.module_path,
         &analysis.registry,
-        offset as u32,
+        offset,
     ) else {
-        return Response::new_ok(id, Value::Null);
+        // Not an item/local reference. A method call (`x.show()`, `Enum::default`,
+        // a perform) is served from the occurrence index — the same
+        // checked-AST-derived source `find-references` reads — by jumping to the
+        // matching method declaration's occurrence. Core/platform methods have no
+        // indexed URI, so those return null (out of scope for this phase).
+        let location = occurrence_at(state, uri, offset).and_then(|(_, occ)| {
+            matches!(occ.target, SymbolTarget::Method { .. })
+                .then(|| method_definition_location(state, &occ.target))
+                .flatten()
+        });
+        return match location {
+            Some(location) => {
+                let response = GotoDefinitionResponse::Scalar(location);
+                Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
+            }
+            None => Response::new_ok(id, Value::Null),
+        };
     };
 
     // A definition in another module needs a file to point at; core and
@@ -515,6 +551,47 @@ fn gather_locations(
         }
     }
     locations
+}
+
+/// Hover markdown for a method `target`: locate its declaration occurrence
+/// (module + name span) in the index, then render the declaration's signature
+/// from that module's AST. `None` when the declaration isn't indexed.
+fn method_hover_content(
+    state: &ServerState,
+    registry: &ModuleRegistry,
+    target: &SymbolTarget,
+) -> Option<String> {
+    let (module_path, span) = state.occurrences.iter().find_map(|m| {
+        m.occurrences
+            .iter()
+            .find(|o| o.is_definition && o.target == *target)
+            .map(|o| (m.module_path.clone(), o.span))
+    })?;
+    crate::hover_format::format_method_hover(registry, &module_path, span)
+}
+
+/// The location of `target`'s definition occurrence, scanning the occurrence
+/// index package-wide (a method's declaration may live in any module). `None`
+/// when no indexed definition exists — e.g. a core/platform method, whose module
+/// has no editor URI.
+fn method_definition_location(state: &ServerState, target: &SymbolTarget) -> Option<Location> {
+    for module in &state.occurrences {
+        for occ in &module.occurrences {
+            if occ.is_definition && occ.target == *target {
+                let range = range_in_file(
+                    state,
+                    &module.uri,
+                    occ.span.start as usize,
+                    occ.span.end as usize,
+                );
+                return Some(Location {
+                    uri: module.uri.clone(),
+                    range,
+                });
+            }
+        }
+    }
+    None
 }
 
 /// Handle find references request.
@@ -689,6 +766,10 @@ fn is_renameable_target(state: &ServerState, target: &SymbolTarget) -> bool {
                 Some(ExportKind::Function | ExportKind::Const | ExportKind::EnumVariant)
             )
         }
+        // Method rename is refused: a trait method rename must rewrite the
+        // declaration, every impl, and every call site coherently, which the
+        // dispatch-symbol-keyed index (grouped per concrete impl) does not span.
+        SymbolTarget::Method { .. } => false,
     }
 }
 
@@ -790,7 +871,7 @@ fn handle_document_symbol(
         return Response::new_ok(id, Value::Null);
     };
 
-    let symbols = extract_document_symbols(&analysis.result.module, doc);
+    let symbols = crate::document_symbols::extract_document_symbols(&analysis.result.module, doc);
     let response = DocumentSymbolResponse::Nested(symbols);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))
 }
@@ -868,274 +949,6 @@ fn handle_semantic_tokens(
         data: tokens,
     });
     Response::new_ok(id, serde_json::to_value(result).unwrap_or(Value::Null))
-}
-
-/// Extract document symbols from an AST module.
-fn extract_document_symbols(
-    module: &Module,
-    doc: &crate::documents::Document,
-) -> Vec<DocumentSymbol> {
-    module
-        .items
-        .iter()
-        .filter_map(|item| item_to_document_symbol(item, doc))
-        .collect()
-}
-
-/// Convert a single AST item to a document symbol.
-fn item_to_document_symbol(
-    item: &ambient_engine::ast::Item,
-    doc: &crate::documents::Document,
-) -> Option<DocumentSymbol> {
-    let range = offset_range_to_lsp_range(doc, item.span.start as usize, item.span.end as usize);
-
-    match &item.kind {
-        ItemKind::Function(f) => Some(make_symbol(
-            f.name.to_string(),
-            Some(format_function_signature(f)),
-            LspSymbolKind::FUNCTION,
-            range,
-            offset_range_to_lsp_range(doc, f.name_span.start as usize, f.name_span.end as usize),
-            None,
-        )),
-        ItemKind::Const(c) => Some(make_symbol(
-            c.name.to_string(),
-            c.ty.as_ref().map(format_type),
-            LspSymbolKind::CONSTANT,
-            range,
-            offset_range_to_lsp_range(doc, c.name_span.start as usize, c.name_span.end as usize),
-            None,
-        )),
-        ItemKind::Struct(s) => Some(make_symbol(
-            s.name.to_string(),
-            None,
-            LspSymbolKind::STRUCT,
-            range,
-            offset_range_to_lsp_range(doc, s.name_span.start as usize, s.name_span.end as usize),
-            None,
-        )),
-        ItemKind::TypeAlias(t) => Some(make_symbol(
-            t.name.to_string(),
-            None,
-            LspSymbolKind::TYPE_PARAMETER,
-            range,
-            offset_range_to_lsp_range(doc, t.name_span.start as usize, t.name_span.end as usize),
-            None,
-        )),
-        ItemKind::Enum(e) => {
-            let children = extract_enum_variants(e, doc);
-            Some(make_symbol(
-                e.name.to_string(),
-                None,
-                LspSymbolKind::ENUM,
-                range,
-                offset_range_to_lsp_range(
-                    doc,
-                    e.name_span.start as usize,
-                    e.name_span.end as usize,
-                ),
-                children,
-            ))
-        }
-        ItemKind::Ability(a) => {
-            let children = extract_ability_methods(a, doc);
-            Some(make_symbol(
-                a.name.to_string(),
-                None,
-                LspSymbolKind::INTERFACE,
-                range,
-                offset_range_to_lsp_range(
-                    doc,
-                    a.name_span.start as usize,
-                    a.name_span.end as usize,
-                ),
-                children,
-            ))
-        }
-        ItemKind::Use(_) => None,
-        ItemKind::Trait(t) => {
-            let children = extract_trait_methods(t, doc);
-            Some(make_symbol(
-                t.name.to_string(),
-                None,
-                LspSymbolKind::INTERFACE,
-                range,
-                offset_range_to_lsp_range(
-                    doc,
-                    t.name_span.start as usize,
-                    t.name_span.end as usize,
-                ),
-                children,
-            ))
-        }
-        ItemKind::Impl(i) => Some(make_symbol(
-            match &i.trait_name {
-                Some(trait_name) => format!("impl {} for ...", trait_name.name),
-                None => "impl ...".to_string(),
-            },
-            None,
-            LspSymbolKind::CLASS,
-            range,
-            range,
-            None,
-        )),
-        ItemKind::ExternFn(e) => Some(extern_fn_symbol(e, doc, range)),
-    }
-}
-
-/// Document symbol for an `extern fn` declaration.
-fn extern_fn_symbol(
-    e: &ambient_engine::ast::ExternFnDef,
-    doc: &crate::documents::Document,
-    range: lsp_types::Range,
-) -> DocumentSymbol {
-    let mut signature = String::new();
-    format_extern_fn_hover(e, &mut signature);
-    make_symbol(
-        e.name.to_string(),
-        Some(signature),
-        LspSymbolKind::FUNCTION,
-        range,
-        offset_range_to_lsp_range(doc, e.name_span.start as usize, e.name_span.end as usize),
-        None,
-    )
-}
-
-/// Extract trait methods as document symbols.
-fn extract_trait_methods(
-    trait_def: &ambient_engine::ast::TraitDef,
-    doc: &crate::documents::Document,
-) -> Option<Vec<DocumentSymbol>> {
-    if trait_def.methods.is_empty() {
-        return None;
-    }
-
-    let symbols: Vec<_> = trait_def
-        .methods
-        .iter()
-        .map(|m| {
-            make_symbol(
-                m.name.to_string(),
-                None,
-                LspSymbolKind::METHOD,
-                offset_range_to_lsp_range(doc, m.span.start as usize, m.span.end as usize),
-                offset_range_to_lsp_range(
-                    doc,
-                    m.name_span.start as usize,
-                    m.name_span.end as usize,
-                ),
-                None,
-            )
-        })
-        .collect();
-
-    Some(symbols)
-}
-
-/// Create a `DocumentSymbol` with the given properties.
-#[allow(deprecated)]
-fn make_symbol(
-    name: String,
-    detail: Option<String>,
-    kind: LspSymbolKind,
-    range: lsp_types::Range,
-    selection_range: lsp_types::Range,
-    children: Option<Vec<DocumentSymbol>>,
-) -> DocumentSymbol {
-    DocumentSymbol {
-        name,
-        detail,
-        kind,
-        tags: None,
-        deprecated: None,
-        range,
-        selection_range,
-        children,
-    }
-}
-
-/// Extract enum variants as child document symbols.
-fn extract_enum_variants(
-    e: &ambient_engine::ast::EnumDef,
-    doc: &crate::documents::Document,
-) -> Option<Vec<DocumentSymbol>> {
-    let children: Vec<_> = e
-        .variants
-        .iter()
-        .map(|v| {
-            let r = offset_range_to_lsp_range(doc, v.span.start as usize, v.span.end as usize);
-            make_symbol(
-                v.name.to_string(),
-                v.payload.as_ref().map(format_type),
-                LspSymbolKind::ENUM_MEMBER,
-                r,
-                r,
-                None,
-            )
-        })
-        .collect();
-    if children.is_empty() {
-        None
-    } else {
-        Some(children)
-    }
-}
-
-/// Extract ability methods as child document symbols.
-fn extract_ability_methods(
-    a: &ambient_engine::ast::AbilityDef,
-    doc: &crate::documents::Document,
-) -> Option<Vec<DocumentSymbol>> {
-    let children: Vec<_> = a
-        .methods
-        .iter()
-        .map(|m| {
-            let r = offset_range_to_lsp_range(doc, m.span.start as usize, m.span.end as usize);
-            make_symbol(
-                m.name.to_string(),
-                Some(format_ability_method_signature(m)),
-                LspSymbolKind::METHOD,
-                r,
-                r,
-                None,
-            )
-        })
-        .collect();
-    if children.is_empty() {
-        None
-    } else {
-        Some(children)
-    }
-}
-
-/// Format a function signature for display.
-fn format_function_signature(f: &ambient_engine::ast::FunctionDef) -> String {
-    let params: Vec<String> = f
-        .params
-        .iter()
-        .map(|p| {
-            if let Some(ty) = &p.ty {
-                format!("{}: {}", p.name, format_type(ty))
-            } else {
-                p.name.to_string()
-            }
-        })
-        .collect();
-    let ret = f
-        .ret_ty
-        .as_ref()
-        .map_or(String::new(), |ty| format!(" -> {}", format_type(ty)));
-    format!("fn({}){}", params.join(", "), ret)
-}
-
-/// Format an ability method signature for display.
-fn format_ability_method_signature(m: &ambient_engine::ast::AbilityMethod) -> String {
-    let params: Vec<String> = m
-        .params
-        .iter()
-        .map(|p| format!("{}: {}", p.name, format_type(p.declared_ty())))
-        .collect();
-    format!("fn({}) -> {}", params.join(", "), format_type(&m.ret_ty))
 }
 
 /// Handle an incoming notification, returning the diagnostics the transport

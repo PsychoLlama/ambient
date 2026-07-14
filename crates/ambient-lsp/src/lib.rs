@@ -52,6 +52,7 @@ mod analysis;
 mod completions;
 mod convert;
 mod core_completions;
+mod document_symbols;
 mod documents;
 mod hover_format;
 mod reanalyze;

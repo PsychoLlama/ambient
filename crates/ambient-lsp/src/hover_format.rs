@@ -161,6 +161,99 @@ pub(crate) fn format_type_params(
     }
 }
 
+/// Format hover content for a method declaration located at `name_span` in
+/// `module_path`, reading the declaration's AST from the registry.
+///
+/// Matches an impl method (`impl Trait for T { fn m … }` or an inherent
+/// `impl T`) or an ability method by its name span. Pure rendering: the
+/// resolution (which declaration this is) already happened in the occurrence
+/// index; this only turns a known span into a signature.
+pub(crate) fn format_method_hover(
+    registry: &ModuleRegistry,
+    module_path: &ModulePath,
+    name_span: ambient_engine::ast::Span,
+) -> Option<String> {
+    let info = registry.get(module_path)?;
+    for item in &info.module.items {
+        match &item.kind {
+            ItemKind::Impl(impl_def) => {
+                for method in &impl_def.methods {
+                    if method.name_span == name_span {
+                        return Some(fenced_signature(|c| {
+                            format_method_signature(
+                                &method.name,
+                                method.has_self,
+                                &method.params,
+                                method.ret_ty.as_ref(),
+                                c,
+                            );
+                        }));
+                    }
+                }
+            }
+            ItemKind::Ability(ability) => {
+                for method in &ability.methods {
+                    if method.name_span == name_span {
+                        return Some(fenced_signature(|c| {
+                            format_method_signature(
+                                &method.name,
+                                false,
+                                &method.params,
+                                Some(&method.ret_ty),
+                                c,
+                            );
+                        }));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Wrap a signature-building closure in an ```` ```ambient ```` fence.
+fn fenced_signature(build: impl FnOnce(&mut String)) -> String {
+    let mut content = String::from("```ambient\n");
+    build(&mut content);
+    content.push_str("\n```");
+    content
+}
+
+/// Render a method signature: `fn name(self, p: T, …): Ret`.
+fn format_method_signature(
+    name: &str,
+    has_self: bool,
+    params: &[ambient_engine::ast::Param],
+    ret_ty: Option<&ambient_engine::types::Type>,
+    content: &mut String,
+) {
+    content.push_str("fn ");
+    content.push_str(name);
+    content.push('(');
+    let mut first = true;
+    if has_self {
+        content.push_str("self");
+        first = false;
+    }
+    for param in params {
+        if !first {
+            content.push_str(", ");
+        }
+        first = false;
+        content.push_str(&param.name);
+        if let Some(ty) = &param.ty {
+            content.push_str(": ");
+            content.push_str(&format_type(ty));
+        }
+    }
+    content.push(')');
+    if let Some(ret) = ret_ty {
+        content.push_str(": ");
+        content.push_str(&format_type(ret));
+    }
+}
+
 /// Format hover content for a module, reading path and docs from the
 /// registry — the same module info the checker resolves imports against.
 pub(crate) fn format_module_hover(module_path: &ModulePath, registry: &ModuleRegistry) -> String {
