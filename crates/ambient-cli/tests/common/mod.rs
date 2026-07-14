@@ -297,3 +297,37 @@ pub fn assert_warm_equals_cold(pkg_name: &str, warm: &BuildResult, files: &[(&st
 pub fn verify_mode() -> bool {
     std::env::var("AMBIENT_CACHE_VERIFY").is_ok_and(|v| v.eq_ignore_ascii_case("1"))
 }
+
+/// The package's on-disk incremental store (`<dir>/.ambient/store`).
+pub fn store_path(dir: &Path) -> PathBuf {
+    dir.join(".ambient").join("store")
+}
+
+/// Build-and-persist while capturing each module's `from_cache` flag from the
+/// progress callback, so a test can assert *which* modules were served warm
+/// (not merely how many). Keyed by the module's dotted path (its basename for a
+/// top-level module).
+pub fn build_capturing(dir: &Path) -> (BuildResult, std::collections::HashMap<String, bool>) {
+    use std::cell::RefCell;
+    let seen: RefCell<std::collections::HashMap<String, bool>> = RefCell::new(Default::default());
+    let stubs = ambient_platform::stub_natives();
+    let result = {
+        let cb = |name: &str, _c: usize, _t: usize, from_cache: bool| {
+            seen.borrow_mut().insert(name.to_string(), from_cache);
+        };
+        let built = ambient_engine::build::build_and_persist(
+            dir,
+            parse_source,
+            BuildOptions {
+                platform_modules: ambient_platform::platform_modules(),
+                natives: Some(&stubs),
+                progress: Some(&cb),
+                ..Default::default()
+            },
+        )
+        .expect("build succeeds");
+        built.persisted.expect("persist build");
+        built.result
+    };
+    (result, seen.into_inner())
+}
