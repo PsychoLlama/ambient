@@ -11,24 +11,18 @@ use std::fs;
 use std::sync::Arc;
 
 use ambient_engine::Value;
-use ambient_engine::ast::Module;
-use ambient_engine::build::{BuildError, BuildOptions, BuildResult, ParseFailure, build_package};
+use ambient_engine::build::{BuildError, BuildOptions, BuildResult, build_package};
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::natives::NativeRegistry;
 use ambient_engine::vm::Vm;
 use tempfile::TempDir;
 use uuid::Uuid;
 
+mod common;
+use common::parse_source;
+
 const DOUBLE_UUID: Uuid = Uuid::from_u128(0x1111_1111_1111_1111_1111_1111_1111_0001);
 const GREET_UUID: Uuid = Uuid::from_u128(0x1111_1111_1111_1111_1111_1111_1111_0002);
-
-fn parse_source(source: &str) -> Result<Module, ParseFailure> {
-    ambient_parser::parse(source).map_err(|e| ParseFailure {
-        message: e.kind.to_string(),
-        span: (e.span.start, e.span.end),
-        context: e.context,
-    })
-}
 
 /// Write a single-module package with `main.ab` = `source`.
 fn temp_package(source: &str) -> TempDir {

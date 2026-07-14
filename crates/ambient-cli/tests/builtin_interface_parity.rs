@@ -23,19 +23,13 @@
 use std::collections::BTreeMap;
 use std::fs;
 
-use ambient_engine::ast::Module;
-use ambient_engine::build::{BuildOptions, ParseFailure, build_package};
+use ambient_engine::build::{BuildOptions, build_package};
 use ambient_engine::module_interface::{ModuleInterface, build_interfaces};
 use ambient_engine::module_registry::ModuleRegistry;
 use tempfile::TempDir;
 
-fn parse_source(source: &str) -> Result<Module, ParseFailure> {
-    ambient_parser::parse(source).map_err(|e| ParseFailure {
-        message: e.kind.to_string(),
-        span: (e.span.start, e.span.end),
-        context: e.context,
-    })
-}
+mod common;
+use common::parse_source;
 
 /// A minimal on-disk package so both frontends can open the same thing.
 fn trivial_package() -> TempDir {

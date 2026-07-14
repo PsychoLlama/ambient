@@ -6,21 +6,15 @@
 use std::fs;
 use std::process::Command;
 
-use ambient_engine::ast::Module;
-use ambient_engine::build::{BuildOptions, ParseFailure, build_package};
+use ambient_engine::build::{BuildOptions, build_package};
 use ambient_engine::disk_store::{BuildManifest, DiskStore};
 use tempfile::TempDir;
 
+mod common;
+use common::parse_source;
+
 fn ambient_bin() -> &'static str {
     env!("CARGO_BIN_EXE_ambient")
-}
-
-fn parse_source(source: &str) -> Result<Module, ParseFailure> {
-    ambient_parser::parse(source).map_err(|e| ParseFailure {
-        message: e.kind.to_string(),
-        span: (e.span.start, e.span.end),
-        context: e.context,
-    })
 }
 
 /// Scaffold a one-module package that prints nothing and returns a number.

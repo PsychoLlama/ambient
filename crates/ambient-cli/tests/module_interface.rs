@@ -8,17 +8,11 @@
 
 use std::fs;
 
-use ambient_engine::ast::Module;
-use ambient_engine::build::{BuildOptions, BuildResult, ParseFailure, build_package};
+use ambient_engine::build::{BuildOptions, BuildResult, build_package};
 use tempfile::TempDir;
 
-fn parse_source(source: &str) -> Result<Module, ParseFailure> {
-    ambient_parser::parse(source).map_err(|e| ParseFailure {
-        message: e.kind.to_string(),
-        span: (e.span.start, e.span.end),
-        context: e.context,
-    })
-}
+mod common;
+use common::parse_source;
 
 /// Build a package from `(relative path, source)` files under `src/`.
 fn build(files: &[(&str, &str)]) -> BuildResult {
