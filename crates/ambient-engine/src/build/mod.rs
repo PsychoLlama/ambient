@@ -156,6 +156,10 @@ pub struct BuildResult {
     /// fully warm build — a hit/relink never re-checks. Instrumentation pinning
     /// the pre-pass property that a warm build performs no checks. Excludes the
     /// builtin block (cached as one unit).
+    ///
+    /// Identity: `modules_checked == modules_compiled - <cold builtin-block
+    /// count>` — every recompiled package module is checked exactly once
+    /// (pre-pass hit or walk-time fallback), so the two move in lockstep.
     pub modules_checked: usize,
     /// Package name.
     pub package_name: String,
@@ -398,6 +402,8 @@ pub fn build_package(
             )?;
             all_compiled.merge(&platform_compiled);
         }
+        // The one place `modules_compiled` moves without `modules_checked`: the
+        // builtin block is one fused unit (the gap in the identity on `BuildResult`).
         modules_compiled += module_outputs.len() - before;
     }
 
@@ -807,6 +813,8 @@ fn recompile_module(
     modules_checked: &mut usize,
     prelink_blobs: &mut BTreeMap<[u8; 32], Vec<u8>>,
 ) -> Result<(CompiledModule, ModuleBuildOutput), BuildError> {
+    // A recompile always checks (pre-pass hit consumed here, else fresh below)
+    // and codegens, so these stay in lockstep per module (see `BuildResult`).
     *modules_compiled += 1;
     let pre_checked = checked.remove(module_id);
     if pre_checked.is_none() {
