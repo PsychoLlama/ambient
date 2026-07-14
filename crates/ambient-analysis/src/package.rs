@@ -181,6 +181,26 @@ impl AnalysisPackage {
         self.insert_module_with_path(path, source, source_path);
     }
 
+    /// Insert an in-memory module addressed by its `src`-relative file path
+    /// (`utils.ab`, `collections/main.ab`), recording that path as the module's
+    /// source path exactly as [`load_modules`](Self::load_modules) would from
+    /// disk. Lets an in-memory package (the LSP test harness) mirror a
+    /// discovered on-disk package with no filesystem — the recorded source path
+    /// is what navigation resolves a directory module's `<dir>/main.ab` from.
+    /// Returns the derived [`ModulePath`], or `None` if the path is not under
+    /// `src`.
+    pub fn insert_module_at_path(
+        &mut self,
+        src_relative_path: &str,
+        source: String,
+    ) -> Option<ModulePath> {
+        let file = self.src_dir.join(src_relative_path);
+        let module_path = self.module_path_for(&file)?;
+        let source_path = Some(src_relative_path.replace('\\', "/"));
+        self.insert_module_with_path(module_path.clone(), source, source_path);
+        Some(module_path)
+    }
+
     /// Insert or replace a module, recording its real on-disk source path.
     fn insert_module_with_path(
         &mut self,

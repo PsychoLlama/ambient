@@ -1,11 +1,8 @@
 //! Fluent builder for LSP tests.
 
 use std::collections::HashMap;
-use std::fs;
-use std::path::PathBuf;
 
 use lsp_types::{Diagnostic, Uri};
-use tempfile::TempDir;
 
 use super::assertions::{CompletionResult, DefinitionResult, HoverResult};
 use super::client::TestClient;
@@ -26,11 +23,9 @@ pub struct LspTest {
     files: HashMap<String, (String, Vec<Cursor>)>,
     /// The currently active/open file.
     main_file: Option<String>,
-    /// The LSP test client.
+    /// The LSP test client, built lazily on the first query.
     client: Option<TestClient>,
-    /// Temporary directory for multi-file tests.
-    temp_dir: Option<TempDir>,
-    /// Whether this is a package test (has ambient.toml).
+    /// Whether this is a package test (imports across modules).
     is_package: bool,
 }
 
@@ -42,7 +37,6 @@ impl LspTest {
             files: HashMap::new(),
             main_file: None,
             client: None,
-            temp_dir: None,
             is_package: false,
         }
     }
@@ -90,57 +84,56 @@ impl LspTest {
         self
     }
 
-    /// Ensure the client is initialized and files are opened.
+    /// Ensure the client is initialized and the main file is opened.
+    ///
+    /// Package tests build an in-memory [`TestClient`] from every file (each
+    /// module inserted by its `src`-relative path); single-file tests use a
+    /// no-package client and an `inmemory:` uri so no package discovery runs.
+    /// Either way, only the main file is opened — cross-module modules live in
+    /// the session, exactly as production sees an on-disk package.
     fn ensure_initialized(&mut self) {
         if self.client.is_some() {
             return;
         }
+        let main_file = self.main_file.clone().expect("no main file");
+        let (main_content, _) = self.files.get(&main_file).expect("main file not found");
+        let main_content = main_content.clone();
 
-        // Create temp directory for files
-        let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let root = temp_dir.path();
+        let mut client = if self.is_package {
+            let files: Vec<(String, String)> = self
+                .files
+                .iter()
+                .map(|(path, (content, _))| (src_relative(path), content.clone()))
+                .collect();
+            let refs: Vec<(&str, &str)> = files
+                .iter()
+                .map(|(p, c)| (p.as_str(), c.as_str()))
+                .collect();
+            TestClient::with_package("test", &refs)
+        } else {
+            TestClient::new()
+        };
 
-        // If this is a package, create ambient.toml
-        if self.is_package {
-            let manifest = r#"[package]
-name = "test"
-version = "0.1.0"
-
-[build]
-src = "src"
-"#;
-            fs::write(root.join("ambient.toml"), manifest).expect("Failed to write ambient.toml");
-        }
-
-        // Write all files
-        for (path, (content, _)) in &self.files {
-            let full_path = root.join(path);
-            if let Some(parent) = full_path.parent() {
-                fs::create_dir_all(parent).expect("Failed to create directories");
-            }
-            fs::write(&full_path, content).expect("Failed to write file");
-        }
-
-        // Create client and open main file
-        let mut client = TestClient::new();
-
-        // Open the main file
-        if let Some(main_file) = &self.main_file {
-            let full_path = root.join(main_file);
-            let uri = path_to_uri(&full_path);
-            let (content, _) = self.files.get(main_file).expect("Main file not found");
-            client.open_document(uri, content);
-        }
-
+        let uri = self.file_uri(&client, &main_file);
+        client.open_document(uri, &main_content);
         self.client = Some(client);
-        self.temp_dir = Some(temp_dir);
+    }
+
+    /// The uri a file is opened/queried under: a package module's `file://`
+    /// uri, or an `inmemory:` uri for a single-file (no-package) test.
+    fn file_uri(&self, client: &TestClient, path: &str) -> Uri {
+        if self.is_package {
+            client.uri(&src_relative(path))
+        } else {
+            format!("inmemory:///{path}").parse().expect("valid uri")
+        }
     }
 
     /// Get the URI for the main file.
     fn main_uri(&self) -> Uri {
-        let root = self.temp_dir.as_ref().expect("Not initialized").path();
         let main_file = self.main_file.as_ref().expect("No main file");
-        path_to_uri(&root.join(main_file))
+        let client = self.client.as_ref().expect("Not initialized");
+        self.file_uri(client, main_file)
     }
 
     /// Get all cursors across all files.
@@ -321,15 +314,9 @@ src = "src"
         CompletionResult { test: self, items }
     }
 
-    /// Shutdown the test client.
-    ///
-    /// This is called automatically when the test is dropped, but can be called
-    /// explicitly for cleaner test output.
-    pub fn shutdown(mut self) {
-        if let Some(client) = self.client.take() {
-            client.shutdown();
-        }
-    }
+    /// Finish the test. A no-op now that the client owns no thread or temp dir;
+    /// kept so existing tests read the same.
+    pub fn shutdown(self) {}
 }
 
 impl Default for LspTest {
@@ -338,24 +325,10 @@ impl Default for LspTest {
     }
 }
 
-impl Drop for LspTest {
-    fn drop(&mut self) {
-        // Don't try to shutdown if we're already panicking
-        if std::thread::panicking() {
-            return;
-        }
-        // Shutdown client if it exists
-        if let Some(client) = self.client.take() {
-            client.shutdown();
-        }
-    }
-}
-
-/// Convert a path to a file:// URI.
-fn path_to_uri(path: &PathBuf) -> Uri {
-    let path_str = path.to_string_lossy();
-    let uri_str = format!("file://{}", path_str);
-    uri_str.parse().expect("Failed to parse URI")
+/// A file's `src`-relative module path: package tests key files as `src/…`,
+/// but the in-memory package addresses modules relative to its `src` dir.
+fn src_relative(path: &str) -> String {
+    path.strip_prefix("src/").unwrap_or(path).to_string()
 }
 
 #[cfg(test)]

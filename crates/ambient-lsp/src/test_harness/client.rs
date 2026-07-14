@@ -1,143 +1,144 @@
-//! In-process LSP test client using `Connection::memory()`.
+//! In-process LSP test client that drives the server's request and
+//! notification handlers directly against an in-memory [`ServerState`].
+//!
+//! There is no background thread, no channel, no temp directory, and no
+//! barrier round-trip: `open_document`/`change_document` call
+//! [`handle_notification`] and read the diagnostics it returns; every query
+//! (`hover`, `references`, …) builds a [`Request`] and calls
+//! [`handle_request`]. Everything is synchronous and deterministic. The one
+//! test that still exercises the real transport loop lives in
+//! `tests/transport.rs`.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
+use std::path::PathBuf;
 
-use lsp_server::{Connection, Message, Notification, Request, RequestId};
+use lsp_server::{Notification, Request, RequestId};
 use lsp_types::notification::{
-    DidChangeTextDocument, DidOpenTextDocument, Initialized, Notification as NotificationTrait,
-    PublishDiagnostics,
+    DidChangeTextDocument, DidOpenTextDocument, Notification as NotificationTrait,
 };
 use lsp_types::request::{
-    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, Initialize,
-    PrepareRenameRequest, References, Rename, Request as RequestTrait, SemanticTokensFullRequest,
-    Shutdown,
+    Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, PrepareRenameRequest,
+    References, Rename, Request as RequestTrait, SemanticTokensFullRequest,
 };
 use lsp_types::{
-    ClientCapabilities, CompletionItem, CompletionParams, CompletionResponse, Diagnostic,
-    DidChangeTextDocumentParams, DidOpenTextDocumentParams, DocumentSymbol, DocumentSymbolParams,
-    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
-    InitializeParams, InitializeResult, Location, PartialResultParams, Position,
-    PrepareRenameResponse, ReferenceContext, ReferenceParams, RenameParams, SemanticToken,
-    SemanticTokensParams, SemanticTokensResult, TextDocumentContentChangeEvent,
-    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Uri,
-    VersionedTextDocumentIdentifier, WorkDoneProgressParams, WorkspaceEdit,
+    CompletionItem, CompletionParams, CompletionResponse, Diagnostic, DidChangeTextDocumentParams,
+    DidOpenTextDocumentParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, Location,
+    PartialResultParams, Position, PrepareRenameResponse, ReferenceContext, ReferenceParams,
+    RenameParams, SemanticToken, SemanticTokensParams, SemanticTokensResult,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
+    TextDocumentPositionParams, Uri, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
+    WorkspaceEdit,
 };
 
-use crate::run_server_with_connection;
+use ambient_analysis::package::AnalysisPackage;
+use ambient_analysis::session::AnalysisSession;
 
-/// An in-process LSP test client.
-///
-/// Spawns the LSP server in a background thread and communicates via memory channels.
+use crate::server::{ServerState, handle_notification, handle_request};
+
+/// The notional root every in-memory harness package lives under. No file is
+/// ever read from it; it only anchors the `file://` uris and the `src`-prefix
+/// path arithmetic module resolution performs.
+const VIRTUAL_ROOT: &str = "/ambient-lsp-test";
+
+/// An in-process LSP test client backed by a live [`ServerState`].
 pub struct TestClient {
-    /// The client connection.
-    connection: Connection,
-    /// The server thread handle.
-    server_thread: Option<JoinHandle<anyhow::Result<()>>>,
-    /// Request ID counter.
+    /// The server state the handlers read and mutate.
+    state: ServerState,
+    /// Request ID counter (handlers ignore the value, but a fresh id per call
+    /// keeps the synthesized requests distinct).
     next_id: i32,
     /// Monotonic document version counter for edits (`didChange`).
     next_doc_version: i32,
-    /// Collected diagnostics by URI.
-    diagnostics: Arc<Mutex<HashMap<String, Vec<Diagnostic>>>>,
+    /// Latest published diagnostics by URI string, folded from the updates the
+    /// notification handlers return.
+    diagnostics: HashMap<String, Vec<Diagnostic>>,
+    /// The package `src` directory the harness's uris are rooted at.
+    src_dir: PathBuf,
 }
 
 impl TestClient {
-    /// Create a new test client and spawn the LSP server.
+    /// A client with no package: every opened document analyzes as a
+    /// stand-alone package root, exactly like `ambient check` on a bare file.
+    /// Single-file [`super::LspTest`] tests use this.
     #[must_use]
     pub fn new() -> Self {
-        let (server_conn, client_conn) = Connection::memory();
-
-        let server_thread = std::thread::spawn(move || run_server_with_connection(server_conn));
-
-        let mut client = Self {
-            connection: client_conn,
-            server_thread: Some(server_thread),
+        Self {
+            state: ServerState::new(),
             next_id: 1,
             next_doc_version: 2,
-            diagnostics: Arc::new(Mutex::new(HashMap::new())),
-        };
-
-        // Perform initialization handshake
-        client.initialize();
-
-        client
+            diagnostics: HashMap::new(),
+            src_dir: PathBuf::from(VIRTUAL_ROOT).join("src"),
+        }
     }
 
-    /// Perform the LSP initialization handshake.
-    #[allow(deprecated)]
-    fn initialize(&mut self) {
-        let params = InitializeParams {
-            process_id: None,
-            root_path: None,
-            root_uri: None,
-            initialization_options: None,
-            capabilities: ClientCapabilities::default(),
-            trace: None,
-            workspace_folders: None,
-            client_info: None,
-            locale: None,
-            work_done_progress_params: lsp_types::WorkDoneProgressParams {
-                work_done_token: None,
-            },
-        };
-
-        let _result: InitializeResult = self.send_request::<Initialize>(params);
-
-        // Send initialized notification
-        self.send_notification::<Initialized>(lsp_types::InitializedParams {});
+    /// A client over an in-memory package built from `src`-relative files
+    /// (`utils.ab`, `collections/main.ab`). Discovers nothing from disk: the
+    /// [`AnalysisSession`] is constructed up front and injected, so opening a
+    /// document routes through the same reanalysis code production uses after
+    /// on-disk discovery. `name` is the package (workspace) name.
+    #[must_use]
+    pub fn with_package(name: &str, files: &[(&str, &str)]) -> Self {
+        let root = PathBuf::from(VIRTUAL_ROOT);
+        let src_dir = root.join("src");
+        let mut package = AnalysisPackage::empty(root, src_dir.clone());
+        package.package_name = name.to_string();
+        for (rel, content) in files {
+            package.insert_module_at_path(rel, (*content).to_string());
+        }
+        let mut state = ServerState::new();
+        state.session = Some(AnalysisSession::new(package));
+        Self {
+            state,
+            next_id: 1,
+            next_doc_version: 2,
+            diagnostics: HashMap::new(),
+            src_dir,
+        }
     }
 
-    /// Send a request and wait for the response.
+    /// The `file://` uri for a `src`-relative path in this client's package.
+    #[must_use]
+    pub fn uri(&self, src_relative: &str) -> Uri {
+        let path = self.src_dir.join(src_relative);
+        format!("file://{}", path.to_string_lossy())
+            .parse()
+            .expect("valid uri")
+    }
+
+    /// The in-memory analysis package, when this is a package client.
+    #[must_use]
+    pub fn package(&self) -> Option<&AnalysisPackage> {
+        self.state.session.as_ref().map(AnalysisSession::package)
+    }
+
+    /// Feed a notification through the real handler, folding the diagnostics it
+    /// returns into the per-uri map (`reanalyze` republishes every open
+    /// document, so a single edit refreshes them all).
+    fn dispatch_notification<N: NotificationTrait>(&mut self, params: N::Params)
+    where
+        N::Params: serde::Serialize,
+    {
+        let notif = Notification::new(N::METHOD.to_string(), serde_json::to_value(params).unwrap());
+        let updates = handle_notification(&notif, &mut self.state).expect("notification handled");
+        for update in updates {
+            self.diagnostics
+                .insert(update.uri.to_string(), update.diagnostics);
+        }
+    }
+
+    /// Send a request through the handler and parse the response, panicking on
+    /// a server-side error.
     fn send_request<R: RequestTrait>(&mut self, params: R::Params) -> R::Result
     where
         R::Params: serde::Serialize,
         R::Result: serde::de::DeserializeOwned,
     {
-        let id = RequestId::from(self.next_id);
-        self.next_id += 1;
-
-        let request = Request::new(
-            id.clone(),
-            R::METHOD.to_string(),
-            serde_json::to_value(params).unwrap(),
-        );
-
-        self.connection
-            .sender
-            .send(Message::Request(request))
-            .expect("Failed to send request");
-
-        // Wait for the response, processing any notifications along the way
-        loop {
-            let msg = self
-                .connection
-                .receiver
-                .recv()
-                .expect("Failed to receive message");
-
-            match msg {
-                Message::Response(response) => {
-                    if response.id == id {
-                        if let Some(err) = response.error {
-                            panic!("LSP request failed: {:?}", err);
-                        }
-                        return serde_json::from_value(response.result.unwrap_or_default())
-                            .expect("Failed to parse response");
-                    }
-                }
-                Message::Notification(notif) => {
-                    self.handle_notification(notif);
-                }
-                Message::Request(_) => {
-                    // Server-initiated requests - ignore for now
-                }
-            }
-        }
+        self.send_request_result::<R>(params)
+            .unwrap_or_else(|err| panic!("LSP request failed: {err}"))
     }
 
-    /// Send a request and wait for the response, surfacing a server error as
+    /// Send a request through the handler, surfacing a server error as
     /// `Err(message)` instead of panicking.
     fn send_request_result<R: RequestTrait>(
         &mut self,
@@ -149,141 +150,33 @@ impl TestClient {
     {
         let id = RequestId::from(self.next_id);
         self.next_id += 1;
-
         let request = Request::new(
-            id.clone(),
+            id,
             R::METHOD.to_string(),
             serde_json::to_value(params).unwrap(),
         );
-
-        self.connection
-            .sender
-            .send(Message::Request(request))
-            .expect("Failed to send request");
-
-        loop {
-            let msg = self
-                .connection
-                .receiver
-                .recv()
-                .expect("Failed to receive message");
-
-            match msg {
-                Message::Response(response) => {
-                    if response.id == id {
-                        if let Some(err) = response.error {
-                            return Err(err.message);
-                        }
-                        return Ok(serde_json::from_value(response.result.unwrap_or_default())
-                            .expect("Failed to parse response"));
-                    }
-                }
-                Message::Notification(notif) => self.handle_notification(notif),
-                Message::Request(_) => {}
-            }
+        let response = handle_request(&request, &self.state);
+        if let Some(err) = response.error {
+            return Err(err.message);
         }
+        Ok(serde_json::from_value(response.result.unwrap_or_default())
+            .expect("Failed to parse response"))
     }
 
-    /// Send a notification (no response expected).
-    fn send_notification<N: NotificationTrait>(&self, params: N::Params)
-    where
-        N::Params: serde::Serialize,
-    {
-        let notification =
-            Notification::new(N::METHOD.to_string(), serde_json::to_value(params).unwrap());
-
-        self.connection
-            .sender
-            .send(Message::Notification(notification))
-            .expect("Failed to send notification");
-    }
-
-    /// Handle incoming notifications from the server.
-    fn handle_notification(&self, notif: Notification) {
-        if notif.method == PublishDiagnostics::METHOD {
-            let params: lsp_types::PublishDiagnosticsParams =
-                serde_json::from_value(notif.params).expect("Failed to parse diagnostics");
-
-            let mut diags = self.diagnostics.lock().unwrap();
-            diags.insert(params.uri.to_string(), params.diagnostics);
-        }
-    }
-
-    /// Open a document in the LSP server.
+    /// Open a document in the server.
     pub fn open_document(&mut self, uri: Uri, text: &str) {
         let params = DidOpenTextDocumentParams {
             text_document: TextDocumentItem {
-                uri: uri.clone(),
+                uri,
                 language_id: "ambient".to_string(),
                 version: 1,
                 text: text.to_string(),
             },
         };
-
-        self.send_notification::<DidOpenTextDocument>(params);
-        self.barrier(&uri);
+        self.dispatch_notification::<DidOpenTextDocument>(params);
     }
 
-    /// Block until the server has processed everything sent so far.
-    ///
-    /// The server handles connection messages strictly in order, so a
-    /// round-tripped request is a barrier: by the time its response
-    /// arrives, every earlier notification (`didOpen`/`didChange`) has been
-    /// handled, and any diagnostics it published are already ahead of the
-    /// response in our receiver — the request wait loop folds them into the
-    /// diagnostics map on the way. This replaces a fixed sleep, which
-    /// flaked whenever a loaded machine outran its 50ms budget.
-    fn barrier(&mut self, uri: &Uri) {
-        let _ = self.document_symbol(uri);
-    }
-
-    /// Request hover information at a position.
-    pub fn hover(&mut self, uri: &Uri, line: u32, character: u32) -> Option<Hover> {
-        let params = HoverParams {
-            text_document_position_params: TextDocumentPositionParams {
-                text_document: TextDocumentIdentifier { uri: uri.clone() },
-                position: Position { line, character },
-            },
-            work_done_progress_params: lsp_types::WorkDoneProgressParams {
-                work_done_token: None,
-            },
-        };
-
-        self.send_request::<HoverRequest>(params)
-    }
-
-    /// Request go-to-definition at a position.
-    pub fn goto_definition(&mut self, uri: &Uri, line: u32, character: u32) -> Vec<Location> {
-        let params = GotoDefinitionParams {
-            text_document_position_params: TextDocumentPositionParams {
-                text_document: TextDocumentIdentifier { uri: uri.clone() },
-                position: Position { line, character },
-            },
-            work_done_progress_params: lsp_types::WorkDoneProgressParams {
-                work_done_token: None,
-            },
-            partial_result_params: lsp_types::PartialResultParams {
-                partial_result_token: None,
-            },
-        };
-
-        let response: Option<GotoDefinitionResponse> = self.send_request::<GotoDefinition>(params);
-
-        match response {
-            Some(GotoDefinitionResponse::Scalar(loc)) => vec![loc],
-            Some(GotoDefinitionResponse::Array(locs)) => locs,
-            Some(GotoDefinitionResponse::Link(links)) => links
-                .into_iter()
-                .map(|l| Location {
-                    uri: l.target_uri,
-                    range: l.target_selection_range,
-                })
-                .collect(),
-            None => vec![],
-        }
-    }
-
-    /// Edit an already-open document by sending a full-text `didChange`.
+    /// Edit an already-open document via a full-text `didChange`.
     ///
     /// Uses full document sync (one change event carrying the whole text),
     /// matching the server's expectation.
@@ -302,9 +195,50 @@ impl TestClient {
                 text: text.to_string(),
             }],
         };
+        self.dispatch_notification::<DidChangeTextDocument>(params);
+    }
 
-        self.send_notification::<DidChangeTextDocument>(params);
-        self.barrier(uri);
+    /// Request hover information at a position.
+    pub fn hover(&mut self, uri: &Uri, line: u32, character: u32) -> Option<Hover> {
+        let params = HoverParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                position: Position { line, character },
+            },
+            work_done_progress_params: WorkDoneProgressParams {
+                work_done_token: None,
+            },
+        };
+        self.send_request::<HoverRequest>(params)
+    }
+
+    /// Request go-to-definition at a position.
+    pub fn goto_definition(&mut self, uri: &Uri, line: u32, character: u32) -> Vec<Location> {
+        let params = GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                position: Position { line, character },
+            },
+            work_done_progress_params: WorkDoneProgressParams {
+                work_done_token: None,
+            },
+            partial_result_params: PartialResultParams {
+                partial_result_token: None,
+            },
+        };
+
+        match self.send_request::<GotoDefinition>(params) {
+            Some(GotoDefinitionResponse::Scalar(loc)) => vec![loc],
+            Some(GotoDefinitionResponse::Array(locs)) => locs,
+            Some(GotoDefinitionResponse::Link(links)) => links
+                .into_iter()
+                .map(|l| Location {
+                    uri: l.target_uri,
+                    range: l.target_selection_range,
+                })
+                .collect(),
+            None => vec![],
+        }
     }
 
     /// Request find-references at a position.
@@ -399,17 +333,14 @@ impl TestClient {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
         };
 
-        let response: Option<SemanticTokensResult> =
-            self.send_request::<SemanticTokensFullRequest>(params);
-
-        match response {
+        match self.send_request::<SemanticTokensFullRequest>(params) {
             Some(SemanticTokensResult::Tokens(tokens)) => tokens.data,
             Some(SemanticTokensResult::Partial(partial)) => partial.data,
             None => vec![],
         }
     }
 
-    /// Request document symbols. Returns the flat/nested symbol list.
+    /// Request document symbols. Returns the nested symbol list.
     pub fn document_symbol(&mut self, uri: &Uri) -> Vec<DocumentSymbol> {
         let params = DocumentSymbolParams {
             text_document: TextDocumentIdentifier { uri: uri.clone() },
@@ -421,10 +352,7 @@ impl TestClient {
             },
         };
 
-        let response: Option<DocumentSymbolResponse> =
-            self.send_request::<DocumentSymbolRequest>(params);
-
-        match response {
+        match self.send_request::<DocumentSymbolRequest>(params) {
             Some(DocumentSymbolResponse::Nested(symbols)) => symbols,
             // The server only emits the nested form; flat responses carry no
             // hierarchy, so surface them as an empty list rather than inventing one.
@@ -439,43 +367,34 @@ impl TestClient {
                 text_document: TextDocumentIdentifier { uri: uri.clone() },
                 position: Position { line, character },
             },
-            work_done_progress_params: lsp_types::WorkDoneProgressParams {
+            work_done_progress_params: WorkDoneProgressParams {
                 work_done_token: None,
             },
-            partial_result_params: lsp_types::PartialResultParams {
+            partial_result_params: PartialResultParams {
                 partial_result_token: None,
             },
             context: None,
         };
 
-        let response: Option<CompletionResponse> = self.send_request::<Completion>(params);
-
-        match response {
+        match self.send_request::<Completion>(params) {
             Some(CompletionResponse::Array(items)) => items,
             Some(CompletionResponse::List(list)) => list.items,
             None => vec![],
         }
     }
 
-    /// Get diagnostics for a URI.
+    /// Get the latest published diagnostics for a URI.
+    #[must_use]
     pub fn get_diagnostics(&self, uri: &Uri) -> Vec<Diagnostic> {
-        let diags = self.diagnostics.lock().unwrap();
-        diags.get(uri.as_str()).cloned().unwrap_or_default()
+        self.diagnostics
+            .get(uri.as_str())
+            .cloned()
+            .unwrap_or_default()
     }
 
-    /// Shutdown the LSP server gracefully.
-    pub fn shutdown(mut self) {
-        // Send shutdown request
-        let _: () = self.send_request::<Shutdown>(());
-
-        // Send exit notification
-        self.send_notification::<lsp_types::notification::Exit>(());
-
-        // Wait for the server thread to finish
-        if let Some(handle) = self.server_thread.take() {
-            let _ = handle.join();
-        }
-    }
+    /// Shut the client down. A no-op now that there is no thread or connection
+    /// to tear down — kept so existing tests read the same.
+    pub fn shutdown(self) {}
 }
 
 impl Default for TestClient {
@@ -484,35 +403,32 @@ impl Default for TestClient {
     }
 }
 
-impl Drop for TestClient {
-    fn drop(&mut self) {
-        // If the client is dropped without shutdown, try to clean up
-        if self.server_thread.is_some() {
-            // Try to send shutdown - ignore errors
-            let _ = self.connection.sender.send(Message::Request(Request::new(
-                RequestId::from(9999),
-                Shutdown::METHOD.to_string(),
-                serde_json::Value::Null,
-            )));
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_client_initialization() {
-        let client = TestClient::new();
-        client.shutdown();
+    /// A `file://` uri for a single-file (no-package) document. Discovery is
+    /// skipped because no `ambient.toml` sits above the virtual root.
+    fn single_file_uri() -> Uri {
+        "inmemory:///test.ab".parse().unwrap()
     }
 
     #[test]
-    fn test_open_document() {
+    fn open_document_publishes_diagnostics() {
         let mut client = TestClient::new();
-        let uri: Uri = "file:///test.ab".parse().unwrap();
-        client.open_document(uri, "fn foo() { 42 }");
-        client.shutdown();
+        let uri = single_file_uri();
+        client.open_document(uri.clone(), "fn bad(): String { 42 }");
+        assert!(
+            !client.get_diagnostics(&uri).is_empty(),
+            "a type error should be published"
+        );
+    }
+
+    #[test]
+    fn clean_document_has_no_diagnostics() {
+        let mut client = TestClient::new();
+        let uri = single_file_uri();
+        client.open_document(uri.clone(), "fn foo() { 42 }");
+        assert!(client.get_diagnostics(&uri).is_empty());
     }
 }
