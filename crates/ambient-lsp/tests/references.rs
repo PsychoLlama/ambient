@@ -10,62 +10,42 @@
 //! `target` in `target()`), not the whole enclosing function. These tests
 //! operate on real temp packages so the whole package is on disk to index.
 
-use std::fs;
-use std::path::Path;
-
 use ambient_lsp::test_harness::TestClient;
 use lsp_types::{Location, Uri};
-use tempfile::TempDir;
 
-/// A real on-disk temp package plus a live server client.
+/// An in-memory package plus a live server client.
 struct Fixture {
-    _temp: TempDir,
     client: TestClient,
-    root: std::path::PathBuf,
 }
 
 impl Fixture {
-    /// Write an `ambient.toml` + the given `src/*` files, spawn a server, and
-    /// open `main_file`. Opening discovers the package and indexes every
-    /// module (opened or not).
+    /// Build an in-memory package from the given `src/*` files and open
+    /// `main_file`. The whole package lives in the session, so every module is
+    /// indexed for references (opened or not).
     fn new(files: &[(&str, &str)], main_file: &str) -> Self {
-        let temp = TempDir::new().expect("create temp dir");
-        let root = temp.path().to_path_buf();
+        let pkg: Vec<(&str, &str)> = files.iter().map(|(p, c)| (strip_src(p), *c)).collect();
+        let mut client = TestClient::with_package("test", &pkg);
 
-        let manifest =
-            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"src\"\n";
-        fs::write(root.join("ambient.toml"), manifest).expect("write manifest");
+        let main_content = files
+            .iter()
+            .find(|(p, _)| *p == main_file)
+            .expect("main file among files")
+            .1;
+        client.open_document(client.uri(strip_src(main_file)), main_content);
 
-        for (path, content) in files {
-            let full = root.join(path);
-            if let Some(parent) = full.parent() {
-                fs::create_dir_all(parent).expect("create src dir");
-            }
-            fs::write(&full, content).expect("write source file");
-        }
-
-        let mut client = TestClient::new();
-        let main = &root.join(main_file);
-        client.open_document(uri_for(main), fs::read_to_string(main).unwrap().as_str());
-
-        Fixture {
-            _temp: temp,
-            client,
-            root,
-        }
+        Fixture { client }
     }
 
-    /// The `file://` URI for a package-relative path.
+    /// The `file://` URI for a package-relative path (`src/utils.ab`).
     fn uri(&self, rel: &str) -> Uri {
-        uri_for(&self.root.join(rel))
+        self.client.uri(strip_src(rel))
     }
 }
 
-/// Convert a filesystem path to a `file://` URI (matches the harness builder).
-fn uri_for(path: &Path) -> Uri {
-    format!("file://{}", path.to_string_lossy())
-        .parse()
-        .expect("parse uri")
+/// A `src/`-prefixed test path as the `src`-relative module path the in-memory
+/// package addresses modules by.
+fn strip_src(path: &str) -> &str {
+    path.strip_prefix("src/").unwrap_or(path)
 }
 
 /// 0-indexed (line, character) of the `occurrence`-th (0-based) appearance of

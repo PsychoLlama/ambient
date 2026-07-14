@@ -1,65 +1,85 @@
-//! Rename integration tests, driven through the real LSP server.
+//! Rename integration tests, driven through the LSP request handlers.
 //!
 //! Rename edits come from the same occurrence index as find-references, so a
 //! rename rewrites every definition, reference, and import of a symbol. These
-//! tests apply the returned `WorkspaceEdit` to the on-disk sources and then
-//! re-analyze the package with `ambient-analysis` to prove the rename
-//! round-trips to a still-clean package.
+//! tests apply the returned `WorkspaceEdit` to an in-memory shadow of the
+//! sources and then re-analyze that shadow with `ambient-analysis` to prove the
+//! rename round-trips to a still-clean package.
 
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 use ambient_analysis::package::AnalysisPackage;
 use ambient_lsp::test_harness::TestClient;
 use lsp_types::{PrepareRenameResponse, TextEdit, Uri, WorkspaceEdit};
-use tempfile::TempDir;
 
+/// An in-memory package client plus a shadow copy of each module's current
+/// source (keyed by `src`-relative path). Rename edits are applied to the
+/// shadow, then the shadow is re-analyzed to prove the rename round-trips to a
+/// still-clean package — all without touching disk.
 struct Fixture {
-    _temp: TempDir,
     client: TestClient,
-    root: PathBuf,
+    sources: HashMap<String, String>,
 }
 
 impl Fixture {
     fn new(files: &[(&str, &str)], main_file: &str) -> Self {
-        let temp = TempDir::new().expect("create temp dir");
-        let root = temp.path().to_path_buf();
+        let sources: HashMap<String, String> = files
+            .iter()
+            .map(|(p, c)| (strip_src(p).to_string(), (*c).to_string()))
+            .collect();
+        let pkg: Vec<(&str, &str)> = files.iter().map(|(p, c)| (strip_src(p), *c)).collect();
+        let mut client = TestClient::with_package("test", &pkg);
 
-        let manifest =
-            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"src\"\n";
-        fs::write(root.join("ambient.toml"), manifest).expect("write manifest");
+        let main_rel = strip_src(main_file);
+        let main_content = sources[main_rel].clone();
+        client.open_document(client.uri(main_rel), &main_content);
 
-        for (path, content) in files {
-            let full = root.join(path);
-            if let Some(parent) = full.parent() {
-                fs::create_dir_all(parent).expect("create src dir");
-            }
-            fs::write(&full, content).expect("write source file");
-        }
-
-        let mut client = TestClient::new();
-        let main = root.join(main_file);
-        client.open_document(uri_for(&main), fs::read_to_string(&main).unwrap().as_str());
-
-        Fixture {
-            _temp: temp,
-            client,
-            root,
-        }
+        Fixture { client, sources }
     }
 
     fn uri(&self, rel: &str) -> Uri {
-        uri_for(&self.root.join(rel))
+        self.client.uri(strip_src(rel))
     }
 
     fn read(&self, rel: &str) -> String {
-        fs::read_to_string(self.root.join(rel)).expect("read source")
+        self.sources[strip_src(rel)].clone()
     }
 
-    /// Re-open the package from disk and assert every module type-checks
-    /// clean — the round-trip check after applying a rename.
+    /// The `src`-relative module path a workspace-edit uri refers to.
+    fn rel_of_uri(&self, uri: &Uri) -> String {
+        self.sources
+            .keys()
+            .find(|rel| self.uri(rel).as_str() == uri.as_str())
+            .cloned()
+            .expect("edit uri maps to a known module")
+    }
+
+    /// Apply a `WorkspaceEdit` to the shadow sources.
+    #[allow(clippy::mutable_key_type)]
+    fn apply_workspace_edit(&mut self, edit: &WorkspaceEdit) {
+        let changes = edit.changes.as_ref().expect("changes present");
+        let edits: Vec<(String, Vec<TextEdit>)> = changes
+            .iter()
+            .map(|(uri, edits)| (self.rel_of_uri(uri), edits.clone()))
+            .collect();
+        for (rel, edits) in edits {
+            let content = self.sources[&rel].clone();
+            self.sources.insert(rel, apply_edits(&content, &edits));
+        }
+    }
+
+    /// Rebuild an in-memory package from the shadow sources and assert every
+    /// module type-checks clean — the round-trip check after a rename.
     fn assert_package_clean(&self) {
-        let package = AnalysisPackage::open(&self.root).expect("open package");
+        let mut package = AnalysisPackage::empty(
+            PathBuf::from("/rename-test"),
+            PathBuf::from("/rename-test/src"),
+        );
+        package.package_name = "test".to_string();
+        for (rel, content) in &self.sources {
+            package.insert_module_at_path(rel, content.clone());
+        }
         for (path, result) in package.analyze_all() {
             assert!(
                 result.diagnostics().is_empty(),
@@ -70,10 +90,9 @@ impl Fixture {
     }
 }
 
-fn uri_for(path: &Path) -> Uri {
-    format!("file://{}", path.to_string_lossy())
-        .parse()
-        .expect("parse uri")
+/// A `src/`-prefixed test path as the `src`-relative module path.
+fn strip_src(path: &str) -> &str {
+    path.strip_prefix("src/").unwrap_or(path)
 }
 
 fn pos_of(text: &str, needle: &str, occurrence: usize) -> (u32, u32) {
@@ -125,23 +144,6 @@ fn apply_edits(content: &str, edits: &[TextEdit]) -> String {
     out
 }
 
-/// Apply a `WorkspaceEdit` to the on-disk files it names.
-// `WorkspaceEdit::changes` is an lsp-types `HashMap<Uri, _>`; `Uri` has interior
-// mutability we don't control and only read here as a key.
-#[allow(clippy::mutable_key_type)]
-fn apply_workspace_edit(edit: &WorkspaceEdit) {
-    let changes = edit.changes.as_ref().expect("changes present");
-    for (uri, edits) in changes {
-        let path = uri
-            .as_str()
-            .strip_prefix("file://")
-            .expect("file uri")
-            .to_string();
-        let content = fs::read_to_string(&path).expect("read edited file");
-        fs::write(&path, apply_edits(&content, edits)).expect("write edited file");
-    }
-}
-
 const UTILS: &str = "pub fn target(): Number { 42 }\n";
 const MAIN_ONE_CALLER: &str = "\
 use pkg::utils::{target};
@@ -162,7 +164,7 @@ fn rename_function_across_modules_roundtrips() {
         .client
         .rename(&uri, line, ch, "goal")
         .expect("rename produced an edit");
-    apply_workspace_edit(&edit);
+    fx.apply_workspace_edit(&edit);
 
     let utils = fx.read("src/utils.ab");
     let main = fx.read("src/main.ab");
@@ -197,7 +199,7 @@ fn rename_local_parameter_same_file_roundtrips() {
         .client
         .rename(&uri, line, ch, "total")
         .expect("rename produced an edit");
-    apply_workspace_edit(&edit);
+    fx.apply_workspace_edit(&edit);
 
     let main = fx.read("src/main.ab");
     assert_eq!(
@@ -325,7 +327,7 @@ fn rename_enum_variant_roundtrips_across_modules() {
         .client
         .rename(&uri, line, ch, "Round")
         .expect("variant rename produced an edit");
-    apply_workspace_edit(&edit);
+    fx.apply_workspace_edit(&edit);
 
     let shapes = fx.read("src/shapes.ab");
     let main = fx.read("src/main.ab");

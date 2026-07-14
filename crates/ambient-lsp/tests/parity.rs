@@ -6,13 +6,10 @@
 //! tests guard the seam — if either side grows its own opinion about
 //! what is an error, they fail.
 
-use std::fs;
-use std::path::Path;
-
+use ambient_analysis::package::AnalysisPackage;
 use ambient_lsp::Document;
 use ambient_lsp::test_harness::TestClient;
 use lsp_types::Uri;
-use tempfile::TempDir;
 
 /// A normalized diagnostic: what the user actually sees.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -22,11 +19,11 @@ struct Normalized {
     message: String,
 }
 
-/// What the shared analysis pipeline (rendered by `ambient check`)
-/// reports for one module, normalized to line/character positions.
-fn analysis_diagnostics(root: &Path, module_key: &str) -> Vec<Normalized> {
-    let package =
-        ambient_analysis::package::AnalysisPackage::open(root).expect("package should open");
+/// What the shared analysis pipeline (the same one `ambient check` renders)
+/// reports for one module, normalized to line/character positions. Runs the
+/// one-shot `analyze_all` directly against the in-memory package, so this is
+/// the shared layer's verdict independent of the LSP session.
+fn analysis_diagnostics(package: &AnalysisPackage, module_key: &str) -> Vec<Normalized> {
     let results = package.analyze_all();
     let result = results
         .get(module_key)
@@ -70,32 +67,18 @@ fn lsp_diagnostics(client: &TestClient, uri: &Uri) -> Vec<Normalized> {
         .collect()
 }
 
-/// Write a package to disk and assert that, for every module, the LSP
+/// Build an in-memory package and assert that, for every module, the LSP
 /// publishes exactly the diagnostics the shared analysis computes.
+///
+/// Both sides read the *same* in-memory package (the client owns it), so this
+/// isolates the seam under test — the LSP renderer vs the shared analysis
+/// layer — with no filesystem in the loop.
 fn assert_parity(files: &[(&str, &str)]) {
-    let dir = TempDir::new().expect("temp dir");
-    let root = dir.path();
-    fs::write(
-        root.join("ambient.toml"),
-        "[package]\nname = \"parity\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"src\"\n",
-    )
-    .expect("write manifest");
-    fs::create_dir_all(root.join("src")).expect("create src");
-    for (name, content) in files {
-        let path = root.join("src").join(name);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).expect("create module dir");
-        }
-        fs::write(path, content).expect("write module");
-    }
-
-    let mut client = TestClient::new();
+    let mut client = TestClient::with_package("parity", files);
     let uris: Vec<(String, Uri)> = files
         .iter()
         .map(|(name, content)| {
-            let uri: Uri = format!("file://{}", root.join("src").join(name).display())
-                .parse()
-                .expect("valid uri");
+            let uri = client.uri(name);
             client.open_document(uri.clone(), content);
             // Module keys are dotted paths; the root module is "main".
             let module_key = name.trim_end_matches(".ab").replace('/', ".");
@@ -103,12 +86,9 @@ fn assert_parity(files: &[(&str, &str)]) {
         })
         .collect();
 
-    // No wait needed: `open_document`'s barrier request already folded every
-    // `didOpen`'s synchronously-published diagnostics into the map (the server
-    // handles messages strictly in order, so the barrier response trails the
-    // diagnostics it triggered).
+    let package = client.package().expect("package client");
     for (module_key, uri) in &uris {
-        let mut expected = analysis_diagnostics(root, module_key);
+        let mut expected = analysis_diagnostics(package, module_key);
         let mut actual = lsp_diagnostics(&client, uri);
         expected.sort();
         actual.sort();

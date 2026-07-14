@@ -7,51 +7,26 @@
 //! byte-identical equality of the two frontends; this pins that the *warm*
 //! path tracks edits correctly rather than replaying stale diagnostics.
 
-use std::fs;
-use std::path::Path;
-
 use ambient_lsp::test_harness::TestClient;
 use lsp_types::Uri;
-use tempfile::TempDir;
 
-fn uri_for(path: &Path) -> Uri {
-    format!("file://{}", path.to_string_lossy())
-        .parse()
-        .expect("parse uri")
-}
+const MAIN: &str = "use pkg::utils::helper;\npub fn run(): Number { helper() }\n";
+const UTILS: &str = "pub fn helper(): Number { 1 }\n";
 
-/// Write a two-module package and open `main`. Returns the client and both
-/// URIs. Opening discovers the package, so `utils` is analyzed cross-module
-/// even though only `main` is opened in the editor.
-fn setup() -> (TempDir, TestClient, Uri, Uri) {
-    let temp = TempDir::new().expect("temp dir");
-    let root = temp.path().to_path_buf();
-    fs::write(
-        root.join("ambient.toml"),
-        "[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"src\"\n",
-    )
-    .expect("manifest");
-    fs::create_dir_all(root.join("src")).expect("src");
-    fs::write(
-        root.join("src/main.ab"),
-        "use pkg::utils::helper;\npub fn run(): Number { helper() }\n",
-    )
-    .expect("main");
-    fs::write(root.join("src/utils.ab"), "pub fn helper(): Number { 1 }\n").expect("utils");
-
-    let main_uri = uri_for(&root.join("src/main.ab"));
-    let utils_uri = uri_for(&root.join("src/utils.ab"));
-    let mut client = TestClient::new();
-    client.open_document(
-        main_uri.clone(),
-        &fs::read_to_string(root.join("src/main.ab")).unwrap(),
-    );
-    (temp, client, main_uri, utils_uri)
+/// Build an in-memory two-module package and open `main`. Returns the client
+/// and both URIs. The whole package lives in the session, so `utils` is
+/// analyzed cross-module even though only `main` is opened in the editor.
+fn setup() -> (TestClient, Uri, Uri) {
+    let mut client = TestClient::with_package("test", &[("main.ab", MAIN), ("utils.ab", UTILS)]);
+    let main_uri = client.uri("main.ab");
+    let utils_uri = client.uri("utils.ab");
+    client.open_document(main_uri.clone(), MAIN);
+    (client, main_uri, utils_uri)
 }
 
 #[test]
 fn cross_module_signature_edit_surfaces_and_clears_in_importer() {
-    let (_temp, mut client, main_uri, utils_uri) = setup();
+    let (mut client, main_uri, utils_uri) = setup();
 
     // Clean to start: `main` calls `helper(): Number` and returns Number.
     assert!(
@@ -83,7 +58,7 @@ fn cross_module_signature_edit_surfaces_and_clears_in_importer() {
 
 #[test]
 fn body_only_edit_keeps_importer_clean() {
-    let (_temp, mut client, main_uri, utils_uri) = setup();
+    let (mut client, main_uri, utils_uri) = setup();
 
     // A body-only edit to `utils` (interface unchanged) must not perturb
     // `main`'s diagnostics — it stays clean, served from the memo.
