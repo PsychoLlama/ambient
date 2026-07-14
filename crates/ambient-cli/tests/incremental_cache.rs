@@ -713,6 +713,111 @@ fn unrelated_impl_body_edit_leaves_unrelated_modules_cached_warm() {
 }
 
 #[test]
+fn ability_method_add_spares_non_consumers() {
+    // Abilities carry no dispatch-key input: the dependency channel covers them,
+    // because every performer/handler *names* the ability (a resolve-dep edge to
+    // its declaring module). Adding a method to `Counter` moves `effects`'
+    // interface hash, so `performer` (performs `Counter::next`) and `handler`
+    // (handles it) recompile; `unrelated` names no ability and stays a warm hit.
+    // Under the old build-global ability fold the whole package recompiled.
+    let effects = "pub unique(C0DEC0DE-0000-4000-8000-000000000101) ability Counter {\n\
+                   \x20   fn next(): Number { 0 }\n}\n";
+    let performer = "use pkg::effects::Counter;\n\
+                     pub fn run(): Number with Counter { Counter::next!() }\n";
+    let handler = "use pkg::effects::Counter;\n\
+                   pub fn h(): Number { with { Counter::next() => resume(5) } handle Counter::next!() }\n";
+    let base: &[(&str, &str)] = &[
+        ("effects.ab", effects),
+        ("performer.ab", performer),
+        ("handler.ab", handler),
+        ("unrelated.ab", "pub fn f(): Number { 2 }\n"),
+        ("main.ab", "pub fn run(): Number { 7 }\n"),
+    ];
+    let dir = TempDir::new().expect("temp");
+    write_pkg(dir.path(), base);
+    build_and_persist(dir.path());
+
+    let effects_edited = "pub unique(C0DEC0DE-0000-4000-8000-000000000101) ability Counter {\n\
+                          \x20   fn next(): Number { 0 }\n\
+                          \x20   fn reset(): Number { 1 }\n}\n";
+    fs::write(dir.path().join("src/effects.ab"), effects_edited).expect("edit");
+    let edited: &[(&str, &str)] = &[
+        ("effects.ab", effects_edited),
+        ("performer.ab", performer),
+        ("handler.ab", handler),
+        ("unrelated.ab", "pub fn f(): Number { 2 }\n"),
+        ("main.ab", "pub fn run(): Number { 7 }\n"),
+    ];
+
+    let (warm, seen) = build_capturing(dir.path());
+    if !verify_mode() {
+        assert_eq!(
+            seen.get("performer"),
+            Some(&false),
+            "performer names Counter: recompiles"
+        );
+        assert_eq!(
+            seen.get("handler"),
+            Some(&false),
+            "handler names Counter: recompiles"
+        );
+        assert_eq!(
+            seen.get("unrelated"),
+            Some(&true),
+            "unrelated names no ability: warm"
+        );
+    }
+    assert_warm_equals_cold(&warm, edited);
+}
+
+#[test]
+fn ability_default_body_edit_spares_non_consumers() {
+    // A default-impl *body* edit behaves exactly like an impl-body edit: the body
+    // is retained in the defining module's full interface hash, so `performer`
+    // (imports `effects`) recompiles, while `unrelated` — naming no ability —
+    // stays a warm hit. The build-global ability shape was already body-free, so
+    // this behavior is unchanged from before abilities left the cache key.
+    let effects = "pub unique(C0DEC0DE-0000-4000-8000-000000000102) ability Counter {\n\
+                   \x20   fn next(): Number { 0 }\n}\n";
+    let performer = "use pkg::effects::Counter;\n\
+                     pub fn run(): Number with Counter { Counter::next!() }\n";
+    let base: &[(&str, &str)] = &[
+        ("effects.ab", effects),
+        ("performer.ab", performer),
+        ("unrelated.ab", "pub fn f(): Number { 2 }\n"),
+        ("main.ab", "pub fn run(): Number { 7 }\n"),
+    ];
+    let dir = TempDir::new().expect("temp");
+    write_pkg(dir.path(), base);
+    build_and_persist(dir.path());
+
+    let effects_edited = "pub unique(C0DEC0DE-0000-4000-8000-000000000102) ability Counter {\n\
+                          \x20   fn next(): Number { 1 }\n}\n";
+    fs::write(dir.path().join("src/effects.ab"), effects_edited).expect("edit");
+    let edited: &[(&str, &str)] = &[
+        ("effects.ab", effects_edited),
+        ("performer.ab", performer),
+        ("unrelated.ab", "pub fn f(): Number { 2 }\n"),
+        ("main.ab", "pub fn run(): Number { 7 }\n"),
+    ];
+
+    let (warm, seen) = build_capturing(dir.path());
+    if !verify_mode() {
+        assert_eq!(
+            seen.get("performer"),
+            Some(&false),
+            "performer imports effects: recompiles on body edit"
+        );
+        assert_eq!(
+            seen.get("unrelated"),
+            Some(&true),
+            "unrelated names no ability: warm"
+        );
+    }
+    assert_warm_equals_cold(&warm, edited);
+}
+
+#[test]
 fn duplicate_impl_in_unrelated_module_still_errors_on_a_warm_build() {
     // Phase 5 step 2: narrowing the dispatch surface must NOT weaken
     // coherence. Coherence keys on the `(trait, type)` identity, which stays

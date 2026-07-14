@@ -354,6 +354,91 @@ fn trait_signature_change_rechecks_a_module_that_names_the_trait() {
 }
 
 #[test]
+fn ability_method_add_rechecks_consumers_only() {
+    // Abilities carry no dispatch-key input: the dependency channel covers
+    // them, because every performer/handler *names* the ability (a resolve-dep
+    // edge to its declaring module). Adding a method to `Counter` moves
+    // `effects`' interface hash, so `performer` (performs `Counter::next`) and
+    // `handler` (handles it) re-check; `other` names no ability and stays
+    // memoized. Under the old build-global ability fold every module re-checked.
+    let dir = write_package(&[
+        (
+            "effects.ab",
+            "pub unique(C0DEC0DE-0000-4000-8000-000000000001) ability Counter {\n\
+             \x20   fn next(): Number { 0 }\n}\n",
+        ),
+        (
+            "performer.ab",
+            "use pkg::effects::Counter;\n\
+             pub fn run(): Number with Counter { Counter::next!() }\n",
+        ),
+        (
+            "handler.ab",
+            "use pkg::effects::Counter;\n\
+             pub fn h(): Number {\n\
+             \x20   with { Counter::next() => resume(5) } handle Counter::next!()\n}\n",
+        ),
+        ("other.ab", "pub fn f(): Number { 2 }\n"),
+    ]);
+    let mut session = open(&dir);
+    let _ = session.analyze_all();
+    let base = session.rechecks();
+
+    session.edit_module(
+        &module_path("effects"),
+        "pub unique(C0DEC0DE-0000-4000-8000-000000000001) ability Counter {\n\
+         \x20   fn next(): Number { 0 }\n\
+         \x20   fn reset(): Number { 1 }\n}\n"
+            .to_string(),
+    );
+    let warm = session.analyze_all();
+    assert_eq!(
+        session.rechecks() - base,
+        3,
+        "`effects` (source) + `performer` + `handler` (name Counter) re-check; `other` stays memoized"
+    );
+    assert_matches_cold(&session, &warm);
+}
+
+#[test]
+fn ability_never_flag_flip_rechecks_consumers_only() {
+    // Flipping a method to a never method (`: !`) is a shape change carried by
+    // the dependency channel: `performer` imports `Abort` (a resolve-dep edge),
+    // so it re-checks and its perform now unwinds; `other` names no ability and
+    // stays memoized.
+    let dir = write_package(&[
+        (
+            "effects.ab",
+            "pub unique(C0DEC0DE-0000-4000-8000-000000000002) ability Abort {\n\
+             \x20   fn stop(): Number { 0 }\n}\n",
+        ),
+        (
+            "performer.ab",
+            "use pkg::effects::Abort;\n\
+             pub fn run(): Number with Abort { Abort::stop!() }\n",
+        ),
+        ("other.ab", "pub fn f(): Number { 2 }\n"),
+    ]);
+    let mut session = open(&dir);
+    let _ = session.analyze_all();
+    let base = session.rechecks();
+
+    session.edit_module(
+        &module_path("effects"),
+        "pub unique(C0DEC0DE-0000-4000-8000-000000000002) ability Abort {\n\
+         \x20   fn stop(): !;\n}\n"
+            .to_string(),
+    );
+    let warm = session.analyze_all();
+    assert_eq!(
+        session.rechecks() - base,
+        2,
+        "`effects` (source) + `performer` (names Abort) re-check; `other` stays memoized"
+    );
+    assert_matches_cold(&session, &warm);
+}
+
+#[test]
 fn duplicate_impl_add_resurfaces_the_error_in_every_module() {
     // Coherence stays build-global under narrowing: a cold check reports a
     // duplicate `impl Named for W` in *every* module's diagnostics (each seeds a
