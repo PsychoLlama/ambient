@@ -275,23 +275,38 @@ fn structural_dispatch_edges(
     edges
 }
 
-/// The candidate dispatcher modules for one impl block's target type: every
-/// module that can hold a value of that type. For a *package* target type, that
-/// is the type's own defining module (`anchor`) **plus** the modules
-/// transitively depending on it (walking `rev`) — the anchor is included because
-/// the type's own module can dispatch its own type (the self-orphan case); for a
-/// builtin/prelude type or a blanket/param impl, any module qualifies.
-fn dispatchers_of(
+/// The dispatch-anchoring decision for one impl block: where — if anywhere
+/// provable — the impl's target type is declared, resolved within the impl
+/// module's `scope` (the module plus its resolve deps). This is the single fact
+/// both structural walks agree on; they diverge only in how they turn it into
+/// edges (see [`impl_anchors`]).
+enum ImplAnchors<'s> {
+    /// The target type is undispatchable-to-prove-unreachable: a blanket/param
+    /// impl (non-nominal head) or a builtin/prelude type no in-scope package
+    /// module declares. Reachable code can hold the value with no package dep,
+    /// so *any* module could dispatch the impl.
+    AnyModule,
+    /// The target type is a *package* type declared by these in-scope module(s).
+    /// Only they (and their dependents) can hold the value.
+    Declared(Vec<&'s str>),
+}
+
+/// Classify one impl block's target type against the impl module's `scope` — the
+/// shared *impl-block interpretation* behind both structural walks
+/// ([`structural_dispatch_edges`]'s compile ordering via [`dispatchers_of`], and
+/// [`collect_impl_edges`]'s lazy reachability). It decides *what type the impl
+/// targets and which in-scope module declares it*; each caller keeps its own
+/// edge-emission strategy (eager holder-closure materialization vs. worklist
+/// reverse edges). Bounding the anchor search to `scope` keeps a same-named type
+/// in an unrelated module from manufacturing a spurious anchor.
+fn impl_anchors<'s>(
     for_type: &Type,
-    scope: &[&str],
+    scope: &[&'s str],
     declared: &HashMap<&str, Vec<TypeDecl>>,
-    rev: &HashMap<&str, Vec<&str>>,
-    all_keys: &BTreeSet<&str>,
-    ancestors: &mut BTreeMap<String, BTreeSet<String>>,
-) -> BTreeSet<String> {
+) -> ImplAnchors<'s> {
     let Some((head_name, head_uuid)) = type_head(for_type) else {
         // A blanket/param impl (`impl<T> Show for T`) dispatches on any type.
-        return all_keys.iter().map(|k| (*k).to_string()).collect();
+        return ImplAnchors::AnyModule;
     };
     let anchors: Vec<&str> = scope
         .iter()
@@ -308,8 +323,33 @@ fn dispatchers_of(
         // The target type is not a package type — a builtin/prelude type that
         // reachable code can hold with no dependency edge, so any module could
         // dispatch this impl.
-        return all_keys.iter().map(|k| (*k).to_string()).collect();
+        ImplAnchors::AnyModule
+    } else {
+        ImplAnchors::Declared(anchors)
     }
+}
+
+/// The candidate dispatcher modules for one impl block's target type: every
+/// module that can hold a value of that type. For a *package* target type, that
+/// is the type's own defining module (`anchor`) **plus** the modules
+/// transitively depending on it (walking `rev`) — the anchor is included because
+/// the type's own module can dispatch its own type (the self-orphan case); for a
+/// builtin/prelude type or a blanket/param impl, any module qualifies. This is
+/// the *eager* materialization of [`impl_anchors`] — it walks each anchor's
+/// reverse-reachable ancestors into a concrete holder set now, whereas
+/// [`collect_impl_edges`] keeps the anchors as worklist reverse edges.
+fn dispatchers_of(
+    for_type: &Type,
+    scope: &[&str],
+    declared: &HashMap<&str, Vec<TypeDecl>>,
+    rev: &HashMap<&str, Vec<&str>>,
+    all_keys: &BTreeSet<&str>,
+    ancestors: &mut BTreeMap<String, BTreeSet<String>>,
+) -> BTreeSet<String> {
+    let anchors = match impl_anchors(for_type, scope, declared) {
+        ImplAnchors::AnyModule => return all_keys.iter().map(|k| (*k).to_string()).collect(),
+        ImplAnchors::Declared(anchors) => anchors,
+    };
     let mut out = BTreeSet::new();
     for anchor in anchors {
         // The anchor dispatches its own type (self-orphan case), so it is a
@@ -497,9 +537,7 @@ fn collect_impl_edges(
     pulled_by: &mut HashMap<String, BTreeSet<String>>,
 ) {
     // Candidate anchor modules for a type reference: this module plus its
-    // resolve deps (which is where any type it names must be defined). Bounding
-    // the search here keeps a same-named type in an unrelated module from
-    // manufacturing a spurious anchor.
+    // resolve deps (which is where any type it names must be defined).
     let mut scope: Vec<&str> = dep_ids
         .get(&m.id)
         .into_iter()
@@ -512,34 +550,21 @@ fn collect_impl_edges(
         let ItemKind::Impl(imp) = &item.kind else {
             continue;
         };
-        let Some((head_name, head_uuid)) = type_head(&imp.for_type) else {
-            // A blanket/param impl (`impl<T> Show for T`) dispatches on any type;
-            // it must always be present.
-            unconditional.insert(m.id.clone());
-            continue;
-        };
-        let anchors: Vec<&str> = scope
-            .iter()
-            .copied()
-            .filter(|d| {
-                declared.get(d).is_some_and(|types| {
-                    types
-                        .iter()
-                        .any(|t| type_matches(t, head_name.as_ref(), head_uuid))
-                })
-            })
-            .collect();
-        if anchors.is_empty() {
-            // The target type is not a package type — a builtin/prelude type
-            // reachable code can always hold. We cannot prove the impl
-            // unreachable, so include the module unconditionally.
-            unconditional.insert(m.id.clone());
-        } else {
-            for anchor in anchors {
-                pulled_by
-                    .entry(anchor.to_string())
-                    .or_default()
-                    .insert(m.id.clone());
+        // The *worklist* materialization of `impl_anchors`: a builtin/blanket
+        // target makes the module unconditionally reachable; a package target
+        // becomes a reverse edge `anchor -> impl-module` fired when the anchor
+        // enters the set (vs. `dispatchers_of`'s eager expansion).
+        match impl_anchors(&imp.for_type, &scope, declared) {
+            ImplAnchors::AnyModule => {
+                unconditional.insert(m.id.clone());
+            }
+            ImplAnchors::Declared(anchors) => {
+                for anchor in anchors {
+                    pulled_by
+                        .entry(anchor.to_string())
+                        .or_default()
+                        .insert(m.id.clone());
+                }
             }
         }
     }
