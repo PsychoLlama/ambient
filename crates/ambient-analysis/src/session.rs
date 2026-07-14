@@ -105,6 +105,7 @@ use std::sync::Arc;
 
 use ambient_engine::ast::Span;
 use ambient_engine::build::{dep_interface_hashes, module_cache_key, per_module_dispatch_hashes};
+use ambient_engine::infer::check_module_with_registry;
 use ambient_engine::module_cycles::cycles_by_member;
 use ambient_engine::module_interface::{
     ModuleInterface, ModuleInterfaceSummary, build_interfaces, module_ast_hash, module_source_path,
@@ -173,6 +174,22 @@ pub struct AnalysisSession {
     /// re-collects only the edited module; an interface change or a module-set
     /// change rebuilds all (through [`rebuild`](Self::rebuild)).
     occurrences: BTreeMap<String, Vec<Occurrence>>,
+    /// Lazily-computed, memoized **definition** occurrences for every builtin
+    /// (core/platform) module, keyed by module path. Unlike package modules,
+    /// builtins are only parsed+resolved in the registry, never checked — so
+    /// their impl-method declarations carry no `resolved_symbol` and the parse-
+    /// only walk can't emit `Method` occurrences for them. This checks each
+    /// builtin through the *same* pipeline package modules use
+    /// ([`check_module_with_registry`]) so those declaration symbols exist, then
+    /// collects definition occurrences from the checked AST.
+    ///
+    /// `None` until first requested (via
+    /// [`builtin_definition_occurrences`](Self::builtin_definition_occurrences));
+    /// builtins never change within a session, so the check runs at most once —
+    /// a one-time cost (~tens of ms) paid lazily by the first occurrence-index
+    /// build, and deliberately *not* invalidated by [`rebuild`](Self::rebuild)
+    /// (an edit never changes a builtin's checked view).
+    builtin_occurrences: Option<Vec<(ModulePath, Vec<Occurrence>)>>,
     /// The package's last-build snapshot manifest, if one was loaded via
     /// [`load_snapshot`](Self::load_snapshot). Its structured item index backs
     /// workspace-symbol search for modules the live session does not cover
@@ -210,6 +227,7 @@ impl AnalysisSession {
             snapshot: None,
             memo: HashMap::new(),
             occurrences: BTreeMap::new(),
+            builtin_occurrences: None,
             rechecks: 0,
             occurrence_rebuilds: 0,
             verify: std::env::var("AMBIENT_ANALYSIS_VERIFY")
@@ -251,6 +269,53 @@ impl AnalysisSession {
     #[must_use]
     pub fn occurrences_for(&self, path: &ModulePath) -> Option<&[Occurrence]> {
         self.occurrences.get(&path.to_string()).map(Vec::as_slice)
+    }
+
+    /// The **definition** occurrences of every builtin (core/platform) module,
+    /// so a call/perform of a core method — an impl method (`String::join`,
+    /// `s.concat(..)`) as well as an ability method (`Exception::throw`) — can
+    /// jump to its declaration.
+    ///
+    /// Builtins are only parsed+resolved in the registry, never checked, so
+    /// their impl-method declarations lack the `resolved_symbol` a `Method`
+    /// occurrence keys on. This checks each builtin through the same entry point
+    /// package modules use ([`check_module_with_registry`]) and collects
+    /// occurrences from the *checked* AST, so those symbols match the call sites
+    /// package callers already index. Only *definitions* are kept — references
+    /// inside core are out of scope, exactly as the LSP retained before.
+    ///
+    /// Memoized: the check runs at most once per session (builtins are
+    /// immutable within a session), lazily on first request. Diagnostics are
+    /// discarded — this is a data source, not a diagnosis (core is checked in
+    /// its own build). The LSP renderer attaches each module's materialized-
+    /// source URI; this owns only the analysis fact.
+    #[must_use]
+    pub fn builtin_definition_occurrences(&mut self) -> &[(ModulePath, Vec<Occurrence>)] {
+        if self.builtin_occurrences.is_none() {
+            self.builtin_occurrences = Some(self.compute_builtin_occurrences());
+        }
+        self.builtin_occurrences.as_deref().unwrap_or(&[])
+    }
+
+    /// Check every builtin module and collect its definition occurrences. The
+    /// registry already holds each builtin's resolved AST; resolution is
+    /// idempotent, so re-checking it here yields the same dispatch symbols the
+    /// compiler mints. See [`builtin_definition_occurrences`](Self::builtin_definition_occurrences).
+    fn compute_builtin_occurrences(&self) -> Vec<(ModulePath, Vec<Occurrence>)> {
+        let mut out = Vec::new();
+        for path in crate::core_cache::builtin_module_paths() {
+            let Some(info) = self.registry.get(&path) else {
+                continue;
+            };
+            let checked = check_module_with_registry((*info.module).clone(), &path, &self.registry);
+            let mut occurrences = collect_occurrences(&checked.module, &path, &self.registry);
+            occurrences.retain(|occ| occ.is_definition);
+            if occurrences.is_empty() {
+                continue;
+            }
+            out.push((path, occurrences));
+        }
+        out
     }
 
     /// Load the package's last-build snapshot index (read-only) so
