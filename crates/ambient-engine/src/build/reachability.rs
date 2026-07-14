@@ -213,7 +213,20 @@ fn structural_dispatch_edges(
     }
 
     let mut edges: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // Memoize each anchor's reverse-reachable ancestor set. An anchor recurs
+    // across a module's impl blocks (and across modules), and the set depends
+    // only on `rev`, so compute it at most once per anchor.
+    let mut ancestors: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (impl_id, ast) in modules {
+        // A module with no impl blocks contributes no structural edge; skip it
+        // before building its scope or link closure.
+        if !ast
+            .items
+            .iter()
+            .any(|item| matches!(&item.kind, ItemKind::Impl(_)))
+        {
+            continue;
+        }
         // Anchor the target-type search to this module plus its direct resolve
         // deps — where any type it names must be defined.
         let mut scope: Vec<&str> = deps
@@ -233,7 +246,14 @@ fn structural_dispatch_edges(
             let ItemKind::Impl(imp) = &item.kind else {
                 continue;
             };
-            let candidates = dispatchers_of(&imp.for_type, &scope, &declared, &rev, &all_keys);
+            let candidates = dispatchers_of(
+                &imp.for_type,
+                &scope,
+                &declared,
+                &rev,
+                &all_keys,
+                &mut ancestors,
+            );
             for cand in candidates {
                 if cand == *impl_id || impl_deps.contains(&cand) {
                     continue;
@@ -266,6 +286,7 @@ fn dispatchers_of(
     declared: &HashMap<&str, Vec<TypeDecl>>,
     rev: &HashMap<&str, Vec<&str>>,
     all_keys: &BTreeSet<&str>,
+    ancestors: &mut BTreeMap<String, BTreeSet<String>>,
 ) -> BTreeSet<String> {
     let Some((head_name, head_uuid)) = type_head(for_type) else {
         // A blanket/param impl (`impl<T> Show for T`) dispatches on any type.
@@ -291,9 +312,15 @@ fn dispatchers_of(
     let mut out = BTreeSet::new();
     for anchor in anchors {
         // The anchor dispatches its own type (self-orphan case), so it is a
-        // candidate of its own type — `reverse_reachable` adds only ancestors.
+        // candidate of its own type; its cached ancestors add only the modules
+        // that transitively depend on it.
         out.insert((*anchor).to_string());
-        reverse_reachable(rev, anchor, &mut out);
+        let cached = ancestors.entry(anchor.to_string()).or_insert_with(|| {
+            let mut set = BTreeSet::new();
+            reverse_reachable(rev, anchor, &mut set);
+            set
+        });
+        out.extend(cached.iter().cloned());
     }
     out
 }
