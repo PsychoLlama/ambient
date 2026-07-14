@@ -406,14 +406,8 @@ impl Collector<'_> {
     /// and the declaration collapse. `None` if the ability doesn't resolve.
     fn ability_method_symbol(&self, ability: &QualifiedName, method: &str) -> Option<Arc<str>> {
         let r = resolve_item_ref(self.module, self.module_path, self.registry, ability)?;
-        let ability_name = r.name();
-        let info = self.registry.get(&r.module)?;
-        info.module.items.iter().find_map(|item| match &item.kind {
-            ItemKind::Ability(a) if a.name == ability_name => {
-                Some(ability_dispatch_symbol(&uuid_to_source(&a.uuid), method))
-            }
-            _ => None,
-        })
+        let uuid = self.registry.ability_uuid(&r.module, &r.name())?;
+        Some(ability_dispatch_symbol(&uuid_to_source(&uuid), method))
     }
 
     // ── walk ────────────────────────────────────────────────────────────────

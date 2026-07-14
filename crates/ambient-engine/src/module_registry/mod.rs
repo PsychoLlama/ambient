@@ -446,6 +446,23 @@ impl ModuleRegistry {
         })
     }
 
+    /// The nominal `unique(<uuid>)` identity of the ability named `name` in
+    /// `module`, if it declares one. The uuid is an ability's content identity
+    /// (kept off the [`Fqn`] on purpose), so a consumer holding a *resolved*
+    /// ability reference — module plus name — looks it up here rather than
+    /// re-scanning the defining module itself.
+    #[must_use]
+    pub fn ability_uuid(&self, module: &ModulePath, name: &str) -> Option<uuid::Uuid> {
+        self.get(module)?
+            .module
+            .items
+            .iter()
+            .find_map(|item| match &item.kind {
+                ItemKind::Ability(a) if a.name.as_ref() == name => Some(a.uuid),
+                _ => None,
+            })
+    }
+
     /// Look up a symbol in a module.
     ///
     /// This handles re-exports by following the re-export chain. On
