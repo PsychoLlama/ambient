@@ -580,7 +580,7 @@ impl Infer {
                     _ => None,
                 };
                 if let Some((type_name, method_name)) = associated_target
-                    && let Some((symbol, ret_ty)) = self.try_infer_associated_call(
+                    && let Some((symbol, ret_ty, callee_ty)) = self.try_infer_associated_call(
                         env,
                         &type_name,
                         &method_name,
@@ -593,6 +593,12 @@ impl Infer {
                         name.path.clear();
                         name.name = symbol;
                     }
+                    // Record the method's instantiated function type on the
+                    // callee: this branch otherwise never infers it (the name
+                    // is rewritten to a bare dispatch symbol), leaving hover
+                    // with no type to show. Display-only — the compiler emits
+                    // an ordinary call from the resolved symbol.
+                    callee.ty = Some(callee_ty);
                     associated_ret = Some(ret_ty);
                 }
 

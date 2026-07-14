@@ -17,6 +17,11 @@ impl Infer {
     /// 0, which binds the impl's type parameters) and `None` for associated
     /// `Type::method(...)` calls. A bounded scheme (`impl<T: Eq> List<T>`)
     /// records its dictionary constraints against `dicts`.
+    /// Returns `(return_type, callee_fn_type)`: the call's result plus the
+    /// method's fully-instantiated function type. The latter is what tooling
+    /// (hover) shows for the callee of a `Type::method(...)` associated call,
+    /// whose name node the checker rewrites to a bare dispatch symbol and never
+    /// infers; instance-call callers ignore it.
     #[allow(clippy::too_many_arguments)]
     fn infer_inherent_call(
         &mut self,
@@ -27,7 +32,7 @@ impl Infer {
         span: (u32, u32),
         resolved_method: &mut Option<ResolvedMethod>,
         dicts: &mut Option<Dicts>,
-    ) -> InferResult<Type> {
+    ) -> InferResult<(Type, Type)> {
         let fn_ty = self.instantiate_bounded(&method.scheme, span, dicts);
         let Type::Function(f) = fn_ty else {
             return Err(type_error(TypeErrorKind::NotAFunction { ty: fn_ty }, span));
@@ -76,18 +81,27 @@ impl Infer {
         self.require_abilities(&abilities);
 
         *resolved_method = Some(ResolvedMethod::Symbol(Arc::clone(&method.symbol)));
-        Ok(self.apply(&f.ret))
+        let ret = self.apply(&f.ret);
+        let fn_ty = Type::function_with_abilities(
+            f.params.iter().map(|p| self.apply(p)).collect(),
+            ret.clone(),
+            abilities,
+        );
+        Ok((ret, fn_ty))
     }
 
     /// Try to resolve a `Type::method(args)` associated-function call.
     ///
-    /// Returns `Some((symbol, return_type))` when `type_name` names a type
-    /// with a no-`self` method: an inherent associated method (checked
-    /// first), or a trait associated method such as `Default::default`
-    /// (nominal types only). Returns `None` when this is not such a call —
-    /// the caller then falls back to ordinary qualified name resolution, so
-    /// module companion functions like `Option::map(opt, f)` keep resolving
-    /// to `core::option::map`. Argument type errors surface as `Err`.
+    /// Returns `Some((symbol, return_type, callee_fn_type))` when `type_name`
+    /// names a type with a no-`self` method: an inherent associated method
+    /// (checked first), or a trait associated method such as `Default::default`
+    /// (nominal types only). `callee_fn_type` is the method's instantiated
+    /// function type — the caller records it on the (rewritten) callee node so
+    /// hover shows a real signature, not the bare dispatch symbol. Returns
+    /// `None` when this is not such a call — the caller then falls back to
+    /// ordinary qualified name resolution, so module companion functions like
+    /// `Option::map(opt, f)` keep resolving to `core::option::map`. Argument
+    /// type errors surface as `Err`.
     pub(super) fn try_infer_associated_call(
         &mut self,
         env: &TypeEnv,
@@ -96,7 +110,7 @@ impl Infer {
         args: &mut [Expr],
         span: (u32, u32),
         dicts: &mut Option<Dicts>,
-    ) -> InferResult<Option<(Arc<str>, Type)>> {
+    ) -> InferResult<Option<(Arc<str>, Type, Type)>> {
         use crate::infer::inherent::ImplKey;
 
         // Resolve the leading segment to an impl-target key: a nominal type
@@ -125,11 +139,11 @@ impl Infer {
         {
             let method = method.clone();
             let mut resolved = None;
-            let ret =
+            let (ret, fn_ty) =
                 self.infer_inherent_call(env, &method, None, args, span, &mut resolved, dicts)?;
             return Ok(resolved
                 .and_then(|r| r.as_symbol().cloned())
-                .map(|s| (s, ret)));
+                .map(|s| (s, ret, fn_ty)));
         }
 
         // The leading segment must name a nominal type that can carry a trait
@@ -210,7 +224,13 @@ impl Infer {
         let abilities = self.apply_abilities(&abilities);
         self.require_abilities(&abilities);
 
-        Ok(Some((symbol, self.apply(&ret))))
+        let ret = self.apply(&ret);
+        let fn_ty = Type::function_with_abilities(
+            params.iter().map(|p| self.apply(p)).collect(),
+            ret.clone(),
+            abilities,
+        );
+        Ok(Some((symbol, ret, fn_ty)))
     }
 
     /// Build the `Self` type for a `Type::method(...)` associated call: the
@@ -294,15 +314,17 @@ impl Infer {
             && method.has_self
         {
             let method = method.clone();
-            return self.infer_inherent_call(
-                env,
-                &method,
-                Some(&receiver_ty),
-                args,
-                span,
-                resolved_method,
-                dicts,
-            );
+            return self
+                .infer_inherent_call(
+                    env,
+                    &method,
+                    Some(&receiver_ty),
+                    args,
+                    span,
+                    resolved_method,
+                    dicts,
+                )
+                .map(|(ret, _)| ret);
         }
 
         // A rigid type parameter dispatches through its bounds: `x.eq(y)`

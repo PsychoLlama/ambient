@@ -301,7 +301,13 @@ pub(crate) fn format_expr_hover(expr: &ambient_engine::ast::Expr, source: &str) 
                 .ty
                 .as_ref()
                 .map_or_else(|| "unknown".to_string(), format_type_hover);
-            format!("```ambient\n{}: {type_info}\n```", qname.name)
+            // Prefer the spelled source over `qname.name`: the checker rewrites
+            // an associated call's callee (`String::join`) to its bare dispatch
+            // symbol, which must never surface as the hover label.
+            let name = source
+                .get(expr.span.start as usize..expr.span.end as usize)
+                .unwrap_or(&qname.name);
+            format!("```ambient\n{name}: {type_info}\n```")
         }
         ambient_engine::ast::ExprKind::Bool(b) => {
             let type_info = expr

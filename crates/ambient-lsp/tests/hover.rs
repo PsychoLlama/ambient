@@ -262,6 +262,41 @@ fn test_hover_on_lambda_local_has_no_effect_row_var() {
 }
 
 #[test]
+fn test_hover_on_builtin_associated_call_shows_signature() {
+    // `String::join(...)` is a core inherent associated method: the callee is
+    // rewritten to a dispatch symbol and never inferred on the standard path.
+    // Hover must show the method's parameter/return types and the spelled
+    // label — never the raw symbol or "unknown".
+    LspTest::new()
+        .with_source(r#"fn test() { String::join/*h*/([], ", ") }"#)
+        .hover_at("h")
+        .expect_contains("String::join")
+        .hover_at("h")
+        .expect_contains("(List<String>, String) -> String")
+        .hover_at("h")
+        .expect_not_contains("unknown")
+        .shutdown();
+}
+
+#[test]
+fn test_hover_on_package_associated_call_shows_signature() {
+    // A package-local associated call (`Type::method()`) shows its signature.
+    LspTest::new()
+        .with_source(
+            r#"unique(A1B2C3D4-0000-0000-0000-000000000042) struct Counter { n: Number }
+impl Counter {
+    fn zero(): Counter { Counter { n: 0 } }
+}
+fn test() { Counter::zero/*h*/() }"#,
+        )
+        .hover_at("h")
+        .expect_contains("fn zero(): Counter")
+        .hover_at("h")
+        .expect_not_contains("unknown")
+        .shutdown();
+}
+
+#[test]
 fn test_hover_on_local_shows_spelled_name() {
     // A local reference hovers as its spelled name, never the internal
     // `local_<id>` binding number.
