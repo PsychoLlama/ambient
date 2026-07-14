@@ -41,6 +41,14 @@ use crate::server::{ServerState, handle_notification, handle_request};
 /// path arithmetic module resolution performs.
 const VIRTUAL_ROOT: &str = "/ambient-lsp-test";
 
+/// A shared temp base for the harness's materialized core-source cache — kept
+/// off the user's real cache dir and out of `$HOME`. Safe to share across tests
+/// (even parallel ones): materialization is content-addressed and write-once,
+/// so every client resolves the same tree and never interferes.
+fn harness_core_cache_base() -> std::path::PathBuf {
+    std::env::temp_dir().join("ambient-lsp-test-core-cache")
+}
+
 /// An in-process LSP test client backed by a live [`ServerState`].
 pub struct TestClient {
     /// The server state the handlers read and mutate.
@@ -63,8 +71,10 @@ impl TestClient {
     /// Single-file [`super::LspTest`] tests use this.
     #[must_use]
     pub fn new() -> Self {
+        let mut state = ServerState::new();
+        state.core_cache_base = Some(harness_core_cache_base());
         Self {
-            state: ServerState::new(),
+            state,
             next_id: 1,
             next_doc_version: 2,
             diagnostics: HashMap::new(),
@@ -87,6 +97,7 @@ impl TestClient {
             package.insert_module_at_path(rel, (*content).to_string());
         }
         let mut state = ServerState::new();
+        state.core_cache_base = Some(harness_core_cache_base());
         state.session = Some(AnalysisSession::new(package));
         Self {
             state,

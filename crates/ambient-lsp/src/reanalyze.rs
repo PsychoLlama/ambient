@@ -58,6 +58,10 @@ pub(crate) fn diagnostics_message(update: DiagnosticsUpdate) -> anyhow::Result<M
 /// still surfaces (or clears) type errors in files that import it, because the
 /// session recomputes the importers' keys.
 pub(crate) fn reanalyze_all(changed_uri: &Uri, state: &mut ServerState) -> Vec<DiagnosticsUpdate> {
+    // Materialize the embedded core/platform sources once, so builtin modules
+    // have navigable URIs and cache-dir documents are recognized below.
+    state.ensure_core_cache();
+
     // Hand the changed document's current text to the session. `edit_module`
     // decides incremental-vs-full registry update and memo invalidation.
     if let Some(file_path) = uri_to_path(changed_uri)
@@ -93,6 +97,19 @@ pub(crate) fn reanalyze_all(changed_uri: &Uri, state: &mut ServerState) -> Vec<D
 /// file.
 pub(crate) fn reanalyze_document(uri: &Uri, state: &mut ServerState) -> Option<DiagnosticsUpdate> {
     let version = state.documents.get(uri).map(|doc| doc.version)?;
+
+    // A materialized core-source file is a read-only view: navigating into it
+    // opens it in the editor, but it is a builtin already checked in place, so
+    // publish no diagnostics and run no analysis (never cache an analysis for
+    // it, so hover/goto inside it stay inert). Standalone analysis would
+    // otherwise flag core's `unique(...)`/`extern fn`/self-import shapes.
+    if state.is_core_cache_uri(uri) {
+        return Some(DiagnosticsUpdate {
+            uri: uri.clone(),
+            diagnostics: Vec::new(),
+            version,
+        });
+    }
 
     // Package path: memoized analysis through the session. The session already
     // holds this document's current text (fed in by `reanalyze_all`), so its
@@ -161,11 +178,12 @@ fn standalone_analysis(state: &ServerState, uri: &Uri) -> DocumentAnalysis {
 /// is indexed as a root via a direct collect.
 pub(crate) fn rebuild_occurrence_index(state: &mut ServerState) {
     let mut index = Vec::new();
+    let core_root = state.core_cache_root.clone();
 
     if let Some(session) = state.session.as_ref() {
         let package = session.package();
         for module in package.modules.values() {
-            let Some(uri) = module_uri(Some(package), &module.path) else {
+            let Some(uri) = module_uri(Some(package), core_root.as_deref(), &module.path) else {
                 continue;
             };
             let Some(occurrences) = session.occurrences_for(&module.path) else {
@@ -177,6 +195,7 @@ pub(crate) fn rebuild_occurrence_index(state: &mut ServerState) {
                 occurrences: occurrences.to_vec(),
             });
         }
+        index.extend(builtin_occurrences(session, core_root.as_deref()));
     } else {
         for (uri_str, analysis) in &state.analyses {
             let Ok(uri) = uri_str.parse::<Uri>() else {
@@ -196,4 +215,43 @@ pub(crate) fn rebuild_occurrence_index(state: &mut ServerState) {
     }
 
     state.occurrences = index;
+}
+
+/// Definition occurrences for every builtin (core/platform) module, so a
+/// call/perform of a core method (`Exception::throw`) can jump to its
+/// declaration. Only *definitions* are indexed — references inside core are out
+/// of scope, and keeping them out leaves package-symbol find-references
+/// unchanged. Collected against the registry's resolved builtin ASTs, which
+/// carry ability uuids + method name spans (ability-method dispatch symbols
+/// need no checking); impl-method declarations, which need the checker's
+/// resolved symbol, are simply absent and skipped.
+fn builtin_occurrences(
+    session: &ambient_analysis::session::AnalysisSession,
+    core_root: Option<&std::path::Path>,
+) -> Vec<ModuleOccurrences> {
+    let Some(root) = core_root else {
+        return Vec::new();
+    };
+    let package = session.package();
+    let registry = session.registry().as_ref();
+    let mut out = Vec::new();
+    for path in ambient_analysis::core_cache::builtin_module_paths() {
+        let Some(info) = registry.get(&path) else {
+            continue;
+        };
+        let Some(uri) = module_uri(Some(package), Some(root), &path) else {
+            continue;
+        };
+        let mut occurrences = collect_occurrences(&info.module, &path, registry);
+        occurrences.retain(|occ| occ.is_definition);
+        if occurrences.is_empty() {
+            continue;
+        }
+        out.push(ModuleOccurrences {
+            module_path: path,
+            uri,
+            occurrences,
+        });
+    }
+    out
 }

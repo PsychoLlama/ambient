@@ -125,7 +125,12 @@ fn write_tree(root: &Path, sources: &[(ModulePath, &'static str)]) -> std::io::R
     let parent = root.parent().unwrap_or(root);
     std::fs::create_dir_all(parent)?;
 
-    let staging = parent.join(format!(".staging-{}", std::process::id()));
+    // Unique per call (pid + a process-global counter) so concurrent writers —
+    // including parallel test threads sharing a base — never share a staging
+    // dir and clobber each other mid-write.
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let staging = parent.join(format!(".staging-{}-{seq}", std::process::id()));
     let _ = std::fs::remove_dir_all(&staging); // clear a crashed run's leftovers
 
     for (module_path, source) in sources {
