@@ -633,34 +633,24 @@ pub fn build_package(
         }
 
         let (compiled, output) = if cache.verify() {
-            // Verify oracle: always recompile, then assert every available warm
-            // path (a full hit and/or a relink) is byte-identical to it.
-            modules_compiled += 1;
-            // A key-match module reaches verify mode without a pre-pass check;
-            // it is checked lazily here (miss modules carry their pre-pass one).
-            let pre_checked = checked.remove(&module_id);
-            if pre_checked.is_none() {
-                modules_checked += 1;
-            }
-            let (bare, prelink) = compile_package_module(
+            // Verify oracle: always recompile through the shared spine, then
+            // assert every available warm path (a full hit and/or a relink) is
+            // byte-identical to it. The oracle exists to catch drift, so its
+            // recompile must be the *same* spine the ordinary fallback runs.
+            let (compiled, output) = recompile_module(
                 &pkg,
                 &registry,
                 &module_path,
+                &module_id,
                 &imported,
-                dep_closures
-                    .get(&module_id)
-                    .unwrap_or(&std::collections::BTreeSet::new()),
-                pre_checked,
-            )?;
-            let (compiled, output, blob) = finish_module(
-                bare,
-                &prelink,
-                &module_path,
-                &registry,
+                &dep_closures,
                 deps_list.clone(),
-                &imported,
                 key,
-            );
+                &mut checked,
+                &mut modules_compiled,
+                &mut modules_checked,
+                &mut prelink_blobs,
+            )?;
             if let Some((_, loaded_output)) = &hit
                 && let Err(msg) = cache::assert_equivalent(&module_id, loaded_output, &output)
             {
@@ -680,7 +670,6 @@ pub fn build_package(
                     panic!("{msg}");
                 }
             }
-            insert_blob(&mut prelink_blobs, blob);
             (compiled, output)
         } else if let Some((loaded, loaded_output)) = hit {
             // A validated hit: use the loaded module (its prelink blob is
@@ -700,34 +689,23 @@ pub fn build_package(
             insert_blob(&mut prelink_blobs, blob);
             (compiled, output)
         } else {
-            modules_compiled += 1;
-            // No pre-pass check only on the rare key-match-but-unlinkable
-            // fallback (hit and relink both failed); check lazily then.
-            let pre_checked = checked.remove(&module_id);
-            if pre_checked.is_none() {
-                modules_checked += 1;
-            }
-            let (bare, prelink) = compile_package_module(
+            // The rare key-match-but-unlinkable fallback (hit and relink both
+            // failed): recompile through the shared spine. Its lazy check fires
+            // only here, because a key match skipped the pre-pass.
+            recompile_module(
                 &pkg,
                 &registry,
                 &module_path,
+                &module_id,
                 &imported,
-                dep_closures
-                    .get(&module_id)
-                    .unwrap_or(&std::collections::BTreeSet::new()),
-                pre_checked,
-            )?;
-            let (compiled, output, blob) = finish_module(
-                bare,
-                &prelink,
-                &module_path,
-                &registry,
+                &dep_closures,
                 deps_list,
-                &imported,
                 key,
-            );
-            insert_blob(&mut prelink_blobs, blob);
-            (compiled, output)
+                &mut checked,
+                &mut modules_compiled,
+                &mut modules_checked,
+                &mut prelink_blobs,
+            )?
         };
 
         link.extend_module(
@@ -809,6 +787,56 @@ fn compile_package_module(
         deps,
         check_result,
     )
+}
+
+/// The recompile spine shared by the two paths that fully rebuild a module: the
+/// verify oracle (recompiles even on a key match, to compare) and the rare
+/// key-match-but-unlinkable fallback (hit and relink both failed). Both must run
+/// the *same* sequence — tally the compile, lazily check when the module carries
+/// no pre-pass check (a key match skips the pre-pass), compile + finish, and
+/// record the fresh pre-link blob — or the oracle could drift from the code path
+/// it exists to validate. Returns the qualified module and its output.
+#[allow(clippy::too_many_arguments)]
+fn recompile_module(
+    pkg: &Package,
+    registry: &ModuleRegistry,
+    module_path: &ModulePath,
+    module_id: &str,
+    imported: &HashMap<NameKey, blake3::Hash>,
+    dep_closures: &BTreeMap<String, std::collections::BTreeSet<ModuleId>>,
+    deps_list: Vec<String>,
+    cache_key: [u8; 32],
+    checked: &mut BTreeMap<String, crate::infer::CheckResult>,
+    modules_compiled: &mut usize,
+    modules_checked: &mut usize,
+    prelink_blobs: &mut BTreeMap<[u8; 32], Vec<u8>>,
+) -> Result<(CompiledModule, ModuleBuildOutput), BuildError> {
+    *modules_compiled += 1;
+    let pre_checked = checked.remove(module_id);
+    if pre_checked.is_none() {
+        *modules_checked += 1;
+    }
+    let (bare, prelink) = compile_package_module(
+        pkg,
+        registry,
+        module_path,
+        imported,
+        dep_closures
+            .get(module_id)
+            .unwrap_or(&std::collections::BTreeSet::new()),
+        pre_checked,
+    )?;
+    let (compiled, output, blob) = finish_module(
+        bare,
+        &prelink,
+        module_path,
+        registry,
+        deps_list,
+        imported,
+        cache_key,
+    );
+    insert_blob(prelink_blobs, blob);
+    Ok((compiled, output))
 }
 
 /// Qualify a freshly compiled or relinked module's names, encode its pre-link
