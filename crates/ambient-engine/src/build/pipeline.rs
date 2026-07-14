@@ -542,9 +542,10 @@ pub(super) fn compile_checked_module(
 /// qualifies package modules — so the caller can deploy an entry by its
 /// qualified name (`repl::__repl_entry_N`).
 ///
-/// Mirrors [`compile_loaded_module_with_registry`] but keeps the "how to wire
-/// the imported channels" logic here in the engine rather than duplicated in
-/// the CLI frontend.
+/// Mirrors the package pipeline's [`check_loaded_module`] +
+/// [`compile_checked_module`] pair but keeps the "how to wire the imported
+/// channels" logic here in the engine rather than duplicated in the CLI
+/// frontend.
 ///
 /// # Errors
 ///
