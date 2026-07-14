@@ -112,6 +112,24 @@ impl AbilitySet {
         }
     }
 
+    /// Display-only: collapse an unconstrained effect row to its known part.
+    ///
+    /// A generalized-but-uninstantiated effect row — a bare [`Self::Var`], or a
+    /// [`Self::Row`] whose tail is still an unconstrained variable — carries no
+    /// information a reader can use: it means "no *known* effects", not "some
+    /// unknown effect". Hover and completions render it as its concrete part
+    /// only (so `with E23!` disappears), never as `E{id}!`. This is a view
+    /// transform for the analysis-layer formatters; unification, hashing, and
+    /// diagnostics keep the raw set, where a row variable is meaningful.
+    #[must_use]
+    pub fn closed(&self) -> Self {
+        match self {
+            Self::Var(_) => Self::Empty,
+            Self::Row { concrete, .. } => Self::from_abilities(concrete.iter().copied()),
+            Self::Empty | Self::Concrete(_) | Self::Unresolved(_) => self.clone(),
+        }
+    }
+
     /// Get all concrete abilities in this set.
     #[must_use]
     pub fn concrete_abilities(&self) -> &[AbilityId] {

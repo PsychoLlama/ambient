@@ -48,6 +48,47 @@ impl Type {
         }
     }
 
+    /// Display-only: recursively replace every function's ability set with its
+    /// [`AbilitySet::closed`] form, so an unconstrained effect row (a
+    /// generalized-but-uninstantiated `E!`) doesn't surface as `with E23!` in
+    /// hover, completions, or item signatures. Recurses through composite types
+    /// so a nested function type (a lambda-valued local, a function parameter)
+    /// is normalized too. NOT used by unification, hashing, or diagnostics —
+    /// those keep the raw row, where the tail variable is meaningful.
+    #[must_use]
+    pub fn close_rows_for_display(&self) -> Type {
+        match self {
+            Self::Tuple(elems) => {
+                Self::Tuple(elems.iter().map(Type::close_rows_for_display).collect())
+            }
+            Self::Record(rec) => Self::Record(RecordType::new(
+                rec.fields
+                    .iter()
+                    .map(|(n, t)| (n.clone(), t.close_rows_for_display()))
+                    .collect(),
+            )),
+            Self::Function(f) => Self::Function(FunctionType::with_abilities(
+                f.params.iter().map(Type::close_rows_for_display).collect(),
+                f.ret.close_rows_for_display(),
+                f.abilities.closed(),
+            )),
+            Self::Named(n) => {
+                Self::Named(n.map_args(n.args.iter().map(Type::close_rows_for_display).collect()))
+            }
+            Self::Nominal(n) => Self::Nominal(n.map_inner(n.inner.close_rows_for_display())),
+            Self::Handler(h) => Self::Handler(HandlerType::new(
+                h.ability,
+                h.answer.close_rows_for_display(),
+            )),
+            Self::Forall(f) => Self::Forall(ForallType::with_abilities(
+                f.vars.clone(),
+                f.ability_vars.clone(),
+                f.body.close_rows_for_display(),
+            )),
+            _ => self.clone(),
+        }
+    }
+
     /// Collect all free type variables in this type.
     #[must_use]
     pub fn free_vars(&self) -> Vec<TypeVarId> {
