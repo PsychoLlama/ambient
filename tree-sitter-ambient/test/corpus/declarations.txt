@@ -136,7 +136,7 @@ enum Option<T> {
     name: (identifier)
     (type_parameters
       (type_parameter
-        (identifier)))
+        name: (identifier)))
     (enum_variant_list
       (enum_variant
         name: (identifier)
@@ -450,7 +450,7 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF01) enum Option<T> {
     name: (identifier)
     (type_parameters
       (type_parameter
-        (identifier)))
+        name: (identifier)))
     (enum_variant_list
       (enum_variant
         name: (identifier))
@@ -650,7 +650,7 @@ impl<T> Option<T> {
   (impl_definition
     (type_parameters
       (type_parameter
-        (identifier)))
+        name: (identifier)))
     type: (generic_type
       (identifier)
       (identifier))
@@ -665,3 +665,190 @@ impl<T> Option<T> {
       return_type: (identifier)
       body: (block
         (identifier)))))
+
+================================================================================
+Generic trait with unique identity
+================================================================================
+
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0019) trait From<T> {
+  fn from(value: T): Self;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (trait_definition
+    (visibility)
+    (unique_modifier
+      (uuid))
+    name: (identifier)
+    (type_parameters
+      (type_parameter
+        name: (identifier)))
+    (trait_method
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (identifier)))
+      return_type: (identifier))))
+
+================================================================================
+Impl with trait type argument
+================================================================================
+
+impl From<Number> for Money {
+  fn from(value: Number): Money {
+    value
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (impl_definition
+    trait: (generic_type
+      (identifier)
+      (identifier))
+    type: (identifier)
+    (function_definition
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (identifier)))
+      return_type: (identifier)
+      body: (block
+        (identifier)))))
+
+================================================================================
+Generic impl with nested trait type argument
+================================================================================
+
+impl<T> From<List<T>> for Wrap<T> {
+  fn from(value: List<T>): Wrap<T> {
+    value
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (impl_definition
+    (type_parameters
+      (type_parameter
+        name: (identifier)))
+    trait: (generic_type
+      (identifier)
+      (generic_type
+        (identifier)
+        (identifier)))
+    type: (generic_type
+      (identifier)
+      (identifier))
+    (function_definition
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (generic_type
+            (identifier)
+            (identifier))))
+      return_type: (generic_type
+        (identifier)
+        (identifier))
+      body: (block
+        (identifier)))))
+
+================================================================================
+Bounded type parameter with trait type argument
+================================================================================
+
+fn pay<T: Into<Money>>(x: T): Number {
+  0
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (type_parameters
+      (type_parameter
+        name: (identifier)
+        (trait_bounds
+          (trait_bound
+            name: (identifier)
+            (identifier)))))
+    (parameter_list
+      (parameter
+        name: (identifier)
+        type: (identifier)))
+    return_type: (identifier)
+    body: (block
+      (number))))
+
+================================================================================
+Multiple bounds joined with plus
+================================================================================
+
+fn cmp<T: Eq + Ord>(a: T, b: T): Bool {
+  true
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (type_parameters
+      (type_parameter
+        name: (identifier)
+        (trait_bounds
+          (trait_bound
+            name: (identifier))
+          (trait_bound
+            name: (identifier)))))
+    (parameter_list
+      (parameter
+        name: (identifier)
+        type: (identifier))
+      (parameter
+        name: (identifier)
+        type: (identifier)))
+    return_type: (identifier)
+    body: (block
+      (boolean))))
+
+================================================================================
+Where clause with trait type argument
+================================================================================
+
+fn convert<T>(x: T): T
+  where T: From<String>
+{
+  x
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (type_parameters
+      (type_parameter
+        name: (identifier)))
+    (parameter_list
+      (parameter
+        name: (identifier)
+        type: (identifier)))
+    return_type: (identifier)
+    (where_clause
+      (where_predicate
+        type: (identifier)
+        (trait_bounds
+          (trait_bound
+            name: (identifier)
+            (identifier)))))
+    body: (block
+      (identifier))))

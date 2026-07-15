@@ -87,6 +87,7 @@ module.exports = grammar({
         optional($.type_parameters),
         $.parameter_list,
         optional(seq(":", field("return_type", $._type))),
+        optional($.where_clause),
         optional($.ability_clause),
         field("body", $.block)
       ),
@@ -202,6 +203,7 @@ module.exports = grammar({
         $.parameter_list,
         ":",
         field("return_type", $._type),
+        optional($.where_clause),
         // A block is the method's default implementation; a `;` leaves it
         // abstract (the Exception carve-out).
         choice(field("body", $.block), ";")
@@ -213,6 +215,9 @@ module.exports = grammar({
     trait_definition: ($) =>
       seq(
         optional($.visibility),
+        // Traits are nominal: `unique(<uuid>)` is the identity (mandatory in
+        // practice; the lowering pass enforces it, like `ability`).
+        optional($.unique_modifier),
         "trait",
         field("name", $.identifier),
         optional($.type_parameters),
@@ -229,6 +234,7 @@ module.exports = grammar({
         $.parameter_list,
         ":",
         field("return_type", $._type),
+        optional($.where_clause),
         ";"
       ),
 
@@ -241,6 +247,7 @@ module.exports = grammar({
         optional($.type_parameters),
         optional(seq(field("trait", $._type), "for")),
         field("type", $._type),
+        optional($.where_clause),
         "{",
         repeat($.function_definition),
         "}"
@@ -291,7 +298,41 @@ module.exports = grammar({
     type_parameters: ($) =>
       seq("<", $.type_parameter, repeat(seq(",", $.type_parameter)), ">"),
 
-    type_parameter: ($) => seq($.identifier, optional("!")),
+    // A type parameter is a name (`T`), an ability variable (`E!`), or a
+    // bounded parameter (`T: Eq + Into<Money>`). Bounds are `+`-separated
+    // trait references, the same grammar the `where` clause inlines here.
+    type_parameter: ($) =>
+      seq(
+        field("name", $.identifier),
+        optional("!"),
+        optional(seq(":", $.trait_bounds))
+      ),
+
+    // `where` moves a type parameter's bounds off the `<...>` list:
+    // `where T: From<String>, U: Eq + Ord`.
+    where_clause: ($) =>
+      prec.right(
+        seq(
+          "where",
+          $.where_predicate,
+          repeat(seq(",", $.where_predicate)),
+          optional(",")
+        )
+      ),
+
+    where_predicate: ($) =>
+      seq(field("type", $._type), ":", $.trait_bounds),
+
+    trait_bounds: ($) =>
+      seq($.trait_bound, repeat(seq("+", $.trait_bound))),
+
+    // A trait reference in bound position: a bare or qualified name with
+    // optional type arguments (`Eq`, `Into<Money>`, `m::Convert<Number>`).
+    trait_bound: ($) =>
+      seq(
+        field("name", choice($.identifier, $.scoped_identifier)),
+        optional(seq("<", $._type_list, ">"))
+      ),
 
     ability_clause: ($) => seq("with", $._ability_list),
 

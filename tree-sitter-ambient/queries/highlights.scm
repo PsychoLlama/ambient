@@ -16,6 +16,7 @@
   "use"
   "as"
   "with"
+  "where"
   "handle"
   "sandbox"
   "unique"
@@ -40,8 +41,18 @@
 (inner_doc_comment) @comment.documentation
 
 ; Types
-(type_parameter) @type.parameter
+(type_parameter
+  name: (identifier) @type.parameter)
 (generic_type (identifier) @type)
+
+; Trait bounds (`T: Into<Money>`, `where T: From<String>`): the bound names a
+; trait, so it reads as a type. The optional `<...>` arguments are types too,
+; captured by the `generic_type` / type rules on the nodes inside.
+(trait_bound
+  name: (identifier) @type)
+(trait_bound
+  name: (scoped_identifier
+    name: (identifier) @type))
 (handler_type "Handler" @type.builtin)
 (ability_type "Ability" @type.builtin)
 
