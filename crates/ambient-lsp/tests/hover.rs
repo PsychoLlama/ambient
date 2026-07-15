@@ -364,3 +364,17 @@ fn test_hover_on_trait_name_lists_assoc_types() {
         .expect_contains("type Out;")
         .shutdown();
 }
+
+#[test]
+fn test_hover_inside_impl_method_body() {
+    // Expressions inside impl method bodies are reachable by position
+    // queries (they were skipped entirely before).
+    LspTest::new()
+        .with_source(
+            "unique(A1B2C3D4-0000-0000-0000-000000000001) struct Point { x: Number }\n\
+             impl Point { fn get(self): Number { self.x/*h*/ } }",
+        )
+        .hover_at("h")
+        .expect_type("core::primitives::number")
+        .shutdown();
+}

@@ -199,7 +199,9 @@ pub fn run_server_with_connection(connection: Connection) -> anyhow::Result<()> 
             work_done_progress_options: WorkDoneProgressOptions::default(),
         })),
         completion_provider: Some(CompletionOptions {
-            trigger_characters: Some(vec![".".to_string()]),
+            // `:` fires on each half of `::`, giving path completion
+            // (`core::`, `Trait::`, `module::`) without a manual trigger.
+            trigger_characters: Some(vec![".".to_string(), ":".to_string()]),
             resolve_provider: Some(false),
             ..Default::default()
         }),

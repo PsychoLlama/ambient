@@ -6,13 +6,16 @@
 //! "which members could be inserted here" — from the same AST facts, resolving
 //! the implemented trait through the registry exactly like go-to-definition.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use ambient_engine::ast::{
     ImplDef, ItemKind, Module, QualifiedName, Span, TraitAssocType, TraitDef, TraitMethod,
 };
+use ambient_engine::infer::inherent::{ImplKey, impl_key_for};
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
+use ambient_engine::types::Type;
 
 use super::{item_name_span, resolve_qualified_name};
 
@@ -64,6 +67,140 @@ pub fn missing_impl_members_at_offset(
         methods,
         assoc_types,
     })
+}
+
+/// A member reachable through `.` on a receiver of a known type.
+#[derive(Debug)]
+pub enum ReceiverMember {
+    /// A record field of the receiver's (possibly nominal) record body.
+    Field { name: Arc<str>, ty: Type },
+    /// A `self`-taking method from an inherent or trait impl of the
+    /// receiver's nominal identity.
+    Method {
+        name: Arc<str>,
+        /// Parameter names and declared types, excluding `self`.
+        params: Vec<(Arc<str>, Option<Type>)>,
+        ret_ty: Option<Type>,
+        /// The implemented trait's spelled name; `None` for an inherent method.
+        trait_name: Option<Arc<str>>,
+    },
+}
+
+impl ReceiverMember {
+    /// The member's name — the completion label.
+    #[must_use]
+    pub fn name(&self) -> &Arc<str> {
+        match self {
+            Self::Field { name, .. } | Self::Method { name, .. } => name,
+        }
+    }
+}
+
+/// The checker-inferred type of the innermost expression at `receiver_end` —
+/// the offset of the receiver's final character, one before the `.` being
+/// completed.
+#[must_use]
+pub fn receiver_type_at(module: &Module, receiver_end: u32) -> Option<Type> {
+    super::find_expr_at_offset(module, receiver_end).and_then(|expr| expr.ty.clone())
+}
+
+/// Every `.`-reachable member of `ty`: its record fields, then the
+/// `self`-taking methods of every impl of its nominal identity, from the
+/// current module's AST and every registry module's. Matching uses
+/// [`impl_key_for`] — the same identity the checker dispatches on — so
+/// completion can't disagree with method resolution. Inherent methods shadow
+/// same-named trait methods (the checker's resolution order); scope is not
+/// consulted (an unimported trait's method may be over-offered, never a
+/// missing one). Fields come first, then methods sorted by name.
+#[must_use]
+pub fn receiver_members(
+    ty: &Type,
+    module: &Module,
+    registry: &ModuleRegistry,
+) -> Vec<ReceiverMember> {
+    let mut members = Vec::new();
+
+    let record = match ty {
+        Type::Record(rec) => Some(rec),
+        Type::Nominal(nom) => match nom.inner.as_ref() {
+            Type::Record(rec) => Some(rec),
+            _ => None,
+        },
+        _ => None,
+    };
+    if let Some(rec) = record {
+        for (name, field_ty) in &rec.fields {
+            members.push(ReceiverMember::Field {
+                name: Arc::clone(name),
+                ty: field_ty.clone(),
+            });
+        }
+    }
+
+    let Some(key) = impl_key_for(ty) else {
+        return members;
+    };
+    // name → (is_inherent, member); the module registry also holds the
+    // current module, so same-named duplicates are expected and collapse here.
+    let mut methods: HashMap<Arc<str>, (bool, ReceiverMember)> = HashMap::new();
+    collect_impl_methods(module, &key, &mut methods);
+    for info in registry.all_modules() {
+        collect_impl_methods(&info.module, &key, &mut methods);
+    }
+    let mut methods: Vec<_> = methods.into_values().map(|(_, m)| m).collect();
+    methods.sort_by(|a, b| a.name().cmp(b.name()));
+    members.extend(methods);
+    members
+}
+
+/// Collect `module`'s impl methods targeting `key` into `out`, letting an
+/// inherent method displace a same-named trait method but never the reverse.
+fn collect_impl_methods(
+    module: &Module,
+    key: &ImplKey,
+    out: &mut HashMap<Arc<str>, (bool, ReceiverMember)>,
+) {
+    for item in &module.items {
+        let ItemKind::Impl(impl_def) = &item.kind else {
+            continue;
+        };
+        if impl_key_for(&impl_def.for_type).as_ref() != Some(key) {
+            continue;
+        }
+        let trait_name = impl_def
+            .trait_name
+            .as_ref()
+            .map(|t| Arc::clone(&t.name.name));
+        for method in &impl_def.methods {
+            if !method.has_self {
+                continue;
+            }
+            let inherent = trait_name.is_none();
+            let entry = (
+                inherent,
+                ReceiverMember::Method {
+                    name: Arc::clone(&method.name),
+                    params: method
+                        .params
+                        .iter()
+                        .map(|p| (Arc::clone(&p.name), p.ty.clone()))
+                        .collect(),
+                    ret_ty: method.ret_ty.clone(),
+                    trait_name: trait_name.clone(),
+                },
+            );
+            match out.entry(Arc::clone(&method.name)) {
+                std::collections::hash_map::Entry::Occupied(mut existing) => {
+                    if inherent && !existing.get().0 {
+                        existing.insert(entry);
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert(entry);
+                }
+            }
+        }
+    }
 }
 
 /// The impl block containing `offset` at item position: within the impl's

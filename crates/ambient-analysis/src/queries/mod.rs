@@ -17,7 +17,10 @@ mod bindings;
 mod members;
 
 use bindings::find_binding_definition;
-pub use members::{MissingImplMembers, missing_impl_members_at_offset};
+pub use members::{
+    MissingImplMembers, ReceiverMember, missing_impl_members_at_offset, receiver_members,
+    receiver_type_at,
+};
 
 /// Find the expression at a given byte offset in the module.
 #[must_use]
@@ -111,6 +114,10 @@ fn find_expr_in_item_at_offset(item: &ItemKind, offset: u32) -> Option<&Expr> {
     match item {
         ItemKind::Function(f) => find_expr_in_tree(&f.body, offset),
         ItemKind::Const(c) => find_expr_in_tree(&c.value, offset),
+        ItemKind::Impl(i) => i
+            .methods
+            .iter()
+            .find_map(|m| find_expr_in_tree(&m.body, offset)),
         _ => None,
     }
 }

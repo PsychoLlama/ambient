@@ -29,6 +29,8 @@ pub struct CompletionContext<'a> {
     pub word_prefix: &'a str,
     /// Whether we're after a dot (field/method access).
     pub after_dot: bool,
+    /// Byte offset of that dot in the document, when `after_dot` is set.
+    pub dot_offset: Option<usize>,
     /// Whether we're after an ability name (for method completion).
     pub after_ability_dot: Option<&'a str>,
     /// Whether we're after a `core::…::` path (for core library
@@ -74,6 +76,7 @@ impl<'a> CompletionContext<'a> {
         let before_word = &line_prefix[..word_start];
         let trimmed_before = before_word.trim_end();
         let after_dot = trimmed_before.ends_with('.');
+        let dot_offset = after_dot.then(|| line_start + trimmed_before.len() - 1);
         let after_scope = trimmed_before.ends_with("::");
 
         // The qualified path immediately before a trailing `::`
@@ -135,6 +138,7 @@ impl<'a> CompletionContext<'a> {
             offset,
             word_prefix,
             after_dot,
+            dot_offset,
             after_ability_dot,
             core_scope,
             after_pkg_module_dot,
@@ -209,9 +213,21 @@ pub fn get_completions(
         return items;
     }
 
-    // If we're after a dot (but not an ability, core, or module), we'd show field completions.
-    // For now, we don't have enough type info at the cursor, so skip.
+    // After a dot on a value (not an ability, core, or module path): the
+    // receiver's fields and methods, from its checker-inferred type.
     if ctx.after_dot {
+        if let (Some(module), Some(module_path), Some(registry), Some(dot_offset)) =
+            (module, module_path, registry, ctx.dot_offset)
+        {
+            items.extend(crate::member_completions::get_dot_completions(
+                source,
+                dot_offset,
+                ctx.word_prefix,
+                module,
+                module_path,
+                registry,
+            ));
+        }
         return items;
     }
 

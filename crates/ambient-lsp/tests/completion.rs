@@ -435,3 +435,60 @@ fn test_impl_body_stubs_for_cross_module_trait() {
         .done()
         .shutdown();
 }
+
+const DOT_HEADER: &str = "unique(A1B2C3D4-0000-0000-0000-000000000001) struct Point { x: Number }\n\
+     unique(A1B2C3D4-0000-0000-0000-000000000002) trait Show { fn show(self): String; }\n\
+     impl Point { fn scale(self, factor: Number): Number { self.x * factor } }\n\
+     impl Show for Point { fn show(self): String { \"p\" } }\n";
+
+#[test]
+fn test_dot_completes_record_fields() {
+    // `p.x` parses, so the receiver type comes straight off the live AST.
+    LspTest::new()
+        .with_source(&format!("{DOT_HEADER}fn f(p: Point): Number {{ p.x/*|*/ }}"))
+        .complete_at("0")
+        .expect_item("x")
+        .expect_item_kind("x", CompletionItemKind::FIELD)
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn test_dangling_dot_completes_fields_and_methods() {
+    // A bare `p.` drops the function from the live AST; completion heals the
+    // text with a placeholder ident and answers from the re-checked module.
+    LspTest::new()
+        .with_source(&format!("{DOT_HEADER}fn f(p: Point): Number {{ p./*|*/ }}"))
+        .complete_at("0")
+        .expect_item("x")
+        .expect_item("scale")
+        .expect_item_kind("scale", CompletionItemKind::METHOD)
+        .expect_item("show")
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn test_dot_completes_self_receiver() {
+    LspTest::new()
+        .with_source(&format!(
+            "{DOT_HEADER}impl Point {{ fn double(self): Number {{ self./*|*/ }} }}"
+        ))
+        .complete_at("0")
+        .expect_item("x")
+        .expect_item("scale")
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn test_dot_completes_core_string_methods() {
+    // Methods come from every registry module's impls — core included.
+    LspTest::new()
+        .with_source("fn f(s: String): Number { s./*|*/ }")
+        .complete_at("0")
+        .expect_item("length")
+        .expect_item("concat")
+        .done()
+        .shutdown();
+}

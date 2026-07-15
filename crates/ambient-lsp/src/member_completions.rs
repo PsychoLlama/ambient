@@ -147,6 +147,107 @@ pub(crate) fn get_impl_member_completions(
     items
 }
 
+/// Completions after a `.` on a value: the receiver's record fields and the
+/// `self`-taking methods of its type's impls. The receiver's type is the
+/// checker's own inference (`expr.ty`); when the dangling `.` broke the
+/// enclosing item out of the live AST, the text is healed with a placeholder
+/// ident after the dot and re-checked.
+pub(crate) fn get_dot_completions(
+    source: &str,
+    dot_offset: usize,
+    prefix: &str,
+    module: &Module,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> Vec<CompletionItem> {
+    let Some(receiver_end) = dot_offset
+        .checked_sub(1)
+        .and_then(|o| u32::try_from(o).ok())
+    else {
+        return Vec::new();
+    };
+
+    let members = if let Some(ty) =
+        ambient_analysis::queries::receiver_type_at(module, receiver_end)
+    {
+        ambient_analysis::queries::receiver_members(&ty, module, registry)
+    } else {
+        // Heal: `x.` with nothing after the dot fails to parse and drops the
+        // enclosing item, so the receiver has no live typed AST to answer
+        // from. A placeholder ident after the dot restores it (offsets up to
+        // the dot are unchanged). Members are read from the healed module
+        // too — it is the one that still contains the enclosing impl.
+        let mut healed_src = String::with_capacity(source.len() + 3);
+        healed_src.push_str(&source[..=dot_offset]);
+        healed_src.push_str("__c");
+        healed_src.push_str(&source[dot_offset + 1..]);
+        let Some(healed) =
+            ambient_analysis::healed_module_for_completion(&healed_src, module_path, registry)
+        else {
+            return Vec::new();
+        };
+        let Some(ty) = ambient_analysis::queries::receiver_type_at(&healed, receiver_end) else {
+            return Vec::new();
+        };
+        ambient_analysis::queries::receiver_members(&ty, &healed, registry)
+    };
+
+    members
+        .into_iter()
+        .filter(|m| m.name().starts_with(prefix))
+        .map(|member| match member {
+            ambient_analysis::queries::ReceiverMember::Field { name, ty } => {
+                let type_str = format_type(&ty);
+                CompletionItem {
+                    label: name.to_string(),
+                    kind: Some(CompletionItemKind::FIELD),
+                    detail: Some(format!("{name}: {type_str}")),
+                    label_details: Some(CompletionItemLabelDetails {
+                        detail: Some(format!(": {type_str}")),
+                        description: None,
+                    }),
+                    sort_text: Some(format!("0_{name}")),
+                    ..Default::default()
+                }
+            }
+            ambient_analysis::queries::ReceiverMember::Method {
+                name,
+                params,
+                ret_ty,
+                trait_name,
+            } => {
+                let rendered: Vec<String> = params
+                    .iter()
+                    .map(|(p, ty)| match ty {
+                        Some(ty) => format!("{p}: {}", format_type(ty)),
+                        None => p.to_string(),
+                    })
+                    .collect();
+                let ret = ret_ty.as_ref().map_or("_".to_string(), format_type);
+                let signature = format!("({}): {ret}", rendered.join(", "));
+                let placeholders: Vec<String> = params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (p, _))| format!("${{{}:{p}}}", i + 1))
+                    .collect();
+                CompletionItem {
+                    label: name.to_string(),
+                    kind: Some(CompletionItemKind::METHOD),
+                    detail: Some(format!("fn {name}{signature}")),
+                    label_details: Some(CompletionItemLabelDetails {
+                        detail: Some(signature),
+                        description: trait_name.map(|t| t.to_string()),
+                    }),
+                    sort_text: Some(format!("1_{name}")),
+                    insert_text: Some(format!("{name}({})", placeholders.join(", "))),
+                    insert_text_format: Some(InsertTextFormat::SNIPPET),
+                    ..Default::default()
+                }
+            }
+        })
+        .collect()
+}
+
 /// Blank the in-progress member text at the cursor — the current word plus a
 /// directly preceding `fn`/`type` introducer — with spaces, preserving every
 /// byte offset, so the enclosing impl parses again. `None` when there is
