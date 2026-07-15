@@ -289,3 +289,75 @@ fn inherent_impl_assoc_binding_is_rejected() {
     .check()
     .expect_error("binds `type Output`");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cross-module: foreign impls carry their bindings
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A trait with an associated type declared in one module, implemented in a
+/// second, dispatched from a third: the foreign-impl registration carries
+/// the binding, so the projection resolves identically everywhere.
+#[test]
+fn assoc_bindings_travel_across_modules() {
+    use std::fs;
+    use std::process::Command;
+
+    let dir = tempfile::TempDir::new().expect("create temp dir");
+    fs::write(
+        dir.path().join("ambient.toml"),
+        "[package]\nname = \"assoc\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("write manifest");
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).expect("create src");
+    fs::write(
+        src.join("proto.ab"),
+        r"
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000901) trait TryParse<T> {
+          type Error;
+          fn try_parse(value: T): Result<Self, Self::Error>;
+        }
+        ",
+    )
+    .expect("write proto");
+    fs::write(
+        src.join("money.ab"),
+        r#"
+        use pkg::proto::TryParse;
+        pub unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000902) struct Money { cents: Number }
+        impl TryParse<Number> for Money {
+          type Error = String;
+          fn try_parse(value: Number): Result<Money, String> {
+            if value < 0 { Err("negative") } else { Ok(Money { cents: value }) }
+          }
+        }
+        "#,
+    )
+    .expect("write money");
+    fs::write(
+        src.join("main.ab"),
+        r"
+        use pkg::money::Money;
+        pub fn run(): Number {
+          match Money::try_parse(42) {
+            Ok(m) => m.cents,
+            Err(e) => e.length(),
+          }
+        }
+        ",
+    )
+    .expect("write main");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_ambient"))
+        .arg("run")
+        .arg(dir.path())
+        .output()
+        .expect("spawn ambient");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "run failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("42"), "unexpected output:\n{stdout}");
+}
