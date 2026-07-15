@@ -43,11 +43,12 @@ runtime arguments, forwarded after any inner dictionaries the slot captured,
 matching the `impl ++ method` order the compiled impl method allocates its
 hidden trailing dictionaries in.
 
-Two trait-declaration features parse but are **not supported yet** and are
-rejected at the declaration site: trait-level type parameters (generic
-traits, `trait Container<T>`) and supertraits (`trait Sub with Base`). A
-method-level type parameter (`fn method<T: Bound>(...)`) covers many cases a
-generic trait otherwise would.
+A trait may also declare **trait-level type parameters** (`trait From<T>`) —
+see [Parameterized Traits](#parameterized-traits). Those parameters are pure
+argument slots: they take no bounds at the declaration (bound the impls and
+functions that use the trait instead). Supertraits (`trait Sub with Base`)
+parse but are **not supported yet** and are rejected at the declaration
+site.
 
 ## Implementing Traits
 
@@ -72,6 +73,86 @@ impl Eq for Money {
   }
 }
 ```
+
+## Parameterized Traits
+
+A trait may take type parameters, and each impl spells arguments for them:
+
+```ambient
+// (`From`/`Into` are already declared in core::convert and prelude-exported;
+// shown here for shape.)
+unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0019) trait From<T> {
+  fn from(value: T): Self;
+}
+
+impl From<Number> for Money {
+  fn from(value: Number): Money { Money { cents: value * 100 } }
+}
+impl From<String> for Money {
+  fn from(value: String): Money { ... }
+}
+```
+
+The two impls coexist: coherence keys on the trait identity, the
+implementing type's identity, _and_ each trait argument's **head** — the
+same head granularity conditional impl targets use, so `From<Number>` and
+`From<String>` are distinct impls while `From<Option<Number>>` and
+`From<Option<String>>` conflict. Every argument must have a nominal head (a
+struct, enum, primitive, or container); a bare impl parameter
+(`impl<T> From<T> for M`) would be a blanket impl and is rejected. Arguments
+_containing_ impl parameters are fine (`impl<T> From<List<T>> for Wrap<T>`),
+and the solver recovers the assignments by matching, exactly like a
+conditional impl's target. The dispatch symbol appends the argument heads to
+the trait segment (`<type-uuid>::<trait-uuid><H1>::<method>`), so
+argument-differing impls compile to distinct content-addressed functions.
+
+Bounds take arguments the same way (`fn f<T: From<String>>`,
+`T: Into<Money>`), and a bound only matches an impl at the same arguments.
+An argument may reference the declaration's other type parameters
+(`fn f<U, T: From<U>>`).
+
+Because a receiver alone no longer pins the impl, two call forms select
+among argument-differing impls:
+
+- **Associated calls select by argument**: `Money::from(x)` infers `x` first
+  and picks the impl whose parameter type matches. No match with a resolved
+  argument is a "not implemented" error; an unresolved argument asks for an
+  annotation.
+- **Zero-argument methods select by result**: `x.into()` resolves
+  immediately when one candidate exists; with several, selection defers
+  until the enclosing body settles the call's result type (a `let`
+  annotation, an argument position). A result nothing pins is a clear "add
+  an annotation" error, never a miscompile.
+
+### From and Into
+
+`From<T>`/`Into<T>` (`core::convert`, prelude-exported) are the conversion
+vocabulary: implement `From`, use either form. Their identities are reserved
+(`FFFF…-0019`/`-001A`, shape-pinned like the operator traits) because the
+checker's **bridge** anchors on the pair: `S: Into<T>` is satisfiable by
+`impl From<S> for T`, and `x.into()` considers every `From` impl whose
+source matches the receiver. The bridge is sound at runtime because the
+pinned shapes make both dictionaries a 1-tuple of one 1-argument function —
+a `From` dictionary _is_ an `Into` dictionary, so the bridge forwards
+`from`'s compiled method (or the enclosing `From` dictionary) wherever an
+`Into` one is required. A direct `Into` impl is allowed and wins over the
+bridge for its receiver.
+
+```ambient
+unique(...) struct Money { cents: Number }
+impl From<Number> for Money {
+  fn from(value: Number): Money { Money { cents: value * 100 } }
+}
+
+let a = Money::from(5);          // argument-directed
+let b: Money = 7.into();         // result-directed, via the From impl
+fn pay<T: Into<Money>>(x: T): Number { x.into().cents }
+pay(9)                           // the bound is satisfied by the From impl
+```
+
+One residual limit: an associated call on a _type parameter_ (`T::from(x)`
+under `T: From<Number>`, and likewise `T::default()`) is not supported yet —
+in generic code, convert with `x.into()` under an `Into` bound instead.
 
 ## Method Calls
 

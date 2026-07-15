@@ -1,8 +1,33 @@
 // Core library: value conversions.
 //
-// Conversions between primitive types, as `extern fn` declarations —
-// signatures owned here, implementations bound by the engine
-// (`natives/core/convert.rs`).
+// The `From<T>`/`Into<T>` conversion traits, plus conversions between
+// primitive types as `extern fn` declarations — signatures owned here,
+// implementations bound by the engine (`natives/core/convert.rs`).
+
+/// Conversion *from* a value of type `T`: implement `From<T> for Self` and
+/// construct with `Self::from(value)`. The declaration side of every
+/// conversion — implementing it also enables `value.into()` wherever the
+/// target type is known, and satisfies `T: Into<Self>` bounds, so `Into`
+/// never needs a manual impl.
+///
+/// The trait is parameterized (`impl From<Number> for Money` and
+/// `impl From<String> for Money` coexist); coherence keys on the argument's
+/// head type. Reserved identity: the checker's `Into` bridge anchors on
+/// this uuid, pinned by `validate_reserved_trait`.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0019) trait From<T> {
+    fn from(value: T): Self;
+}
+
+/// Conversion *into* a value of type `T`: the use side of a conversion
+/// (`let m: Money = cents.into();`, `fn pay<T: Into<Money>>(x: T)`).
+/// Satisfied automatically by the matching `From` impl — implement `From`,
+/// not this — but implementable directly for the rare conversion that can't
+/// name its source type as an impl target. Reserved identity, shape-pinned:
+/// `from(value)` and `into(self)` share one runtime shape, which is what
+/// lets a `From` impl stand in for an `Into` one.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF001A) trait Into<T> {
+    fn into(self): T;
+}
 
 /// Render any value as a human-readable string. Also the target of string
 /// interpolation: `"${x}"` desugars to `to_string`/`string::concat` calls.

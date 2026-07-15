@@ -261,8 +261,15 @@ pub(super) fn check_declared_types(
                 }
             }
             crate::ast::ItemKind::Trait(t) => {
+                // Trait-level parameters (`trait From<T>`) scope every
+                // method signature, exactly like an impl block's.
+                let trait_known = type_param_set(&t.type_params);
                 for m in &t.methods {
-                    let known = type_param_set(&m.type_params);
+                    let known: std::collections::HashSet<Arc<str>> = trait_known
+                        .iter()
+                        .cloned()
+                        .chain(m.type_params.iter().map(|tp| Arc::clone(&tp.name)))
+                        .collect();
                     let s = (m.span.start, m.span.end);
                     for (_, pty) in &m.params {
                         report_undefined_types(infer, pty, s, &known, errors);

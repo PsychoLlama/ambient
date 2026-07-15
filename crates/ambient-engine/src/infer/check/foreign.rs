@@ -297,6 +297,9 @@ fn register_foreign_impl(
 
     let mut impl_record =
         crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name).with_trait_args(trait_args);
+    // Mirror `check_single_impl`: every impl records its resolved target
+    // (conversion candidates read it as the produced type).
+    impl_record.target = Some(for_type.clone());
     if is_generic {
         // Bounds resolve by the `Fqn` the resolve pass wrote in the impl's
         // own module; unknown-trait errors are the defining module's to

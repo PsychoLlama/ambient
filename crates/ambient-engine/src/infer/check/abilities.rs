@@ -416,6 +416,24 @@ fn normalize_never_ret(
 /// canonical signature renderings are deterministic, so a foreign import
 /// matches the origin module's own registration without touching the
 /// (immutable) foreign AST.
+/// Render one method bound as its canonical-signature pseudo-parameter:
+/// `bound:<idx>:<TraitName>` for an argument-less bound (byte-identical to
+/// before trait arguments existed), with the arguments appended through the
+/// same canonical renderer otherwise (`bound:0:From<String>`).
+fn render_bound_pseudo_param(
+    renderer: &mut crate::ability_resolver::CanonicalTypeRenderer,
+    idx: usize,
+    bound: &crate::ast::TraitRef,
+) -> String {
+    let args = if bound.args.is_empty() {
+        String::new()
+    } else {
+        let parts: Vec<String> = bound.args.iter().map(|a| renderer.render(a)).collect();
+        format!("<{}>", parts.join(","))
+    };
+    format!("bound:{idx}:{}{args}", bound.name.name)
+}
+
 fn resolve_ability_def(
     infer: &mut Infer,
     def: &crate::ast::AbilityDef,
@@ -551,13 +569,7 @@ fn resolve_ability_def(
         // and switching to the uuid/Fqn would re-key every bounded ability
         // method (the platform ability ids are golden-pinned).
         for (idx, bound) in &bounds {
-            let args = if bound.args.is_empty() {
-                String::new()
-            } else {
-                let rendered: Vec<String> = bound.args.iter().map(|a| renderer.render(a)).collect();
-                format!("<{}>", rendered.join(","))
-            };
-            canon_params.push(format!("bound:{idx}:{}{args}", bound.name.name));
+            canon_params.push(render_bound_pseudo_param(&mut renderer, *idx, bound));
         }
 
         methods.push(DynMethod {

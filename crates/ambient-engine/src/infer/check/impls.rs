@@ -185,6 +185,11 @@ fn check_single_impl(
     // symbol through the same name→hash table as regular calls.
     let mut impl_record =
         crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name).with_trait_args(trait_args);
+    // Every impl records its resolved target: the solver only *matches* it
+    // for conditional impls, but conversion candidates read it as the
+    // produced type (`n.into()` needs the `From` impl's target to name the
+    // result).
+    impl_record.target = Some(for_type.clone());
     if is_generic {
         impl_record = impl_record.with_generic_target(for_type.clone(), impl_bounds);
     }

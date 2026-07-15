@@ -257,7 +257,11 @@ fn test_lower_impl_where_clause_folds_into_bounds() {
     match &module.items[1].kind {
         ItemKind::Impl(i) => {
             assert_eq!(i.type_params.len(), 1);
-            let bounds: Vec<&str> = i.type_params[0].bounds.iter().map(|b| &*b.name.name).collect();
+            let bounds: Vec<&str> = i.type_params[0]
+                .bounds
+                .iter()
+                .map(|b| &*b.name.name)
+                .collect();
             assert_eq!(bounds, ["Eq"]);
         }
         _ => panic!("Expected impl"),
@@ -273,7 +277,11 @@ fn test_lower_fn_where_clause_folds_into_bounds() {
     match &module.items[0].kind {
         ItemKind::Function(f) => {
             assert_eq!(f.type_params.len(), 1);
-            let bounds: Vec<&str> = f.type_params[0].bounds.iter().map(|b| &*b.name.name).collect();
+            let bounds: Vec<&str> = f.type_params[0]
+                .bounds
+                .iter()
+                .map(|b| &*b.name.name)
+                .collect();
             assert_eq!(bounds, ["Ord"]);
         }
         _ => panic!("Expected function"),
@@ -288,7 +296,11 @@ fn test_lower_fn_where_before_with() {
     let module = parse(source).expect("parse error");
     match &module.items[0].kind {
         ItemKind::Function(f) => {
-            let bounds: Vec<&str> = f.type_params[0].bounds.iter().map(|b| &*b.name.name).collect();
+            let bounds: Vec<&str> = f.type_params[0]
+                .bounds
+                .iter()
+                .map(|b| &*b.name.name)
+                .collect();
             assert_eq!(bounds, ["Eq", "Ord"]);
             assert_eq!(f.abilities.len(), 1);
         }

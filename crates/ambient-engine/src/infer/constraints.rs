@@ -390,7 +390,7 @@ impl Infer {
     /// `depth` counts the conditional-impl nesting so a non-terminating chain
     /// (`impl<T: Eq> Eq for Pair<Pair<T>>` applied to an ever-growing type)
     /// is cut off with a clear error rather than looping.
-    fn solve_bound(
+    pub(crate) fn solve_bound(
         &mut self,
         ty: &Type,
         bound: &TraitBound,
@@ -480,10 +480,18 @@ impl Infer {
             )));
         }
 
+        // Render the arguments into the diagnostic (`Unwrap<Number>`), so an
+        // args-mismatched impl reads as the missing instantiation it is.
+        let display: Arc<str> = if bound.args.is_empty() {
+            Arc::clone(&bound.name)
+        } else {
+            let args: Vec<String> = bound.args.iter().map(|a| format!("{a}")).collect();
+            Arc::from(format!("{}<{}>", bound.name, args.join(", ")))
+        };
         Err(Box::new(TypeError::new(
             TypeErrorKind::BoundNotSatisfied {
                 ty,
-                trait_name: Arc::clone(&bound.name),
+                trait_name: display,
             },
             span,
         )))
@@ -508,7 +516,12 @@ impl Infer {
             return Ok(None);
         }
         let mut subst: HashMap<Arc<str>, Type> = HashMap::new();
-        if let Some(target) = &imp.target
+        // Only a conditional impl's target is matched (to recover its
+        // parameter assignments and check coverage); a ground impl's
+        // identity was already keyed by `type_uuid`, and its recorded
+        // target may differ representationally from the receiver.
+        if imp.is_generic
+            && let Some(target) = &imp.target
             && !match_target(target, ty, &mut subst)
         {
             return Ok(None);
@@ -541,59 +554,6 @@ impl Infer {
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Some(DictSource::Impl { symbols }))
-    }
-
-    /// Satisfy `S: Into<T>` through a `From` impl: `T` rigid forwards the
-    /// enclosing declaration's `T: From<S>` dictionary directly (same
-    /// runtime shape); `T` concrete solves `T: From<S>` like any other
-    /// bound. `Ok(None)` means no bridge applies — the caller reports the
-    /// ordinary unsatisfied-`Into` error, so the diagnostic names the trait
-    /// the user actually wrote.
-    fn solve_into_via_from(
-        &mut self,
-        ty: &Type,
-        target: &Type,
-        bound: &TraitBound,
-        span: (u32, u32),
-        depth: u32,
-    ) -> Result<Option<DictSource>, BoxedTypeError> {
-        let target = self.apply(target);
-        let from_bound = TraitBound {
-            trait_uuid: crate::types::TRAIT_FROM_UUID,
-            name: Arc::from("From"),
-            args: vec![ty.clone()],
-        };
-        // Rigid target: the enclosing declaration must bound it
-        // `T: From<S>`; forward that dictionary as the Into dictionary.
-        if let Type::Param(name) = &target {
-            if let Some(dict_index) =
-                self.bound_param_index(name, from_bound.trait_uuid, &from_bound.args)
-            {
-                return Ok(Some(DictSource::Param { dict_index }));
-            }
-            return Ok(None);
-        }
-        if super::inherent::impl_key_for(&target)
-            .and_then(|k| k.uuid())
-            .is_some()
-        {
-            match self.solve_bound(&target, &from_bound, span, depth + 1) {
-                Ok(source) => return Ok(Some(source)),
-                Err(_) => return Ok(None),
-            }
-        }
-        if matches!(target, Type::Var(_)) {
-            return Err(Box::new(TypeError::new(
-                TypeErrorKind::CannotInfer {
-                    hint: format!(
-                        "conversion target constrained by `{}` (add an annotation)",
-                        bound.name
-                    ),
-                },
-                span,
-            )));
-        }
-        Ok(None)
     }
 
     /// Solve `ty: bound` through a conditional impl (`impl<T: Eq> Eq for
