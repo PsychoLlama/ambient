@@ -294,7 +294,7 @@ fn drain_unwinds_a_blocked_receive() {
       let listener = core::system::State::get!("listener");
       let conn = core::system::Tcp::accept!(listener).unwrap_or(-1);
       core::system::State::set!("conn", conn);
-      let msg = core::system::Tcp::receive!(conn).unwrap_or(Binary::from([]));
+      let msg = core::system::Tcp::receive!(conn).unwrap_or(Binary::empty());
       msg.length()
     }
     pub fn main(): Number with core::system::State, core::system::Tcp {

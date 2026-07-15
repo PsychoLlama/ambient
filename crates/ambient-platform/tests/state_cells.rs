@@ -482,7 +482,7 @@ fn listener_bound_in_gen_one_is_served_after_a_deploy() {
     pub fn serve(): Number with core::system::State, core::system::Tcp {{
       let listener = core::system::State::get!("listener");
       let conn = core::system::Tcp::accept!(listener).unwrap_or(-1);
-      let msg = core::system::Tcp::receive!(conn).unwrap_or(Binary::from([]));
+      let msg = core::system::Tcp::receive!(conn).unwrap_or(Binary::empty());
       core::system::Tcp::send!(conn, msg);
       core::system::Tcp::close!(conn);
       msg.length()

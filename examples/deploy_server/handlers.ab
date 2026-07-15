@@ -14,7 +14,7 @@ pub fn respond(conn: Number, request: Binary): () with Tcp, State, Stdio {
   let hits = State::update!("hits", (n: Number) => n + 1);
   let text = request.to_string().unwrap_or("");
   let reply = "${GREETING}: ${text} #${core::convert::to_string(hits)}";
-  match Tcp::send!(conn, Binary::from_string(reply)) {
+  match Tcp::send!(conn, Binary::from(reply)) {
     Ok(_) => (),
     Err(message) => Stdio::err!("send failed: ${message}"),
   }

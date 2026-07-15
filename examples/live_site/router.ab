@@ -19,7 +19,7 @@ pub fn route(conn: Number): () with Tcp, State, Stdio {
     "/stats" => page("200 OK", handlers::stats_page()),
     _ => page("404 Not Found", "<h1>no such page</h1>"),
   };
-  match Tcp::send_raw!(conn, Binary::from_string(response)) {
+  match Tcp::send_raw!(conn, Binary::from(response)) {
     Ok(_) => (),
     Err(message) => Stdio::err!("send failed: ${message}"),
   };

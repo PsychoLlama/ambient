@@ -335,6 +335,46 @@ fn same_head_trait_arguments_conflict() {
     .expect_error("duplicate");
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Core-library conversions
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The core library's own `From` impls — `From<Number> for String` and
+/// `From<String> for Binary`, both defined in `core` and prelude-exported —
+/// are usable as plain associated calls from a user package. This pins the
+/// cross-module foreign-impl registration path: the impls live in core, the
+/// caller here.
+#[test]
+fn core_from_impls_convert_primitives() {
+    CliTest::new(
+        r#"
+        fn run(): Number {
+          let s: String = String::from(42);
+          let b: Binary = Binary::from("hi");
+          s.length() + b.length()
+        }
+    "#,
+    )
+    .expect_output("4");
+}
+
+/// `value.into()` resolves to the core `From<Number> for String` impl when a
+/// `let: String` annotation pins the target — the everyday spelling for
+/// building a string from a number through a variable.
+#[test]
+fn into_selects_core_string_from_impl_via_annotation() {
+    CliTest::new(
+        r#"
+        fn run(): Number {
+          let n = 42;
+          let s: String = n.into();
+          s.length()
+        }
+    "#,
+    )
+    .expect_output("2");
+}
+
 /// A declaration claiming the reserved `From` uuid must match the canonical
 /// shape — the same hijack guard the operator traits get.
 #[test]

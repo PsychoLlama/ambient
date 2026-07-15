@@ -37,7 +37,7 @@ fn receive_pack(conn: Number): () with Tcp, Deploy, Stdio {
           "rejected: ${problem}"
         },
       };
-      match Tcp::send!(conn, Binary::from_string(report)) {
+      match Tcp::send!(conn, Binary::from(report)) {
         Ok(_) => (),
         Err(message) => Stdio::err!("report send failed: ${message}"),
       }

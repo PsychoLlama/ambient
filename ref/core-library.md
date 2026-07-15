@@ -116,7 +116,18 @@ Operations with no single receiver are **associated functions** on the type,
 called `Type::name(...)` — the low-level externs they delegate to are
 module-private, so the type is the whole public surface:
 `List::range(start, end)`, `Map::empty()`, `Set::empty()`,
-`Binary::from(bytes)`, and `String::{join, from_number, from_bool}`.
+`Binary::empty()`, and `String::join`. (`Binary::empty()` stays an associated
+function rather than a `From` impl: an empty list literal can't infer its
+element type through argument-directed `From` selection.)
+
+Conversions between types are `From` impls (prelude-exported, always in
+scope): `String::from(n)`/`String::from(b)` render a `Number`/`Bool`, and
+`Binary::from(bytes)`/`Binary::from(s)` build a buffer from a `List<Number>`
+or a string's UTF-8 bytes. Argument-directed selection lets both `Binary`
+constructors coexist (their argument heads differ), and each is equivalently
+spelled `value.into()` where the target type is known. `Binary::to_string`
+stays a receiver method: it returns `Option<String>` (decoding can fail), so
+it is not `From`-shaped.
 
 The one operation that stays a qualified module free function is
 `core::option::flatten(opt)` — its receiver would be `Option<Option<U>>`,

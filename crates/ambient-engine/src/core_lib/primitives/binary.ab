@@ -3,8 +3,11 @@
 // The low-level operations are `extern fn` declarations — signatures owned
 // here, implementations bound by the engine (`natives/core/binary.rs`). They
 // are module-private: the whole public surface is the inherent `impl Binary`
-// below, whether receiver methods (`b.length()`) or the associated
-// constructor `Binary::from(bytes)`.
+// below (receiver methods `b.length()`, `b.slice(0, 4)`, ...) plus the two
+// `From` impls at the end of the file. Construction is argument-directed
+// `From`: `Binary::from(bytes)` (a `List<Number>`) and `Binary::from(text)`
+// (a `String`'s UTF-8 bytes) coexist because their argument heads differ —
+// each equivalently spelled `value.into()`.
 
 // `Binary` is an engine-provided primitive: user code may name it and pattern on
 // its literals, but the value has no source constructor. The `unique(...)` uuid
@@ -29,12 +32,16 @@ extern fn from_string(text: String): Binary;
 /// The buffer decoded as UTF-8 text, if valid.
 extern fn to_string(bytes: Binary): Option<String>;
 
-// The public surface: `Binary::from(bytes)` to construct, then receiver
-// methods (`b.length()`, `b.slice(0, 4)`, ...) over the externs above.
+// The public surface: `Binary::from(...)` to construct (the `From` impls
+// below), then receiver methods (`b.length()`, `b.slice(0, 4)`, ...) over the
+// externs above.
 impl Binary {
-    // A buffer from a list of byte values (each truncated into 0..=255).
-    fn from(bytes: List<Number>): Binary {
-        from(bytes)
+    // An empty buffer. `Binary::from([])` cannot infer the element type of the
+    // empty literal through argument-directed `From` selection, so the
+    // zero-byte constructor is a plain associated function; it delegates to the
+    // byte extern, whose `List<Number>` parameter pins the literal.
+    fn empty(): Binary {
+        from([])
     }
     // The bytes as a list of numbers.
     fn to_list(self): List<Number> {
@@ -60,12 +67,23 @@ impl Binary {
     fn concat(self, other: Binary): Binary {
         concat(self, other)
     }
-    // The UTF-8 bytes of a string.
-    fn from_string(text: String): Binary {
-        from_string(text)
-    }
     // The buffer decoded as UTF-8 text, if valid.
     fn to_string(self): Option<String> {
         to_string(self)
+    }
+}
+
+// A buffer from a list of byte values (each truncated into 0..=255):
+// `Binary::from(bytes)` (equivalently `bytes.into()`).
+impl From<List<Number>> for Binary {
+    fn from(value: List<Number>): Binary {
+        from(value)
+    }
+}
+
+// The UTF-8 bytes of a string: `Binary::from(s)` (equivalently `s.into()`).
+impl From<String> for Binary {
+    fn from(value: String): Binary {
+        from_string(value)
     }
 }

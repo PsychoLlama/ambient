@@ -95,7 +95,7 @@ fn send_and_receive<A>(conn: Number, arg: A, thunk: (A) -> Number with Log, Stdi
 
 /// Handle server response.
 fn handle_response<A>(conn: Number, thunk: (A) -> Number with Log, Stdio): Number with Stdio, Tcp, Execute {
-    let response = Tcp::receive!(conn).unwrap_or(Binary::from([]));
+    let response = Tcp::receive!(conn).unwrap_or(Binary::empty());
 
     if response.length() == 0 {
         Stdio::out!("Client: connection closed");

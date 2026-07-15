@@ -50,7 +50,7 @@ pub fn run(): () with Stdio, Tcp, FileSystem, Env, Exception {
 
 /// One framed request/reply round-trip.
 fn request(conn: Number, text: String): String with Tcp, Exception {
-  match Tcp::send!(conn, Binary::from_string(text)) {
+  match Tcp::send!(conn, Binary::from(text)) {
     Ok(_) => (),
     Err(message) => throw!("send failed: ${message}"),
   };

@@ -62,7 +62,7 @@ pub fn run(): () with Stdio, Tcp, Execute, Env, Exception {
 
 /// Serve a remote execution request.
 fn serve_request(conn: Number): () with Stdio, Tcp, Execute {
-    let bytes = Tcp::receive!(conn).unwrap_or(Binary::from([]));
+    let bytes = Tcp::receive!(conn).unwrap_or(Binary::empty());
 
     if bytes.length() == 0 {
         Stdio::out!("Server: connection closed")
@@ -113,7 +113,7 @@ fn request_function(conn: Number, hash: String): () with Stdio, Tcp, Execute {
     Tcp::send!(conn, msg);
 
     // Receive Provide message
-    let response = Tcp::receive!(conn).unwrap_or(Binary::from([]));
+    let response = Tcp::receive!(conn).unwrap_or(Binary::empty());
     let msg_type = response.get(0).unwrap_or(0);
 
     if msg_type == 3 {

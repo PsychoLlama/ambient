@@ -553,7 +553,7 @@ mod tests {
 use core::system::Deploy;
 
 pub fn run(): String with Deploy {
-  match Deploy::apply!(Binary::from_string("not a real pack"), "run") {
+  match Deploy::apply!(Binary::from("not a real pack"), "run") {
     Ok(report) => report,
     Err(problem) => problem,
   }

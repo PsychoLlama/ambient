@@ -4,9 +4,10 @@
 // here, implementations bound by the engine (`natives/core/string.rs`). They
 // are module-private: the whole public string API lives on the inherent
 // `impl String` below, whether receiver methods (`s.length()`, `s.to_upper()`,
-// ...) or the associated functions with no single `String` receiver
-// (`String::from_number`/`String::from_bool` build a string from another type,
-// `String::join` flattens a `List<String>`).
+// ...) or the associated function `String::join` (flattens a `List<String>`),
+// plus the `From` conversions at the end of the file (`String::from(n)` /
+// `String::from(b)`, equivalently `n.into()`, build a string from another
+// type).
 
 // `String` is an engine-provided primitive: user code may name it and pattern
 // on its literals, but the value has no source constructor (`String {}` is
@@ -54,21 +55,14 @@ extern fn reverse(value: String): String;
 extern fn compare(a: String, b: String): Number;
 
 // Method forms: `s.length()`, `s.to_upper()`, ... plus the associated
-// functions with no `String` receiver (`String::join`, `String::from_number`,
-// `String::from_bool`). The inherent impl attaches these to the type itself;
-// these (over the externs above) are the canonical core API.
+// function with no `String` receiver (`String::join`). The inherent impl
+// attaches these to the type itself; these (over the externs above) are the
+// canonical core API. Building a string from another primitive lives in the
+// `From` impls below (`String::from(n)` / `String::from(b)`).
 impl String {
     // Join `parts` with `sep` between elements.
     fn join(parts: List<String>, sep: String): String {
         join(parts, sep)
-    }
-    // Build a string from a number.
-    fn from_number(n: Number): String {
-        core::convert::to_string(n)
-    }
-    // Build a string from a bool.
-    fn from_bool(b: Bool): String {
-        if b { "true" } else { "false" }
     }
     // Number of characters in the string.
     fn length(self): Number {
@@ -159,5 +153,20 @@ impl String {
     // Split into lines.
     fn lines(self): List<String> {
         split(self, "\n")
+    }
+}
+
+// Build a string from another primitive: `String::from(n)` (equivalently
+// `n.into()`). The number rendering must stay byte-identical to the host
+// `to_string`, which example oracles depend on.
+impl From<Number> for String {
+    fn from(value: Number): String {
+        core::convert::to_string(value)
+    }
+}
+
+impl From<Bool> for String {
+    fn from(value: Bool): String {
+        if value { "true" } else { "false" }
     }
 }

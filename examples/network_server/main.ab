@@ -45,7 +45,7 @@ pub fn run(): () with Stdio, Tcp, Exception {
 /// Echo messages back to the client until an empty message is received.
 fn echo_loop(conn: Number): () with Stdio, Tcp {
     // A receive error reads as an empty message, which ends the loop.
-    let msg = Tcp::receive!(conn).unwrap_or(Binary::from([]));
+    let msg = Tcp::receive!(conn).unwrap_or(Binary::empty());
     let len = msg.length();
 
     if len > 0 {

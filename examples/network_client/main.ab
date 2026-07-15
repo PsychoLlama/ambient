@@ -37,12 +37,12 @@ pub fn run(): () with Stdio, Tcp, Exception {
     Tcp::send!(conn, message);
 
     // Receive the echo (a receive error reads as an empty response).
-    let response = Tcp::receive!(conn).unwrap_or(Binary::from([]));
+    let response = Tcp::receive!(conn).unwrap_or(Binary::empty());
     Stdio::out!("Client: received ".concat(core::convert::to_string(response.length()).concat(" bytes back")));
 
     // Send empty message to signal quit
     Stdio::out!("Client: sending empty message to quit...");
-    Tcp::send!(conn, Binary::from([]));
+    Tcp::send!(conn, Binary::empty());
 
     Tcp::close!(conn);
     Stdio::out!("Client: done")
