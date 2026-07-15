@@ -45,8 +45,8 @@ pub fn missing_impl_members_at_offset(
     offset: u32,
 ) -> Option<MissingImplMembers> {
     let (impl_span, impl_def) = impl_at_item_position(module, offset)?;
-    let trait_ref = impl_def.trait_name.as_ref()?;
-    let trait_def = resolve_trait_def(module, module_path, registry, &trait_ref.name)?;
+    let implemented = impl_def.trait_name.as_ref()?;
+    let trait_def = resolve_trait_def(module, module_path, registry, &implemented.name)?;
 
     let methods = trait_def
         .methods

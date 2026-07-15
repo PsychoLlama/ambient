@@ -386,6 +386,24 @@ pub(crate) fn range_in_file(
     lsp_types::Range::default()
 }
 
+/// Wrap markdown hover content — with an optional highlight span — as a
+/// response. Every hover probe renders through this.
+fn hover_response(
+    id: RequestId,
+    doc: &crate::documents::Document,
+    content: String,
+    span: Option<ambient_engine::ast::Span>,
+) -> Response {
+    let hover = Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: content,
+        }),
+        range: span.map(|s| offset_range_to_lsp_range(doc, s.start as usize, s.end as usize)),
+    };
+    Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null))
+}
+
 /// Handle hover request.
 fn handle_hover(id: RequestId, params: &HoverParams, state: &ServerState) -> Response {
     let uri = &params.text_document_position_params.text_document.uri;
@@ -409,50 +427,19 @@ fn handle_hover(id: RequestId, params: &HoverParams, state: &ServerState) -> Res
     // First, check if hovering over a module path in a use statement.
     if let Some(target) = find_use_module_at_offset(module, &analysis.module_path, registry, offset)
     {
-        let content = format_module_hover(&target, registry);
-        let hover = Hover {
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: content,
-            }),
-            range: None,
-        };
-        return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
+        return hover_response(id, doc, format_module_hover(&target, registry), None);
     }
 
     // Next, try to find an item definition at this position (hovering over a name).
     if let Some(item) = find_item_at_offset(module, offset) {
-        let content = format_item_hover(item);
-        let hover = Hover {
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: content,
-            }),
-            range: Some(offset_range_to_lsp_range(
-                doc,
-                item.span.start as usize,
-                item.span.end as usize,
-            )),
-        };
-        return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
+        return hover_response(id, doc, format_item_hover(item), Some(item.span));
     }
 
     // An associated type's name — a trait's `type Out;` declaration or an
     // impl's `type Out = T;` binding — renders with its owner for context.
     if let Some(assoc) = crate::analysis::find_assoc_type_at_offset(module, offset) {
         let (content, span) = crate::hover_format::format_assoc_type_hover(&assoc);
-        let hover = Hover {
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: content,
-            }),
-            range: Some(offset_range_to_lsp_range(
-                doc,
-                span.start as usize,
-                span.end as usize,
-            )),
-        };
-        return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
+        return hover_response(id, doc, content, Some(span));
     }
 
     // A method call/perform whose name is under the cursor: render the resolved
@@ -462,18 +449,7 @@ fn handle_hover(id: RequestId, params: &HoverParams, state: &ServerState) -> Res
         && let SymbolTarget::Method { .. } = &occ.target
         && let Some(content) = method_hover_content(state, registry, &occ.target)
     {
-        let hover = Hover {
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: content,
-            }),
-            range: Some(offset_range_to_lsp_range(
-                doc,
-                occ.span.start as usize,
-                occ.span.end as usize,
-            )),
-        };
-        return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
+        return hover_response(id, doc, content, Some(occ.span));
     }
 
     // A callsite/reference to an item (function, const, struct, …): resolve
@@ -482,17 +458,8 @@ fn handle_hover(id: RequestId, params: &HoverParams, state: &ServerState) -> Res
     // for package items and builtins alike. Locals are excluded by
     // `definition_item` (they keep type-shaped hover below).
     if let Some(item) = definition_item(module, &analysis.module_path, registry, offset) {
-        let content = format_item_hover(item);
         let expr_span = find_expr_at_offset(module, offset).map(|e| e.span);
-        let hover = Hover {
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: content,
-            }),
-            range: expr_span
-                .map(|span| offset_range_to_lsp_range(doc, span.start as usize, span.end as usize)),
-        };
-        return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
+        return hover_response(id, doc, format_item_hover(item), expr_span);
     }
 
     // Fall back to expression-level hover.
@@ -505,15 +472,7 @@ fn handle_hover(id: RequestId, params: &HoverParams, state: &ServerState) -> Res
         && let Some(target) =
             find_qname_module_at_offset(&analysis.module_path, registry, qname, offset)
     {
-        let content = format_module_hover(&target, registry);
-        let hover = Hover {
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: content,
-            }),
-            range: None,
-        };
-        return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
+        return hover_response(id, doc, format_module_hover(&target, registry), None);
     }
 
     // Build hover content based on expression kind.

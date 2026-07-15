@@ -371,7 +371,9 @@ fn test_impl_body_stub_completion_survives_partial_fn() {
     // `fn sh` breaks the impl item out of the live AST; completion heals the
     // text and still offers the trait's methods.
     LspTest::new()
-        .with_source(&format!("{STUB_HEADER}impl Show for Point {{ fn sh/*|*/ }}"))
+        .with_source(&format!(
+            "{STUB_HEADER}impl Show for Point {{ fn sh/*|*/ }}"
+        ))
         .complete_at("0")
         .expect_item("show")
         .done()
@@ -381,7 +383,9 @@ fn test_impl_body_stub_completion_survives_partial_fn() {
 #[test]
 fn test_impl_body_stub_completion_survives_partial_type() {
     LspTest::new()
-        .with_source(&format!("{STUB_HEADER}impl Show for Point {{ type O/*|*/ }}"))
+        .with_source(&format!(
+            "{STUB_HEADER}impl Show for Point {{ type O/*|*/ }}"
+        ))
         .complete_at("0")
         .expect_item("Out")
         .done()
@@ -445,7 +449,9 @@ const DOT_HEADER: &str = "unique(A1B2C3D4-0000-0000-0000-000000000001) struct Po
 fn test_dot_completes_record_fields() {
     // `p.x` parses, so the receiver type comes straight off the live AST.
     LspTest::new()
-        .with_source(&format!("{DOT_HEADER}fn f(p: Point): Number {{ p.x/*|*/ }}"))
+        .with_source(&format!(
+            "{DOT_HEADER}fn f(p: Point): Number {{ p.x/*|*/ }}"
+        ))
         .complete_at("0")
         .expect_item("x")
         .expect_item_kind("x", CompletionItemKind::FIELD)

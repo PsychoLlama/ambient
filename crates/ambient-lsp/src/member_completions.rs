@@ -1,12 +1,14 @@
-//! Trait-member stub completion inside `impl` bodies: the implemented
-//! trait's unimplemented methods and unbound associated types, rendered as
-//! insertable snippets. Which members are missing is decided by
-//! `ambient-analysis` (`missing_impl_members_at_offset`); this module only
-//! renders.
+//! Member completion rendering: trait-member stubs inside `impl` bodies, and
+//! field/method completion after a `.` on a typed receiver. Which members
+//! exist is decided by `ambient-analysis` (`missing_impl_members_at_offset`,
+//! `receiver_members`); this module only renders — plus the completion-time
+//! source healing that keeps those queries answerable mid-keystroke.
 
-use ambient_engine::ast::{Module, TraitMethod};
+use ambient_analysis::queries::{MissingImplMembers, ReceiverMember};
+use ambient_engine::ast::{Module, TraitAssocType, TraitMethod};
 use ambient_engine::module_path::ModulePath;
 use ambient_engine::module_registry::ModuleRegistry;
+use ambient_engine::types::Type;
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionItemLabelDetails, InsertTextFormat};
 
 use crate::analysis::format_type;
@@ -23,49 +25,9 @@ pub(crate) fn get_impl_member_completions(
     module_path: &ModulePath,
     registry: &ModuleRegistry,
 ) -> Vec<CompletionItem> {
-    #[allow(clippy::cast_possible_truncation)]
-    let missing = ambient_analysis::queries::missing_impl_members_at_offset(
-        module,
-        module_path,
-        registry,
-        offset as u32,
-    );
-
-    // A partial member (`fn sh`) breaks the whole impl item out of the live
-    // AST — exactly when stub completion matters most. If the cursor's typed
-    // word belongs to no parsed item, blank it out (offset-preserving) and
-    // re-check the healed text, then ask the same question of that module.
-    let healed;
-    let missing = match missing {
-        Some(missing) => missing,
-        None => {
-            let enclosed = module
-                .items
-                .iter()
-                .any(|i| offset as u32 >= i.span.start && offset as u32 <= i.span.end);
-            let Some(healed_src) = (!enclosed)
-                .then(|| blank_current_member(source, offset))
-                .flatten()
-            else {
-                return Vec::new();
-            };
-            let Some(module) =
-                ambient_analysis::healed_module_for_completion(&healed_src, module_path, registry)
-            else {
-                return Vec::new();
-            };
-            healed = module;
-            #[allow(clippy::cast_possible_truncation)]
-            let Some(missing) = ambient_analysis::queries::missing_impl_members_at_offset(
-                &healed,
-                module_path,
-                registry,
-                offset as u32,
-            ) else {
-                return Vec::new();
-            };
-            missing
-        }
+    let Some(missing) = missing_members_with_healing(source, offset, module, module_path, registry)
+    else {
+        return Vec::new();
     };
 
     // Item position is only *inside the braces*: the query's span check can't
@@ -87,64 +49,102 @@ pub(crate) fn get_impl_member_completions(
     let type_spelled = before_word.ends_with("type");
 
     let mut items = Vec::new();
-
     for assoc in &missing.assoc_types {
         // `"type".starts_with(prefix)` keeps the stub visible while the
         // introducer itself is being typed.
-        if !(assoc.name.starts_with(prefix) || "type".starts_with(prefix)) {
-            continue;
+        if assoc.name.starts_with(prefix) || "type".starts_with(prefix) {
+            items.push(assoc_stub_item(assoc, &missing.trait_name, type_spelled));
         }
-        let binding = format!("{} = ${{1:Type}};", assoc.name);
-        items.push(CompletionItem {
-            label: assoc.name.to_string(),
-            kind: Some(CompletionItemKind::TYPE_PARAMETER),
-            detail: Some(format!("type {} = …;", assoc.name)),
-            label_details: Some(CompletionItemLabelDetails {
-                detail: None,
-                description: Some(format!("bind {}::{}", missing.trait_name, assoc.name)),
-            }),
-            filter_text: Some(format!("type {}", assoc.name)),
-            sort_text: Some(format!("0_{}", assoc.name)),
-            insert_text: Some(if type_spelled {
-                binding
-            } else {
-                format!("type {binding}")
-            }),
-            insert_text_format: Some(InsertTextFormat::SNIPPET),
-            ..Default::default()
-        });
     }
-
     for method in &missing.methods {
-        if !(method.name.starts_with(prefix) || "fn".starts_with(prefix)) {
-            continue;
+        if method.name.starts_with(prefix) || "fn".starts_with(prefix) {
+            items.push(method_stub_item(method, &missing.trait_name, fn_spelled));
         }
-        let header = method_header(method);
-        let stub = format!(
-            "{} {{\n    $0\n}}",
-            header.strip_prefix("fn ").unwrap_or(&header)
-        );
-        items.push(CompletionItem {
-            label: method.name.to_string(),
-            kind: Some(CompletionItemKind::METHOD),
-            detail: Some(header.clone()),
-            label_details: Some(CompletionItemLabelDetails {
-                detail: None,
-                description: Some(format!("implement {}::{}", missing.trait_name, method.name)),
-            }),
-            filter_text: Some(format!("fn {}", method.name)),
-            sort_text: Some(format!("0_{}", method.name)),
-            insert_text: Some(if fn_spelled {
-                stub
-            } else {
-                format!("fn {stub}")
-            }),
-            insert_text_format: Some(InsertTextFormat::SNIPPET),
-            ..Default::default()
-        });
     }
-
     items
+}
+
+/// The missing-members query, with the completion heal as fallback.
+///
+/// A partial member (`fn sh`) breaks the whole impl item out of the live AST
+/// — exactly when stub completion matters most. If the cursor's typed word
+/// belongs to no parsed item, blank it out (offset-preserving) and re-check
+/// the healed text, then ask the same question of that module. The enclosure
+/// gate keeps healing off every clean-parse path.
+fn missing_members_with_healing(
+    source: &str,
+    offset: usize,
+    module: &Module,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> Option<MissingImplMembers> {
+    let at = u32::try_from(offset).ok()?;
+    if let Some(missing) =
+        ambient_analysis::queries::missing_impl_members_at_offset(module, module_path, registry, at)
+    {
+        return Some(missing);
+    }
+    let enclosed = module
+        .items
+        .iter()
+        .any(|i| at >= i.span.start && at <= i.span.end);
+    if enclosed {
+        return None;
+    }
+    let healed_src = blank_current_member(source, offset)?;
+    let healed =
+        ambient_analysis::healed_module_for_completion(&healed_src, module_path, registry)?;
+    ambient_analysis::queries::missing_impl_members_at_offset(&healed, module_path, registry, at)
+}
+
+/// A `type X = …;` binding stub for a trait's associated type.
+fn assoc_stub_item(assoc: &TraitAssocType, trait_name: &str, type_spelled: bool) -> CompletionItem {
+    let binding = format!("{} = ${{1:Type}};", assoc.name);
+    CompletionItem {
+        label: assoc.name.to_string(),
+        kind: Some(CompletionItemKind::TYPE_PARAMETER),
+        detail: Some(format!("type {} = …;", assoc.name)),
+        label_details: Some(CompletionItemLabelDetails {
+            detail: None,
+            description: Some(format!("bind {trait_name}::{}", assoc.name)),
+        }),
+        filter_text: Some(format!("type {}", assoc.name)),
+        sort_text: Some(format!("0_{}", assoc.name)),
+        insert_text: Some(if type_spelled {
+            binding
+        } else {
+            format!("type {binding}")
+        }),
+        insert_text_format: Some(InsertTextFormat::SNIPPET),
+        ..Default::default()
+    }
+}
+
+/// A full `fn …(…): … { }` stub for a trait method.
+fn method_stub_item(method: &TraitMethod, trait_name: &str, fn_spelled: bool) -> CompletionItem {
+    let header = method_header(method);
+    let stub = format!(
+        "{} {{\n    $0\n}}",
+        header.strip_prefix("fn ").unwrap_or(&header)
+    );
+    CompletionItem {
+        label: method.name.to_string(),
+        kind: Some(CompletionItemKind::METHOD),
+        detail: Some(header.clone()),
+        label_details: Some(CompletionItemLabelDetails {
+            detail: None,
+            description: Some(format!("implement {trait_name}::{}", method.name)),
+        }),
+        filter_text: Some(format!("fn {}", method.name)),
+        sort_text: Some(format!("0_{}", method.name)),
+        insert_text: Some(if fn_spelled {
+            stub
+        } else {
+            format!("fn {stub}")
+        }),
+        insert_text_format: Some(InsertTextFormat::SNIPPET),
+        ..Default::default()
+    }
 }
 
 /// Completions after a `.` on a value: the receiver's record fields and the
@@ -196,56 +196,67 @@ pub(crate) fn get_dot_completions(
         .into_iter()
         .filter(|m| m.name().starts_with(prefix))
         .map(|member| match member {
-            ambient_analysis::queries::ReceiverMember::Field { name, ty } => {
-                let type_str = format_type(&ty);
-                CompletionItem {
-                    label: name.to_string(),
-                    kind: Some(CompletionItemKind::FIELD),
-                    detail: Some(format!("{name}: {type_str}")),
-                    label_details: Some(CompletionItemLabelDetails {
-                        detail: Some(format!(": {type_str}")),
-                        description: None,
-                    }),
-                    sort_text: Some(format!("0_{name}")),
-                    ..Default::default()
-                }
-            }
-            ambient_analysis::queries::ReceiverMember::Method {
+            ReceiverMember::Field { name, ty } => field_item(&name, &ty),
+            ReceiverMember::Method {
                 name,
                 params,
                 ret_ty,
                 trait_name,
-            } => {
-                let rendered: Vec<String> = params
-                    .iter()
-                    .map(|(p, ty)| match ty {
-                        Some(ty) => format!("{p}: {}", format_type(ty)),
-                        None => p.to_string(),
-                    })
-                    .collect();
-                let ret = ret_ty.as_ref().map_or("_".to_string(), format_type);
-                let signature = format!("({}): {ret}", rendered.join(", "));
-                let placeholders: Vec<String> = params
-                    .iter()
-                    .enumerate()
-                    .map(|(i, (p, _))| format!("${{{}:{p}}}", i + 1))
-                    .collect();
-                CompletionItem {
-                    label: name.to_string(),
-                    kind: Some(CompletionItemKind::METHOD),
-                    detail: Some(format!("fn {name}{signature}")),
-                    label_details: Some(CompletionItemLabelDetails {
-                        detail: Some(signature),
-                        description: trait_name.map(|t| t.to_string()),
-                    }),
-                    sort_text: Some(format!("1_{name}")),
-                    insert_text: Some(format!("{name}({})", placeholders.join(", "))),
-                    insert_text_format: Some(InsertTextFormat::SNIPPET),
-                    ..Default::default()
-                }
-            }
+            } => method_call_item(&name, &params, ret_ty.as_ref(), trait_name),
         })
         .collect()
+}
+
+/// A record-field completion.
+fn field_item(name: &str, ty: &Type) -> CompletionItem {
+    let type_str = format_type(ty);
+    CompletionItem {
+        label: name.to_string(),
+        kind: Some(CompletionItemKind::FIELD),
+        detail: Some(format!("{name}: {type_str}")),
+        label_details: Some(CompletionItemLabelDetails {
+            detail: Some(format!(": {type_str}")),
+            description: None,
+        }),
+        sort_text: Some(format!("0_{name}")),
+        ..Default::default()
+    }
+}
+
+/// A method-call completion with parameter placeholders.
+fn method_call_item(
+    name: &str,
+    params: &[(std::sync::Arc<str>, Option<Type>)],
+    ret_ty: Option<&Type>,
+    trait_name: Option<std::sync::Arc<str>>,
+) -> CompletionItem {
+    let rendered: Vec<String> = params
+        .iter()
+        .map(|(p, ty)| match ty {
+            Some(ty) => format!("{p}: {}", format_type(ty)),
+            None => p.to_string(),
+        })
+        .collect();
+    let ret = ret_ty.map_or("_".to_string(), format_type);
+    let signature = format!("({}): {ret}", rendered.join(", "));
+    let placeholders: Vec<String> = params
+        .iter()
+        .enumerate()
+        .map(|(i, (p, _))| format!("${{{}:{p}}}", i + 1))
+        .collect();
+    CompletionItem {
+        label: name.to_string(),
+        kind: Some(CompletionItemKind::METHOD),
+        detail: Some(format!("fn {name}{signature}")),
+        label_details: Some(CompletionItemLabelDetails {
+            detail: Some(signature),
+            description: trait_name.map(|t| t.to_string()),
+        }),
+        sort_text: Some(format!("1_{name}")),
+        insert_text: Some(format!("{name}({})", placeholders.join(", "))),
+        insert_text_format: Some(InsertTextFormat::SNIPPET),
+        ..Default::default()
+    }
 }
 
 /// Blank the in-progress member text at the cursor — the current word plus a
