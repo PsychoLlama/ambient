@@ -852,3 +852,73 @@ fn convert<T>(x: T): T
             (identifier)))))
     body: (block
       (identifier))))
+
+================================================================================
+Trait with an associated type
+================================================================================
+
+unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF001B) trait TryFrom<T> {
+  type Error;
+  fn try_from(value: T): Result<Self, Self::Error>;
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (trait_definition
+    (unique_modifier
+      (uuid))
+    name: (identifier)
+    (type_parameters
+      (type_parameter
+        name: (identifier)))
+    (associated_type
+      name: (identifier))
+    (trait_method
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (identifier)))
+      return_type: (generic_type
+        (identifier)
+        (identifier)
+        (scoped_identifier
+          path: (identifier)
+          name: (identifier))))))
+
+================================================================================
+Impl with an associated type binding
+================================================================================
+
+impl TryFrom<String> for Number {
+  type Error = String;
+  fn try_from(value: String): Result<Number, String> { Err(value) }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (impl_definition
+    trait: (generic_type
+      (identifier)
+      (identifier))
+    type: (identifier)
+    (associated_type
+      name: (identifier)
+      type: (identifier))
+    (function_definition
+      name: (identifier)
+      (parameter_list
+        (parameter
+          name: (identifier)
+          type: (identifier)))
+      return_type: (generic_type
+        (identifier)
+        (identifier)
+        (identifier))
+      body: (block
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier)))))))

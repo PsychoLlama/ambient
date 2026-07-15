@@ -53,6 +53,16 @@
 (trait_bound
   name: (scoped_identifier
     name: (identifier) @type))
+
+; An associated type item (`type Error;` in a trait, `type Error = T;` in an
+; impl) declares/binds a type name.
+(associated_type
+  name: (identifier) @type)
+
+; An associated type item (`type Error;` in a trait, `type Error = T;` in an
+; impl) declares/binds a type name.
+(associated_type
+  name: (identifier) @type)
 (handler_type "Handler" @type.builtin)
 (ability_type "Ability" @type.builtin)
 

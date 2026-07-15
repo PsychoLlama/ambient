@@ -64,6 +64,7 @@ mod expr;
 pub(crate) mod fingerprints;
 pub mod inherent;
 mod pattern;
+pub(crate) mod target_match;
 mod unify;
 
 pub use check::{

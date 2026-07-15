@@ -222,8 +222,20 @@ module.exports = grammar({
         field("name", $.identifier),
         optional($.type_parameters),
         "{",
-        repeat($.trait_method),
+        repeat(choice($.associated_type, $.trait_method)),
         "}"
+      ),
+
+    // An associated type item: declared in a trait body (`type Error;`),
+    // bound in an impl body (`type Error = String;`). One rule covers both
+    // (the value is optional); the compiler enforces which form is legal
+    // where.
+    associated_type: ($) =>
+      seq(
+        "type",
+        field("name", $.identifier),
+        optional(seq("=", field("type", $._type))),
+        ";"
       ),
 
     trait_method: ($) =>
@@ -249,7 +261,7 @@ module.exports = grammar({
         field("type", $._type),
         optional($.where_clause),
         "{",
-        repeat($.function_definition),
+        repeat(choice($.associated_type, $.function_definition)),
         "}"
       ),
 
@@ -346,6 +358,9 @@ module.exports = grammar({
     _type: ($) =>
       choice(
         $.identifier,
+        // Qualified type heads: a module path (`core::time::Duration`) or an
+        // associated-type projection (`Self::Error`).
+        $.scoped_identifier,
         $.generic_type,
         $.function_type,
         $.tuple_type,

@@ -44,11 +44,12 @@ matching the `impl ++ method` order the compiled impl method allocates its
 hidden trailing dictionaries in.
 
 A trait may also declare **trait-level type parameters** (`trait From<T>`) —
-see [Parameterized Traits](#parameterized-traits). Those parameters are pure
-argument slots: they take no bounds at the declaration (bound the impls and
-functions that use the trait instead). Supertraits (`trait Sub with Base`)
-parse but are **not supported yet** and are rejected at the declaration
-site.
+see [Parameterized Traits](#parameterized-traits) — and **associated types**
+(`type Error;`) — see [Associated Types](#associated-types). Trait-level
+parameters are pure argument slots: they take no bounds at the declaration
+(bound the impls and functions that use the trait instead). Supertraits
+(`trait Sub with Base`) parse but are **not supported yet** and are rejected
+at the declaration site.
 
 ## Implementing Traits
 
@@ -153,6 +154,86 @@ pay(9)                           // the bound is satisfied by the From impl
 One residual limit: an associated call on a _type parameter_ (`T::from(x)`
 under `T: From<Number>`, and likewise `T::default()`) is not supported yet —
 in generic code, convert with `x.into()` under an `Into` bound instead.
+
+## Associated Types
+
+A trait may declare **associated types**: named type slots each impl must
+fill. The declaration is `type Name;` in the trait body; every impl binds
+each name with `type Name = SomeType;`; the trait's method signatures
+reference them as `Self::Name`:
+
+```ambient
+// (`TryFrom`/`TryInto` are already declared in core::convert and
+// prelude-exported; shown here for shape.)
+unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF001B) trait TryFrom<T> {
+  type Error;
+  fn try_from(value: T): Result<Self, Self::Error>;
+}
+
+impl TryFrom<String> for Money {
+  type Error = String;
+  fn try_from(value: String): Result<Money, String> { ... }
+}
+```
+
+An associated type is pure checker vocabulary: it has no dictionary slot and
+no runtime representation, so it changes nothing about dispatch, coherence,
+or content addressing. Coherence still keys on `(trait, argument heads,
+type)` — two impls may bind the same associated name to different types. A
+conditional impl's binding may mention the impl's own parameters
+(`impl<T> Encode for Wrap<T> { type Output = List<T>; ... }`), recovered by
+the same target match as everything else.
+
+At a call site where the dispatching impl is known — concrete dot dispatch,
+an associated call, a resolved conversion — `Self::Name` simply _becomes_
+the impl's binding: `Money::try_from(s)` types as
+`Result<Money, String>`. In a bounded generic body the impl is unknown, so
+the projection stays **opaque**: under `T: Encode`, `x.encode()` types as
+`T::Output`, a rigid atom (like a type parameter) that unifies only with
+itself. Generic code can pass such a value along or drop it — commonly by
+matching the `Result` and keeping only the `Ok` half — but cannot assume its
+concrete type; a concrete caller of the same function gets the real type.
+
+Rules and current limits:
+
+- Every declared name is bound exactly once per impl; unknown, duplicate,
+  and missing bindings are declaration errors, as is any `type` item in an
+  inherent impl (no trait declares the name).
+- `Self::Name` works in the declaring trait's method signatures. Spelling a
+  projection _elsewhere_ — `T::Output` in a function signature, or
+  `Self::Name` inside an impl method's annotations — is not supported yet
+  and reports as an undefined type name (write the concrete type in impls;
+  in generic signatures there is no spelling for it yet).
+- Associated types take no bounds (`type Error: Show;` does not parse) and
+  no parameters.
+
+## Fallible conversions: TryFrom and TryInto
+
+`TryFrom<T>`/`TryInto<T>` (`core::convert`, prelude-exported) are the
+fallible halves of the conversion vocabulary, and the first users of
+associated types: `try_from(value)` returns `Result<Self, Self::Error>`,
+with each impl choosing its rejection type. Their identities are reserved
+(`FFFF…-001B`/`-001C`) and shape-pinned — associated `Error` included —
+because the checker's bridge anchors on the pair exactly like
+`From`/`Into`: `S: TryInto<T>` is satisfiable by `impl TryFrom<S> for T`,
+and `x.try_into()` considers every `TryFrom` impl whose source matches the
+receiver, producing `Result<T, Error>` with `Error` taken from that impl's
+binding. The bridge is sound at runtime for the same reason as the
+infallible pair — both dictionaries are a 1-tuple of one 1-argument
+function — and associated types add no runtime half to disagree.
+
+```ambient
+let n = Number::try_from("4.2");            // Ok(4.2): the core impl parses
+let b: Result<Bool, String> = "yes".try_into();
+fn eat<T: TryInto<Number>>(x: T): Number {
+  match x.try_into() { Ok(n) => n, Err(_) => 0 }
+}
+```
+
+Core binds `Error = String` for the primitive parsers
+(`impl TryFrom<String> for Number`, `impl TryFrom<String> for Bool`); the
+error carries the rejected input. The low-level parser externs are
+module-private — the impls are their only callers.
 
 ## Method Calls
 

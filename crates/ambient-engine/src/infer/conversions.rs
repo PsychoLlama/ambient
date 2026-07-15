@@ -23,9 +23,9 @@ use std::sync::Arc;
 use crate::ast::{DictSource, Dicts, Expr, ResolvedMethod, walk_exprs_mut};
 use crate::types::{TRAIT_FROM_UUID, TraitBound, TraitImpl, TraitMethodDef, Type, trait_arg_head};
 
-use super::constraints::{match_target, substitute_rigid_params};
 use super::error::{BoxedTypeError, BoxedTypeErrorExt, TypeError, TypeErrorKind};
 use super::expr::substitute_self;
+use super::target_match::{match_target, substitute_rigid_params};
 use super::{Infer, InferResult, TypeEnv, type_error};
 
 /// Which type the chosen impl's target must cover when recording the call's
@@ -670,7 +670,7 @@ impl Infer {
         if imp.is_generic
             && let Some(target) = &imp.target
         {
-            let _ = crate::infer::constraints::match_target(target, &receiver, &mut subst);
+            let _ = crate::infer::target_match::match_target(target, &receiver, &mut subst);
         }
         (
             type_params
@@ -678,7 +678,7 @@ impl Infer {
                 .zip(
                     imp.trait_args
                         .iter()
-                        .map(|a| crate::infer::constraints::substitute_rigid_params(a, &subst)),
+                        .map(|a| crate::infer::target_match::substitute_rigid_params(a, &subst)),
                 )
                 .collect(),
             impl_assoc_map(&imp, &subst),
@@ -755,13 +755,12 @@ impl Infer {
         bound: &TraitBound,
         span: (u32, u32),
         depth: u32,
-        from_uuid: uuid::Uuid,
-        from_name: &str,
+        from_side: crate::types::ReservedTrait,
     ) -> Result<Option<DictSource>, BoxedTypeError> {
         let target = self.apply(target);
         let from_bound = TraitBound {
-            trait_uuid: from_uuid,
-            name: Arc::from(from_name),
+            trait_uuid: from_side.uuid(),
+            name: Arc::from(from_side.name()),
             args: vec![ty.clone()],
         };
         // Rigid target: the enclosing declaration must bound it

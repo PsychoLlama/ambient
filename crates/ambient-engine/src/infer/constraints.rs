@@ -35,6 +35,7 @@ const MAX_SOLVE_DEPTH: u32 = 64;
 
 use super::Infer;
 use super::error::{BoxedTypeError, TypeError, TypeErrorKind};
+use super::target_match::{invert_named, match_target, substitute_rigid_params};
 
 /// A conditional (generic) impl's dictionary contribution at a trait-dispatch
 /// call site: its applied target shape (used to recover type-parameter
@@ -462,25 +463,16 @@ impl Infer {
         // likewise for the fallible pair). Anchored on the reserved uuids,
         // like operator desugaring.
         let bridge_source = match bound.trait_uuid {
-            id if id == crate::types::TRAIT_INTO_UUID => {
-                Some((crate::types::TRAIT_FROM_UUID, "From"))
-            }
+            id if id == crate::types::TRAIT_INTO_UUID => Some(crate::types::ReservedTrait::From),
             id if id == crate::types::TRAIT_TRY_INTO_UUID => {
-                Some((crate::types::TRAIT_TRY_FROM_UUID, "TryFrom"))
+                Some(crate::types::ReservedTrait::TryFrom)
             }
             _ => None,
         };
-        if let Some((from_uuid, from_name)) = bridge_source
+        if let Some(from_side) = bridge_source
             && let [target] = bound.args.as_slice()
-            && let Some(source) = self.solve_into_via_from(
-                &ty,
-                &target.clone(),
-                bound,
-                span,
-                depth,
-                from_uuid,
-                from_name,
-            )?
+            && let Some(source) =
+                self.solve_into_via_from(&ty, &target.clone(), bound, span, depth, from_side)?
         {
             return Ok(source);
         }
@@ -810,183 +802,6 @@ impl Infer {
         // instantiated cell types now that the body's inference is done.
         let fingerprints = self.solve_fingerprints(errors);
         super::fingerprints::finalize_fingerprints(body, &fingerprints);
-    }
-}
-
-/// Substitute [`Type::Param`]s by name — the inverse direction of
-/// [`match_target`]'s binding: once a conditional impl's parameters are
-/// assigned (`T -> Money`), rewrite a type that *mentions* those parameters
-/// (an inner bound's trait argument, `From<T>`) to its concrete form.
-/// Unassigned params pass through unchanged.
-pub(crate) fn substitute_rigid_params(ty: &Type, subst: &HashMap<Arc<str>, Type>) -> Type {
-    match ty {
-        Type::Param(name) => subst.get(name).cloned().unwrap_or_else(|| ty.clone()),
-        Type::Named(n) => Type::Named(
-            n.map_args(
-                n.args
-                    .iter()
-                    .map(|a| substitute_rigid_params(a, subst))
-                    .collect(),
-            ),
-        ),
-        Type::Nominal(nom) => {
-            Type::Nominal(nom.map_inner(substitute_rigid_params(&nom.inner, subst)))
-        }
-        Type::Tuple(elems) => Type::Tuple(
-            elems
-                .iter()
-                .map(|e| substitute_rigid_params(e, subst))
-                .collect(),
-        ),
-        Type::Record(rec) => Type::Record(crate::types::RecordType::new(
-            rec.fields
-                .iter()
-                .map(|(n, t)| (Arc::clone(n), substitute_rigid_params(t, subst)))
-                .collect(),
-        )),
-        Type::Function(f) => Type::function_with_abilities(
-            f.params
-                .iter()
-                .map(|p| substitute_rigid_params(p, subst))
-                .collect(),
-            substitute_rigid_params(&f.ret, subst),
-            f.abilities.clone(),
-        ),
-        // A projection over an assigned parameter (`T::Error` with
-        // `T -> Money`) keeps the projection form; whoever holds the impl's
-        // associated bindings eliminates it. Substituting only the base
-        // keeps this walk a pure param rewrite.
-        Type::Projection(p) => p.with_base(substitute_rigid_params(&p.base, subst)),
-        _ => ty.clone(),
-    }
-}
-
-/// One-directional structural match of a conditional impl's target shape
-/// (`pattern`, carrying the impl's [`Type::Param`]s) against a concrete
-/// `concrete` type, binding each param to the type it lines up with.
-///
-/// This is *matching*, not full unification: only `pattern`'s params bind,
-/// and a param that recurs must line up with an equal type each time
-/// (`Pair<T>` against `Pair<Money>` binds `T = Money` consistently). A
-/// structural mismatch — a different head uuid, arity, or field set — is a
-/// clean `false`, which the caller reports as an unsatisfied bound.
-pub(crate) fn match_target(
-    pattern: &Type,
-    concrete: &Type,
-    subst: &mut HashMap<Arc<str>, Type>,
-) -> bool {
-    match (pattern, concrete) {
-        (Type::Param(name), _) => {
-            if let Some(existing) = subst.get(name) {
-                existing == concrete
-            } else {
-                subst.insert(Arc::clone(name), concrete.clone());
-                true
-            }
-        }
-        (Type::Named(p), Type::Named(c)) => {
-            let head_ok = match (p.uuid, c.uuid) {
-                (Some(a), Some(b)) => a == b,
-                _ => p.name == c.name,
-            };
-            head_ok
-                && p.args.len() == c.args.len()
-                && p.args
-                    .iter()
-                    .zip(&c.args)
-                    .all(|(a, b)| match_target(a, b, subst))
-        }
-        (Type::Nominal(p), Type::Nominal(c)) => {
-            p.uuid == c.uuid && match_target(&p.inner, &c.inner, subst)
-        }
-        (Type::Record(p), Type::Record(c)) => {
-            p.fields.len() == c.fields.len()
-                && p.fields
-                    .iter()
-                    .zip(&c.fields)
-                    .all(|((pn, pt), (cn, ct))| pn == cn && match_target(pt, ct, subst))
-        }
-        (Type::Tuple(p), Type::Tuple(c)) => {
-            p.len() == c.len() && p.iter().zip(c).all(|(a, b)| match_target(a, b, subst))
-        }
-        (Type::Function(p), Type::Function(c)) => {
-            p.params.len() == c.params.len()
-                && p.params
-                    .iter()
-                    .zip(&c.params)
-                    .all(|(a, b)| match_target(a, b, subst))
-                && match_target(&p.ret, &c.ret, subst)
-        }
-        _ => pattern == concrete,
-    }
-}
-
-/// Invert [`substitute_named`] for diagnostics: match a generic struct's
-/// declared body `pattern` (its fields written as bare `Named(param)`
-/// placeholders) against a concrete instantiation, binding each declared
-/// `param` to the type it lines up with. The dual of [`match_target`], which
-/// binds [`Type::Param`]s; here the binders are the placeholder `Named`s a
-/// fielded generic struct's body carries. A structural mismatch is a clean
-/// `false`, leaving the caller to fall back to the bare-head rendering.
-///
-/// [`substitute_named`]: super::check::subst::substitute_named
-fn invert_named(
-    pattern: &Type,
-    concrete: &Type,
-    params: &[Arc<str>],
-    subst: &mut HashMap<Arc<str>, Type>,
-) -> bool {
-    // A bare placeholder naming one of the struct's parameters binds it.
-    if let Type::Named(p) = pattern
-        && p.args.is_empty()
-        && p.uuid.is_none()
-        && params.iter().any(|q| q == &p.name)
-    {
-        return if let Some(existing) = subst.get(&p.name) {
-            existing == concrete
-        } else {
-            subst.insert(Arc::clone(&p.name), concrete.clone());
-            true
-        };
-    }
-    match (pattern, concrete) {
-        (Type::Named(p), Type::Named(c)) => {
-            let head_ok = match (p.uuid, c.uuid) {
-                (Some(a), Some(b)) => a == b,
-                _ => p.name == c.name,
-            };
-            head_ok
-                && p.args.len() == c.args.len()
-                && p.args
-                    .iter()
-                    .zip(&c.args)
-                    .all(|(a, b)| invert_named(a, b, params, subst))
-        }
-        (Type::Nominal(p), Type::Nominal(c)) => {
-            p.uuid == c.uuid && invert_named(&p.inner, &c.inner, params, subst)
-        }
-        (Type::Record(p), Type::Record(c)) => {
-            p.fields.len() == c.fields.len()
-                && p.fields
-                    .iter()
-                    .zip(&c.fields)
-                    .all(|((pn, pt), (cn, ct))| pn == cn && invert_named(pt, ct, params, subst))
-        }
-        (Type::Tuple(p), Type::Tuple(c)) => {
-            p.len() == c.len()
-                && p.iter()
-                    .zip(c)
-                    .all(|(a, b)| invert_named(a, b, params, subst))
-        }
-        (Type::Function(p), Type::Function(c)) => {
-            p.params.len() == c.params.len()
-                && p.params
-                    .iter()
-                    .zip(&c.params)
-                    .all(|(a, b)| invert_named(a, b, params, subst))
-                && invert_named(&p.ret, &c.ret, params, subst)
-        }
-        _ => pattern == concrete,
     }
 }
 

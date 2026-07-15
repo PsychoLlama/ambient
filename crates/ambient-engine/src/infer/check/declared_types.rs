@@ -260,34 +260,7 @@ pub(super) fn check_declared_types(
                     }
                 }
             }
-            crate::ast::ItemKind::Trait(t) => {
-                // Trait-level parameters (`trait From<T>`) scope every
-                // method signature, exactly like an impl block's. So do the
-                // trait's associated types, under their written `Self::X`
-                // spelling — an undeclared `Self::Y` falls through and is
-                // reported as an undefined type name.
-                let trait_known: std::collections::HashSet<Arc<str>> =
-                    type_param_set(&t.type_params)
-                        .into_iter()
-                        .chain(
-                            t.assoc_types
-                                .iter()
-                                .map(|a| Arc::from(format!("Self::{}", a.name))),
-                        )
-                        .collect();
-                for m in &t.methods {
-                    let known: std::collections::HashSet<Arc<str>> = trait_known
-                        .iter()
-                        .cloned()
-                        .chain(m.type_params.iter().map(|tp| Arc::clone(&tp.name)))
-                        .collect();
-                    let s = (m.span.start, m.span.end);
-                    for (_, pty) in &m.params {
-                        report_undefined_types(infer, pty, s, &known, errors);
-                    }
-                    report_undefined_types(infer, &m.ret_ty, s, &known, errors);
-                }
-            }
+            crate::ast::ItemKind::Trait(t) => check_trait_declared_types(infer, t, errors),
             crate::ast::ItemKind::Ability(a) => {
                 for m in &a.methods {
                     let known = type_param_set(&m.type_params);
@@ -329,6 +302,38 @@ pub(super) fn check_declared_types(
         }
     }
 }
+/// The trait arm of [`check_declared_types`]: trait-level parameters
+/// (`trait From<T>`) scope every method signature, exactly like an impl
+/// block's. So do the trait's associated types, under their written
+/// `Self::X` spelling — an undeclared `Self::Y` falls through and is
+/// reported as an undefined type name.
+fn check_trait_declared_types(
+    infer: &Infer,
+    t: &crate::ast::TraitDef,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    let trait_known: std::collections::HashSet<Arc<str>> = type_param_set(&t.type_params)
+        .into_iter()
+        .chain(
+            t.assoc_types
+                .iter()
+                .map(|a| Arc::from(format!("Self::{}", a.name))),
+        )
+        .collect();
+    for m in &t.methods {
+        let known: std::collections::HashSet<Arc<str>> = trait_known
+            .iter()
+            .cloned()
+            .chain(m.type_params.iter().map(|tp| Arc::clone(&tp.name)))
+            .collect();
+        let s = (m.span.start, m.span.end);
+        for (_, pty) in &m.params {
+            report_undefined_types(infer, pty, s, &known, errors);
+        }
+        report_undefined_types(infer, &m.ret_ty, s, &known, errors);
+    }
+}
+
 /// Require a public function to declare its full signature: every parameter
 /// type and the return type.
 ///
