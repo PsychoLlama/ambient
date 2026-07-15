@@ -80,9 +80,17 @@ impl Resolver<'_> {
                 // nest inside for that method's signature and body.
                 self.resolve_type_param_bounds(&mut imp.type_params);
                 if let Some(trait_name) = &mut imp.trait_name {
-                    self.resolve_trait_ref(trait_name);
+                    self.resolve_trait_ref(&mut trait_name.name);
                 }
                 self.push_type_params(&imp.type_params);
+                // The trait's type arguments (`impl From<Number> for Money`)
+                // resolve under the impl's own parameters, exactly like the
+                // target type.
+                if let Some(trait_name) = &mut imp.trait_name {
+                    for arg in &mut trait_name.args {
+                        self.resolve_type(arg);
+                    }
+                }
                 self.resolve_type(&mut imp.for_type);
                 for method in &mut imp.methods {
                     self.resolve_type_param_bounds(&mut method.type_params);
@@ -180,13 +188,18 @@ impl Resolver<'_> {
     }
 
     /// Canonicalize the trait references in a declaration's type-parameter
-    /// bounds (`<T: Show + Ord>`, `where T: Show`). Each bound names a trait,
-    /// resolved exactly like an impl header — a trait name is never a type
-    /// parameter, so this is independent of the `push_type_params` scope.
+    /// bounds (`<T: Show + Ord>`, `where T: From<String>`). Each bound names
+    /// a trait, resolved exactly like an impl header — a trait name is never
+    /// a type parameter, so this is independent of the `push_type_params`
+    /// scope. A bound's type *arguments* are ordinary type references and
+    /// resolve like any other type.
     fn resolve_type_param_bounds(&mut self, params: &mut [crate::ast::TypeParam]) {
         for tp in params {
             for bound in &mut tp.bounds {
-                self.resolve_trait_ref(bound);
+                self.resolve_trait_ref(&mut bound.name);
+                for arg in &mut bound.args {
+                    self.resolve_type(arg);
+                }
             }
         }
     }

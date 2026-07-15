@@ -111,7 +111,7 @@ fn item_to_document_symbol(
         }
         ItemKind::Impl(i) => Some(make_symbol(
             match &i.trait_name {
-                Some(trait_name) => format!("impl {} for ...", trait_name.name),
+                Some(trait_name) => format!("impl {} for ...", trait_name.name.name),
                 None => "impl ...".to_string(),
             },
             None,

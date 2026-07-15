@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use ambient_engine::ast::Span;
 
-use super::{CstExpr, CstIdent, CstQualifiedName, CstTypeExpr, CstTypeParam};
+use super::{CstExpr, CstIdent, CstQualifiedName, CstTraitBound, CstTypeExpr, CstTypeParam};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Trait Definition
@@ -83,8 +83,9 @@ pub enum CstTraitParamKind {
 pub struct CstImplDef {
     /// Type parameters for generic impls.
     pub type_params: Vec<CstTypeParam>,
-    /// The trait being implemented; `None` for an inherent impl.
-    pub trait_name: Option<CstQualifiedName>,
+    /// The trait being implemented (with any trait type arguments,
+    /// `impl From<Number> for Money`); `None` for an inherent impl.
+    pub trait_name: Option<CstTraitBound>,
     /// The type implementing the trait.
     pub for_type: CstTypeExpr,
     /// Where clauses.
@@ -124,7 +125,7 @@ pub struct CstWhereClause {
     /// The type being constrained.
     pub ty: CstTypeExpr,
     /// Trait bounds.
-    pub bounds: Vec<CstQualifiedName>,
+    pub bounds: Vec<CstTraitBound>,
     /// Source span.
     pub span: Span,
 }

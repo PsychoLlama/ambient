@@ -77,7 +77,7 @@ pub(crate) fn format_item_signature(kind: &ItemKind, content: &mut String) {
         ItemKind::Impl(i) => {
             content.push_str("impl ");
             if let Some(trait_name) = &i.trait_name {
-                content.push_str(&trait_name.name);
+                content.push_str(&trait_name.name.name);
                 content.push_str(" for ");
             }
             content.push_str(&format_type(&i.for_type));

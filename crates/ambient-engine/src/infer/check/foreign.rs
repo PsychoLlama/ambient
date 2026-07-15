@@ -240,10 +240,10 @@ fn register_package_items(
 fn register_foreign_impl(
     infer: &mut Infer,
     impl_def: &crate::ast::ImplDef,
-    trait_name: &crate::ast::QualifiedName,
+    trait_name: &crate::ast::TraitRef,
     errors: &mut Vec<BoxedTypeError>,
 ) {
-    let Some(trait_uuid) = infer.trait_uuid_of(trait_name) else {
+    let Some(trait_uuid) = infer.trait_uuid_of(&trait_name.name) else {
         return;
     };
 
@@ -267,7 +267,36 @@ fn register_foreign_impl(
         return;
     };
 
-    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name);
+    // The trait's type arguments, resolved under the impl's rigid
+    // parameters, mirroring `check_single_impl`. Invalid arguments (a
+    // headless type, an arity mismatch) are the defining module's errors;
+    // skip silently here, exactly like an invalid target.
+    let rigid: Vec<Arc<str>> = impl_def
+        .type_params
+        .iter()
+        .filter(|tp| !tp.is_ability)
+        .map(|tp| Arc::clone(&tp.name))
+        .collect();
+    let trait_args: Vec<Type> = infer.with_rigid_params(rigid, |infer| {
+        trait_name
+            .args
+            .iter()
+            .map(|a| infer.resolve_holes(a))
+            .collect()
+    });
+    if trait_args
+        .iter()
+        .any(|a| crate::types::trait_arg_head(a).is_none())
+    {
+        return;
+    }
+    let arg_heads: Vec<uuid::Uuid> = trait_args
+        .iter()
+        .filter_map(crate::types::trait_arg_head)
+        .collect();
+
+    let mut impl_record =
+        crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name).with_trait_args(trait_args);
     if is_generic {
         // Bounds resolve by the `Fqn` the resolve pass wrote in the impl's
         // own module; unknown-trait errors are the defining module's to
@@ -276,7 +305,8 @@ fn register_foreign_impl(
         impl_record = impl_record.with_generic_target(for_type.clone(), bounds);
     }
     for method in &impl_def.methods {
-        let symbol = crate::types::impl_method_symbol(&type_uuid, &trait_uuid, &method.name);
+        let symbol =
+            crate::types::impl_method_symbol(&type_uuid, &trait_uuid, &arg_heads, &method.name);
         impl_record.methods.insert(Arc::clone(&method.name), symbol);
     }
     if infer.trait_registry.register_impl(impl_record).is_some() {
@@ -284,7 +314,7 @@ fn register_foreign_impl(
         // Their dispatch symbols collide, so this is unresolvable ambiguity.
         errors.push(Box::new(TypeError::new(
             TypeErrorKind::DuplicateImpl {
-                trait_name: Arc::clone(&trait_name.name),
+                trait_name: Arc::clone(&trait_name.name.name),
                 ty: for_type.clone(),
             },
             (impl_def.span.start, impl_def.span.end),

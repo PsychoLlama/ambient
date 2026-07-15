@@ -200,6 +200,25 @@ pub fn render_name(qn: &QualifiedName) -> String {
     }
 }
 
+/// Render a trait reference: the name plus any trait type arguments
+/// (`From<String>` → `@core::convert::From<String>`). An argument-less
+/// reference renders byte-identically to [`render_name`], so pre-existing
+/// shapes are unchanged.
+pub fn render_trait_ref(tr: &crate::ast::TraitRef) -> String {
+    let mut s = render_name(&tr.name);
+    if !tr.args.is_empty() {
+        s.push('<');
+        for (i, arg) in tr.args.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push_str(&render_type(arg));
+        }
+        s.push('>');
+    }
+    s
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Structural body / item hashing
 // ─────────────────────────────────────────────────────────────────────────────
@@ -441,7 +460,12 @@ fn write_item(sink: &mut Sink, item: &Item) {
             match &i.trait_name {
                 Some(tn) => {
                     sink.buf.push(1);
-                    sink.name(tn);
+                    sink.name(&tn.name);
+                    #[allow(clippy::cast_possible_truncation)]
+                    sink.u32(tn.args.len() as u32);
+                    for arg in &tn.args {
+                        sink.ty(arg);
+                    }
                 }
                 None => sink.buf.push(0),
             }
@@ -474,7 +498,20 @@ fn write_type_params(sink: &mut Sink, tps: &[crate::ast::TypeParam]) {
     for tp in tps {
         sink.str(&tp.name);
         sink.buf.push(u8::from(tp.is_ability));
-        write_qn_list(sink, &tp.bounds);
+        write_trait_ref_list(sink, &tp.bounds);
+    }
+}
+
+fn write_trait_ref_list(sink: &mut Sink, bounds: &[crate::ast::TraitRef]) {
+    #[allow(clippy::cast_possible_truncation)]
+    sink.u32(bounds.len() as u32);
+    for bound in bounds {
+        sink.name(&bound.name);
+        #[allow(clippy::cast_possible_truncation)]
+        sink.u32(bound.args.len() as u32);
+        for arg in &bound.args {
+            sink.ty(arg);
+        }
     }
 }
 

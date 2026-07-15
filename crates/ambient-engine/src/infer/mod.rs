@@ -55,6 +55,7 @@
 mod abilities;
 mod check;
 pub(crate) mod constraints;
+pub(crate) mod conversions;
 mod effects;
 pub mod enums;
 mod env;
@@ -192,6 +193,14 @@ pub struct Infer {
 
     /// Fresh ids for [`crate::ast::Fingerprints::Pending`] groups.
     pub(crate) next_fingerprint_group: u32,
+
+    /// Conversion calls (`x.into()`) with several argument-differing
+    /// candidate impls, awaiting selection by the call's *result* type once
+    /// the enclosing body settles. See [`conversions`].
+    pub(crate) pending_method_selections: Vec<conversions::PendingMethodSelection>,
+
+    /// Fresh ids for [`crate::ast::ResolvedMethod::Pending`] markers.
+    pub(crate) next_method_selection: u32,
 }
 
 /// A deferred "the sandbox body may only use these abilities" check.
@@ -279,6 +288,8 @@ impl Infer {
             pending_coverage: Vec::new(),
             pending_fingerprints: Vec::new(),
             next_fingerprint_group: 0,
+            pending_method_selections: Vec::new(),
+            next_method_selection: 0,
         }
     }
 

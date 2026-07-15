@@ -379,6 +379,10 @@ fn use_from_defs_stmt(name: &str) -> Stmt {
 /// `pub fn <name><T: bound>() { unit }` — a generic function whose single
 /// type parameter carries `bound`.
 fn bounded_func(name: &str, bound: QualifiedName) -> Item {
+    let bound = crate::ast::TraitRef {
+        name: bound,
+        args: vec![],
+    };
     Item::new(
         ItemKind::Function(FunctionDef {
             name: Arc::from(name),

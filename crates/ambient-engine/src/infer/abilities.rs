@@ -155,18 +155,15 @@ impl Infer {
         // it here only skews indices in a module that will not compile.
         let mut bounds = Vec::with_capacity(method.bounds.len());
         for (idx, bound) in &method.bounds {
-            let (Some(name), Some(trait_uuid)) =
-                (method.type_param_names.get(*idx), self.trait_uuid_of(bound))
-            else {
+            let Some(name) = method.type_param_names.get(*idx) else {
                 continue;
             };
-            bounds.push((
-                Arc::clone(name),
-                crate::types::TraitBound {
-                    trait_uuid,
-                    name: Arc::clone(&bound.name),
-                },
-            ));
+            // Unknown traits were already reported at every perform site;
+            // dropping here only skews indices in a module that won't compile.
+            let Some(resolved) = self.resolve_trait_ref(bound, (0, 0), &mut Vec::new()) else {
+                continue;
+            };
+            bounds.push((Arc::clone(name), resolved));
         }
 
         Some((params, ret, method.type_param_names.clone(), bounds))
@@ -303,24 +300,21 @@ impl Infer {
         if !method.bounds.is_empty() {
             let mut resolved_bounds = Vec::with_capacity(method.bounds.len());
             for (param_idx, bound) in &method.bounds {
-                let Some(trait_uuid) = self.trait_uuid_of(bound) else {
-                    return Err(type_error(
-                        TypeErrorKind::UnknownTrait {
-                            name: Arc::clone(&bound.name),
-                        },
-                        span,
-                    ));
+                let mut errors = Vec::new();
+                let Some(resolved) = self.resolve_trait_ref(bound, span, &mut errors) else {
+                    return Err(errors.pop().unwrap_or_else(|| {
+                        type_error(
+                            TypeErrorKind::UnknownTrait {
+                                name: Arc::clone(&bound.name.name),
+                            },
+                            span,
+                        )
+                    }));
                 };
                 let Some(&var) = method.quantified.get(*param_idx) else {
                     continue;
                 };
-                resolved_bounds.push((
-                    var,
-                    crate::types::TraitBound {
-                        trait_uuid,
-                        name: Arc::clone(&bound.name),
-                    },
-                ));
+                resolved_bounds.push((var, resolved));
             }
             *dicts = Some(self.record_bound_constraints(&resolved_bounds, &subst, span));
         }

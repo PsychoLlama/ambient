@@ -134,7 +134,8 @@ impl Parser<'_> {
 
     /// Parse a `<...>` type-parameter list. Each parameter is a name
     /// (`T`), an ability variable (`E!`), or a bounded parameter
-    /// (`T: Eq + Ord`) — trait bounds are `+`-separated qualified names,
+    /// (`T: Eq + Ord`) — trait bounds are `+`-separated trait references
+    /// (a qualified name with optional type arguments, `From<String>`),
     /// exactly the `where` grammar inlined at the declaration site.
     fn parse_type_params(&mut self) -> Result<Vec<CstTypeParam>, ParseError> {
         self.expect(TokenKind::Lt)?;
@@ -151,7 +152,7 @@ impl Parser<'_> {
             let mut bounds = Vec::new();
             if self.consume(TokenKind::Colon).is_some() {
                 loop {
-                    bounds.push(self.parse_qualified_name()?);
+                    bounds.push(self.parse_trait_bound()?);
                     if self.consume(TokenKind::Plus).is_none() {
                         break;
                     }
@@ -175,6 +176,29 @@ impl Parser<'_> {
 
         self.expect(TokenKind::Gt)?;
         Ok(params)
+    }
+
+    /// Parse one trait reference in bound position: a qualified name with
+    /// optional type arguments (`Eq`, `From<String>`, `m::Convert<Number>`).
+    fn parse_trait_bound(&mut self) -> Result<crate::cst::CstTraitBound, ParseError> {
+        let name = self.parse_qualified_name()?;
+        let mut args = Vec::new();
+        let mut end = name.span.end;
+        if self.check(TokenKind::Lt) {
+            self.advance();
+            loop {
+                if self.check(TokenKind::Gt) {
+                    break;
+                }
+                args.push(self.parse_type()?);
+                if self.consume(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            end = self.expect(TokenKind::Gt)?.span.end;
+        }
+        let span = Span::new(name.span.start, end);
+        Ok(crate::cst::CstTraitBound { name, args, span })
     }
 
     pub(super) fn parse_params(&mut self) -> Result<Vec<CstParam>, ParseError> {
@@ -744,14 +768,15 @@ impl Parser<'_> {
         };
 
         // Disambiguate `impl Trait for Type` from inherent `impl Type`:
-        // provisionally parse a qualified name; only if `for` follows was it
-        // the trait name. Otherwise rewind and parse the target type (which
-        // may be generic, e.g. `Option<T>` — not a qualified name).
+        // provisionally parse a trait reference (a qualified name with
+        // optional type arguments, `From<Number>`); only if `for` follows
+        // was it the trait name. Otherwise rewind and parse the target type
+        // (which may be generic, e.g. `Option<T>` — not a qualified name).
         let snapshot = self.pos;
-        let trait_name = match self.parse_qualified_name() {
-            Ok(name) if self.check(TokenKind::For) => {
+        let trait_name = match self.parse_trait_bound() {
+            Ok(bound) if self.check(TokenKind::For) => {
                 self.advance();
-                Some(name)
+                Some(bound)
             }
             _ => {
                 self.pos = snapshot;
@@ -810,7 +835,7 @@ impl Parser<'_> {
 
             let mut bounds = Vec::new();
             loop {
-                bounds.push(self.parse_qualified_name()?);
+                bounds.push(self.parse_trait_bound()?);
                 if self.consume(TokenKind::Plus).is_none() {
                     break;
                 }

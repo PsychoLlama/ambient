@@ -163,16 +163,38 @@ impl Infer {
         };
 
         // The method must exist and be associated (no `self`); an instance
-        // method reached this way is not a valid associated call.
-        let (trait_uuid, method_def, symbol) =
-            match self.trait_registry.find_method(type_uuid, method_name) {
-                crate::types::MethodLookup::Found {
-                    trait_uuid,
-                    method,
-                    symbol,
-                } if !method.has_self => (trait_uuid, method.clone(), symbol),
-                _ => return Ok(None),
-            };
+        // method reached this way is not a valid associated call. Several
+        // argument-differing impls of one trait (`Money::from(x)` with both
+        // `From<Number>` and `From<String>` in the build) select by the
+        // call's argument types.
+        let (trait_uuid, method_def, symbol) = match self
+            .trait_registry
+            .find_method(type_uuid, method_name)
+        {
+            crate::types::MethodLookup::Found {
+                trait_uuid,
+                method,
+                symbol,
+            } if !method.has_self => (trait_uuid, method.clone(), symbol),
+            crate::types::MethodLookup::MultiImpl { trait_uuid, method } if !method.has_self => {
+                let method = method.clone();
+                return self
+                    .infer_multi_impl_associated_call(
+                        env,
+                        trait_uuid,
+                        type_uuid,
+                        &self_ty,
+                        &method,
+                        type_name,
+                        method_name,
+                        args,
+                        span,
+                        dicts,
+                    )
+                    .map(Some);
+            }
+            _ => return Ok(None),
+        };
 
         // A conditional impl's own bounds and the method's own bounds both
         // thread as trailing dictionaries, exactly like an instance call; a
@@ -187,8 +209,9 @@ impl Infer {
             .trait_registry
             .get_trait(trait_uuid)
             .map_or_else(|| Arc::from("?"), |t| Arc::clone(&t.name));
+        let trait_arg_map = self.dispatch_trait_arg_map(trait_uuid, type_uuid, &self_ty);
         let (params, ret, abilities, type_var_map) =
-            self.instantiate_trait_method_mapped(&method_def, &self_ty);
+            self.instantiate_trait_method_mapped(&method_def, &self_ty, &trait_arg_map);
         let method_dicts = self.resolve_method_bound_dicts(&method_def, &type_var_map);
         *dicts = self.record_trait_dispatch_dicts(
             generic_impl,
@@ -360,33 +383,73 @@ impl Infer {
         };
 
         // Look up the method in the trait registry
-        let (trait_uuid, method_def, method_symbol) =
-            match self.trait_registry.find_method(type_uuid, method_name) {
-                crate::types::MethodLookup::Found {
-                    trait_uuid,
-                    method,
-                    symbol,
-                } => (trait_uuid, method, symbol),
-                crate::types::MethodLookup::NotFound => {
-                    return Err(type_error(
-                        TypeErrorKind::MethodNotFound {
-                            method: Arc::clone(method_name),
-                            ty: receiver_ty.clone(),
-                        },
-                        span,
-                    ));
+        let (trait_uuid, method_def, method_symbol) = match self
+            .trait_registry
+            .find_method(type_uuid, method_name)
+        {
+            crate::types::MethodLookup::Found {
+                trait_uuid,
+                method,
+                symbol,
+            } => (trait_uuid, method, symbol),
+            crate::types::MethodLookup::NotFound => {
+                // The `Into` bridge: no direct method, but `x.into()` is
+                // satisfiable through `impl From<S> for T` — anchored on
+                // the reserved uuid pair, with the method name taken
+                // from the (shape-pinned) `Into` declaration, never
+                // hardcoded.
+                if self.is_into_method(method_name) {
+                    let candidates = self.into_bridge_candidates(&receiver_ty);
+                    if !candidates.is_empty() {
+                        return self.infer_conversion_call(
+                            candidates,
+                            &receiver_ty,
+                            method_name,
+                            args,
+                            span,
+                            resolved_method,
+                            dicts,
+                        );
+                    }
                 }
-                crate::types::MethodLookup::Ambiguous { traits } => {
-                    return Err(type_error(
-                        TypeErrorKind::AmbiguousMethod {
-                            method: Arc::clone(method_name),
-                            ty: receiver_ty.clone(),
-                            candidates: traits,
-                        },
-                        span,
-                    ));
+                return Err(type_error(
+                    TypeErrorKind::MethodNotFound {
+                        method: Arc::clone(method_name),
+                        ty: receiver_ty.clone(),
+                    },
+                    span,
+                ));
+            }
+            crate::types::MethodLookup::MultiImpl { trait_uuid, .. } => {
+                // One trait, several argument-differing impls: select by
+                // the call's result type (immediately when unique, else
+                // deferred to the body's settle point).
+                let mut candidates =
+                    self.direct_method_candidates(trait_uuid, type_uuid, &receiver_ty, method_name);
+                if trait_uuid == crate::types::TRAIT_INTO_UUID {
+                    candidates.extend(self.into_bridge_candidates(&receiver_ty));
                 }
-            };
+                return self.infer_conversion_call(
+                    candidates,
+                    &receiver_ty,
+                    method_name,
+                    args,
+                    span,
+                    resolved_method,
+                    dicts,
+                );
+            }
+            crate::types::MethodLookup::Ambiguous { traits } => {
+                return Err(type_error(
+                    TypeErrorKind::AmbiguousMethod {
+                        method: Arc::clone(method_name),
+                        ty: receiver_ty.clone(),
+                        candidates: traits,
+                    },
+                    span,
+                ));
+            }
+        };
 
         // Clone the method definition to release the borrow on trait_registry
         let method_def = method_def.clone();
@@ -418,8 +481,9 @@ impl Infer {
             .get_trait(trait_uuid)
             .map_or_else(|| Arc::from("?"), |t| Arc::clone(&t.name));
 
+        let trait_arg_map = self.dispatch_trait_arg_map(trait_uuid, type_uuid, &receiver_ty);
         let (params, ret, abilities, type_var_map) =
-            self.instantiate_trait_method_mapped(&method_def, &receiver_ty);
+            self.instantiate_trait_method_mapped(&method_def, &receiver_ty, &trait_arg_map);
         let method_dicts = self.resolve_method_bound_dicts(&method_def, &type_var_map);
         *dicts = self.record_trait_dispatch_dicts(
             generic_impl,
@@ -480,6 +544,7 @@ impl Infer {
         &mut self,
         method: &TraitMethodDef,
         self_ty: &Type,
+        trait_arg_map: &HashMap<Arc<str>, Type>,
     ) -> (Vec<Type>, Type, AbilitySet, HashMap<Arc<str>, TypeVarId>) {
         let type_var_map: HashMap<Arc<str>, TypeVarId> = method
             .type_param_names
@@ -495,7 +560,12 @@ impl Infer {
         let (params, ret, abilities) =
             self.with_ability_var_scope(ability_var_map.clone(), false, |infer| {
                 let instantiate = |infer: &mut Self, ty: &Type| {
+                    // Trait-level parameters resolve to the dispatching
+                    // impl's (or bound's) arguments first — a method-level
+                    // parameter of the same name shadows via the
+                    // `type_var_map` substitution running before it.
                     let ty = substitute_type_params(ty, &type_var_map);
+                    let ty = crate::infer::check::substitute_named(&ty, trait_arg_map);
                     let ty = infer.resolve_holes(&ty);
                     substitute_self(&ty, self_ty)
                 };
@@ -522,24 +592,30 @@ impl Infer {
     /// implementing method reports it, and an error-carrying module never
     /// compiles.
     fn resolve_method_bound_dicts(
-        &self,
+        &mut self,
         method: &TraitMethodDef,
         type_var_map: &HashMap<Arc<str>, TypeVarId>,
     ) -> Vec<(Type, crate::types::TraitBound)> {
         let mut out = Vec::new();
         for (param, bound) in &method.method_bounds {
-            let (Some(trait_uuid), Some(&var)) =
-                (self.trait_uuid_of(bound), type_var_map.get(param))
-            else {
+            let Some(&var) = type_var_map.get(param) else {
                 continue;
             };
-            out.push((
-                Type::var(var),
-                crate::types::TraitBound {
-                    trait_uuid,
-                    name: Arc::clone(&bound.name),
-                },
-            ));
+            // An unresolvable bound is skipped — the same bound on the
+            // implementing method reports it, and an error-carrying module
+            // never compiles. A bound argument naming another method-level
+            // parameter instantiates to that parameter's fresh variable.
+            let Some(mut resolved) = self.resolve_trait_ref(bound, (0, 0), &mut Vec::new()) else {
+                continue;
+            };
+            if !resolved.args.is_empty() {
+                resolved.args = resolved
+                    .args
+                    .iter()
+                    .map(|a| substitute_type_params(a, type_var_map))
+                    .collect();
+            }
+            out.push((Type::var(var), resolved));
         }
         out
     }
@@ -649,8 +725,16 @@ impl Infer {
         // this site; the enclosing function's dictionary already encapsulates
         // that). Solved on the dictionary schedule like a concrete-receiver
         // call.
+        // The bound's own trait arguments instantiate the trait-level
+        // parameters (`T: Into<String>` makes `into(self): String`).
+        let trait_arg_map: HashMap<Arc<str>, Type> = trait_def
+            .type_params
+            .iter()
+            .cloned()
+            .zip(bound.args.iter().cloned())
+            .collect();
         let (params, ret, abilities, type_var_map) =
-            self.instantiate_trait_method_mapped(&method_def, receiver_ty);
+            self.instantiate_trait_method_mapped(&method_def, receiver_ty, &trait_arg_map);
         let method_dicts = self.resolve_method_bound_dicts(&method_def, &type_var_map);
         *dicts =
             self.record_trait_dispatch_dicts(None, receiver_ty, method_dicts, &bound.name, span);
@@ -680,6 +764,304 @@ impl Infer {
 
         *resolved_method = Some(ResolvedMethod::DictSlot { dict_index, slot });
         Ok(self.apply(&ret))
+    }
+
+    /// Type an associated call (`Money::from(x)`) whose trait has several
+    /// argument-differing impls for the receiver type: infer the argument
+    /// types first (unseeded), select the one impl whose instantiated
+    /// parameter types match them, then check the call against that impl —
+    /// arguments direct the selection where a receiver can't.
+    #[allow(clippy::too_many_arguments)]
+    fn infer_multi_impl_associated_call(
+        &mut self,
+        env: &TypeEnv,
+        trait_uuid: uuid::Uuid,
+        type_uuid: uuid::Uuid,
+        self_ty: &Type,
+        method_def: &TraitMethodDef,
+        type_name: &str,
+        method_name: &str,
+        args: &mut [Expr],
+        span: (u32, u32),
+        dicts: &mut Option<Dicts>,
+    ) -> InferResult<(Arc<str>, Type, Type)> {
+        use crate::infer::constraints::{match_target, substitute_rigid_params};
+
+        let trait_def = self
+            .trait_registry
+            .get_trait(trait_uuid)
+            .cloned()
+            .ok_or_else(|| {
+                type_error(
+                    TypeErrorKind::UnknownTrait {
+                        name: Arc::from(type_name),
+                    },
+                    span,
+                )
+            })?;
+
+        if args.len() != method_def.params.len() {
+            return Err(type_error(
+                TypeErrorKind::ArityMismatch {
+                    expected: method_def.params.len(),
+                    actual: args.len(),
+                },
+                span,
+            )
+            .with_context(format!("in associated call `{type_name}::{method_name}`")));
+        }
+
+        // Infer arguments unseeded — the candidates disagree on the
+        // expected types, so there is nothing sound to push down.
+        let mut arg_tys = Vec::with_capacity(args.len());
+        for arg in args.iter_mut() {
+            let ty = self.infer_expr(env, arg)?;
+            arg_tys.push(self.apply(&ty));
+        }
+
+        // One candidate per impl: instantiate the method's parameter
+        // patterns under the impl's trait arguments and match them against
+        // the inferred argument types, binding any impl parameters.
+        let impls: Vec<crate::types::TraitImpl> = self
+            .trait_registry
+            .impls_of(trait_uuid, type_uuid)
+            .into_iter()
+            .cloned()
+            .collect();
+        let mut selected: Vec<(crate::types::TraitImpl, HashMap<Arc<str>, Type>)> = Vec::new();
+        for imp in impls {
+            if !imp.methods.contains_key(method_name) {
+                continue;
+            }
+            let trait_arg_map: HashMap<Arc<str>, Type> = trait_def
+                .type_params
+                .iter()
+                .cloned()
+                .zip(imp.trait_args.iter().cloned())
+                .collect();
+            let mut subst: HashMap<Arc<str>, Type> = HashMap::new();
+            let all_match = method_def.params.iter().zip(&arg_tys).all(|(p, a)| {
+                let pattern = crate::infer::check::substitute_named(p, &trait_arg_map);
+                let pattern = self.resolve_holes(&pattern);
+                let pattern = substitute_self(&pattern, self_ty);
+                match_target(&pattern, a, &mut subst)
+            });
+            if all_match {
+                selected.push((imp, subst));
+            }
+        }
+
+        let (imp, subst) = match selected.len() {
+            1 => selected.remove(0),
+            0 => {
+                // An unresolved argument can't select an impl — matching is
+                // structural, so a variable matches nothing ground.
+                if arg_tys.iter().any(|t| matches!(t, Type::Var(_))) {
+                    return Err(type_error(
+                        TypeErrorKind::CannotInfer {
+                            hint: format!(
+                                "argument of `{type_name}::{method_name}` \
+                                 (add an annotation)"
+                            ),
+                        },
+                        span,
+                    ));
+                }
+                let rendered: Vec<String> = arg_tys.iter().map(|t| format!("{t}")).collect();
+                return Err(type_error(
+                    TypeErrorKind::TraitNotImplemented {
+                        trait_name: Arc::from(format!(
+                            "{}<{}>",
+                            trait_def.name,
+                            rendered.join(", ")
+                        )),
+                        ty: self_ty.clone(),
+                    },
+                    span,
+                ));
+            }
+            _ => {
+                return Err(type_error(
+                    TypeErrorKind::AmbiguousMethod {
+                        method: Arc::from(method_name),
+                        ty: self_ty.clone(),
+                        candidates: selected
+                            .iter()
+                            .map(|(imp, _)| {
+                                let rendered: Vec<String> =
+                                    imp.trait_args.iter().map(|t| format!("{t}")).collect();
+                                Arc::from(format!("{}<{}>", trait_def.name, rendered.join(", ")))
+                            })
+                            .collect(),
+                    },
+                    span,
+                ));
+            }
+        };
+
+        // Commit to the selected impl: pin the receiver type from its
+        // target (a generic target's parameters were bound by the argument
+        // match), instantiate the signature, and unify the arguments for
+        // real.
+        if let Some(target) = &imp.target {
+            let target = substitute_rigid_params(target, &subst);
+            self.unify(self_ty, &target, span).map_err(|e| {
+                e.with_context(format!("in associated call `{type_name}::{method_name}`"))
+            })?;
+        }
+        let trait_arg_map: HashMap<Arc<str>, Type> = trait_def
+            .type_params
+            .iter()
+            .cloned()
+            .zip(
+                imp.trait_args
+                    .iter()
+                    .map(|a| substitute_rigid_params(a, &subst)),
+            )
+            .collect();
+        let (params, ret, abilities, type_var_map) =
+            self.instantiate_trait_method_mapped(method_def, self_ty, &trait_arg_map);
+        let method_dicts = self.resolve_method_bound_dicts(method_def, &type_var_map);
+        let generic_impl = imp
+            .is_generic
+            .then(|| (imp.target.clone(), imp.bounds.clone()));
+        *dicts = self.record_trait_dispatch_dicts(
+            generic_impl,
+            self_ty,
+            method_dicts,
+            &trait_def.name,
+            span,
+        );
+
+        for (i, (arg_ty, param_ty)) in arg_tys.iter().zip(params.iter()).enumerate() {
+            if let Err(e) = self.unify(arg_ty, param_ty, span) {
+                return Err(e.with_context(format!(
+                    "in argument {} of associated call `{type_name}::{method_name}`",
+                    i + 1
+                )));
+            }
+        }
+
+        let abilities = self.apply_abilities(&abilities);
+        self.require_abilities(&abilities);
+
+        let symbol = imp
+            .methods
+            .get(method_name)
+            .cloned()
+            .unwrap_or_else(|| Arc::from(""));
+        let ret = self.apply(&ret);
+        let fn_ty = Type::function_with_abilities(
+            params.iter().map(|p| self.apply(p)).collect(),
+            ret.clone(),
+            abilities,
+        );
+        Ok((symbol, ret, fn_ty))
+    }
+
+    /// Whether `method_name` is the `Into` trait's method, per the trait's
+    /// (shape-pinned) declaration in this build — the gate on the solver's
+    /// `From` bridge. Anchored on [`crate::types::TRAIT_INTO_UUID`], never a
+    /// hardcoded name; `false` when the build has no `Into` (no prelude).
+    fn is_into_method(&self, method_name: &str) -> bool {
+        self.trait_registry
+            .get_trait(crate::types::TRAIT_INTO_UUID)
+            .and_then(|def| def.methods.first())
+            .is_some_and(|m| m.name.as_ref() == method_name)
+    }
+
+    /// The map from a trait's parameter names to the arguments of the
+    /// (unique) impl dispatching a call on `receiver`, with any impl
+    /// parameters bound by the receiver substituted in. Empty for an
+    /// argument-less trait.
+    fn dispatch_trait_arg_map(
+        &mut self,
+        trait_uuid: uuid::Uuid,
+        type_uuid: uuid::Uuid,
+        receiver: &Type,
+    ) -> HashMap<Arc<str>, Type> {
+        let Some(trait_def) = self.trait_registry.get_trait(trait_uuid) else {
+            return HashMap::new();
+        };
+        if trait_def.type_params.is_empty() {
+            return HashMap::new();
+        }
+        let type_params = trait_def.type_params.clone();
+        let Some(imp) = self.trait_registry.get_impl(trait_uuid, type_uuid).cloned() else {
+            return HashMap::new();
+        };
+        let receiver = self.apply(receiver);
+        let mut subst: HashMap<Arc<str>, Type> = HashMap::new();
+        if imp.is_generic
+            && let Some(target) = &imp.target
+        {
+            let _ = crate::infer::constraints::match_target(target, &receiver, &mut subst);
+        }
+        type_params
+            .into_iter()
+            .zip(
+                imp.trait_args
+                    .iter()
+                    .map(|a| crate::infer::constraints::substitute_rigid_params(a, &subst)),
+            )
+            .collect()
+    }
+
+    /// Type a conversion-style call (`x.into()`, or any zero-argument
+    /// method provided by several argument-differing impls of one trait):
+    /// resolve immediately when one candidate exists, else defer selection
+    /// to the body's settle point ([`crate::infer::conversions`]).
+    #[allow(clippy::too_many_arguments)]
+    fn infer_conversion_call(
+        &mut self,
+        candidates: Vec<crate::infer::conversions::ConversionCandidate>,
+        receiver_ty: &Type,
+        method_name: &Arc<str>,
+        args: &[Expr],
+        span: (u32, u32),
+        resolved_method: &mut Option<ResolvedMethod>,
+        dicts: &mut Option<Dicts>,
+    ) -> InferResult<Type> {
+        // Result-type-directed selection only works for zero-argument
+        // methods (`into(self)`); a value-taking method reaching here means
+        // argument-directed selection failed to narrow to one impl.
+        if !args.is_empty() {
+            return Err(type_error(
+                TypeErrorKind::AmbiguousMethod {
+                    method: Arc::clone(method_name),
+                    ty: receiver_ty.clone(),
+                    candidates: candidates
+                        .iter()
+                        .map(|c| Arc::clone(&c.trait_name))
+                        .collect(),
+                },
+                span,
+            ));
+        }
+        match self.resolve_conversion(candidates, receiver_ty, method_name, span) {
+            None => Err(type_error(
+                TypeErrorKind::MethodNotFound {
+                    method: Arc::clone(method_name),
+                    ty: receiver_ty.clone(),
+                },
+                span,
+            )),
+            Some(crate::infer::conversions::ConversionResolution::Immediate {
+                symbol,
+                produced,
+                dicts: resolved_dicts,
+            }) => {
+                *resolved_method = Some(ResolvedMethod::Symbol(symbol));
+                if resolved_dicts.is_some() {
+                    *dicts = resolved_dicts;
+                }
+                Ok(self.apply(&produced))
+            }
+            Some(crate::infer::conversions::ConversionResolution::Deferred { id }) => {
+                *resolved_method = Some(ResolvedMethod::Pending(id));
+                Ok(self.selection_ret(id))
+            }
+        }
     }
 }
 

@@ -167,7 +167,7 @@ fn qualified_trait_bound_records_no_dep() {
     );
     // Guard against a vacuous pass: the bound must actually have resolved.
     let bound_fqn = main.items.iter().find_map(|item| match &item.kind {
-        ItemKind::Function(f) => f.type_params[0].bounds[0].resolved.clone(),
+        ItemKind::Function(f) => f.type_params[0].bounds[0].name.resolved.clone(),
         _ => None,
     });
     assert_eq!(

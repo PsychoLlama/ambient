@@ -91,9 +91,21 @@ impl Infer {
             // A bound var always has an instantiation entry; `Error` keeps
             // a checker bug from panicking and surfaces at solve time.
             let ty = instantiated.get(var).cloned().unwrap_or(Type::Error);
+            // A scheme bound's arguments quantify over the scheme's own
+            // variables (`fn f<U, T: From<U>>` stores `From<'q>`), so they
+            // instantiate alongside the bound variable itself.
+            let mut bound = bound.clone();
+            if !bound.args.is_empty() {
+                let no_abilities = HashMap::new();
+                bound.args = bound
+                    .args
+                    .iter()
+                    .map(|a| a.substitute_all(instantiated, &no_abilities))
+                    .collect();
+            }
             self.pending_constraints.push(PendingConstraint {
                 ty,
-                bound: bound.clone(),
+                bound,
                 group,
                 index,
                 span,
@@ -395,12 +407,15 @@ impl Infer {
             )));
         }
         let ty = self.apply(ty);
+        let mut bound = bound.clone();
+        bound.args = bound.args.iter().map(|a| self.apply(a)).collect();
+        let bound = &bound;
 
         // A rigid parameter satisfies a bound iff the enclosing item
         // declares it; the dictionary forwards from the enclosing
-        // dictionary parameter of the same (param, trait).
+        // dictionary parameter of the same (param, trait, args).
         if let Type::Param(name) = &ty {
-            if let Some(dict_index) = self.bound_param_index(name, bound.trait_uuid) {
+            if let Some(dict_index) = self.bound_param_index(name, bound.trait_uuid, &bound.args) {
                 return Ok(DictSource::Param { dict_index });
             }
             return Err(Box::new(TypeError::new(
@@ -412,13 +427,10 @@ impl Infer {
             )));
         }
 
-        // Concrete types satisfy a bound through an impl in the build.
-        if let Some(type_uuid) = super::inherent::impl_key_for(&ty).and_then(|k| k.uuid())
-            && let Some(imp) = self
-                .trait_registry
-                .get_impl(bound.trait_uuid, type_uuid)
-                .cloned()
-        {
+        // Concrete types satisfy a bound through an impl in the build:
+        // among the (argument-differing) impls of this trait for this type,
+        // the one whose target and trait arguments match the requirement.
+        if let Some(type_uuid) = super::inherent::impl_key_for(&ty).and_then(|k| k.uuid()) {
             let Some(trait_def) = self.trait_registry.get_trait(bound.trait_uuid).cloned() else {
                 return Err(Box::new(TypeError::new(
                     TypeErrorKind::UnknownTrait {
@@ -427,26 +439,33 @@ impl Infer {
                     span,
                 )));
             };
-            if imp.is_generic {
-                return self.solve_generic_impl(&ty, bound, span, depth, &imp, &trait_def);
-            }
-            let symbols = trait_def
-                .dictionary_order()
+            let candidates: Vec<crate::types::TraitImpl> = self
+                .trait_registry
+                .impls_of(bound.trait_uuid, type_uuid)
                 .into_iter()
-                .map(|idx| {
-                    let method_name = &trait_def.methods[idx].name;
-                    imp.methods.get(method_name).cloned().ok_or_else(|| {
-                        Box::new(TypeError::new(
-                            TypeErrorKind::BoundNotSatisfied {
-                                ty: ty.clone(),
-                                trait_name: Arc::clone(&bound.name),
-                            },
-                            span,
-                        ))
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            return Ok(DictSource::Impl { symbols });
+                .cloned()
+                .collect();
+            for imp in &candidates {
+                if let Some(source) =
+                    self.solve_via_impl(&ty, bound, span, depth, imp, &trait_def)?
+                {
+                    return Ok(source);
+                }
+            }
+        }
+
+        // The `Into` bridge: `S: Into<T>` is satisfiable by
+        // `impl From<S> for T`. Sound at runtime because both traits are
+        // pinned to the same dictionary shape — a 1-tuple of one 1-argument
+        // function (`into(self)` / `from(value)`) — so a `From` dictionary
+        // *is* an `Into` dictionary. Anchored on the reserved uuids, like
+        // operator desugaring.
+        if bound.trait_uuid == crate::types::TRAIT_INTO_UUID
+            && let [target] = bound.args.as_slice()
+            && let Some(source) =
+                self.solve_into_via_from(&ty, &target.clone(), bound, span, depth)?
+        {
+            return Ok(source);
         }
 
         if matches!(ty, Type::Var(_)) {
@@ -470,11 +489,13 @@ impl Infer {
         )))
     }
 
-    /// Solve `ty: bound` through a conditional impl (`impl<T: Eq> Eq for
-    /// Pair<T>`): unify the impl's target shape against `ty` to recover its
-    /// type-parameter assignments, recursively solve the impl's own bounds
-    /// against those assignments, and describe the closure-built dictionary.
-    fn solve_generic_impl(
+    /// Try to satisfy `ty: bound` through one candidate impl: match the
+    /// impl's target and trait arguments against the required ones (one
+    /// shared substitution binds any impl type parameters across both, so
+    /// `impl<T> From<List<T>> for Set<T>` lines its `T`s up), and build the
+    /// dictionary on success. `Ok(None)` means "this impl doesn't cover the
+    /// requirement" — the caller tries the next candidate.
+    fn solve_via_impl(
         &mut self,
         ty: &Type,
         bound: &TraitBound,
@@ -482,35 +503,147 @@ impl Infer {
         depth: u32,
         imp: &crate::types::TraitImpl,
         trait_def: &crate::types::TraitDef,
+    ) -> Result<Option<DictSource>, BoxedTypeError> {
+        if imp.trait_args.len() != bound.args.len() {
+            return Ok(None);
+        }
+        let mut subst: HashMap<Arc<str>, Type> = HashMap::new();
+        if let Some(target) = &imp.target
+            && !match_target(target, ty, &mut subst)
+        {
+            return Ok(None);
+        }
+        for (impl_arg, required) in imp.trait_args.iter().zip(&bound.args) {
+            if !match_target(impl_arg, required, &mut subst) {
+                return Ok(None);
+            }
+        }
+
+        if imp.is_generic {
+            return self
+                .solve_generic_impl(bound, span, depth, imp, trait_def, &subst)
+                .map(Some);
+        }
+        let symbols = trait_def
+            .dictionary_order()
+            .into_iter()
+            .map(|idx| {
+                let method_name = &trait_def.methods[idx].name;
+                imp.methods.get(method_name).cloned().ok_or_else(|| {
+                    Box::new(TypeError::new(
+                        TypeErrorKind::BoundNotSatisfied {
+                            ty: ty.clone(),
+                            trait_name: Arc::clone(&bound.name),
+                        },
+                        span,
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Some(DictSource::Impl { symbols }))
+    }
+
+    /// Satisfy `S: Into<T>` through a `From` impl: `T` rigid forwards the
+    /// enclosing declaration's `T: From<S>` dictionary directly (same
+    /// runtime shape); `T` concrete solves `T: From<S>` like any other
+    /// bound. `Ok(None)` means no bridge applies — the caller reports the
+    /// ordinary unsatisfied-`Into` error, so the diagnostic names the trait
+    /// the user actually wrote.
+    fn solve_into_via_from(
+        &mut self,
+        ty: &Type,
+        target: &Type,
+        bound: &TraitBound,
+        span: (u32, u32),
+        depth: u32,
+    ) -> Result<Option<DictSource>, BoxedTypeError> {
+        let target = self.apply(target);
+        let from_bound = TraitBound {
+            trait_uuid: crate::types::TRAIT_FROM_UUID,
+            name: Arc::from("From"),
+            args: vec![ty.clone()],
+        };
+        // Rigid target: the enclosing declaration must bound it
+        // `T: From<S>`; forward that dictionary as the Into dictionary.
+        if let Type::Param(name) = &target {
+            if let Some(dict_index) =
+                self.bound_param_index(name, from_bound.trait_uuid, &from_bound.args)
+            {
+                return Ok(Some(DictSource::Param { dict_index }));
+            }
+            return Ok(None);
+        }
+        if super::inherent::impl_key_for(&target)
+            .and_then(|k| k.uuid())
+            .is_some()
+        {
+            match self.solve_bound(&target, &from_bound, span, depth + 1) {
+                Ok(source) => return Ok(Some(source)),
+                Err(_) => return Ok(None),
+            }
+        }
+        if matches!(target, Type::Var(_)) {
+            return Err(Box::new(TypeError::new(
+                TypeErrorKind::CannotInfer {
+                    hint: format!(
+                        "conversion target constrained by `{}` (add an annotation)",
+                        bound.name
+                    ),
+                },
+                span,
+            )));
+        }
+        Ok(None)
+    }
+
+    /// Solve `ty: bound` through a conditional impl (`impl<T: Eq> Eq for
+    /// Pair<T>`) whose target and trait arguments already matched, with
+    /// `subst` carrying the recovered type-parameter assignments: solve the
+    /// impl's own bounds against those assignments and describe the
+    /// closure-built dictionary.
+    fn solve_generic_impl(
+        &mut self,
+        bound: &TraitBound,
+        span: (u32, u32),
+        depth: u32,
+        imp: &crate::types::TraitImpl,
+        trait_def: &crate::types::TraitDef,
+        subst: &HashMap<Arc<str>, Type>,
     ) -> Result<DictSource, BoxedTypeError> {
         let not_satisfied = || {
             Box::new(TypeError::new(
                 TypeErrorKind::BoundNotSatisfied {
-                    ty: ty.clone(),
+                    ty: imp.target.clone().unwrap_or(Type::Error),
                     trait_name: Arc::clone(&bound.name),
                 },
                 span,
             ))
         };
 
-        // Recover the impl's type-parameter assignments (`T -> Money` for
-        // `Pair<T>` matched against `Pair<Money>`). A target that keys on the
-        // same head uuid but a different instantiation (`Option<Number>` vs a
-        // required `Option<String>`) fails to match — coherence granularity
-        // is the head, precision is here.
-        let target = imp.target.as_ref().ok_or_else(not_satisfied)?;
-        let mut subst: HashMap<Arc<str>, Type> = HashMap::new();
-        if !match_target(target, ty, &mut subst) {
-            return Err(not_satisfied());
-        }
-
+        // The caller already recovered the impl's type-parameter assignments
+        // (`T -> Money` for `Pair<T>` matched against `Pair<Money>`, plus
+        // any bound by the trait arguments). A target keying on the same
+        // head uuid but a different instantiation failed to match there —
+        // coherence granularity is the head, precision is the match.
+        //
         // Solve each of the impl's own bounds against the recovered
         // assignment, in dictionary-parameter order — one inner dictionary
         // per bound, which every method closure forwards.
         let mut inner = Vec::with_capacity(imp.bounds.len());
         for (param, inner_bound) in &imp.bounds {
             let assigned = subst.get(param).cloned().ok_or_else(not_satisfied)?;
-            inner.push(self.solve_bound(&assigned, inner_bound, span, depth + 1)?);
+            // An inner bound's own arguments may reference the impl's
+            // parameters (`impl<T, U: From<T>> …`); substitute the recovered
+            // assignments before solving.
+            let mut inner_bound = inner_bound.clone();
+            if !inner_bound.args.is_empty() {
+                inner_bound.args = inner_bound
+                    .args
+                    .iter()
+                    .map(|a| substitute_rigid_params(a, subst))
+                    .collect();
+            }
+            inner.push(self.solve_bound(&assigned, &inner_bound, span, depth + 1)?);
         }
 
         // One dictionary slot per trait method, in dictionary order — the
@@ -541,12 +674,33 @@ impl Infer {
         Ok(DictSource::Generic { methods, inner })
     }
 
-    /// The dictionary-parameter index of `(param, trait)` in the enclosing
-    /// item, if the item declares that bound.
-    pub(crate) fn bound_param_index(&self, param: &str, trait_uuid: uuid::Uuid) -> Option<usize> {
-        self.current_bound_params
+    /// The dictionary-parameter index of `(param, trait, args)` in the
+    /// enclosing item, if the item declares that bound. Arguments compare
+    /// structurally after applying the current substitution on both sides,
+    /// so `T: Into<String>` matches a requirement whose argument resolved to
+    /// `String` through inference.
+    pub(crate) fn bound_param_index(
+        &mut self,
+        param: &str,
+        trait_uuid: uuid::Uuid,
+        args: &[Type],
+    ) -> Option<usize> {
+        let required: Vec<Type> = args.iter().map(|a| self.apply(a)).collect();
+        let declared: Vec<(usize, Vec<Type>)> = self
+            .current_bound_params
             .iter()
-            .position(|(name, bound)| name.as_ref() == param && bound.trait_uuid == trait_uuid)
+            .enumerate()
+            .filter(|(_, (name, bound))| {
+                name.as_ref() == param
+                    && bound.trait_uuid == trait_uuid
+                    && bound.args.len() == required.len()
+            })
+            .map(|(i, (_, bound))| (i, bound.args.clone()))
+            .collect();
+        declared
+            .into_iter()
+            .find(|(_, args)| args.iter().zip(&required).all(|(a, b)| self.apply(a) == *b))
+            .map(|(i, _)| i)
     }
 
     /// Resolve a trait *reference* — an impl header or a `T: Bound` — to its
@@ -579,26 +733,67 @@ impl Infer {
         let span = type_params
             .first()
             .map_or((0, 0), |tp| (tp.span.start, tp.span.end));
+        // A bound's arguments may reference the declaration's own type
+        // parameters (`fn f<U, T: From<U>>`); resolve them under those
+        // params rigid so they stay `Type::Param`s, matching how the
+        // enclosing body resolves every other annotation.
+        let rigid: Vec<Arc<str>> = type_params
+            .iter()
+            .filter(|tp| !tp.is_ability)
+            .map(|tp| Arc::clone(&tp.name))
+            .collect();
         let mut out = Vec::new();
         for (param, bound) in crate::ast::dict_params(type_params) {
-            let Some(trait_uuid) = self.trait_uuid_of(bound) else {
-                errors.push(Box::new(TypeError::new(
-                    TypeErrorKind::UnknownTrait {
-                        name: Arc::clone(&bound.name),
-                    },
-                    span,
-                )));
-                continue;
-            };
-            out.push((
-                param,
-                TraitBound {
-                    trait_uuid,
-                    name: Arc::clone(&bound.name),
-                },
-            ));
+            let resolved = self.with_rigid_params(rigid.clone(), |infer| {
+                infer.resolve_trait_ref(bound, span, errors)
+            });
+            if let Some(resolved) = resolved {
+                out.push((param, resolved));
+            }
         }
         out
+    }
+
+    /// Resolve one trait reference (`Eq`, `From<String>`) to a
+    /// [`TraitBound`]: the trait identity via [`Self::trait_uuid_of`], the
+    /// arguments through ordinary type resolution (under whatever rigid
+    /// scope the caller installed), validated against the trait's declared
+    /// parameter count. `None` (with an error pushed) for an unknown trait
+    /// or an argument-count mismatch.
+    pub(crate) fn resolve_trait_ref(
+        &mut self,
+        bound: &crate::ast::TraitRef,
+        span: (u32, u32),
+        errors: &mut Vec<BoxedTypeError>,
+    ) -> Option<TraitBound> {
+        let Some(trait_uuid) = self.trait_uuid_of(&bound.name) else {
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::UnknownTrait {
+                    name: Arc::clone(&bound.name.name),
+                },
+                span,
+            )));
+            return None;
+        };
+        let args: Vec<Type> = bound.args.iter().map(|a| self.resolve_holes(a)).collect();
+        if let Some(def) = self.trait_registry.get_trait(trait_uuid)
+            && def.type_params.len() != args.len()
+        {
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::TraitArityMismatch {
+                    trait_name: Arc::clone(&bound.name.name),
+                    expected: def.type_params.len(),
+                    found: args.len(),
+                },
+                span,
+            )));
+            return None;
+        }
+        Some(TraitBound {
+            trait_uuid,
+            name: Arc::clone(&bound.name.name),
+            args,
+        })
     }
 
     /// Install an item's dictionary-parameter context around `f` (composes
@@ -623,6 +818,11 @@ impl Infer {
         body: &mut crate::ast::Expr,
         errors: &mut Vec<BoxedTypeError>,
     ) {
+        // Deferred conversion selections settle first: the chosen impl may
+        // record fresh dictionary constraints, which the dictionary solve
+        // below then resolves in the same pass.
+        let selections = self.solve_method_selections(errors);
+        super::conversions::finalize_method_selections(body, &selections);
         let solved = self.solve_dict_constraints(errors);
         finalize_dicts(body, &solved);
         // Applied-impl coverage settles on the same schedule: the receiver's
@@ -636,6 +836,49 @@ impl Infer {
     }
 }
 
+/// Substitute [`Type::Param`]s by name — the inverse direction of
+/// [`match_target`]'s binding: once a conditional impl's parameters are
+/// assigned (`T -> Money`), rewrite a type that *mentions* those parameters
+/// (an inner bound's trait argument, `From<T>`) to its concrete form.
+/// Unassigned params pass through unchanged.
+pub(crate) fn substitute_rigid_params(ty: &Type, subst: &HashMap<Arc<str>, Type>) -> Type {
+    match ty {
+        Type::Param(name) => subst.get(name).cloned().unwrap_or_else(|| ty.clone()),
+        Type::Named(n) => Type::Named(
+            n.map_args(
+                n.args
+                    .iter()
+                    .map(|a| substitute_rigid_params(a, subst))
+                    .collect(),
+            ),
+        ),
+        Type::Nominal(nom) => {
+            Type::Nominal(nom.map_inner(substitute_rigid_params(&nom.inner, subst)))
+        }
+        Type::Tuple(elems) => Type::Tuple(
+            elems
+                .iter()
+                .map(|e| substitute_rigid_params(e, subst))
+                .collect(),
+        ),
+        Type::Record(rec) => Type::Record(crate::types::RecordType::new(
+            rec.fields
+                .iter()
+                .map(|(n, t)| (Arc::clone(n), substitute_rigid_params(t, subst)))
+                .collect(),
+        )),
+        Type::Function(f) => Type::function_with_abilities(
+            f.params
+                .iter()
+                .map(|p| substitute_rigid_params(p, subst))
+                .collect(),
+            substitute_rigid_params(&f.ret, subst),
+            f.abilities.clone(),
+        ),
+        _ => ty.clone(),
+    }
+}
+
 /// One-directional structural match of a conditional impl's target shape
 /// (`pattern`, carrying the impl's [`Type::Param`]s) against a concrete
 /// `concrete` type, binding each param to the type it lines up with.
@@ -645,7 +888,11 @@ impl Infer {
 /// (`Pair<T>` against `Pair<Money>` binds `T = Money` consistently). A
 /// structural mismatch — a different head uuid, arity, or field set — is a
 /// clean `false`, which the caller reports as an unsatisfied bound.
-fn match_target(pattern: &Type, concrete: &Type, subst: &mut HashMap<Arc<str>, Type>) -> bool {
+pub(crate) fn match_target(
+    pattern: &Type,
+    concrete: &Type,
+    subst: &mut HashMap<Arc<str>, Type>,
+) -> bool {
     match (pattern, concrete) {
         (Type::Param(name), _) => {
             if let Some(existing) = subst.get(name) {

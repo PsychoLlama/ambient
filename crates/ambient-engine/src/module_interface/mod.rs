@@ -529,7 +529,7 @@ fn impl_shape(i: &crate::ast::ImplDef) -> ImplShape {
         .collect();
     methods.sort_by(|a, b| a.name.cmp(&b.name));
     ImplShape {
-        trait_ref: i.trait_name.as_ref().map(ast_hash::render_name),
+        trait_ref: i.trait_name.as_ref().map(ast_hash::render_trait_ref),
         for_type: render_type(&i.for_type),
         type_params: param_names(&i.type_params),
         methods,

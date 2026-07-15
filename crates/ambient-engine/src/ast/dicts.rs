@@ -139,6 +139,13 @@ pub enum ResolvedMethod {
         /// dictionary order).
         slot: usize,
     },
+    /// Inference recorded a deferred impl selection here (a conversion call
+    /// like `x.into()` with several argument-differing candidate impls,
+    /// selected by the call's *result* type once the body settles — see
+    /// `Infer::solve_method_selections`). Like [`Dicts::Pending`], the
+    /// compiler treats a surviving `Pending` as an internal error — a
+    /// checked module carries only `Symbol`/`DictSlot` dispatch.
+    Pending(u32),
 }
 
 impl ResolvedMethod {
@@ -147,7 +154,7 @@ impl ResolvedMethod {
     pub fn as_symbol(&self) -> Option<&Arc<str>> {
         match self {
             Self::Symbol(s) => Some(s),
-            Self::DictSlot { .. } => None,
+            Self::DictSlot { .. } | Self::Pending(_) => None,
         }
     }
 }

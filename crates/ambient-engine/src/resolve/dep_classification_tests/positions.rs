@@ -187,7 +187,10 @@ fn impl_of_imported_trait_for_imported_type_is_check_only() {
     let imp = Item::new(
         ItemKind::Impl(ImplDef {
             type_params: vec![],
-            trait_name: Some(QualifiedName::simple("Describe")),
+            trait_name: Some(crate::ast::TraitRef {
+                name: QualifiedName::simple("Describe"),
+                args: vec![],
+            }),
             for_type: named("Widget"),
             methods: vec![describe],
             span: Span::default(),

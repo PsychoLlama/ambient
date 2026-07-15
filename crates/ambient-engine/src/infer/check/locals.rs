@@ -163,18 +163,30 @@ fn register_traits(
     }
 }
 
-/// Reject the two trait-declaration features that parse but are not yet
-/// implemented: trait-level type parameters (generic traits like
-/// `trait Container<T>`) and supertraits (`trait Sub with Base`). Both would
-/// otherwise be silently dropped by `checked_trait_def` and miscompile.
+/// Reject trait-declaration features that parse but are not implemented:
+/// supertraits (`trait Sub with Base`), which would otherwise be silently
+/// dropped by `checked_trait_def` and miscompile, plus the unsupported
+/// corners of trait-level type parameters (ability variables and bounded
+/// parameters — a trait's parameters are pure argument slots; bounds belong
+/// on impls and functions).
 fn validate_supported_trait_shape(def: &crate::ast::TraitDef) -> Result<(), String> {
-    if !def.type_params.is_empty() {
-        return Err(format!(
-            "generic traits are not supported yet: trait `{}` declares trait-level \
-             type parameters. Method-level type parameters (`fn method<T: Bound>(...)`) \
-             are supported; move the parameter onto the method if that fits.",
-            def.name
-        ));
+    for tp in &def.type_params {
+        if tp.is_ability {
+            return Err(format!(
+                "trait `{}` declares an ability variable (`{}!`) as a trait-level \
+                 parameter; a trait's type parameters are types. Declare `E!` on the \
+                 method instead: `fn method<E!>(...)`.",
+                def.name, tp.name
+            ));
+        }
+        if !tp.bounds.is_empty() {
+            return Err(format!(
+                "trait `{}` declares a bound on its type parameter `{}`; trait-level \
+                 parameters are pure argument slots. Declare the bound on the impls \
+                 and functions that use the trait.",
+                def.name, tp.name
+            ));
+        }
     }
     if !def.supertraits.is_empty() {
         return Err(format!(
@@ -216,6 +228,16 @@ fn validate_reserved_trait(def: &crate::ast::TraitDef) -> Result<(), String> {
             def.name
         ));
     }
+    // The trait-level parameter count is part of the pinned shape: the
+    // solver's `Into`-via-`From` bridge assumes both take exactly one
+    // argument (and the operator traits none).
+    if def.type_params.len() != reserved.type_param_count() {
+        return mismatch(&format!(
+            "expected {} trait-level type parameter(s), found {}",
+            reserved.type_param_count(),
+            def.type_params.len()
+        ));
+    }
     let (method_name, has_self, param_count) = reserved_trait_method_shape(reserved);
     let [method] = def.methods.as_slice() else {
         return mismatch(&format!("expected exactly one method `{method_name}`"));
@@ -254,6 +276,11 @@ fn reserved_trait_method_shape(
         R::Ord => ("cmp", true, 1),
         R::Default => ("default", false, 0),
         R::Show => ("show", true, 0),
+        // The conversion pair share one dictionary shape — a 1-tuple of one
+        // 1-argument function — which is what makes the solver's
+        // `Into`-via-`From` bridge sound at runtime.
+        R::From => ("from", false, 1),
+        R::Into => ("into", true, 0),
     }
 }
 /// Register a single trait definition into the trait registry, binding its
@@ -305,7 +332,7 @@ fn checked_trait_def(trait_def: &crate::ast::TraitDef, module_id: Option<&Module
                     type_param_names.push(Arc::clone(&tp.name));
                 }
             }
-            let method_bounds: Vec<(Arc<str>, crate::ast::QualifiedName)> =
+            let method_bounds: Vec<(Arc<str>, crate::ast::TraitRef)> =
                 crate::ast::dict_params(&m.type_params)
                     .into_iter()
                     .map(|(param, bound)| (param, bound.clone()))
@@ -329,6 +356,11 @@ fn checked_trait_def(trait_def: &crate::ast::TraitDef, module_id: Option<&Module
     TraitDef {
         uuid: trait_def.uuid,
         name: Arc::clone(&trait_def.name),
+        type_params: trait_def
+            .type_params
+            .iter()
+            .map(|tp| Arc::clone(&tp.name))
+            .collect(),
         fqn,
         methods,
     }
@@ -633,26 +665,28 @@ pub(super) fn attach_scheme_bounds(
         let Some(&var) = type_var_map.get(&param) else {
             continue;
         };
-        let Some(trait_uuid) = infer.trait_uuid_of(bound) else {
-            let span = type_params
+        let span = type_params
+            .iter()
+            .find(|tp| tp.name == param)
+            .map_or((0, 0), |tp| (tp.span.start, tp.span.end));
+        // A bound's arguments quantify like the rest of the scheme: the
+        // declaration's own parameter names map to their quantified
+        // variables (`fn f<U, T: From<U>>` stores `From<'q>`), so
+        // instantiation freshens them alongside the bound variable itself.
+        let bound_with_var_args = crate::ast::TraitRef {
+            name: bound.name.clone(),
+            args: bound
+                .args
                 .iter()
-                .find(|tp| tp.name == param)
-                .map_or((0, 0), |tp| (tp.span.start, tp.span.end));
-            infer.pending_errors.push(Box::new(TypeError::new(
-                TypeErrorKind::UnknownTrait {
-                    name: Arc::clone(&bound.name),
-                },
-                span,
-            )));
-            continue;
+                .map(|a| substitute_type_params(a, type_var_map))
+                .collect(),
         };
-        bounds.push((
-            var,
-            crate::types::TraitBound {
-                trait_uuid,
-                name: Arc::clone(&bound.name),
-            },
-        ));
+        let mut errors = Vec::new();
+        let resolved = infer.resolve_trait_ref(&bound_with_var_args, span, &mut errors);
+        infer.pending_errors.extend(errors);
+        if let Some(resolved) = resolved {
+            bounds.push((var, resolved));
+        }
     }
     if bounds.is_empty() {
         scheme

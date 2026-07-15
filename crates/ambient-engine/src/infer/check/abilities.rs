@@ -519,7 +519,7 @@ fn resolve_ability_def(
             .filter(|tp| !tp.is_ability)
             .map(|tp| &tp.name)
             .collect();
-        let bounds: Vec<(usize, crate::ast::QualifiedName)> =
+        let bounds: Vec<(usize, crate::ast::TraitRef)> =
             crate::ast::dict_params(&method.type_params)
                 .into_iter()
                 .filter_map(|(param, bound)| {
@@ -538,7 +538,12 @@ fn resolve_ability_def(
         // Bounds enter the canonical signature as pseudo-parameters after
         // the real ones (`bound:<param_index>:<TraitName>`): a bound is
         // interface, so adding one re-keys the method loudly. A boundless
-        // method's rendering is byte-identical to before bounds existed.
+        // method's rendering is byte-identical to before bounds existed,
+        // and an argument-less bound's to before trait arguments existed;
+        // a bound's arguments (`T: From<String>`) render through the same
+        // canonical renderer as the parameters
+        // (`bound:<idx>:<TraitName><arg1,arg2>`), so changing one re-keys
+        // loudly too.
         //
         // Deliberately the *spelled* final name, never the resolved `Fqn`:
         // like `named:Duration` for an unresolved cross-module nominal, the
@@ -546,7 +551,13 @@ fn resolve_ability_def(
         // and switching to the uuid/Fqn would re-key every bounded ability
         // method (the platform ability ids are golden-pinned).
         for (idx, bound) in &bounds {
-            canon_params.push(format!("bound:{idx}:{}", bound.name));
+            let args = if bound.args.is_empty() {
+                String::new()
+            } else {
+                let rendered: Vec<String> = bound.args.iter().map(|a| renderer.render(a)).collect();
+                format!("<{}>", rendered.join(","))
+            };
+            canon_params.push(format!("bound:{idx}:{}{args}", bound.name.name));
         }
 
         methods.push(DynMethod {

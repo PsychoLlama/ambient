@@ -344,6 +344,15 @@ pub(super) fn compile_expr_tail(
                                 compile_expr(fc, right, ctx)?;
                                 fc.builder.emit_call_closure(2);
                             }
+                            ResolvedMethod::Pending(_) => {
+                                return Err(CompileError::new(
+                                    CompileErrorKind::Internal {
+                                        message: "unsolved method selection reached compilation \
+                                                  (checker bug)",
+                                    },
+                                    (expr.span.start, expr.span.end),
+                                ));
+                            }
                         }
 
                         // Adapt the trait method's result to the operator's
@@ -696,6 +705,15 @@ pub(super) fn compile_expr_tail(
                     #[allow(clippy::cast_possible_truncation)]
                     let arity = (1 + args.len() + dict_count) as u8;
                     emit_closure_call(fc, arity, tail);
+                }
+                Some(ResolvedMethod::Pending(_)) => {
+                    return Err(CompileError::new(
+                        CompileErrorKind::Internal {
+                            message: "unsolved method selection reached compilation \
+                                      (checker bug)",
+                        },
+                        (expr.span.start, expr.span.end),
+                    ));
                 }
                 None => {
                     return Err(CompileError::new(

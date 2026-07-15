@@ -54,6 +54,23 @@ pub const TRAIT_DEFAULT_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_
 /// `throw`'s bound is always in scope. See [`TRAIT_ADD_UUID`]; it claims the
 /// slot after `Default` in the reserved trait block.
 pub const TRAIT_SHOW_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0018);
+/// Canonical identity of the prelude `From<T>` conversion trait
+/// (`core::convert::From`): `fn from(value: T): Self`, the declaration side
+/// of every value conversion. Reserved (not just a library trait) because
+/// the bound solver's `Into` bridge anchors on the *pair* of uuids:
+/// `S: Into<T>` is satisfiable by `impl From<S> for T`. See
+/// [`TRAIT_INTO_UUID`]; it claims the slot after `Show`.
+pub const TRAIT_FROM_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0019);
+/// Canonical identity of the prelude `Into<T>` conversion trait
+/// (`core::convert::Into`): `fn into(self): T`, the use side of a
+/// conversion. The solver satisfies `S: Into<T>` through `impl From<S> for
+/// T` when no direct `Into` impl exists — sound at runtime because both
+/// dictionaries are pinned by `validate_reserved_trait` to the same shape, a
+/// 1-tuple of one 1-argument function (`from(value)` / `into(self)`), so a
+/// `From` dictionary *is* an `Into` dictionary. That bridge keys on these
+/// reserved uuids, exactly like operator desugaring keys on
+/// [`TRAIT_ADD_UUID`].
+pub const TRAIT_INTO_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_001a);
 
 /// A reserved core trait: name/uuid pairs for the declarations in
 /// `core_lib/traits.ab`, the trait analogue of [`super::Primitive`] /
@@ -79,11 +96,16 @@ pub enum ReservedTrait {
     Default,
     /// `Show` — no operator; the stringifier that bounds `Exception::throw`.
     Show,
+    /// `From<T>` — no operator; the declaration side of a conversion.
+    From,
+    /// `Into<T>` — no operator; the use side of a conversion, satisfiable
+    /// through a `From` impl (the solver's uuid-anchored bridge).
+    Into,
 }
 
 impl ReservedTrait {
     /// Every reserved core trait.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 11] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -93,6 +115,8 @@ impl ReservedTrait {
         Self::Ord,
         Self::Default,
         Self::Show,
+        Self::From,
+        Self::Into,
     ];
 
     /// The reserved identity uuid for this trait.
@@ -108,6 +132,8 @@ impl ReservedTrait {
             Self::Ord => TRAIT_ORD_UUID,
             Self::Default => TRAIT_DEFAULT_UUID,
             Self::Show => TRAIT_SHOW_UUID,
+            Self::From => TRAIT_FROM_UUID,
+            Self::Into => TRAIT_INTO_UUID,
         }
     }
 
@@ -124,6 +150,19 @@ impl ReservedTrait {
             Self::Ord => "Ord",
             Self::Default => "Default",
             Self::Show => "Show",
+            Self::From => "From",
+            Self::Into => "Into",
+        }
+    }
+
+    /// The number of trait-level type parameters the reserved trait declares
+    /// (`From<T>`/`Into<T>` → 1, everything else 0). Part of the canonical
+    /// shape `validate_reserved_trait` pins.
+    #[must_use]
+    pub const fn type_param_count(self) -> usize {
+        match self {
+            Self::From | Self::Into => 1,
+            _ => 0,
         }
     }
 
@@ -144,14 +183,32 @@ impl ReservedTrait {
 // Trait System Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A resolved trait bound (`T: Eq`): the trait's identity plus its spelled
-/// name for diagnostics. Everything semantic keys off the uuid.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A resolved trait bound (`T: Eq`, `T: From<String>`): the trait's identity
+/// plus its resolved type arguments. Everything semantic keys off the uuid
+/// and the argument types; the name is display only.
+#[derive(Debug, Clone, PartialEq)]
 pub struct TraitBound {
     /// The bound trait's identity.
     pub trait_uuid: Uuid,
     /// The name the bound was written as (display only).
     pub name: Arc<str>,
+    /// The bound's resolved type arguments (`From<String>` → `[String]`).
+    /// Empty for the common argument-less bound. May contain [`Type::Param`]s
+    /// referencing the enclosing declaration's own type parameters, and (in a
+    /// scheme) [`Type::Var`]s standing for the scheme's quantified variables.
+    pub args: Vec<Type>,
+}
+
+impl TraitBound {
+    /// An argument-less bound.
+    #[must_use]
+    pub fn simple(trait_uuid: Uuid, name: impl Into<Arc<str>>) -> Self {
+        Self {
+            trait_uuid,
+            name: name.into(),
+            args: Vec::new(),
+        }
+    }
 }
 
 /// Definition of a trait.
@@ -162,6 +219,13 @@ pub struct TraitDef {
 
     /// Trait name for display and in-scope lookup.
     pub name: Arc<str>,
+
+    /// Trait-level type parameter names (`trait From<T>` → `["T"]`), in
+    /// declaration order. Method signatures reference them as bare `Named`s,
+    /// resolved per use site exactly like `Self` and method-level parameters.
+    /// An impl of a parameterized trait spells one argument per entry, and
+    /// coherence/dispatch key on those arguments' head identities.
+    pub type_params: Vec<Arc<str>>,
 
     /// The trait's fully-qualified location identity — the key the resolve
     /// pass canonicalizes every trait *reference* to, and the key the
@@ -182,9 +246,17 @@ impl TraitDef {
         Self {
             uuid,
             name: name.into(),
+            type_params: Vec::new(),
             fqn: None,
             methods: Vec::new(),
         }
+    }
+
+    /// Attach the trait's own type parameter names (`trait From<T>`).
+    #[must_use]
+    pub fn with_type_params(mut self, type_params: Vec<Arc<str>>) -> Self {
+        self.type_params = type_params;
+        self
     }
 
     /// Attach the trait's fully-qualified location identity, so registering
@@ -274,12 +346,12 @@ pub struct TraitMethodDef {
     /// pairs, in [`crate::ast::dict_params`] order — the single authority the
     /// compiled impl method allocates its trailing dictionary parameters from,
     /// so a concrete-receiver call site's recorded dictionaries and the
-    /// method's slots can never disagree. The bound carries the resolve pass's
-    /// canonical `Fqn` (in [`crate::ast::QualifiedName::resolved`]), so a call
-    /// site resolves it to the *defining* module's trait — never re-resolved
-    /// in the caller's scope — and impl-method conformance compares by
-    /// identity.
-    pub method_bounds: Vec<(Arc<str>, crate::ast::QualifiedName)>,
+    /// method's slots can never disagree. The bound's name carries the resolve
+    /// pass's canonical `Fqn` (in [`crate::ast::QualifiedName::resolved`]), so
+    /// a call site resolves it to the *defining* module's trait — never
+    /// re-resolved in the caller's scope — and impl-method conformance
+    /// compares by identity.
+    pub method_bounds: Vec<(Arc<str>, crate::ast::TraitRef)>,
 }
 
 impl TraitMethodDef {
@@ -307,7 +379,7 @@ impl TraitMethodDef {
         abilities: Vec<crate::ast::QualifiedName>,
         type_param_names: Vec<Arc<str>>,
         ability_var_names: Vec<Arc<str>>,
-        method_bounds: Vec<(Arc<str>, crate::ast::QualifiedName)>,
+        method_bounds: Vec<(Arc<str>, crate::ast::TraitRef)>,
     ) -> Self {
         self.abilities = abilities;
         self.type_param_names = type_param_names;
@@ -334,6 +406,15 @@ pub struct TraitImpl {
     /// The implementing type's head name, for diagnostics and `Debug` only —
     /// nothing semantic keys off it.
     pub type_name: Arc<str>,
+
+    /// The impl's trait type arguments (`impl From<Number> for Money` →
+    /// `[Number]`), resolved under the impl's rigid type parameters — so a
+    /// conditional impl's argument may carry [`Type::Param`]s
+    /// (`impl<T> From<List<T>> for …` → `[List<T>]`). Empty for an impl of
+    /// an argument-less trait. Coherence and the dispatch symbol key on each
+    /// argument's *head* identity ([`trait_arg_head`]); the solver refines
+    /// with the full types at use sites, exactly like [`target`](Self::target).
+    pub trait_args: Vec<Type>,
 
     /// Whether the impl block declares its own type parameters
     /// (`impl<T> Show for Wrapper<T>`). A generic (conditional) impl serves
@@ -377,11 +458,28 @@ impl TraitImpl {
             trait_uuid,
             type_uuid,
             type_name: type_name.into(),
+            trait_args: Vec::new(),
             is_generic: false,
             target: None,
             bounds: Vec::new(),
             methods: HashMap::new(),
         }
+    }
+
+    /// Attach the impl's trait type arguments (`impl From<Number> for …`).
+    #[must_use]
+    pub fn with_trait_args(mut self, trait_args: Vec<Type>) -> Self {
+        self.trait_args = trait_args;
+        self
+    }
+
+    /// Each trait argument's head identity, in order — the granularity
+    /// coherence and the dispatch symbol key on. `None` if any argument has
+    /// no nominal head (rejected at the declaration site, so registered
+    /// impls always yield `Some`).
+    #[must_use]
+    pub fn arg_heads(&self) -> Option<Vec<Uuid>> {
+        self.trait_args.iter().map(trait_arg_head).collect()
     }
 
     /// Mark this impl as a conditional (generic) impl, recording the applied
@@ -408,20 +506,55 @@ impl TraitImpl {
     }
 }
 
+/// The head identity a trait argument keys coherence and dispatch on: the
+/// argument's nominal head uuid. After `resolve_holes` every real head —
+/// declared structs/enums, primitives, prelude enums, and the built-in
+/// containers — carries a uuid (the same authority `impl_key_for` applies to
+/// impl targets), so `None` means the argument cannot anchor an impl: a
+/// structural type (record, tuple, function) or a bare type parameter.
+/// Rejected at the impl declaration site.
+#[must_use]
+pub fn trait_arg_head(ty: &Type) -> Option<Uuid> {
+    match ty {
+        Type::Nominal(n) => Some(n.uuid),
+        Type::Named(n) => n.uuid,
+        _ => None,
+    }
+}
+
 /// The canonical function symbol for an impl method.
 ///
 /// Impl methods are compiled as ordinary named functions under this symbol,
 /// so they flow through the same content-addressed hash finalization as any
 /// other function. The symbol is derived only from source-stable identities —
-/// the implementing type's UUID, the trait's UUID, and the method name —
-/// never from names that can collide (two same-named traits implemented for
-/// one type must not share a symbol) or from compilation-order artifacts.
-/// The `::` separator cannot appear in module-qualified names (which use
-/// `.`), so these symbols never collide with user functions.
+/// the implementing type's UUID, the trait's UUID, the trait arguments' head
+/// UUIDs, and the method name — never from names that can collide (two
+/// same-named traits implemented for one type must not share a symbol) or
+/// from compilation-order artifacts. The `::` separator cannot appear in
+/// module-qualified names (which use `.`), so these symbols never collide
+/// with user functions.
+///
+/// An argument-less trait's symbol keeps the historical
+/// `<type>::<trait>::<method>` form exactly (pinned hashes like
+/// `THROW_IMPL_HASH` must not move); a parameterized trait appends the
+/// argument heads to the trait segment (`<type>::<trait><H1,H2>::<method>`),
+/// which no argument-less symbol can collide with (`<`/`>` never appear in
+/// uuids or method names).
 #[must_use]
-pub fn impl_method_symbol(type_uuid: &Uuid, trait_uuid: &Uuid, method_name: &str) -> Arc<str> {
+pub fn impl_method_symbol(
+    type_uuid: &Uuid,
+    trait_uuid: &Uuid,
+    arg_heads: &[Uuid],
+    method_name: &str,
+) -> Arc<str> {
+    let args = if arg_heads.is_empty() {
+        String::new()
+    } else {
+        let heads: Vec<String> = arg_heads.iter().map(uuid_to_source).collect();
+        format!("<{}>", heads.join(","))
+    };
     format!(
-        "{}::{}::{method_name}",
+        "{}::{}{args}::{method_name}",
         uuid_to_source(type_uuid),
         uuid_to_source(trait_uuid)
     )
@@ -460,6 +593,16 @@ pub enum MethodLookup<'a> {
         /// Names of the traits that provide the method.
         traits: Vec<Arc<str>>,
     },
+    /// Exactly one trait provides the method, but through several impls
+    /// differing in trait arguments (`impl From<Number> for X` and
+    /// `impl From<String> for X` both provide `from`). The caller selects
+    /// among [`TraitRegistry::impls_of`] by argument/return types.
+    MultiImpl {
+        /// The identity of the trait providing the method.
+        trait_uuid: Uuid,
+        /// The trait's method signature.
+        method: &'a TraitMethodDef,
+    },
 }
 
 /// Registry of trait definitions and implementations.
@@ -467,8 +610,12 @@ pub enum MethodLookup<'a> {
 /// Definitions are keyed by the trait's identity uuid; `name_to_uuid` is the
 /// in-scope lookup table (imports and locals register here, later
 /// registrations shadowing earlier ones — the same precedence every other
-/// name follows). Impls key on `(trait uuid, type uuid)`, the coherence
-/// granularity.
+/// name follows). Impls key on `(trait uuid, type uuid)` and, within that
+/// pair, on the trait arguments' head identities — the coherence
+/// granularity: an argument-less trait keeps one impl per type, and a
+/// parameterized trait takes one impl per distinct argument-head list
+/// (`From<Number>` and `From<String>` for one type coexist;
+/// `From<Option<Number>>` and `From<Option<String>>` conflict).
 #[derive(Debug, Clone, Default)]
 pub struct TraitRegistry {
     /// Map from trait identity to trait definition.
@@ -486,8 +633,10 @@ pub struct TraitRegistry {
     /// not, so a foreign signature's bound resolves without importing.
     fqn_to_uuid: HashMap<Fqn, Uuid>,
 
-    /// Map from (trait uuid, nominal type UUID) to implementation.
-    impls: HashMap<(Uuid, Uuid), TraitImpl>,
+    /// Map from (trait uuid, nominal type UUID) to implementations, one per
+    /// distinct trait-argument head list (a single entry for argument-less
+    /// traits).
+    impls: HashMap<(Uuid, Uuid), Vec<TraitImpl>>,
 }
 
 impl TraitRegistry {
@@ -550,32 +699,84 @@ impl TraitRegistry {
     /// Register a trait implementation.
     ///
     /// Returns the previously registered impl for the same
-    /// `(trait, type)` pair, if any — a coherence violation the caller
-    /// should report.
+    /// `(trait, trait-argument heads, type)` key, if any — a coherence
+    /// violation the caller should report.
     pub fn register_impl(&mut self, impl_: TraitImpl) -> Option<TraitImpl> {
         let key = (impl_.trait_uuid, impl_.type_uuid);
-        self.impls.insert(key, impl_)
+        let heads = impl_.arg_heads();
+        let entries = self.impls.entry(key).or_default();
+        if let Some(pos) = entries.iter().position(|e| e.arg_heads() == heads) {
+            let previous = std::mem::replace(&mut entries[pos], impl_);
+            return Some(previous);
+        }
+        entries.push(impl_);
+        None
     }
 
-    /// Get implementation for a trait and nominal type.
+    /// Get the implementation for a trait and nominal type, when exactly one
+    /// is registered — always the case for argument-less traits (their
+    /// coherence key has one slot per type). `None` when there is no impl
+    /// *or* several argument-differing impls (callers that can disambiguate
+    /// go through [`impls_of`](Self::impls_of)).
     #[must_use]
     pub fn get_impl(&self, trait_uuid: Uuid, type_uuid: Uuid) -> Option<&TraitImpl> {
-        self.impls.get(&(trait_uuid, type_uuid))
+        match self.impls.get(&(trait_uuid, type_uuid))?.as_slice() {
+            [single] => Some(single),
+            _ => None,
+        }
+    }
+
+    /// Every implementation of `trait_uuid` for `type_uuid`, one per
+    /// distinct trait-argument head list. Sorted by argument heads so
+    /// iteration is deterministic.
+    #[must_use]
+    pub fn impls_of(&self, trait_uuid: Uuid, type_uuid: Uuid) -> Vec<&TraitImpl> {
+        let mut impls: Vec<&TraitImpl> = self
+            .impls
+            .get(&(trait_uuid, type_uuid))
+            .map(|v| v.iter().collect())
+            .unwrap_or_default();
+        impls.sort_by_key(|impl_| impl_.arg_heads());
+        impls
+    }
+
+    /// Every implementation of `trait_uuid` whose *first* trait argument's
+    /// head is `arg_head`, across all implementing types — the `Into`
+    /// bridge's reverse lookup (`S: Into<?>` scans `impl From<S> for _`).
+    /// Sorted by implementing type then argument heads, so candidate
+    /// enumeration is deterministic.
+    #[must_use]
+    pub fn impls_with_first_arg(&self, trait_uuid: Uuid, arg_head: Uuid) -> Vec<&TraitImpl> {
+        let mut impls: Vec<&TraitImpl> = self
+            .impls
+            .iter()
+            .filter(|((t, _), _)| *t == trait_uuid)
+            .flat_map(|(_, v)| v.iter())
+            .filter(|impl_| {
+                impl_
+                    .trait_args
+                    .first()
+                    .and_then(trait_arg_head)
+                    .is_some_and(|h| h == arg_head)
+            })
+            .collect();
+        impls.sort_by_key(|impl_| (impl_.type_uuid, impl_.arg_heads()));
+        impls
     }
 
     /// Find all implementations for a nominal type.
     ///
-    /// Sorted by trait uuid so lookups are deterministic (the backing map
-    /// has arbitrary iteration order).
+    /// Sorted by trait uuid then argument heads so lookups are deterministic
+    /// (the backing map has arbitrary iteration order).
     #[must_use]
     pub fn impls_for_type(&self, type_uuid: Uuid) -> Vec<&TraitImpl> {
         let mut impls: Vec<&TraitImpl> = self
             .impls
             .iter()
             .filter(|((_, uuid), _)| *uuid == type_uuid)
-            .map(|(_, impl_)| impl_)
+            .flat_map(|(_, v)| v.iter())
             .collect();
-        impls.sort_by_key(|impl_| impl_.trait_uuid);
+        impls.sort_by_key(|impl_| (impl_.trait_uuid, impl_.arg_heads()));
         impls
     }
 
@@ -595,29 +796,40 @@ impl TraitRegistry {
             }
         }
 
-        match matches.len() {
-            0 => MethodLookup::NotFound,
-            1 => {
-                // Vec::swap_remove on a single-element vec cannot fail.
-                let (trait_uuid, method, symbol) = matches.swap_remove(0);
-                MethodLookup::Found {
-                    trait_uuid,
-                    method,
-                    symbol,
-                }
-            }
-            _ => MethodLookup::Ambiguous {
-                traits: matches
-                    .iter()
-                    .filter_map(|(id, _, _)| self.get_trait(*id).map(|t| Arc::clone(&t.name)))
-                    .collect(),
-            },
+        if matches.is_empty() {
+            return MethodLookup::NotFound;
         }
+        if matches.len() == 1 {
+            // Vec::swap_remove on a single-element vec cannot fail.
+            let (trait_uuid, method, symbol) = matches.swap_remove(0);
+            return MethodLookup::Found {
+                trait_uuid,
+                method,
+                symbol,
+            };
+        }
+        // Several impls of *one* trait (argument-differing): the caller
+        // disambiguates by argument/return types via `impls_of`.
+        let first = matches[0].0;
+        if matches.iter().all(|(t, _, _)| *t == first) {
+            return MethodLookup::MultiImpl {
+                trait_uuid: first,
+                method: matches[0].1,
+            };
+        }
+        let mut traits: Vec<Arc<str>> = matches
+            .iter()
+            .filter_map(|(id, _, _)| self.get_trait(*id).map(|t| Arc::clone(&t.name)))
+            .collect();
+        traits.dedup();
+        MethodLookup::Ambiguous { traits }
     }
 
-    /// Check if a type implements a trait.
+    /// Check if a type implements a trait (at any trait arguments).
     #[must_use]
     pub fn implements(&self, type_uuid: Uuid, trait_uuid: Uuid) -> bool {
-        self.impls.contains_key(&(trait_uuid, type_uuid))
+        self.impls
+            .get(&(trait_uuid, type_uuid))
+            .is_some_and(|v| !v.is_empty())
     }
 }

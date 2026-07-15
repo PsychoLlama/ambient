@@ -552,7 +552,7 @@ fn alloc_dict_locals(
             ));
         }
         fc.next_local += 1;
-        fc.record_local_name(slot, &format!("<dict {param}: {}>", bound.name));
+        fc.record_local_name(slot, &format!("<dict {param}: {}>", bound.name.name));
         fc.local_names
             .insert(super::context::dict_capture_name(index), slot);
         fc.dict_locals.push(slot);
@@ -781,7 +781,7 @@ fn compile_impl_method(
     let debug_info = if source.is_some() || source_file.is_some() {
         let mut debug_info = fc.debug_info;
         debug_info.function_name = Some(match &impl_def.trait_name {
-            Some(trait_name) => format!("{}::{}", trait_name.name, method.name),
+            Some(trait_name) => format!("{}::{}", trait_name.name.name, method.name),
             None => format!("{}::{}", impl_def.for_type, method.name),
         });
         debug_info.source_file = source_file.map(String::from);

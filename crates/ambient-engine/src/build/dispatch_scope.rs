@@ -240,7 +240,12 @@ fn collect_impl_facts(
             if let Some(head) = &head {
                 match &imp.trait_name {
                     Some(tr) => {
-                        let key = (crate::module_interface::render_name(tr), head.clone());
+                        // Group by trait name only, not trait arguments:
+                        // argument-differing impls (`From<Number>` /
+                        // `From<String>`) land in one group, which
+                        // over-approximates "possibly colliding" — safe, it
+                        // only widens hash visibility.
+                        let key = (crate::module_interface::render_name(&tr.name), head.clone());
                         trait_groups.entry(key).or_default().push(idx);
                     }
                     None => {

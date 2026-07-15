@@ -59,7 +59,7 @@ pub struct DynMethod {
     /// spelled final name, matching how unresolved cross-module nominals hash
     /// (`named:Duration`), so an ability's identity never depends on what is
     /// in scope where it is rendered.
-    pub bounds: Vec<(usize, crate::ast::QualifiedName)>,
+    pub bounds: Vec<(usize, crate::ast::TraitRef)>,
     /// Hash of the canonical signature rendering.
     pub signature: SignatureHash,
     /// Whether the method carries a default implementation. `false` only

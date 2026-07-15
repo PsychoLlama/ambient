@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use ambient_engine::ast::{
     AbilityDef, AbilityMethod, ConstDef, EnumDef, EnumVariant, ExternFnDef, FunctionDef, ImplDef,
-    ImplMethod, Item, ItemKind, Param, Span, StructDef, TraitDef, TraitMethod, TypeAliasDef,
-    TypeParam, UseDef, UsePrefix,
+    ImplMethod, Item, ItemKind, Param, Span, StructDef, TraitDef, TraitMethod, TraitRef,
+    TypeAliasDef, TypeParam, UseDef, UsePrefix,
 };
 use ambient_engine::types::{NominalType, Type};
 
@@ -40,8 +40,25 @@ fn lower_type_param(tp: &crate::cst::CstTypeParam) -> Result<TypeParam, ParseErr
     Ok(TypeParam {
         name: tp.name.name.clone(),
         is_ability: tp.is_ability,
-        bounds: tp.bounds.iter().map(lower_qualified_name).collect(),
+        bounds: tp
+            .bounds
+            .iter()
+            .map(lower_trait_bound)
+            .collect::<Result<_, _>>()?,
         span: tp.span,
+    })
+}
+
+/// Lower a trait reference in bound or impl-header position: the trait's
+/// qualified name plus any type arguments (`From<String>`).
+fn lower_trait_bound(bound: &crate::cst::CstTraitBound) -> Result<TraitRef, ParseError> {
+    Ok(TraitRef {
+        name: lower_qualified_name(&bound.name),
+        args: bound
+            .args
+            .iter()
+            .map(lower_type)
+            .collect::<Result<_, _>>()?,
     })
 }
 
@@ -126,9 +143,9 @@ fn fold_where_clauses(
                 wc.span,
             ));
         };
-        target
-            .bounds
-            .extend(wc.bounds.iter().map(lower_qualified_name));
+        for bound in &wc.bounds {
+            target.bounds.push(lower_trait_bound(bound)?);
+        }
     }
     Ok(())
 }
@@ -692,7 +709,7 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
         })
         .collect::<Result<_, _>>()?;
 
-    let trait_name = i.trait_name.as_ref().map(lower_qualified_name);
+    let trait_name = i.trait_name.as_ref().map(lower_trait_bound).transpose()?;
     let for_type = lower_type(&i.for_type)?;
 
     // `where T: Bound` is the trailing spelling of an inline bound: fold each

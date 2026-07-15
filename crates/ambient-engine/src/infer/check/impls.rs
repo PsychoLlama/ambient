@@ -13,7 +13,7 @@ use crate::infer::{Infer, inherent};
 
 use super::bodies::DeferredAbilityCheck;
 use super::declared_types::resolve_erroring;
-use super::subst::substitute_type_params;
+use super::subst::{substitute_named, substitute_type_params};
 
 /// Check impl blocks and register implementations.
 pub(super) fn check_impls(
@@ -43,10 +43,11 @@ pub(super) fn check_impls(
     }
 }
 /// Check a single trait impl block.
+#[allow(clippy::too_many_lines)]
 fn check_single_impl(
     infer: &mut Infer,
     impl_def: &mut crate::ast::ImplDef,
-    trait_name: &crate::ast::QualifiedName,
+    trait_name: &crate::ast::TraitRef,
     item_span: crate::ast::Span,
     env: &TypeEnv,
     errors: &mut Vec<BoxedTypeError>,
@@ -56,10 +57,10 @@ fn check_single_impl(
 
     // Look up the trait by its canonicalized identity (the resolve pass
     // wrote it), falling back to in-scope name only registry-less.
-    let Some(trait_uuid) = infer.trait_uuid_of(trait_name) else {
+    let Some(trait_uuid) = infer.trait_uuid_of(&trait_name.name) else {
         errors.push(Box::new(TypeError::new(
             TypeErrorKind::UnknownTrait {
-                name: Arc::clone(&trait_name.name),
+                name: Arc::clone(&trait_name.name.name),
             },
             span,
         )));
@@ -95,7 +96,7 @@ fn check_single_impl(
     let Some((type_uuid, type_name)) = inherent::trait_impl_identity(&for_type) else {
         errors.push(Box::new(TypeError::new(
             TypeErrorKind::TraitOnStructuralType {
-                trait_name: Arc::clone(&trait_name.name),
+                trait_name: Arc::clone(&trait_name.name.name),
                 ty: for_type.clone(),
             },
             span,
@@ -107,6 +108,54 @@ fn check_single_impl(
     let Some(trait_def) = infer.trait_registry.get_trait(trait_uuid).cloned() else {
         return;
     };
+
+    // The trait's type arguments (`impl From<Number> for Money`), resolved
+    // under the impl's own rigid parameters (so `impl<T> From<List<T>>`
+    // keeps `Param(T)` inside). Arity is checked against the trait's
+    // declared parameters, and every argument must have a nominal head —
+    // that head is the coherence/dispatch granularity, exactly like the
+    // impl target's.
+    let trait_args: Vec<Type> = infer.with_rigid_params(rigid.clone(), |infer| {
+        trait_name
+            .args
+            .iter()
+            .map(|a| infer.resolve_holes(a))
+            .collect()
+    });
+    if trait_args.len() != trait_def.type_params.len() {
+        errors.push(Box::new(TypeError::new(
+            TypeErrorKind::TraitArityMismatch {
+                trait_name: Arc::clone(&trait_def.name),
+                expected: trait_def.type_params.len(),
+                found: trait_args.len(),
+            },
+            span,
+        )));
+        return;
+    }
+    let mut arg_heads = Vec::with_capacity(trait_args.len());
+    for arg in &trait_args {
+        let Some(head) = crate::types::trait_arg_head(arg) else {
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::TraitArgNotNominal {
+                    trait_name: Arc::clone(&trait_def.name),
+                    ty: arg.clone(),
+                },
+                span,
+            )));
+            return;
+        };
+        arg_heads.push(head);
+    }
+    // The map from the trait's parameter names to this impl's arguments,
+    // substituted into every trait-method signature the bodies check
+    // against (exactly like `Self` → the target).
+    let trait_arg_map: HashMap<Arc<str>, Type> = trait_def
+        .type_params
+        .iter()
+        .cloned()
+        .zip(trait_args.iter().cloned())
+        .collect();
 
     // The impl's own bounds, in `dict_params` order — the order the compiled
     // methods take their hidden dictionary parameters and the solver derives
@@ -120,6 +169,7 @@ fn check_single_impl(
         impl_def,
         &trait_def,
         &for_type,
+        &trait_arg_map,
         &impl_type_params,
         env,
         errors,
@@ -133,12 +183,14 @@ fn check_single_impl(
     // The compiler registers method bodies under these symbols so they are
     // content-addressed like ordinary functions; call sites resolve the
     // symbol through the same name→hash table as regular calls.
-    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name);
+    let mut impl_record =
+        crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name).with_trait_args(trait_args);
     if is_generic {
         impl_record = impl_record.with_generic_target(for_type.clone(), impl_bounds);
     }
     for method in &mut impl_def.methods {
-        let symbol = crate::types::impl_method_symbol(&type_uuid, &trait_uuid, &method.name);
+        let symbol =
+            crate::types::impl_method_symbol(&type_uuid, &trait_uuid, &arg_heads, &method.name);
         impl_record
             .methods
             .insert(Arc::clone(&method.name), Arc::clone(&symbol));
@@ -147,7 +199,7 @@ fn check_single_impl(
     if infer.trait_registry.register_impl(impl_record).is_some() {
         errors.push(Box::new(TypeError::new(
             TypeErrorKind::DuplicateImpl {
-                trait_name: Arc::clone(&trait_name.name),
+                trait_name: Arc::clone(&trait_name.name.name),
                 ty: for_type.clone(),
             },
             span,
@@ -175,6 +227,7 @@ fn check_impl_methods(
     impl_def: &mut crate::ast::ImplDef,
     trait_def: &TraitDef,
     for_type: &Type,
+    trait_arg_map: &HashMap<Arc<str>, Type>,
     impl_type_params: &[crate::ast::TypeParam],
     env: &TypeEnv,
     errors: &mut Vec<BoxedTypeError>,
@@ -215,6 +268,7 @@ fn check_impl_methods(
             method,
             tm,
             for_type,
+            trait_arg_map,
             impl_type_params,
             env,
             errors,
@@ -247,17 +301,17 @@ fn check_method_bound_conformance(
     if matches {
         return;
     }
-    let render_impl = |bounds: &[(Arc<str>, &crate::ast::QualifiedName)]| {
+    let render_impl = |bounds: &[(Arc<str>, &crate::ast::TraitRef)]| {
         bounds
             .iter()
-            .map(|(param, bound)| format!("{param}: {}", bound.name))
+            .map(|(param, bound)| format!("{param}: {}", bound.name.name))
             .collect::<Vec<_>>()
             .join(", ")
     };
-    let render_trait = |bounds: &[(Arc<str>, crate::ast::QualifiedName)]| {
+    let render_trait = |bounds: &[(Arc<str>, crate::ast::TraitRef)]| {
         bounds
             .iter()
-            .map(|(param, bound)| format!("{param}: {}", bound.name))
+            .map(|(param, bound)| format!("{param}: {}", bound.name.name))
             .collect::<Vec<_>>()
             .join(", ")
     };
@@ -287,6 +341,7 @@ fn check_impl_method_body(
     method: &mut crate::ast::ImplMethod,
     tm: &crate::types::TraitMethodDef,
     for_type: &Type,
+    trait_arg_map: &HashMap<Arc<str>, Type>,
     impl_type_params: &[crate::ast::TypeParam],
     env: &TypeEnv,
     errors: &mut Vec<BoxedTypeError>,
@@ -325,18 +380,23 @@ fn check_impl_method_body(
                 }
 
                 // Each parameter's expected type comes from the trait signature
-                // (Self → the implementing type, resolved under the scopes above);
-                // an explicit annotation on the impl method is resolved the same
-                // way and used in its place.
+                // (trait-level parameters → this impl's trait arguments, then
+                // Self → the implementing type, resolved under the scopes
+                // above); an explicit annotation on the impl method is
+                // resolved the same way and used in its place.
+                let instantiate_expected = |infer: &mut Infer, ty: &Type| {
+                    let ty = substitute_named(ty, trait_arg_map);
+                    resolve_erroring(infer, &substitute_self(&ty, for_type))
+                };
                 for (param, expected_ty) in method.params.iter().zip(tm.params.iter()) {
                     let param_ty = match &param.ty {
                         Some(ty) => resolve_erroring(infer, ty),
-                        None => resolve_erroring(infer, &substitute_self(expected_ty, for_type)),
+                        None => instantiate_expected(infer, expected_ty),
                     };
                     func_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
                 }
 
-                let expected_ret = resolve_erroring(infer, &substitute_self(&tm.ret, for_type));
+                let expected_ret = instantiate_expected(infer, &tm.ret);
                 match infer.infer_expr(&func_env, &mut method.body) {
                     Ok(body_ty) => {
                         let method_span = (method.span.start, method.span.end);
@@ -372,7 +432,7 @@ fn check_impl_method_body(
 fn check_impl_completeness(
     impl_def: &crate::ast::ImplDef,
     trait_def: &TraitDef,
-    trait_name: &crate::ast::QualifiedName,
+    trait_name: &crate::ast::TraitRef,
     span: (u32, u32),
     errors: &mut Vec<BoxedTypeError>,
 ) {
@@ -384,7 +444,7 @@ fn check_impl_completeness(
         if !implemented {
             errors.push(Box::new(TypeError::new(
                 TypeErrorKind::ImplMissingMethod {
-                    trait_name: Arc::clone(&trait_name.name),
+                    trait_name: Arc::clone(&trait_name.name.name),
                     method: Arc::clone(&trait_method.name),
                 },
                 span,

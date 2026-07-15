@@ -247,8 +247,22 @@ pub struct CstTypeParam {
     pub name: CstIdent,
     /// Whether this is an ability variable (has `!` suffix in declaration).
     pub is_ability: bool,
-    /// Trait bounds (`T: Eq + Ord`). Empty for an unbounded parameter.
-    pub bounds: Vec<CstQualifiedName>,
+    /// Trait bounds (`T: Eq + Ord`, `T: From<String>`). Empty for an
+    /// unbounded parameter.
+    pub bounds: Vec<CstTraitBound>,
+    /// Source span.
+    pub span: Span,
+}
+
+/// A reference to a trait with optional type arguments: a bound
+/// (`T: From<String>`) or an impl header (`impl From<Number> for Money`).
+#[derive(Debug, Clone)]
+pub struct CstTraitBound {
+    /// The referenced trait's name.
+    pub name: CstQualifiedName,
+    /// Type arguments (`From<String>` → `[String]`); empty for the common
+    /// argument-less reference.
+    pub args: Vec<CstTypeExpr>,
     /// Source span.
     pub span: Span,
 }

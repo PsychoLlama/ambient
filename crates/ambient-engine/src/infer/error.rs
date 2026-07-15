@@ -238,6 +238,19 @@ pub enum TypeErrorKind {
     /// Trait not found.
     UnknownTrait { name: Arc<str> },
 
+    /// A trait reference spelled the wrong number of type arguments
+    /// (`From` for `From<T>`, or `Eq<Number>` for `Eq`).
+    TraitArityMismatch {
+        trait_name: Arc<str>,
+        expected: usize,
+        found: usize,
+    },
+
+    /// A trait argument in an impl header has no nominal head identity to
+    /// key coherence and dispatch on (a structural type or a bare impl type
+    /// parameter — the latter would be a blanket impl).
+    TraitArgNotNominal { trait_name: Arc<str>, ty: Type },
+
     /// Trait is not implemented for a type.
     TraitNotImplemented { trait_name: Arc<str>, ty: Type },
 
@@ -585,6 +598,26 @@ impl std::fmt::Display for TypeErrorKind {
             }
             Self::UnknownTrait { name } => {
                 write!(f, "unknown trait: `{name}`")
+            }
+            Self::TraitArityMismatch {
+                trait_name,
+                expected,
+                found,
+            } => {
+                write!(
+                    f,
+                    "trait `{trait_name}` takes {expected} type argument(s), but {found} \
+                     were spelled"
+                )
+            }
+            Self::TraitArgNotNominal { trait_name, ty } => {
+                write!(
+                    f,
+                    "trait argument `{ty}` of `{trait_name}` has no nominal identity; \
+                     an impl's trait argument must be a named type (a struct, enum, \
+                     primitive, or container), not a structural type or a bare type \
+                     parameter"
+                )
             }
             Self::TraitNotImplemented { trait_name, ty } => {
                 write!(f, "trait `{trait_name}` is not implemented for `{ty}`")

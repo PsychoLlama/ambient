@@ -217,23 +217,24 @@ fn conditional_impl_of_bounded_method_trait_serves_as_a_dict() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Generic traits and supertraits: rejected at declaration (not yet supported)
+// Generic-trait declaration limits and supertraits: rejected at declaration
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A trait with trait-level type parameters (`trait Container<T>`) is a generic
-/// trait — not yet supported, rejected with a clear declaration-site diagnostic
-/// (a semantic error, not a parse error).
+/// A trait-level type parameter is a pure argument slot: a bound on it
+/// (`trait Container<T: Eq>`) is rejected at the declaration site — bounds
+/// belong on the impls and functions that use the trait.
 #[test]
-fn generic_trait_is_rejected_at_declaration() {
+fn bounded_trait_type_param_is_rejected_at_declaration() {
     CliTest::new(
         r#"
-        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000511) trait Container<T> {
+        use core::traits::Eq;
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000511) trait Container<T: Eq> {
           fn size(self): Number;
         }
     "#,
     )
     .check()
-    .expect_error("generic traits are not supported yet");
+    .expect_error("declares a bound on its type parameter");
 }
 
 /// A trait with a supertrait clause (`trait Sub with Base`) is not yet

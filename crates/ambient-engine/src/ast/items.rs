@@ -140,6 +140,42 @@ pub struct ExternFnDef {
     pub ret_ty: Type,
 }
 
+/// A reference to a trait, carrying any type arguments: a bound
+/// (`T: From<String>`) or an impl header (`impl From<Number> for Money`).
+/// The name resolves to the trait's identity exactly like before; the
+/// arguments are ordinary types, resolved wherever the reference's other
+/// types resolve. An argument list on a non-generic trait (or a count
+/// mismatch) is a checker error at the reference site.
+#[derive(Debug, Clone)]
+pub struct TraitRef {
+    /// The referenced trait's name (resolved by the resolve pass).
+    pub name: QualifiedName,
+    /// Type arguments (`From<String>` → `[String]`). Empty for the common
+    /// argument-less reference.
+    pub args: Vec<Type>,
+}
+
+impl TraitRef {
+    /// A bare, argument-less trait reference.
+    #[must_use]
+    pub fn simple(name: impl Into<Arc<str>>) -> Self {
+        Self {
+            name: QualifiedName::simple(name),
+            args: Vec::new(),
+        }
+    }
+
+    /// Whether two references name the same trait *at the same arguments*:
+    /// trait identity via [`QualifiedName::same_target`], arguments by
+    /// structural type equality. Bound dedup and impl-method conformance key
+    /// off this, so `From<String>` and `From<Number>` on one parameter stay
+    /// two distinct dictionaries.
+    #[must_use]
+    pub fn same_target(&self, other: &Self) -> bool {
+        self.name.same_target(&other.name) && self.args == other.args
+    }
+}
+
 /// A type parameter (generic).
 #[derive(Debug, Clone)]
 pub struct TypeParam {
@@ -152,10 +188,11 @@ pub struct TypeParam {
     /// it is never a type and carries no trait bounds (so it contributes
     /// nothing to [`dict_params`]).
     pub is_ability: bool,
-    /// Trait bounds (`T: Eq + Ord`), as written. The checker resolves each
-    /// to a trait identity; an impl's `where` clauses fold into these at
-    /// lowering, so bounds have exactly one AST representation.
-    pub bounds: Vec<QualifiedName>,
+    /// Trait bounds (`T: Eq + Ord`, `T: From<String>`), as written. The
+    /// checker resolves each to a trait identity plus argument types; an
+    /// impl's `where` clauses fold into these at lowering, so bounds have
+    /// exactly one AST representation.
+    pub bounds: Vec<TraitRef>,
     /// Source location.
     pub span: Span,
 }
@@ -183,15 +220,17 @@ impl TypeParam {
 /// read the same [`QualifiedName::resolved`] the resolve pass wrote — so they
 /// can never disagree.
 ///
-/// Dedup is by trait **identity**: two bounds on one parameter collapse iff
-/// they name the same trait. When the resolve pass ran, that is the resolved
-/// `Fqn` (so a bare `Show` and a qualified `m::Show` collapse, and two
-/// same-named traits from different modules do *not*); registry-less (no
-/// resolution), it falls back to the spelled path+name, the purely syntactic
-/// rule the resolver-less compiler applies identically.
+/// Dedup is by trait **identity and arguments**: two bounds on one parameter
+/// collapse iff they name the same trait at the same argument types
+/// (`From<String>` and `From<Number>` are two dictionaries). Trait identity
+/// is the resolved `Fqn` when the resolve pass ran (so a bare `Show` and a
+/// qualified `m::Show` collapse, and two same-named traits from different
+/// modules do *not*); registry-less (no resolution), it falls back to the
+/// spelled path+name, the purely syntactic rule the resolver-less compiler
+/// applies identically.
 #[must_use]
-pub fn dict_params(type_params: &[TypeParam]) -> Vec<(Arc<str>, &QualifiedName)> {
-    let mut out: Vec<(Arc<str>, &QualifiedName)> = Vec::new();
+pub fn dict_params(type_params: &[TypeParam]) -> Vec<(Arc<str>, &TraitRef)> {
+    let mut out: Vec<(Arc<str>, &TraitRef)> = Vec::new();
     for tp in type_params {
         for bound in &tp.bounds {
             let duplicate = out
@@ -506,8 +545,9 @@ pub struct TraitMethod {
 pub struct ImplDef {
     /// Type parameters for generic impls (with their trait bounds).
     pub type_params: Vec<TypeParam>,
-    /// The trait being implemented; `None` for an inherent impl.
-    pub trait_name: Option<QualifiedName>,
+    /// The trait being implemented (with any trait type arguments,
+    /// `impl From<Number> for Money`); `None` for an inherent impl.
+    pub trait_name: Option<TraitRef>,
     /// The type implementing the trait.
     pub for_type: Type,
     /// Method implementations.
@@ -564,13 +604,16 @@ mod dict_params_tests {
         )
     }
 
-    fn bound(name: &str, resolved: Option<Fqn>) -> QualifiedName {
+    fn bound(name: &str, resolved: Option<Fqn>) -> TraitRef {
         let mut qn = QualifiedName::simple(name);
         qn.resolved = resolved;
-        qn
+        TraitRef {
+            name: qn,
+            args: Vec::new(),
+        }
     }
 
-    fn param(name: &str, bounds: Vec<QualifiedName>) -> TypeParam {
+    fn param(name: &str, bounds: Vec<TraitRef>) -> TypeParam {
         TypeParam {
             name: Arc::from(name),
             is_ability: false,

@@ -24,7 +24,7 @@ mod operators;
 #[cfg(test)]
 mod tests;
 
-pub(super) use calls::substitute_self;
+pub(in crate::infer) use calls::substitute_self;
 
 use std::sync::Arc;
 

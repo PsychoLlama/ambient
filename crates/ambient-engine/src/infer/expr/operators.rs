@@ -100,7 +100,7 @@ impl Infer {
         if let Type::Param(param) = &left_ty
             && let Some((op_trait, method_name)) = operator_trait(op)
         {
-            let Some(dict_index) = self.bound_param_index(param, op_trait.uuid()) else {
+            let Some(dict_index) = self.bound_param_index(param, op_trait.uuid(), &[]) else {
                 return Err(Box::new(TypeError::new(
                     TypeErrorKind::MissingParamBound {
                         param: Arc::clone(param),
