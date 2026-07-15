@@ -498,3 +498,19 @@ fn test_dot_completes_core_string_methods() {
         .done()
         .shutdown();
 }
+
+#[test]
+fn test_dangling_dot_in_let_statement() {
+    // Mid-statement typing: the `let` has no semicolon yet, so healing with a
+    // bare placeholder ident still doesn't parse — the heal must also try
+    // terminating the statement.
+    LspTest::new()
+        .with_source(
+            "fn example(): String {\n    let foo = \"some text\";\n    let bar = foo./*|*/\n\n    foo\n}",
+        )
+        .complete_at("0")
+        .expect_item("length")
+        .expect_item("concat")
+        .done()
+        .shutdown();
+}

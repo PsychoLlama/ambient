@@ -167,30 +167,12 @@ pub(crate) fn get_dot_completions(
         return Vec::new();
     };
 
-    let members = if let Some(ty) =
-        ambient_analysis::queries::receiver_type_at(module, receiver_end)
-    {
-        ambient_analysis::queries::receiver_members(&ty, module, registry)
-    } else {
-        // Heal: `x.` with nothing after the dot fails to parse and drops the
-        // enclosing item, so the receiver has no live typed AST to answer
-        // from. A placeholder ident after the dot restores it (offsets up to
-        // the dot are unchanged). Members are read from the healed module
-        // too — it is the one that still contains the enclosing impl.
-        let mut healed_src = String::with_capacity(source.len() + 3);
-        healed_src.push_str(&source[..=dot_offset]);
-        healed_src.push_str("__c");
-        healed_src.push_str(&source[dot_offset + 1..]);
-        let Some(healed) =
-            ambient_analysis::healed_module_for_completion(&healed_src, module_path, registry)
-        else {
-            return Vec::new();
+    let members =
+        if let Some(ty) = ambient_analysis::queries::receiver_type_at(module, receiver_end) {
+            ambient_analysis::queries::receiver_members(&ty, module, registry)
+        } else {
+            healed_receiver_members(source, dot_offset, receiver_end, module_path, registry)
         };
-        let Some(ty) = ambient_analysis::queries::receiver_type_at(&healed, receiver_end) else {
-            return Vec::new();
-        };
-        ambient_analysis::queries::receiver_members(&ty, &healed, registry)
-    };
 
     members
         .into_iter()
@@ -205,6 +187,39 @@ pub(crate) fn get_dot_completions(
             } => method_call_item(&name, &params, ret_ty.as_ref(), trait_name),
         })
         .collect()
+}
+
+/// Members of the receiver ending just before a dangling `.` — the case where
+/// the broken parse dropped the enclosing item, so the receiver has no live
+/// typed AST to answer from. Healing inserts a placeholder ident after the dot
+/// (offsets up to the dot are unchanged) and re-checks; `__c;` covers the
+/// receiver sitting in an unterminated statement (`let bar = foo.` before the
+/// `;` exists), where the bare ident alone still doesn't parse. Members are
+/// read from the healed module too — it is the one that still contains the
+/// enclosing item.
+fn healed_receiver_members(
+    source: &str,
+    dot_offset: usize,
+    receiver_end: u32,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> Vec<ambient_analysis::queries::ReceiverMember> {
+    for placeholder in ["__c", "__c;"] {
+        let mut healed_src = String::with_capacity(source.len() + placeholder.len());
+        healed_src.push_str(&source[..=dot_offset]);
+        healed_src.push_str(placeholder);
+        healed_src.push_str(&source[dot_offset + 1..]);
+        let Some(healed) =
+            ambient_analysis::healed_module_for_completion(&healed_src, module_path, registry)
+        else {
+            continue;
+        };
+        let Some(ty) = ambient_analysis::queries::receiver_type_at(&healed, receiver_end) else {
+            continue;
+        };
+        return ambient_analysis::queries::receiver_members(&ty, &healed, registry);
+    }
+    Vec::new()
 }
 
 /// A record-field completion.
