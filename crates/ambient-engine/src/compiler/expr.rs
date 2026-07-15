@@ -56,7 +56,7 @@ pub(super) fn compile_expr(
 /// runs in constant call-stack space. The flag propagates only through
 /// constructs that preserve tail position (`if`/`match`/`block`/`sandbox`
 /// results); every other sub-expression is compiled in non-tail position via
-/// [`compile_expr`]. See the module-level notes and `AGENTS.md` for the rules.
+/// [`compile_expr`]. See the module-level notes for the rules.
 #[allow(clippy::too_many_lines)]
 pub(super) fn compile_expr_tail(
     fc: &mut FunctionCompiler,

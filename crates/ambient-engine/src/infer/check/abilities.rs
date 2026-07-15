@@ -544,7 +544,7 @@ fn resolve_ability_def(
         // like `named:Duration` for an unresolved cross-module nominal, the
         // method key must not depend on what is in scope where it renders,
         // and switching to the uuid/Fqn would re-key every bounded ability
-        // method (the platform ability ids are golden-pinned). See AGENTS.md.
+        // method (the platform ability ids are golden-pinned).
         for (idx, bound) in &bounds {
             canon_params.push(format!("bound:{idx}:{}", bound.name));
         }
