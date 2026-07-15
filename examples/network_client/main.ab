@@ -31,8 +31,9 @@ pub fn run(): () with Stdio, Tcp, Exception {
     let local = Tcp::local_addr!(conn).unwrap_or("unknown");
     Stdio::out!("Client: connected from ".concat(local));
 
-    // Send a message as Binary
-    let message = string_to_binary("Hello from Ambient!");
+    // Encode the message as its UTF-8 bytes via core's `From<String> for
+    // Binary` conversion.
+    let message = Binary::from("Hello from Ambient!");
     Stdio::out!("Client: sending ".concat(core::convert::to_string(message.length()).concat(" bytes...")));
     Tcp::send!(conn, message);
 
@@ -46,12 +47,4 @@ pub fn run(): () with Stdio, Tcp, Exception {
 
     Tcp::close!(conn);
     Stdio::out!("Client: done")
-}
-
-/// Convert a string to Binary (ASCII).
-fn string_to_binary(s: String): Binary {
-    // For now, just create a simple test payload
-    // In a real implementation, we'd use core::primitives::string::bytes or similar
-    // "Hello from Ambient!" in ASCII
-    Binary::from([72, 101, 108, 108, 111, 32, 102, 114, 111, 109, 32, 65, 109, 98, 105, 101, 110, 116, 33])
 }
