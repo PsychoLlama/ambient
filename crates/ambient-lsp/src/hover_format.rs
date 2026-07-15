@@ -73,6 +73,17 @@ pub(crate) fn format_item_signature(kind: &ItemKind, content: &mut String) {
             content.push_str("trait ");
             content.push_str(&t.name);
             format_type_params(&t.type_params, content);
+            // Associated types are the trait's type-level surface; show them
+            // in the header hover (methods would bloat it).
+            if !t.assoc_types.is_empty() {
+                content.push_str(" {");
+                for assoc in &t.assoc_types {
+                    content.push_str("\n    type ");
+                    content.push_str(&assoc.name);
+                    content.push(';');
+                }
+                content.push_str("\n}");
+            }
         }
         ItemKind::Impl(i) => {
             content.push_str("impl ");
@@ -81,8 +92,56 @@ pub(crate) fn format_item_signature(kind: &ItemKind, content: &mut String) {
                 content.push_str(" for ");
             }
             content.push_str(&format_type(&i.for_type));
+            if !i.assoc_types.is_empty() {
+                content.push_str(" {");
+                for assoc in &i.assoc_types {
+                    content.push_str("\n    type ");
+                    content.push_str(&assoc.name);
+                    content.push_str(" = ");
+                    content.push_str(&format_type(&assoc.ty));
+                    content.push(';');
+                }
+                content.push_str("\n}");
+            }
         }
         ItemKind::ExternFn(e) => format_extern_fn_hover(e, content),
+    }
+}
+
+/// Format hover content for an associated-type name — a trait's declaration
+/// (`type Out;`) or an impl's binding (`type Out = T;`) — with the owning
+/// trait/impl for context. Returns the content and the name span to highlight.
+pub(crate) fn format_assoc_type_hover(
+    assoc: &crate::analysis::AssocTypeAt<'_>,
+) -> (String, ambient_engine::ast::Span) {
+    use crate::analysis::AssocTypeAt;
+    match assoc {
+        AssocTypeAt::TraitDecl { trait_def, decl } => (
+            format!(
+                "```ambient\ntype {}\n```\n\n---\n\nAssociated type of trait `{}`.",
+                decl.name, trait_def.name
+            ),
+            decl.name_span,
+        ),
+        AssocTypeAt::ImplBinding { impl_def, binding } => {
+            let signature = format!(
+                "```ambient\ntype {} = {}\n```",
+                binding.name,
+                format_type(&binding.ty)
+            );
+            // An inherent impl can't declare associated types (the checker
+            // rejects it), but render the binding alone rather than nothing.
+            let content = match &impl_def.trait_name {
+                Some(trait_ref) => format!(
+                    "{signature}\n\n---\n\nBinds `{}::{}` for `{}`.",
+                    trait_ref.name.name,
+                    binding.name,
+                    format_type(&impl_def.for_type)
+                ),
+                None => signature,
+            };
+            (content, binding.name_span)
+        }
     }
 }
 

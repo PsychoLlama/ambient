@@ -95,7 +95,7 @@ fn item_to_document_symbol(
         }
         ItemKind::Use(_) => None,
         ItemKind::Trait(t) => {
-            let children = extract_trait_methods(t, doc);
+            let children = extract_trait_members(t, doc);
             Some(make_symbol(
                 t.name.to_string(),
                 None,
@@ -111,14 +111,20 @@ fn item_to_document_symbol(
         }
         ItemKind::Impl(i) => Some(make_symbol(
             match &i.trait_name {
-                Some(trait_name) => format!("impl {} for ...", trait_name.name.name),
-                None => "impl ...".to_string(),
+                Some(trait_name) => {
+                    format!(
+                        "impl {} for {}",
+                        trait_name.name.name,
+                        format_type(&i.for_type)
+                    )
+                }
+                None => format!("impl {}", format_type(&i.for_type)),
             },
             None,
             LspSymbolKind::CLASS,
             range,
             range,
-            None,
+            extract_impl_members(i, doc),
         )),
         ItemKind::ExternFn(e) => Some(extern_fn_symbol(e, doc, range)),
     }
@@ -142,34 +148,85 @@ fn extern_fn_symbol(
     )
 }
 
-/// Extract trait methods as document symbols.
-fn extract_trait_methods(
+/// Extract trait members — associated types and methods — as document
+/// symbols, in source order.
+fn extract_trait_members(
     trait_def: &ambient_engine::ast::TraitDef,
     doc: &crate::documents::Document,
 ) -> Option<Vec<DocumentSymbol>> {
-    if trait_def.methods.is_empty() {
-        return None;
-    }
-
-    let symbols: Vec<_> = trait_def
-        .methods
+    let mut symbols: Vec<_> = trait_def
+        .assoc_types
         .iter()
-        .map(|m| {
+        .map(|a| {
             make_symbol(
-                m.name.to_string(),
+                a.name.to_string(),
                 None,
-                LspSymbolKind::METHOD,
-                offset_range_to_lsp_range(doc, m.span.start as usize, m.span.end as usize),
+                LspSymbolKind::TYPE_PARAMETER,
+                offset_range_to_lsp_range(doc, a.span.start as usize, a.span.end as usize),
                 offset_range_to_lsp_range(
                     doc,
-                    m.name_span.start as usize,
-                    m.name_span.end as usize,
+                    a.name_span.start as usize,
+                    a.name_span.end as usize,
                 ),
                 None,
             )
         })
         .collect();
+    symbols.extend(trait_def.methods.iter().map(|m| {
+        make_symbol(
+            m.name.to_string(),
+            None,
+            LspSymbolKind::METHOD,
+            offset_range_to_lsp_range(doc, m.span.start as usize, m.span.end as usize),
+            offset_range_to_lsp_range(doc, m.name_span.start as usize, m.name_span.end as usize),
+            None,
+        )
+    }));
+    if symbols.is_empty() {
+        return None;
+    }
+    symbols.sort_by_key(|s| (s.range.start.line, s.range.start.character));
+    Some(symbols)
+}
 
+/// Extract impl members — associated type bindings and methods — as document
+/// symbols, in source order.
+fn extract_impl_members(
+    impl_def: &ambient_engine::ast::ImplDef,
+    doc: &crate::documents::Document,
+) -> Option<Vec<DocumentSymbol>> {
+    let mut symbols: Vec<_> = impl_def
+        .assoc_types
+        .iter()
+        .map(|a| {
+            make_symbol(
+                a.name.to_string(),
+                Some(format!("= {}", format_type(&a.ty))),
+                LspSymbolKind::TYPE_PARAMETER,
+                offset_range_to_lsp_range(doc, a.span.start as usize, a.span.end as usize),
+                offset_range_to_lsp_range(
+                    doc,
+                    a.name_span.start as usize,
+                    a.name_span.end as usize,
+                ),
+                None,
+            )
+        })
+        .collect();
+    symbols.extend(impl_def.methods.iter().map(|m| {
+        make_symbol(
+            m.name.to_string(),
+            None,
+            LspSymbolKind::METHOD,
+            offset_range_to_lsp_range(doc, m.span.start as usize, m.span.end as usize),
+            offset_range_to_lsp_range(doc, m.name_span.start as usize, m.name_span.end as usize),
+            None,
+        )
+    }));
+    if symbols.is_empty() {
+        return None;
+    }
+    symbols.sort_by_key(|s| (s.range.start.line, s.range.start.character));
     Some(symbols)
 }
 

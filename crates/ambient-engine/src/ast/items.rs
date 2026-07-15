@@ -521,6 +521,8 @@ pub struct TraitDef {
 pub struct TraitAssocType {
     /// The associated type's name.
     pub name: Arc<str>,
+    /// Span of the declared name.
+    pub name_span: Span,
     /// Span of the declaration.
     pub span: Span,
 }

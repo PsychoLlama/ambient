@@ -630,6 +630,7 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
         .iter()
         .map(|a| TraitAssocType {
             name: a.name.name.clone(),
+            name_span: a.name.span,
             span: a.span,
         })
         .collect();

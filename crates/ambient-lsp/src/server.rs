@@ -435,6 +435,24 @@ fn handle_hover(id: RequestId, params: &HoverParams, state: &ServerState) -> Res
         return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
     }
 
+    // An associated type's name — a trait's `type Out;` declaration or an
+    // impl's `type Out = T;` binding — renders with its owner for context.
+    if let Some(assoc) = crate::analysis::find_assoc_type_at_offset(module, offset) {
+        let (content, span) = crate::hover_format::format_assoc_type_hover(&assoc);
+        let hover = Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: content,
+            }),
+            range: Some(offset_range_to_lsp_range(
+                doc,
+                span.start as usize,
+                span.end as usize,
+            )),
+        };
+        return Response::new_ok(id, serde_json::to_value(hover).unwrap_or(Value::Null));
+    }
+
     // A method call/perform whose name is under the cursor: render the resolved
     // method's declaration signature, located through the occurrence index (the
     // same checked-AST-derived resolution goto/references use).

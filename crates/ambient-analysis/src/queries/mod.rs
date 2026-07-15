@@ -68,6 +68,43 @@ pub fn item_name(item: &Item) -> Option<&std::sync::Arc<str>> {
     }
 }
 
+/// An associated-type declaration or binding whose *name* contains an offset,
+/// with the declaring item for context — enough for a frontend to render
+/// `type X;` / `type X = T;` hovers without re-walking the AST.
+#[derive(Debug)]
+pub enum AssocTypeAt<'a> {
+    /// `type X;` declared in a trait body.
+    TraitDecl {
+        trait_def: &'a ambient_engine::ast::TraitDef,
+        decl: &'a ambient_engine::ast::TraitAssocType,
+    },
+    /// `type X = T;` bound in an impl body.
+    ImplBinding {
+        impl_def: &'a ambient_engine::ast::ImplDef,
+        binding: &'a ambient_engine::ast::ImplAssocType,
+    },
+}
+
+/// Find the associated-type declaration or binding whose name span contains
+/// `offset`, if any.
+#[must_use]
+pub fn find_assoc_type_at_offset(module: &Module, offset: u32) -> Option<AssocTypeAt<'_>> {
+    let contains = |span: &Span| offset >= span.start && offset <= span.end;
+    module.items.iter().find_map(|item| match &item.kind {
+        ItemKind::Trait(trait_def) => trait_def
+            .assoc_types
+            .iter()
+            .find(|a| contains(&a.name_span))
+            .map(|decl| AssocTypeAt::TraitDecl { trait_def, decl }),
+        ItemKind::Impl(impl_def) => impl_def
+            .assoc_types
+            .iter()
+            .find(|a| contains(&a.name_span))
+            .map(|binding| AssocTypeAt::ImplBinding { impl_def, binding }),
+        _ => None,
+    })
+}
+
 fn find_expr_in_item_at_offset(item: &ItemKind, offset: u32) -> Option<&Expr> {
     match item {
         ItemKind::Function(f) => find_expr_in_tree(&f.body, offset),

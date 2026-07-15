@@ -273,6 +273,10 @@ impl<'a> TokenCollector<'a> {
                     token_type::INTERFACE,
                     token_modifier::DECLARATION,
                 );
+                // Associated types
+                for assoc in &t.assoc_types {
+                    self.add_type_decl_token(assoc.name_span);
+                }
                 // Methods
                 for method in &t.methods {
                     self.add_token(
@@ -284,6 +288,10 @@ impl<'a> TokenCollector<'a> {
                 }
             }
             ItemKind::Impl(i) => {
+                // Associated type bindings
+                for assoc in &i.assoc_types {
+                    self.add_type_decl_token(assoc.name_span);
+                }
                 // Visit method bodies
                 for method in &i.methods {
                     self.add_token(

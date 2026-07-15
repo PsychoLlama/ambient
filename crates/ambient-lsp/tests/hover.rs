@@ -323,3 +323,44 @@ fn test_hover_on_unconstrained_throw_shows_never() {
         .expect_type("```ambient\n!\n```")
         .shutdown();
 }
+
+#[test]
+fn test_hover_on_trait_assoc_type_decl() {
+    LspTest::new()
+        .with_source(
+            "unique(A1B2C3D4-0000-0000-0000-000000000002) trait Show { type Out/*h*/; fn show(self): String; }",
+        )
+        .hover_at("h")
+        .expect_contains("type Out")
+        .hover_at("h")
+        .expect_contains("Associated type of trait `Show`")
+        .shutdown();
+}
+
+#[test]
+fn test_hover_on_impl_assoc_type_binding() {
+    LspTest::new()
+        .with_source(
+            "unique(A1B2C3D4-0000-0000-0000-000000000001) struct Point { x: Number }\n\
+             unique(A1B2C3D4-0000-0000-0000-000000000002) trait Show { type Out; fn show(self): String; }\n\
+             impl Show for Point { type Out/*h*/ = String; fn show(self): String { \"p\" } }",
+        )
+        .hover_at("h")
+        .expect_contains("type Out = String")
+        .hover_at("h")
+        .expect_contains("Binds `Show::Out` for `Point`")
+        .shutdown();
+}
+
+#[test]
+fn test_hover_on_trait_name_lists_assoc_types() {
+    LspTest::new()
+        .with_source(
+            "unique(A1B2C3D4-0000-0000-0000-000000000002) trait Show/*h*/ { type Out; fn show(self): String; }",
+        )
+        .hover_at("h")
+        .expect_contains("trait Show")
+        .hover_at("h")
+        .expect_contains("type Out;")
+        .shutdown();
+}
