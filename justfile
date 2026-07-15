@@ -26,6 +26,18 @@ build:
 build-release:
   cargo build --workspace --release
 
+# Compile the tree-sitter grammar to a shared library at `output`.
+# `tree-sitter build` links with the system compiler and leaves the binary's
+# loader paths untouched, so the result runs on stock macOS/Linux. Run from the
+# grammar dir so `tree-sitter.json` is found (else generation drops to ABI 14).
+build-grammar output:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  output="$(realpath -m "{{output}}")"
+  cd tree-sitter-ambient
+  tree-sitter generate
+  tree-sitter build . -o "$output"
+
 # Run unit tests
 unit-test:
   cargo nextest run --workspace --show-progress=none --status-level=fail --cargo-quiet

@@ -1,0 +1,101 @@
+name: Release
+
+# Cut a release by pushing a semver tag, e.g. `git tag v1.2.3 && git push origin v1.2.3`.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux
+            lib-ext: so
+          - os: macos-14 # Apple Silicon runner
+            target: aarch64-macos
+            lib-ext: dylib
+
+    # Every `run` step executes inside the flake devshell, matching ci.yml.
+    defaults:
+      run:
+        shell: nix develop --command bash -eo pipefail {0}
+
+    steps:
+      - name: Validate tag is semver
+        # Runs before Nix is installed, so use a plain shell to fail fast.
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::tag '$GITHUB_REF_NAME' is not a valid semver version (expected vMAJOR.MINOR.PATCH)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - uses: DeterminateSystems/magic-nix-cache-action@v14
+        with:
+          use-flakehub: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock', 'flake.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+            ${{ runner.os }}-cargo-
+
+      - name: Build ambient CLI (release)
+        run: cargo build --release --package ambient-cli
+
+      - name: Build tree-sitter grammar
+        run: |
+          mkdir -p dist
+          version="${GITHUB_REF_NAME#v}"
+          just build-grammar "dist/tree-sitter-ambient-${version}-${{ matrix.target }}.${{ matrix.lib-ext }}"
+
+      - name: Stage CLI artifact
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cp target/release/ambient "dist/ambient-${version}-${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+
+        # The tag already exists (this run was triggered by its push), so
+        # `gh release create` attaches to it rather than creating a new one.
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$REPO" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/*
