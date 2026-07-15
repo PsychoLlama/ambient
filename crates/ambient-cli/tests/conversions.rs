@@ -389,3 +389,203 @@ fn reserved_from_shape_is_pinned() {
     .check()
     .expect_error("reserved identity");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TryFrom / TryInto: the fallible conversion pair
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The core `TryFrom<String>` impls wrap the module-private parser externs:
+/// `Number::try_from` / `Bool::try_from` are the public parsing surface.
+#[test]
+fn core_try_from_impls_parse_primitives() {
+    CliTest::new(
+        r#"
+        fn run(): Number {
+          let n = Number::try_from("41.5").unwrap_or(0);
+          let b = if Bool::try_from("yes").unwrap_or(false) { 0.5 } else { 0 };
+          n + b
+        }
+    "#,
+    )
+    .expect_output("42");
+}
+
+/// A failed parse yields the impl's bound error type (`String`), carrying
+/// the rejected input.
+#[test]
+fn core_try_from_error_carries_the_input() {
+    CliTest::new(
+        r#"
+        fn run(): String {
+          match Number::try_from("forty-two") {
+            Ok(_) => "parsed",
+            Err(e) => e,
+          }
+        }
+    "#,
+    )
+    .expect_output("not a number: forty-two");
+}
+
+/// `s.try_into()` resolves through a user `TryFrom` impl (the bridge): the
+/// produced type is `Result<Target, Error>` with `Error` taken from the
+/// impl's associated binding.
+#[test]
+fn try_into_resolves_through_a_try_from_impl() {
+    CliTest::new(
+        r#"
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000801) struct Money { cents: Number }
+        impl TryFrom<Number> for Money {
+          type Error = String;
+          fn try_from(value: Number): Result<Money, String> {
+            if value < 0 { Err("negative") } else { Ok(Money { cents: value }) }
+          }
+        }
+        fn run(): Number {
+          let r: Result<Money, String> = 41.try_into();
+          match r { Ok(m) => m.cents + 1, Err(_) => 0 }
+        }
+    "#,
+    )
+    .expect_output("42");
+}
+
+/// Several `TryFrom` impls from one source type: `try_into` defers
+/// selection until the annotation pins the target, error half included.
+#[test]
+fn try_into_defers_selection_to_the_annotated_target() {
+    CliTest::new(
+        r#"
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000802) struct Money { cents: Number }
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000803) struct Count { n: Number }
+        impl TryFrom<Number> for Money {
+          type Error = String;
+          fn try_from(value: Number): Result<Money, String> { Ok(Money { cents: value }) }
+        }
+        impl TryFrom<Number> for Count {
+          type Error = Bool;
+          fn try_from(value: Number): Result<Count, Bool> { Ok(Count { n: value + 1 }) }
+        }
+        fn run(): Number {
+          let m: Result<Money, String> = 40.try_into();
+          let c: Result<Count, Bool> = 1.try_into();
+          let cents = match m { Ok(money) => money.cents, Err(_) => 0 };
+          let n = match c { Ok(count) => count.n, Err(_) => 0 };
+          cents + n
+        }
+    "#,
+    )
+    .expect_output("42");
+}
+
+/// A `T: TryInto<Money>` bound is satisfied by the matching `TryFrom` impl,
+/// and the bound method dispatches through the bridged dictionary.
+#[test]
+fn try_into_bound_is_satisfied_by_a_try_from_impl() {
+    CliTest::new(
+        r#"
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000804) struct Money { cents: Number }
+        impl TryFrom<Number> for Money {
+          type Error = String;
+          fn try_from(value: Number): Result<Money, String> {
+            if value < 0 { Err("negative") } else { Ok(Money { cents: value }) }
+          }
+        }
+        fn pay<T: TryInto<Money>>(x: T): Number {
+          match x.try_into() {
+            Ok(m) => m.cents,
+            Err(_) => 0 - 1,
+          }
+        }
+        fn run(): Number { pay(40) + pay(2) + pay(0 - 5) }
+    "#,
+    )
+    .expect_output("41");
+}
+
+/// A generic caller forwards its own `TryInto` dictionary, one hop removed
+/// from the concrete `TryFrom` impl.
+#[test]
+fn try_into_bound_forwards_through_generic_callers() {
+    CliTest::new(
+        r#"
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000805) struct Money { cents: Number }
+        impl TryFrom<Number> for Money {
+          type Error = String;
+          fn try_from(value: Number): Result<Money, String> { Ok(Money { cents: value }) }
+        }
+        fn pay<T: TryInto<Money>>(x: T): Number {
+          match x.try_into() { Ok(m) => m.cents, Err(_) => 0 }
+        }
+        fn relay<T: TryInto<Money>>(x: T): Number { pay(x) }
+        fn run(): Number { relay(42) }
+    "#,
+    )
+    .expect_output("42");
+}
+
+/// A direct `TryInto` impl is allowed and dispatches like any trait method.
+#[test]
+fn direct_try_into_impl_dispatches() {
+    CliTest::new(
+        r#"
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000806) struct Grams { g: Number }
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000807) struct Kilos { kg: Number }
+        impl TryInto<Kilos> for Grams {
+          type Error = String;
+          fn try_into(self): Result<Kilos, String> {
+            if self.g < 0 { Err("negative") } else { Ok(Kilos { kg: self.g / 1000 }) }
+          }
+        }
+        fn run(): Number {
+          match (Grams { g: 42000 }.try_into()) {
+            Ok(k) => k.kg,
+            Err(_) => 0,
+          }
+        }
+    "#,
+    )
+    .expect_output("42");
+}
+
+/// The deferred selection matches the *whole* produced `Result`, error half
+/// included: annotating the wrong error type selects nothing and reports.
+#[test]
+fn try_into_error_annotation_must_match_the_binding() {
+    CliTest::new(
+        r#"
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000808) struct Money { cents: Number }
+        unique(AAAABBBB-CCCC-4DDD-8EEE-FFFF00000809) struct Count { n: Number }
+        impl TryFrom<Number> for Money {
+          type Error = String;
+          fn try_from(value: Number): Result<Money, String> { Ok(Money { cents: value }) }
+        }
+        impl TryFrom<Number> for Count {
+          type Error = Bool;
+          fn try_from(value: Number): Result<Count, Bool> { Ok(Count { n: value }) }
+        }
+        fn run(): Number {
+          let r: Result<Money, Bool> = 5.try_into();
+          0
+        }
+    "#,
+    )
+    .check()
+    .expect_error("TryInto");
+}
+
+/// A declaration claiming the reserved `TryFrom` identity must match the
+/// canonical shape — associated `Error` included.
+#[test]
+fn reserved_try_from_shape_is_pinned() {
+    CliTest::new(
+        r#"
+        pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF001B) trait TryFrom<T> {
+          fn try_from(value: T): Result<Self, String>;
+        }
+        fn run(): Number { 0 }
+    "#,
+    )
+    .check()
+    .expect_error("reserved identity");
+}

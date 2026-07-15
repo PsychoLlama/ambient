@@ -183,10 +183,13 @@ fn prelude_reexports_the_full_global_set() {
         // `Show` — no operator, but the bound on `Exception::throw`, so it
         // rides the prelude alongside `Exception`.
         "Show",
-        // The conversion pair — `x.into()` dispatch and the
-        // From-satisfies-Into bridge anchor on their reserved identities.
+        // The conversion pairs — `x.into()` / `x.try_into()` dispatch and
+        // the From-satisfies-Into / TryFrom-satisfies-TryInto bridges
+        // anchor on their reserved identities.
         "From",
         "Into",
+        "TryFrom",
+        "TryInto",
     ]
     .into_iter()
     .map(String::from)

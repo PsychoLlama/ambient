@@ -173,10 +173,10 @@ fn use_trees_flatten_to_plain_imports() {
             "main.ab",
             r#"
 use {pkg::util::double, pkg::deep::{nested::leaf::leaf_fn as leaf7}};
-use core::convert::parse_number as root;
+use core::convert::to_string as render;
 
 pub fn run(): Number {
-  double(leaf7()) + root("2").unwrap_or(0)
+  double(leaf7()) + render(42).length()
 }
 "#,
         ),
@@ -231,17 +231,17 @@ fn intrinsics_import_and_alias_like_functions() {
     let dir = package(&[(
         "main.ab",
         r#"
-use core::convert::parse_number;
+use core::convert::to_string;
 use core::convert;
 
 pub fn run(): Number {
-  parse_number("4").unwrap_or(0)
-    + convert::parse_number("4").unwrap_or(0)
-    + core::convert::parse_number("4").unwrap_or(0)
+  to_string(4).length()
+    + convert::to_string(44).length()
+    + core::convert::to_string(444).length()
 }
 "#,
     )]);
-    assert_eq!(run(dir.path()), "12");
+    assert_eq!(run(dir.path()), "6");
 }
 
 // ─────────────────────────────────────────────────────────────────────────

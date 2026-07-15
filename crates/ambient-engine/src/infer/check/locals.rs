@@ -265,6 +265,17 @@ fn validate_reserved_trait(def: &crate::ast::TraitDef) -> Result<(), String> {
     if !method.type_params.is_empty() {
         return mismatch("its method must not declare method-level generics");
     }
+    // The associated type list is part of the pinned shape too: the
+    // `TryInto` bridge reads the `TryFrom` impl's `Error` binding, which
+    // only lines up if both declarations agree on the names.
+    let declared: Vec<&str> = def.assoc_types.iter().map(|a| a.name.as_ref()).collect();
+    if declared != reserved.assoc_type_names() {
+        return mismatch(&format!(
+            "expected associated type(s) [{}], found [{}]",
+            reserved.assoc_type_names().join(", "),
+            declared.join(", ")
+        ));
+    }
     Ok(())
 }
 
@@ -284,11 +295,14 @@ fn reserved_trait_method_shape(
         R::Ord => ("cmp", true, 1),
         R::Default => ("default", false, 0),
         R::Show => ("show", true, 0),
-        // The conversion pair share one dictionary shape — a 1-tuple of one
-        // 1-argument function — which is what makes the solver's
-        // `Into`-via-`From` bridge sound at runtime.
+        // The conversion pairs each share one dictionary shape — a 1-tuple
+        // of one 1-argument function — which is what makes the solver's
+        // `Into`-via-`From` and `TryInto`-via-`TryFrom` bridges sound at
+        // runtime.
         R::From => ("from", false, 1),
         R::Into => ("into", true, 0),
+        R::TryFrom => ("try_from", false, 1),
+        R::TryInto => ("try_into", true, 0),
     }
 }
 /// Register a single trait definition into the trait registry, binding its

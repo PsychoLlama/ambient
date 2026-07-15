@@ -71,6 +71,24 @@ pub const TRAIT_FROM_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_fff
 /// reserved uuids, exactly like operator desugaring keys on
 /// [`TRAIT_ADD_UUID`].
 pub const TRAIT_INTO_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_001a);
+/// Canonical identity of the prelude `TryFrom<T>` conversion trait
+/// (`core::convert::TryFrom`): `type Error; fn try_from(value: T):
+/// Result<Self, Self::Error>`, the declaration side of every *fallible*
+/// conversion. Reserved for the same reason as [`TRAIT_FROM_UUID`]: the
+/// solver's `TryInto` bridge anchors on the pair. Claims the slot after
+/// `Into`.
+pub const TRAIT_TRY_FROM_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_001b);
+/// Canonical identity of the prelude `TryInto<T>` conversion trait
+/// (`core::convert::TryInto`): `type Error; fn try_into(self):
+/// Result<T, Self::Error>`, the use side of a fallible conversion. The
+/// solver satisfies `S: TryInto<T>` through `impl TryFrom<S> for T` when no
+/// direct impl exists — sound at runtime for the same reason as the
+/// infallible pair: both dictionaries are pinned to a 1-tuple of one
+/// 1-argument function, so a `TryFrom` dictionary *is* a `TryInto`
+/// dictionary. The bridged `Error` is defined as the `TryFrom` impl's
+/// binding (associated types are checker-only, so nothing at runtime can
+/// disagree).
+pub const TRAIT_TRY_INTO_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_001c);
 
 /// A reserved core trait: name/uuid pairs for the declarations in
 /// `core_lib/traits.ab`, the trait analogue of [`super::Primitive`] /
@@ -101,11 +119,18 @@ pub enum ReservedTrait {
     /// `Into<T>` — no operator; the use side of a conversion, satisfiable
     /// through a `From` impl (the solver's uuid-anchored bridge).
     Into,
+    /// `TryFrom<T>` — no operator; the declaration side of a fallible
+    /// conversion, carrying the associated `Error` type.
+    TryFrom,
+    /// `TryInto<T>` — no operator; the use side of a fallible conversion,
+    /// satisfiable through a `TryFrom` impl (the same uuid-anchored bridge
+    /// shape as `Into`-via-`From`).
+    TryInto,
 }
 
 impl ReservedTrait {
     /// Every reserved core trait.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 13] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -117,6 +142,8 @@ impl ReservedTrait {
         Self::Show,
         Self::From,
         Self::Into,
+        Self::TryFrom,
+        Self::TryInto,
     ];
 
     /// The reserved identity uuid for this trait.
@@ -134,6 +161,8 @@ impl ReservedTrait {
             Self::Show => TRAIT_SHOW_UUID,
             Self::From => TRAIT_FROM_UUID,
             Self::Into => TRAIT_INTO_UUID,
+            Self::TryFrom => TRAIT_TRY_FROM_UUID,
+            Self::TryInto => TRAIT_TRY_INTO_UUID,
         }
     }
 
@@ -152,17 +181,32 @@ impl ReservedTrait {
             Self::Show => "Show",
             Self::From => "From",
             Self::Into => "Into",
+            Self::TryFrom => "TryFrom",
+            Self::TryInto => "TryInto",
         }
     }
 
     /// The number of trait-level type parameters the reserved trait declares
-    /// (`From<T>`/`Into<T>` → 1, everything else 0). Part of the canonical
+    /// (the conversion traits → 1, everything else 0). Part of the canonical
     /// shape `validate_reserved_trait` pins.
     #[must_use]
     pub const fn type_param_count(self) -> usize {
         match self {
-            Self::From | Self::Into => 1,
+            Self::From | Self::Into | Self::TryFrom | Self::TryInto => 1,
             _ => 0,
+        }
+    }
+
+    /// The associated type names the reserved trait declares (the fallible
+    /// conversion pair → `["Error"]`, everything else none). Part of the
+    /// canonical shape `validate_reserved_trait` pins: the `TryInto` bridge
+    /// reads the `TryFrom` impl's `Error` binding, which is only meaningful
+    /// if both declarations agree on the name.
+    #[must_use]
+    pub const fn assoc_type_names(self) -> &'static [&'static str] {
+        match self {
+            Self::TryFrom | Self::TryInto => &["Error"],
+            _ => &[],
         }
     }
 

@@ -399,24 +399,29 @@ impl Infer {
                 symbol,
             } => (trait_uuid, method, symbol),
             crate::types::MethodLookup::NotFound => {
-                // The `Into` bridge: no direct method, but `x.into()` is
-                // satisfiable through `impl From<S> for T` — anchored on
-                // the reserved uuid pair, with the method name taken
-                // from the (shape-pinned) `Into` declaration, never
+                // The conversion bridges: no direct method, but `x.into()`
+                // is satisfiable through `impl From<S> for T` (and
+                // `x.try_into()` through `impl TryFrom<S> for T`) —
+                // anchored on the reserved uuid pairs, with the method
+                // names taken from the (shape-pinned) declarations, never
                 // hardcoded.
-                if self.is_into_method(method_name) {
-                    let candidates = self.bridge_candidates(&receiver_ty);
-                    if !candidates.is_empty() {
-                        return self.infer_conversion_call(
-                            candidates,
-                            &receiver_ty,
-                            method_name,
-                            args,
-                            span,
-                            resolved_method,
-                            dicts,
-                        );
-                    }
+                let candidates = if self.is_into_method(method_name) {
+                    self.bridge_candidates(&receiver_ty)
+                } else if self.is_try_into_method(method_name) {
+                    self.try_bridge_candidates(&receiver_ty)
+                } else {
+                    Vec::new()
+                };
+                if !candidates.is_empty() {
+                    return self.infer_conversion_call(
+                        candidates,
+                        &receiver_ty,
+                        method_name,
+                        args,
+                        span,
+                        resolved_method,
+                        dicts,
+                    );
                 }
                 return Err(type_error(
                     TypeErrorKind::MethodNotFound {
@@ -434,6 +439,9 @@ impl Infer {
                     self.direct_method_candidates(trait_uuid, type_uuid, &receiver_ty, method_name);
                 if trait_uuid == crate::types::TRAIT_INTO_UUID {
                     candidates.extend(self.bridge_candidates(&receiver_ty));
+                }
+                if trait_uuid == crate::types::TRAIT_TRY_INTO_UUID {
+                    candidates.extend(self.try_bridge_candidates(&receiver_ty));
                 }
                 return self.infer_conversion_call(
                     candidates,

@@ -172,25 +172,28 @@ fn test_list_option_chains_through_method_combinators() {
 }
 
 #[test]
-fn test_parse_number_and_parse_bool_return_option() {
+fn number_and_bool_parse_through_try_from() {
+    // The low-level parser externs are module-private; the public surface
+    // is the prelude `TryFrom<String>` impls (and the `try_into` bridge).
     let (dir, pkg) = temp_package(
         r#"
         pub fn run(): String {
-            let good = core::convert::parse_number("42.5").unwrap_or(0);
-            let bad = match core::convert::parse_number("abc") {
-                Some(_) => "some",
-                None => "none",
+            let good = Number::try_from("42.5").unwrap_or(0);
+            let bad = match Number::try_from("abc") {
+                Ok(_) => "ok",
+                Err(_) => "err",
             };
-            let yes = core::convert::parse_bool("true").unwrap_or(false);
-            let junk = core::convert::parse_bool("maybe").is_none();
+            let yes = Bool::try_from("true").unwrap_or(false);
+            let junk: Result<Bool, String> = "maybe".try_into();
             core::convert::to_string(good) + " " + bad + " "
-                + core::convert::to_string(yes) + " " + core::convert::to_string(junk)
+                + core::convert::to_string(yes) + " "
+                + core::convert::to_string(junk.is_err())
         }
         "#,
     );
     let output = ambient_cmd().arg("run").arg(&pkg).output().expect("run");
     assert!(output.status.success(), "run failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stdout).contains("42.5 none true true"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("42.5 err true true"));
     drop(dir);
 }
 

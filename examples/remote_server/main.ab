@@ -15,11 +15,11 @@ use core::system::{Stdio, Tcp, Execute, Env};
 
 /// Resolve the listen endpoint from the environment, defaulting to
 /// `127.0.0.1:8080`. `REMOTE_HOST` overrides the interface;
-/// `REMOTE_PORT` the port — `parse_number` yields None for a
+/// `REMOTE_PORT` the port — `Number::try_from` yields Err for a
 /// non-numeric value, which falls back to the default port too.
 fn endpoint(): (String, Number) with Env {
     let host = Env::var!("REMOTE_HOST").unwrap_or("127.0.0.1");
-    let port = core::convert::parse_number(Env::var!("REMOTE_PORT").unwrap_or("8080")).unwrap_or(8080);
+    let port = Number::try_from(Env::var!("REMOTE_PORT").unwrap_or("8080")).unwrap_or(8080);
     (host, port)
 }
 

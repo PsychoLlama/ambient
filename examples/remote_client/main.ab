@@ -29,7 +29,7 @@ fn double(x: Number): Number with Log, Stdio {
 /// two variables.
 fn endpoint(): (String, Number) with Env {
     let host = Env::var!("REMOTE_HOST").unwrap_or("127.0.0.1");
-    let port = core::convert::parse_number(Env::var!("REMOTE_PORT").unwrap_or("8080")).unwrap_or(8080);
+    let port = Number::try_from(Env::var!("REMOTE_PORT").unwrap_or("8080")).unwrap_or(8080);
     (host, port)
 }
 

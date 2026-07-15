@@ -132,12 +132,17 @@ it is not `From`-shaped.
 The one operation that stays a qualified module free function is
 `core::option::flatten(opt)` — its receiver would be `Option<Option<U>>`,
 inexpressible in an `impl<T> Option<T>` block. The receiver-less utility
-modules likewise stay module functions: conversions
-(`core::convert::{to_string, parse_number, parse_bool}` — parsers return
-Option), reflection (`core::reflect::{tag, payload}`), and the wire
-protocol (`core::protocol::{serialize_value, deserialize_value,
-closure_hash, closure_captures, handler_methods, hex_to_binary,
-binary_to_hex}`).
+modules likewise stay module functions: `core::convert::to_string`,
+reflection (`core::reflect::{tag, payload}`), and the wire protocol
+(`core::protocol::{serialize_value, deserialize_value, closure_hash,
+closure_captures, handler_methods, hex_to_binary, binary_to_hex}`).
+
+Fallible parsing goes through the prelude `TryFrom<String>` impls instead:
+`Number::try_from("4.2")` and `Bool::try_from("yes")` return
+`Result<_, String>` (the error carries the rejected input), equivalently
+spelled `s.try_into()` where the target is known. The low-level parser
+externs (`parse_number`, `parse_bool`) are module-private in
+`core::convert` — the impls are their only callers.
 
 ## Container Key Semantics
 

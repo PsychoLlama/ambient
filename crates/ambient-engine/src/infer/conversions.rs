@@ -38,6 +38,10 @@ pub(crate) enum DispatchReceiver {
     /// The impl is on the *produced* type (`impl From<S> for T`, bridged to
     /// `Into`): match its target against the call's result type.
     Produced,
+    /// The impl is on the produced type's `Ok` half (`impl TryFrom<S> for
+    /// T`, bridged to `TryInto` — the call produces `Result<T, Error>`):
+    /// match its target against the result's `Ok` type.
+    ProducedOk,
 }
 
 /// One candidate impl for a deferred (or immediate) conversion call.
@@ -127,6 +131,50 @@ impl Infer {
                 produced: substitute_rigid_params(target, &subst),
                 dispatch_receiver: DispatchReceiver::Produced,
                 trait_name: Arc::from("Into"),
+            });
+        }
+        out
+    }
+
+    /// The `TryInto` bridge candidates for a receiver: every
+    /// `impl TryFrom<S> for T` where `S` matches the receiver. The produced
+    /// type is `Result<T, Error>` with `Error` taken from the impl's
+    /// associated binding — the definition of the bridged projection — and
+    /// receiver-bound impl parameters substituted into both halves.
+    pub(crate) fn try_bridge_candidates(&self, receiver: &Type) -> Vec<ConversionCandidate> {
+        let Some(head) = trait_arg_head(receiver) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for imp in self
+            .trait_registry
+            .impls_with_first_arg(crate::types::TRAIT_TRY_FROM_UUID, head)
+        {
+            let Some(source) = imp.trait_args.first() else {
+                continue;
+            };
+            let mut subst: HashMap<Arc<str>, Type> = HashMap::new();
+            if !match_target(source, receiver, &mut subst) {
+                continue;
+            }
+            let Some(target) = &imp.target else {
+                continue;
+            };
+            let Some(error) = imp.assoc_binding("Error") else {
+                continue;
+            };
+            let Some(symbol) = imp.methods.get("try_from").cloned() else {
+                continue;
+            };
+            out.push(ConversionCandidate {
+                imp: imp.clone(),
+                symbol,
+                produced: Type::result(
+                    substitute_rigid_params(target, &subst),
+                    substitute_rigid_params(error, &subst),
+                ),
+                dispatch_receiver: DispatchReceiver::ProducedOk,
+                trait_name: Arc::from("TryInto"),
             });
         }
         out
@@ -267,6 +315,9 @@ impl Infer {
         let receiver_ty = match cand.dispatch_receiver {
             DispatchReceiver::Receiver => receiver.clone(),
             DispatchReceiver::Produced => produced.clone(),
+            DispatchReceiver::ProducedOk => produced
+                .as_result()
+                .map_or_else(|| produced.clone(), |(ok, _)| ok.clone()),
         };
         self.record_conditional_impl_dicts(
             cand.imp.target.as_ref(),
@@ -576,8 +627,18 @@ impl Infer {
     /// `From` bridge. Anchored on [`crate::types::TRAIT_INTO_UUID`], never a
     /// hardcoded name; `false` when the build has no `Into` (no prelude).
     pub(in crate::infer) fn is_into_method(&self, method_name: &str) -> bool {
+        self.is_trait_method(crate::types::TRAIT_INTO_UUID, method_name)
+    }
+
+    /// Whether `method_name` is the `TryInto` trait's method — the gate on
+    /// the `TryFrom` bridge, mirroring [`is_into_method`](Self::is_into_method).
+    pub(in crate::infer) fn is_try_into_method(&self, method_name: &str) -> bool {
+        self.is_trait_method(crate::types::TRAIT_TRY_INTO_UUID, method_name)
+    }
+
+    fn is_trait_method(&self, trait_uuid: uuid::Uuid, method_name: &str) -> bool {
         self.trait_registry
-            .get_trait(crate::types::TRAIT_INTO_UUID)
+            .get_trait(trait_uuid)
             .and_then(|def| def.methods.first())
             .is_some_and(|m| m.name.as_ref() == method_name)
     }
@@ -680,12 +741,13 @@ impl Infer {
             }
         }
     }
-    /// Satisfy `S: Into<T>` through a `From` impl: `T` rigid forwards the
-    /// enclosing declaration's `T: From<S>` dictionary directly (same
-    /// runtime shape); `T` concrete solves `T: From<S>` like any other
-    /// bound. `Ok(None)` means no bridge applies — the caller reports the
-    /// ordinary unsatisfied-`Into` error, so the diagnostic names the trait
-    /// the user actually wrote.
+    /// Satisfy `S: Into<T>` through a `From` impl (and `S: TryInto<T>`
+    /// through a `TryFrom` impl — `from_uuid`/`from_name` pick the pair):
+    /// `T` rigid forwards the enclosing declaration's `T: From<S>`
+    /// dictionary directly (same runtime shape); `T` concrete solves
+    /// `T: From<S>` like any other bound. `Ok(None)` means no bridge
+    /// applies — the caller reports the ordinary unsatisfied error, so the
+    /// diagnostic names the trait the user actually wrote.
     pub(crate) fn solve_into_via_from(
         &mut self,
         ty: &Type,
@@ -693,11 +755,13 @@ impl Infer {
         bound: &TraitBound,
         span: (u32, u32),
         depth: u32,
+        from_uuid: uuid::Uuid,
+        from_name: &str,
     ) -> Result<Option<DictSource>, BoxedTypeError> {
         let target = self.apply(target);
         let from_bound = TraitBound {
-            trait_uuid: crate::types::TRAIT_FROM_UUID,
-            name: Arc::from("From"),
+            trait_uuid: from_uuid,
+            name: Arc::from(from_name),
             args: vec![ty.clone()],
         };
         // Rigid target: the enclosing declaration must bound it

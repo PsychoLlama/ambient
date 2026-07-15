@@ -30,12 +30,13 @@ pub use core::collections::{List, Map, Set};
 // so it rides the prelude next to `Exception` to stay always in scope.
 pub use core::traits::{Add, Sub, Mul, Div, Mod, Eq, Ord, Show};
 
-// The conversion pair. `Into` is load-bearing like `Show`: the checker's
-// `x.into()` dispatch and its From-satisfies-Into bridge anchor on the
-// reserved identities, so both stay always in scope; and `impl From` /
-// `T: Into<...>` are the conversion vocabulary idiomatic code reaches for
-// without an import.
-pub use core::convert::{From, Into};
+// The conversion pairs. `Into`/`TryInto` are load-bearing like `Show`: the
+// checker's `x.into()` / `x.try_into()` dispatch and the
+// From-satisfies-Into / TryFrom-satisfies-TryInto bridges anchor on the
+// reserved identities, so all four stay always in scope; and `impl From` /
+// `impl TryFrom` / `T: Into<...>` are the conversion vocabulary idiomatic
+// code reaches for without an import.
+pub use core::convert::{From, Into, TryFrom, TryInto};
 
 // The `Exception` ability: the language's error-signalling effect. Like the
 // containers, its runtime semantics are engine-built (the VM's throw/unwind

@@ -75,7 +75,7 @@ fn read_pack(path: String): Binary with FileSystem, Exception {
 
 /// A port from the environment, with the server's defaults.
 fn port(var: String, default: Number): Number with Env {
-  core::convert::parse_number(Env::var!(var).unwrap_or("")).unwrap_or(default)
+  Number::try_from(Env::var!(var).unwrap_or("")).unwrap_or(default)
 }
 
 /// Unwrap a fallible connect at the application boundary.

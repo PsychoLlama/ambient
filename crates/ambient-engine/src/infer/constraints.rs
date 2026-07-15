@@ -454,16 +454,33 @@ impl Infer {
             }
         }
 
-        // The `Into` bridge: `S: Into<T>` is satisfiable by
-        // `impl From<S> for T`. Sound at runtime because both traits are
+        // The conversion bridges: `S: Into<T>` is satisfiable by
+        // `impl From<S> for T`, and `S: TryInto<T>` by
+        // `impl TryFrom<S> for T`. Sound at runtime because each pair is
         // pinned to the same dictionary shape — a 1-tuple of one 1-argument
-        // function (`into(self)` / `from(value)`) — so a `From` dictionary
-        // *is* an `Into` dictionary. Anchored on the reserved uuids, like
-        // operator desugaring.
-        if bound.trait_uuid == crate::types::TRAIT_INTO_UUID
+        // function — so a `From` dictionary *is* an `Into` dictionary (and
+        // likewise for the fallible pair). Anchored on the reserved uuids,
+        // like operator desugaring.
+        let bridge_source = match bound.trait_uuid {
+            id if id == crate::types::TRAIT_INTO_UUID => {
+                Some((crate::types::TRAIT_FROM_UUID, "From"))
+            }
+            id if id == crate::types::TRAIT_TRY_INTO_UUID => {
+                Some((crate::types::TRAIT_TRY_FROM_UUID, "TryFrom"))
+            }
+            _ => None,
+        };
+        if let Some((from_uuid, from_name)) = bridge_source
             && let [target] = bound.args.as_slice()
-            && let Some(source) =
-                self.solve_into_via_from(&ty, &target.clone(), bound, span, depth)?
+            && let Some(source) = self.solve_into_via_from(
+                &ty,
+                &target.clone(),
+                bound,
+                span,
+                depth,
+                from_uuid,
+                from_name,
+            )?
         {
             return Ok(source);
         }

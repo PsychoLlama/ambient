@@ -1,8 +1,10 @@
 // Core library: value conversions.
 //
-// The `From<T>`/`Into<T>` conversion traits, plus conversions between
-// primitive types as `extern fn` declarations — signatures owned here,
-// implementations bound by the engine (`natives/core/convert.rs`).
+// The `From<T>`/`Into<T>` and `TryFrom<T>`/`TryInto<T>` conversion traits,
+// plus `to_string` as an `extern fn` declaration — signatures owned here,
+// implementations bound by the engine (`natives/core/convert.rs`). The
+// low-level parsers (`parse_number`, `parse_bool`) are module-private
+// externs, published only through the `TryFrom<String>` impls below.
 
 /// Conversion *from* a value of type `T`: implement `From<T> for Self` and
 /// construct with `Self::from(value)`. The declaration side of every
@@ -29,11 +31,66 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF001A) trait Into<T> {
     fn into(self): T;
 }
 
+/// Fallible conversion *from* a value of type `T`: the declaration side of
+/// every conversion that can reject its input. `Self::Error` is the impl's
+/// rejection type — each impl binds it (`type Error = String;`), and
+/// `Self::try_from(value)` returns `Result<Self, Self::Error>`. Implementing
+/// it also enables `value.try_into()` and satisfies `T: TryInto<Self>`
+/// bounds, exactly like the infallible pair. Reserved identity: the
+/// checker's `TryInto` bridge anchors on this uuid, pinned (name, shape,
+/// and the `Error` associated type) by `validate_reserved_trait`.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF001B) trait TryFrom<T> {
+    type Error;
+
+    fn try_from(value: T): Result<Self, Self::Error>;
+}
+
+/// Fallible conversion *into* a value of type `T`: the use side
+/// (`let n: Result<Number, String> = s.try_into();`,
+/// `fn eat<T: TryInto<Number>>(x: T)`). Satisfied automatically by the
+/// matching `TryFrom` impl — implement `TryFrom`, not this — with the
+/// bridged `Error` defined as that impl's binding. Reserved identity,
+/// shape-pinned: `try_from(value)` and `try_into(self)` share one runtime
+/// shape, which is what lets a `TryFrom` impl stand in for a `TryInto` one.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF001C) trait TryInto<T> {
+    type Error;
+
+    fn try_into(self): Result<T, Self::Error>;
+}
+
 /// Render any value as a human-readable string. Also the target of string
 /// interpolation: `"${x}"` desugars to `to_string`/`string::concat` calls.
 pub extern fn to_string<T>(value: T): String;
 /// Parse a number from its decimal rendering (leading/trailing whitespace
-/// ignored).
-pub extern fn parse_number(value: String): Option<Number>;
+/// ignored). Module-private: the public surface is `Number::try_from` /
+/// `s.try_into()` below.
+extern fn parse_number(value: String): Option<Number>;
 /// Parse a boolean: true/1/yes and false/0/no (case-insensitive).
-pub extern fn parse_bool(value: String): Option<Bool>;
+/// Module-private: the public surface is `Bool::try_from` below.
+extern fn parse_bool(value: String): Option<Bool>;
+
+/// Parse a `Number` from its decimal rendering; the error carries the
+/// rejected input.
+impl TryFrom<String> for Number {
+    type Error = String;
+
+    fn try_from(value: String): Result<Number, String> {
+        match parse_number(value) {
+            Some(n) => Ok(n),
+            None => Err("not a number: " + value),
+        }
+    }
+}
+
+/// Parse a `Bool` (true/1/yes and false/0/no, case-insensitive); the error
+/// carries the rejected input.
+impl TryFrom<String> for Bool {
+    type Error = String;
+
+    fn try_from(value: String): Result<Bool, String> {
+        match parse_bool(value) {
+            Some(b) => Ok(b),
+            None => Err("not a boolean: " + value),
+        }
+    }
+}

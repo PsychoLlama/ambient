@@ -44,7 +44,7 @@ pub fn run(): () with State, Task, Env {
 
 /// A port from the environment, with a default for running by hand.
 fn port(var: String, default: Number): Number with Env {
-  core::convert::parse_number(Env::var!(var).unwrap_or("")).unwrap_or(default)
+  Number::try_from(Env::var!(var).unwrap_or("")).unwrap_or(default)
 }
 
 /// Unwrap a fallible bind at the application boundary: a failed bind
