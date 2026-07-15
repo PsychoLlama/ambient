@@ -56,6 +56,7 @@ mod document_symbols;
 mod documents;
 mod hover_format;
 mod local_completions;
+mod member_completions;
 mod reanalyze;
 mod rename;
 mod semantic_tokens;

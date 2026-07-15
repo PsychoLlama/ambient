@@ -148,11 +148,15 @@ impl<'a> CompletionContext<'a> {
 ///
 /// `registry` supplies pkg-module member completions; it is the same
 /// registry the document was checked against, rebuilt on every edit, so
-/// module members never go stale.
+/// module members never go stale. `source` is the document text `ctx` was
+/// built from; `module_path` is the document's module identity in that
+/// registry (for cross-module member resolution).
 #[must_use]
 pub fn get_completions(
     ctx: &CompletionContext<'_>,
+    source: &str,
     module: Option<&Module>,
+    module_path: Option<&ambient_engine::module_path::ModulePath>,
     registry: Option<&ambient_engine::module_registry::ModuleRegistry>,
     resolver: &AbilityResolver,
 ) -> Vec<CompletionItem> {
@@ -209,6 +213,25 @@ pub fn get_completions(
     // For now, we don't have enough type info at the cursor, so skip.
     if ctx.after_dot {
         return items;
+    }
+
+    // At item position inside a trait impl's body, the trait's missing
+    // members (methods to implement, associated types to bind) are the
+    // dominant intent: offer their stubs plus keywords, nothing else.
+    if let (Some(module), Some(module_path), Some(registry)) = (module, module_path, registry) {
+        let stubs = crate::member_completions::get_impl_member_completions(
+            source,
+            ctx.offset,
+            ctx.word_prefix,
+            module,
+            module_path,
+            registry,
+        );
+        if !stubs.is_empty() {
+            items.extend(stubs);
+            items.extend(get_keyword_completions(ctx.word_prefix));
+            return items;
+        }
     }
 
     // If we're in a use statement, add use prefix completions

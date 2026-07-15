@@ -768,8 +768,19 @@ fn handle_completion(id: RequestId, params: &CompletionParams, state: &ServerSta
         .analyses
         .get(uri.as_str())
         .map(|analysis| analysis.registry.as_ref());
+    let module_path = state
+        .analyses
+        .get(uri.as_str())
+        .map(|analysis| &analysis.module_path);
     let ctx = CompletionContext::new(&doc.text, offset, &state.ability_resolver);
-    let items = get_completions(&ctx, module, registry, &state.ability_resolver);
+    let items = get_completions(
+        &ctx,
+        &doc.text,
+        module,
+        module_path,
+        registry,
+        &state.ability_resolver,
+    );
 
     let response = CompletionResponse::Array(items);
     Response::new_ok(id, serde_json::to_value(response).unwrap_or(Value::Null))

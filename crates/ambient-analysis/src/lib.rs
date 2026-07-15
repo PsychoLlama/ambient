@@ -419,6 +419,33 @@ pub fn check_without_cycle(
     }
 }
 
+/// Type-check a *healed* completion source: the live document text with the
+/// in-progress edit patched just enough to parse (a partial member blanked, a
+/// dangling `.` given a placeholder ident).
+///
+/// Completion often fires exactly when the document doesn't parse — and
+/// recovery is item-level, so the item being edited (and with it the cursor's
+/// scope) vanishes from the live typed AST. This runs the same pipeline as
+/// [`check_without_cycle`] on the healed text, against a copy of `registry`
+/// with the healed module registered in place of the broken one, and returns
+/// the typed module only when the heal actually parsed. Diagnostics are
+/// deliberately discarded: healing exists for position queries, never for
+/// reporting.
+#[must_use]
+pub fn healed_module_for_completion(
+    source: &str,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> Option<Module> {
+    let recovered = parse_recovering(source);
+    if !recovered.errors.is_empty() {
+        return None;
+    }
+    let mut registry = registry.clone();
+    registry.register(module_path, std::sync::Arc::new(recovered.module.clone()));
+    Some(check_module_with_registry(recovered.module, module_path, &registry).module)
+}
+
 /// An ability resolver with the core abilities (`core::exception`) and the
 /// platform bindings interface (`core::system`) registered as namespaced
 /// dynamics, mirroring how the CLI checks code.

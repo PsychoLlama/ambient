@@ -14,8 +14,10 @@ use ambient_engine::module_registry::{ExportKind, ModuleRegistry, ResolvedImport
 use ambient_engine::types::Type;
 
 mod bindings;
+mod members;
 
 use bindings::find_binding_definition;
+pub use members::{MissingImplMembers, missing_impl_members_at_offset};
 
 /// Find the expression at a given byte offset in the module.
 #[must_use]

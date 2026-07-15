@@ -349,3 +349,89 @@ fn test_completes_locals_inside_impl_method_body() {
         .done()
         .shutdown();
 }
+
+const STUB_HEADER: &str = "unique(A1B2C3D4-0000-0000-0000-000000000001) struct Point { x: Number }\n\
+     unique(A1B2C3D4-0000-0000-0000-000000000002) trait Show { type Out; fn show(self): String; }\n";
+
+#[test]
+fn test_impl_body_offers_trait_member_stubs() {
+    LspTest::new()
+        .with_source(&format!("{STUB_HEADER}impl Show for Point {{ /*|*/ }}"))
+        .complete_at("0")
+        .expect_item("show")
+        .expect_item_kind("show", CompletionItemKind::METHOD)
+        .expect_item("Out")
+        .expect_item_kind("Out", CompletionItemKind::TYPE_PARAMETER)
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn test_impl_body_stub_completion_survives_partial_fn() {
+    // `fn sh` breaks the impl item out of the live AST; completion heals the
+    // text and still offers the trait's methods.
+    LspTest::new()
+        .with_source(&format!("{STUB_HEADER}impl Show for Point {{ fn sh/*|*/ }}"))
+        .complete_at("0")
+        .expect_item("show")
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn test_impl_body_stub_completion_survives_partial_type() {
+    LspTest::new()
+        .with_source(&format!("{STUB_HEADER}impl Show for Point {{ type O/*|*/ }}"))
+        .complete_at("0")
+        .expect_item("Out")
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn test_impl_body_stubs_exclude_provided_members() {
+    LspTest::new()
+        .with_source(&format!(
+            "{STUB_HEADER}impl Show for Point {{ type Out = String; /*|*/ }}"
+        ))
+        .complete_at("0")
+        .expect_item("show")
+        .expect_no_item("Out")
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn test_impl_method_body_offers_no_stubs() {
+    // Inside a method body the trait members are not item stubs.
+    LspTest::new()
+        .with_source(&format!(
+            "{STUB_HEADER}impl Show for Point {{ type Out = String; fn show(self): String {{ /*|*/ \"p\" }} }}"
+        ))
+        .complete_at("0")
+        .expect_no_item("Out")
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn test_impl_body_stubs_for_cross_module_trait() {
+    LspTest::new()
+        .with_package()
+        .with_file(
+            "src/shapes.ab",
+            "pub unique(A1B2C3D4-0000-0000-0000-000000000002) trait Show { type Out; fn show(self): String; }",
+        )
+        .with_file(
+            "src/main.ab",
+            "use pkg::shapes::{Show};\n\
+             unique(A1B2C3D4-0000-0000-0000-000000000001) struct Point { x: Number }\n\
+             impl Show for Point { /*|*/ }",
+        )
+        .open_file("src/main.ab")
+        .complete_at("0")
+        .expect_item("show")
+        .expect_item("Out")
+        .done()
+        .shutdown();
+}
