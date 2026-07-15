@@ -196,6 +196,14 @@ fn validate_supported_trait_shape(def: &crate::ast::TraitDef) -> Result<(), Stri
             def.name
         ));
     }
+    for (i, assoc) in def.assoc_types.iter().enumerate() {
+        if def.assoc_types[..i].iter().any(|a| a.name == assoc.name) {
+            return Err(format!(
+                "trait `{}` declares the associated type `{}` twice",
+                def.name, assoc.name
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -313,6 +321,18 @@ pub(super) fn register_trait_def_unnamed(
 /// Convert an AST trait declaration to its checker form, stamping the
 /// trait's `Fqn` (its build-global lookup key) from its defining module.
 fn checked_trait_def(trait_def: &crate::ast::TraitDef, module_id: Option<&ModuleId>) -> TraitDef {
+    // Associated type names, in declaration order. Each `Self::X` spelling
+    // in a method signature becomes a `Type::Projection` here, so the
+    // registry's stored signatures carry the projection's meaning (trait
+    // identity + name) rather than a `::`-joined string.
+    let assoc_types: Vec<Arc<str>> = trait_def
+        .assoc_types
+        .iter()
+        .map(|a| Arc::clone(&a.name))
+        .collect();
+    let project = |ty: &crate::types::Type| {
+        super::subst::project_self_assoc(ty, trait_def.uuid, &assoc_types)
+    };
     let methods: Vec<TraitMethodDef> = trait_def
         .methods
         .iter()
@@ -340,8 +360,8 @@ fn checked_trait_def(trait_def: &crate::ast::TraitDef, module_id: Option<&Module
             TraitMethodDef::new(
                 Arc::clone(&m.name),
                 m.has_self,
-                m.params.iter().map(|(_, ty)| ty.clone()).collect(),
-                m.ret_ty.clone(),
+                m.params.iter().map(|(_, ty)| project(ty)).collect(),
+                project(&m.ret_ty),
             )
             .with_generics(
                 m.abilities.clone(),
@@ -361,6 +381,7 @@ fn checked_trait_def(trait_def: &crate::ast::TraitDef, module_id: Option<&Module
             .iter()
             .map(|tp| Arc::clone(&tp.name))
             .collect(),
+        assoc_types,
         fqn,
         methods,
     }

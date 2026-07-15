@@ -57,6 +57,10 @@ impl fmt::Display for Type {
             // diagnostic about `T` reads `T` — not `'3` or `named:T`.
             Self::Param(name) => write!(f, "{name}"),
 
+            // An associated-type projection prints as written:
+            // `Self::Error`, `T::Error`.
+            Self::Projection(p) => write!(f, "{}::{}", p.base, p.assoc),
+
             Self::Tuple(elems) => {
                 write!(f, "(")?;
                 for (i, elem) in elems.iter().enumerate() {

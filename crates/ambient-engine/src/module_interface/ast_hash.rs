@@ -78,6 +78,14 @@ fn write_type(out: &mut String, ty: &Type) {
         Type::Param(name) => {
             let _ = write!(out, "param:{name}");
         }
+        // A projection renders through its trait *identity*, never the
+        // trait's name, so a rename never moves an interface hash. (AST-side
+        // types still carry `Self::Error` as a bare `Named` — this arm only
+        // fires if a checker-built type is ever rendered.)
+        Type::Projection(p) => {
+            write_type(out, &p.base);
+            let _ = write!(out, "::<{}>::{}", p.trait_uuid, p.assoc);
+        }
         Type::Tuple(elems) => {
             out.push('(');
             for (i, e) in elems.iter().enumerate() {

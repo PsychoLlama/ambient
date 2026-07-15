@@ -835,6 +835,11 @@ pub(crate) fn substitute_rigid_params(ty: &Type, subst: &HashMap<Arc<str>, Type>
             substitute_rigid_params(&f.ret, subst),
             f.abilities.clone(),
         ),
+        // A projection over an assigned parameter (`T::Error` with
+        // `T -> Money`) keeps the projection form; whoever holds the impl's
+        // associated bindings eliminates it. Substituting only the base
+        // keeps this walk a pure param rewrite.
+        Type::Projection(p) => p.with_base(substitute_rigid_params(&p.base, subst)),
         _ => ty.clone(),
     }
 }

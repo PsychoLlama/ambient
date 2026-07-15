@@ -117,6 +117,22 @@ pub enum Type {
     /// `List<T>`, `Option<T>`, `Map<K, V>`
     Named(NamedType),
 
+    /// An associated-type projection: `Self::Error` in a trait-method
+    /// signature, `T::Error` in a generic body. Purely a checker construct —
+    /// associated types have no runtime representation, no dictionary slot,
+    /// and never reach a signature hash.
+    ///
+    /// In a stored [`TraitMethodDef`](super::TraitMethodDef) signature the
+    /// base is the un-instantiated `Named("Self")` (like `Self` itself).
+    /// Instantiation at a use site either *eliminates* the projection —
+    /// substituting the dispatching impl's `type Error = …` binding when the
+    /// impl is known — or substitutes the base with the receiver's rigid
+    /// [`Type::Param`], leaving a rigid projection atom that unifies only
+    /// with the structurally identical projection (the same rigidity story
+    /// as `Param`). A projection over a concrete type never survives into
+    /// inference state.
+    Projection(ProjectionType),
+
     /// A nominal type distinguished by UUID, incompatible with structurally
     /// identical types.
     /// `unique(uuid) struct UserId { value: string }`
@@ -150,6 +166,32 @@ pub enum Type {
     /// A type hole `_` for partial annotation.
     /// During inference, this is replaced with a fresh type variable.
     Hole,
+}
+
+/// An associated-type projection — see [`Type::Projection`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectionType {
+    /// What the projection is anchored on: `Named("Self")` in a stored trait
+    /// signature, a rigid [`Type::Param`] in a checked body.
+    pub base: Box<Type>,
+    /// The trait whose associated type is projected. Identity, not name:
+    /// `<T as From<A>>::Error` and a same-named user trait's `Error` never
+    /// unify.
+    pub trait_uuid: uuid::Uuid,
+    /// The associated type's declared name.
+    pub assoc: Arc<str>,
+}
+
+impl ProjectionType {
+    /// Rebuild this projection over a new base.
+    #[must_use]
+    pub fn with_base(&self, base: Type) -> Type {
+        Type::Projection(Self {
+            base: Box::new(base),
+            trait_uuid: self.trait_uuid,
+            assoc: Arc::clone(&self.assoc),
+        })
+    }
 }
 
 /// A record type with named fields.

@@ -172,7 +172,8 @@ impl Infer {
             {
                 continue;
             }
-            // The result pattern: trait parameters → this impl's arguments
+            // The result pattern: associated projections → this impl's
+            // bindings, trait parameters → this impl's arguments
             // (receiver-bound impl params substituted), then Self → the
             // receiver.
             let trait_arg_map: HashMap<Arc<str>, Type> = trait_def
@@ -185,7 +186,9 @@ impl Infer {
                         .map(|a| substitute_rigid_params(a, &subst)),
                 )
                 .collect();
-            let produced = super::check::substitute_named(&method.ret, &trait_arg_map);
+            let assoc_map = impl_assoc_map(&imp, &subst);
+            let produced = super::check::substitute_assoc(&method.ret, trait_uuid, &assoc_map);
+            let produced = super::check::substitute_named(&produced, &trait_arg_map);
             let produced = super::expr::substitute_self(
                 &substitute_rigid_params(&produced, &subst),
                 &receiver,
@@ -522,8 +525,14 @@ impl Infer {
                     .map(|a| substitute_rigid_params(a, &subst)),
             )
             .collect();
-        let (params, ret, abilities, type_var_map) =
-            self.instantiate_trait_method_mapped(method_def, self_ty, &trait_arg_map);
+        let assoc_map = impl_assoc_map(&imp, &subst);
+        let (params, ret, abilities, type_var_map) = self.instantiate_trait_method_mapped(
+            method_def,
+            trait_uuid,
+            self_ty,
+            &trait_arg_map,
+            &assoc_map,
+        );
         let method_dicts = self.resolve_method_bound_dicts(method_def, &type_var_map);
         let generic_impl = imp
             .is_generic
@@ -573,25 +582,27 @@ impl Infer {
             .is_some_and(|m| m.name.as_ref() == method_name)
     }
 
-    /// The map from a trait's parameter names to the arguments of the
-    /// (unique) impl dispatching a call on `receiver`, with any impl
-    /// parameters bound by the receiver substituted in. Empty for an
-    /// argument-less trait.
-    pub(in crate::infer) fn dispatch_trait_arg_map(
+    /// The two per-impl substitution maps a dispatching call needs, derived
+    /// from the (unique) impl dispatching on `receiver`, with any impl
+    /// parameters bound by the receiver substituted in: the trait's
+    /// parameter names → the impl's trait arguments, and the trait's
+    /// associated type names → the impl's bindings. Both empty when the
+    /// trait carries neither (or no unique impl resolves).
+    pub(in crate::infer) fn dispatch_impl_maps(
         &mut self,
         trait_uuid: uuid::Uuid,
         type_uuid: uuid::Uuid,
         receiver: &Type,
-    ) -> HashMap<Arc<str>, Type> {
+    ) -> (HashMap<Arc<str>, Type>, HashMap<Arc<str>, Type>) {
         let Some(trait_def) = self.trait_registry.get_trait(trait_uuid) else {
-            return HashMap::new();
+            return (HashMap::new(), HashMap::new());
         };
-        if trait_def.type_params.is_empty() {
-            return HashMap::new();
+        if trait_def.type_params.is_empty() && trait_def.assoc_types.is_empty() {
+            return (HashMap::new(), HashMap::new());
         }
         let type_params = trait_def.type_params.clone();
         let Some(imp) = self.trait_registry.get_impl(trait_uuid, type_uuid).cloned() else {
-            return HashMap::new();
+            return (HashMap::new(), HashMap::new());
         };
         let receiver = self.apply(receiver);
         let mut subst: HashMap<Arc<str>, Type> = HashMap::new();
@@ -600,14 +611,17 @@ impl Infer {
         {
             let _ = crate::infer::constraints::match_target(target, &receiver, &mut subst);
         }
-        type_params
-            .into_iter()
-            .zip(
-                imp.trait_args
-                    .iter()
-                    .map(|a| crate::infer::constraints::substitute_rigid_params(a, &subst)),
-            )
-            .collect()
+        (
+            type_params
+                .into_iter()
+                .zip(
+                    imp.trait_args
+                        .iter()
+                        .map(|a| crate::infer::constraints::substitute_rigid_params(a, &subst)),
+                )
+                .collect(),
+            impl_assoc_map(&imp, &subst),
+        )
     }
 
     /// Type a conversion-style call (`x.into()`, or any zero-argument
@@ -718,6 +732,20 @@ impl Infer {
         }
         Ok(None)
     }
+}
+
+/// An impl's associated-type bindings as a substitution map, with any impl
+/// parameters already bound (by a target match) substituted in — the same
+/// treatment [`TraitImpl::trait_args`] get wherever a conditional impl is
+/// instantiated.
+pub(in crate::infer) fn impl_assoc_map(
+    imp: &TraitImpl,
+    subst: &HashMap<Arc<str>, Type>,
+) -> HashMap<Arc<str>, Type> {
+    imp.assoc_bindings
+        .iter()
+        .map(|(name, ty)| (Arc::clone(name), substitute_rigid_params(ty, subst)))
+        .collect()
 }
 
 /// Rewrite every [`ResolvedMethod::Pending`] marker in `expr` to its

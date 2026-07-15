@@ -42,6 +42,7 @@ impl Type {
             }
             Self::Named(n) => n.args.iter().any(Type::mentions_param),
             Self::Nominal(n) => n.inner.mentions_param(),
+            Self::Projection(p) => p.base.mentions_param(),
             Self::Forall(f) => f.body.mentions_param(),
             Self::Handler(h) => h.answer.mentions_param(),
             _ => false,
@@ -124,6 +125,7 @@ impl Type {
                 }
             }
             Self::Nominal(n) => n.inner.collect_free_vars(vars),
+            Self::Projection(p) => p.base.collect_free_vars(vars),
             Self::Handler(h) => h.answer.collect_free_vars(vars),
             Self::Forall(f) => {
                 // Bound variables are not free
@@ -237,6 +239,7 @@ impl Type {
             Self::Nominal(n) => {
                 Self::Nominal(n.map_inner(n.inner.substitute_all(type_subst, ability_subst)))
             }
+            Self::Projection(p) => p.with_base(p.base.substitute_all(type_subst, ability_subst)),
             Self::Handler(h) => Self::Handler(HandlerType::new(
                 h.ability,
                 h.answer.substitute_all(type_subst, ability_subst),

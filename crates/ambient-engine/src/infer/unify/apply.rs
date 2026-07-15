@@ -102,6 +102,10 @@ impl MaskedSubst<'_> {
                 Type::Named(n.map_args(n.args.iter().map(|a| self.apply(a, seen)).collect()))
             }
             Type::Nominal(n) => Type::Nominal(n.map_inner(self.apply(&n.inner, seen))),
+            // A projection's base is a rigid atom (`Param`) or the stored
+            // `Named("Self")`; applying recurses for uniformity, the
+            // projection itself is never substituted here.
+            Type::Projection(p) => p.with_base(self.apply(&p.base, seen)),
             Type::Handler(h) => Type::Handler(crate::types::HandlerType::new(
                 h.ability,
                 self.apply(&h.answer, seen),

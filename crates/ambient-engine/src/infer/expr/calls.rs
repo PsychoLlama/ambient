@@ -210,9 +210,14 @@ impl Infer {
             .trait_registry
             .get_trait(trait_uuid)
             .map_or_else(|| Arc::from("?"), |t| Arc::clone(&t.name));
-        let trait_arg_map = self.dispatch_trait_arg_map(trait_uuid, type_uuid, &self_ty);
-        let (params, ret, abilities, type_var_map) =
-            self.instantiate_trait_method_mapped(&method_def, &self_ty, &trait_arg_map);
+        let (trait_arg_map, assoc_map) = self.dispatch_impl_maps(trait_uuid, type_uuid, &self_ty);
+        let (params, ret, abilities, type_var_map) = self.instantiate_trait_method_mapped(
+            &method_def,
+            trait_uuid,
+            &self_ty,
+            &trait_arg_map,
+            &assoc_map,
+        );
         let method_dicts = self.resolve_method_bound_dicts(&method_def, &type_var_map);
         *dicts = self.record_trait_dispatch_dicts(
             generic_impl,
@@ -482,9 +487,15 @@ impl Infer {
             .get_trait(trait_uuid)
             .map_or_else(|| Arc::from("?"), |t| Arc::clone(&t.name));
 
-        let trait_arg_map = self.dispatch_trait_arg_map(trait_uuid, type_uuid, &receiver_ty);
-        let (params, ret, abilities, type_var_map) =
-            self.instantiate_trait_method_mapped(&method_def, &receiver_ty, &trait_arg_map);
+        let (trait_arg_map, assoc_map) =
+            self.dispatch_impl_maps(trait_uuid, type_uuid, &receiver_ty);
+        let (params, ret, abilities, type_var_map) = self.instantiate_trait_method_mapped(
+            &method_def,
+            trait_uuid,
+            &receiver_ty,
+            &trait_arg_map,
+            &assoc_map,
+        );
         let method_dicts = self.resolve_method_bound_dicts(&method_def, &type_var_map);
         *dicts = self.record_trait_dispatch_dicts(
             generic_impl,
@@ -544,8 +555,10 @@ impl Infer {
     pub(in crate::infer) fn instantiate_trait_method_mapped(
         &mut self,
         method: &TraitMethodDef,
+        trait_uuid: uuid::Uuid,
         self_ty: &Type,
         trait_arg_map: &HashMap<Arc<str>, Type>,
+        assoc_map: &HashMap<Arc<str>, Type>,
     ) -> (Vec<Type>, Type, AbilitySet, HashMap<Arc<str>, TypeVarId>) {
         let type_var_map: HashMap<Arc<str>, TypeVarId> = method
             .type_param_names
@@ -561,11 +574,16 @@ impl Infer {
         let (params, ret, abilities) =
             self.with_ability_var_scope(ability_var_map.clone(), false, |infer| {
                 let instantiate = |infer: &mut Self, ty: &Type| {
-                    // Trait-level parameters resolve to the dispatching
-                    // impl's (or bound's) arguments first — a method-level
+                    // Associated projections resolve to the dispatching
+                    // impl's bindings first (an empty map — a rigid-receiver
+                    // dictionary call — leaves them projections, re-anchored
+                    // on the receiver by `substitute_self` below). Then
+                    // trait-level parameters resolve to the dispatching
+                    // impl's (or bound's) arguments — a method-level
                     // parameter of the same name shadows via the
                     // `type_var_map` substitution running before it.
-                    let ty = substitute_type_params(ty, &type_var_map);
+                    let ty = crate::infer::check::substitute_assoc(ty, trait_uuid, assoc_map);
+                    let ty = substitute_type_params(&ty, &type_var_map);
                     let ty = crate::infer::check::substitute_named(&ty, trait_arg_map);
                     let ty = infer.resolve_holes(&ty);
                     substitute_self(&ty, self_ty)
@@ -734,8 +752,17 @@ impl Infer {
             .cloned()
             .zip(bound.args.iter().cloned())
             .collect();
-        let (params, ret, abilities, type_var_map) =
-            self.instantiate_trait_method_mapped(&method_def, receiver_ty, &trait_arg_map);
+        // No impl is known at a dictionary-dispatched call, so there are no
+        // associated bindings to substitute: a `Self::Error` in the
+        // signature stays a projection, re-anchored on the rigid receiver
+        // (`T::Error`) by the `Self` substitution.
+        let (params, ret, abilities, type_var_map) = self.instantiate_trait_method_mapped(
+            &method_def,
+            bound.trait_uuid,
+            receiver_ty,
+            &trait_arg_map,
+            &HashMap::new(),
+        );
         let method_dicts = self.resolve_method_bound_dicts(&method_def, &type_var_map);
         *dicts =
             self.record_trait_dispatch_dicts(None, receiver_ty, method_dicts, &bound.name, span);
@@ -794,6 +821,11 @@ pub(in crate::infer) fn substitute_self(ty: &Type, self_ty: &Type) -> Type {
         Type::Named(n) => {
             Type::Named(n.map_args(n.args.iter().map(|t| substitute_self(t, self_ty)).collect()))
         }
+        // A projection anchored on `Self` re-anchors on the receiver
+        // (`Self::Error` → `T::Error` under a rigid receiver). When the
+        // receiver is concrete the projection is expected to have been
+        // eliminated by the impl's binding *before* this walk runs.
+        Type::Projection(p) => p.with_base(substitute_self(&p.base, self_ty)),
         // Other types pass through unchanged
         _ => ty.clone(),
     }

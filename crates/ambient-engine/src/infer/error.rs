@@ -335,6 +335,22 @@ pub enum TypeErrorKind {
         method: Arc<str>,
     },
 
+    /// Impl does not bind an associated type the trait declares
+    /// (`type Error = ...;` missing).
+    ImplMissingAssocType {
+        trait_name: Arc<str>,
+        assoc: Arc<str>,
+    },
+
+    /// Impl binds an associated type the trait does not declare (an unknown
+    /// name, a duplicate binding, or any `type` item in an inherent impl).
+    ImplUnknownAssocType {
+        /// The trait's name, or the target type's rendering for an inherent
+        /// impl.
+        context: Arc<str>,
+        assoc: Arc<str>,
+    },
+
     /// An inherent impl targets a type that cannot carry methods (a
     /// structural type, a bare type parameter, or an unknown name).
     InherentImplInvalidTarget { ty: Type },
@@ -750,6 +766,18 @@ impl std::fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "impl for `{trait_name}` is missing required method `{method}`"
+                )
+            }
+            Self::ImplMissingAssocType { trait_name, assoc } => {
+                write!(
+                    f,
+                    "impl for `{trait_name}` does not bind its associated type `{assoc}`: add `type {assoc} = ...;`"
+                )
+            }
+            Self::ImplUnknownAssocType { context, assoc } => {
+                write!(
+                    f,
+                    "impl for `{context}` binds `type {assoc}`, which it does not declare (each associated type is bound exactly once, and only in a trait impl)"
                 )
             }
             Self::InherentImplInvalidTarget { ty } => {

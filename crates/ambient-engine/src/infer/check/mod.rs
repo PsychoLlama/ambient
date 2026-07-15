@@ -30,7 +30,7 @@ mod tests;
 pub use abilities::{resolve_ability_declarations, resolve_registry_abilities};
 pub(in crate::infer) use ability_vars::resolve_declared_with;
 pub(in crate::infer) use declared_types::resolve_body_annotation;
-pub(in crate::infer) use subst::{substitute_named, substitute_type_params};
+pub(in crate::infer) use subst::{substitute_assoc, substitute_named, substitute_type_params};
 
 use crate::ability_resolver::AbilityResolver;
 use crate::module_path::ModulePath;

@@ -262,8 +262,19 @@ pub(super) fn check_declared_types(
             }
             crate::ast::ItemKind::Trait(t) => {
                 // Trait-level parameters (`trait From<T>`) scope every
-                // method signature, exactly like an impl block's.
-                let trait_known = type_param_set(&t.type_params);
+                // method signature, exactly like an impl block's. So do the
+                // trait's associated types, under their written `Self::X`
+                // spelling — an undeclared `Self::Y` falls through and is
+                // reported as an undefined type name.
+                let trait_known: std::collections::HashSet<Arc<str>> =
+                    type_param_set(&t.type_params)
+                        .into_iter()
+                        .chain(
+                            t.assoc_types
+                                .iter()
+                                .map(|a| Arc::from(format!("Self::{}", a.name))),
+                        )
+                        .collect();
                 for m in &t.methods {
                     let known: std::collections::HashSet<Arc<str>> = trait_known
                         .iter()
@@ -290,8 +301,12 @@ pub(super) fn check_declared_types(
             crate::ast::ItemKind::Impl(imp) => {
                 // The impl target (`impl Strng`) is validated elsewhere
                 // (invalid-target / structural-type errors); only the method
-                // signatures are swept here.
+                // signatures and associated bindings are swept here.
                 let impl_known = type_param_set(&imp.type_params);
+                for assoc in &imp.assoc_types {
+                    let s = (assoc.span.start, assoc.span.end);
+                    report_undefined_types(infer, &assoc.ty, s, &impl_known, errors);
+                }
                 for m in &imp.methods {
                     let method_known: std::collections::HashSet<Arc<str>> = impl_known
                         .iter()

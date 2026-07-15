@@ -578,6 +578,15 @@ impl CanonicalTypeRenderer {
                 format!("named:{name}")
             }
             Type::Handler(handler) => format!("handler<{}>", handler.ability.to_hex()),
+            // An associated-type projection renders through the trait's
+            // *identity* and the base's canonical form, so a trait rename
+            // never moves a method-key hash. Ability signatures cannot spell
+            // one today (projections are trait-signature syntax), so this is
+            // a defensive stable rendering, not a live path.
+            Type::Projection(p) => {
+                let base = self.render(&p.base);
+                format!("{base}::<{}>::{}", p.trait_uuid, p.assoc)
+            }
             // `resolve_ability_def` resolves signatures before rendering, so
             // the unresolved surface form never reaches signature hashing —
             // a tripwire, not a live path.

@@ -44,6 +44,19 @@ impl Infer {
             // on `Type::Named`).
             (Type::Param(a), Type::Param(b)) if a == b => Ok(()),
 
+            // Associated-type projections are rigid atoms exactly like
+            // `Param`: `T::Error` unifies only with the structurally
+            // identical projection — same trait identity, same associated
+            // name, same base. Anything else (a concrete type, a different
+            // projection) is a genuine mismatch: in a generic body nothing
+            // is known about the impl's assignment, so nothing else can be
+            // assumed equal to it.
+            (Type::Projection(p1), Type::Projection(p2))
+                if p1.trait_uuid == p2.trait_uuid && p1.assoc == p2.assoc =>
+            {
+                self.unify(&p1.base, &p2.base, span)
+            }
+
             // Type variables
             (Type::Var(id1), Type::Var(id2)) if id1 == id2 => Ok(()),
             (Type::Var(id), ty) | (ty, Type::Var(id)) => {
@@ -255,6 +268,7 @@ impl Infer {
             }
             Type::Named(n) => n.args.iter().any(|a| self.occurs(var, a)),
             Type::Nominal(n) => self.occurs(var, &n.inner),
+            Type::Projection(p) => self.occurs(var, &p.base),
             Type::Handler(h) => self.occurs(var, &h.answer),
             _ => false,
         }

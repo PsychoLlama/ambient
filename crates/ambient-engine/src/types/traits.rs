@@ -227,6 +227,14 @@ pub struct TraitDef {
     /// coherence/dispatch key on those arguments' head identities.
     pub type_params: Vec<Arc<str>>,
 
+    /// Associated type names (`type Error;`), in declaration order. Each
+    /// impl binds every entry (`type Error = String;` →
+    /// [`TraitImpl::assoc_bindings`]); method signatures reference them as
+    /// [`super::Type::Projection`]s over `Self`, eliminated per use site by
+    /// the dispatching impl's binding. No dictionary slot, no runtime
+    /// representation — a checker-only vocabulary.
+    pub assoc_types: Vec<Arc<str>>,
+
     /// The trait's fully-qualified location identity — the key the resolve
     /// pass canonicalizes every trait *reference* to, and the key the
     /// build-global [`TraitRegistry::uuid_for_fqn`] table indexes this trait
@@ -247,6 +255,7 @@ impl TraitDef {
             uuid,
             name: name.into(),
             type_params: Vec::new(),
+            assoc_types: Vec::new(),
             fqn: None,
             methods: Vec::new(),
         }
@@ -256,6 +265,13 @@ impl TraitDef {
     #[must_use]
     pub fn with_type_params(mut self, type_params: Vec<Arc<str>>) -> Self {
         self.type_params = type_params;
+        self
+    }
+
+    /// Attach the trait's associated type names (`type Error;`).
+    #[must_use]
+    pub fn with_assoc_types(mut self, assoc_types: Vec<Arc<str>>) -> Self {
+        self.assoc_types = assoc_types;
         self
     }
 
@@ -441,6 +457,14 @@ pub struct TraitImpl {
     /// to) and each method closure forwards. Empty for a non-generic impl.
     pub bounds: Vec<(Arc<str>, super::TraitBound)>,
 
+    /// Associated type bindings (`type Error = String;`): one entry per
+    /// associated type the trait declares, resolved under the impl's rigid
+    /// type parameters (so a conditional impl's binding may carry
+    /// [`Type::Param`]s, recovered by the same target match as
+    /// [`trait_args`](Self::trait_args)). Instantiation reads these to
+    /// eliminate `Self::Error` projections; nothing at runtime does.
+    pub assoc_bindings: Vec<(Arc<str>, Type)>,
+
     /// Method dispatch symbols: method name -> canonical impl-method symbol.
     ///
     /// The symbol (see [`impl_method_symbol`]) names the compiled method
@@ -462,8 +486,25 @@ impl TraitImpl {
             is_generic: false,
             target: None,
             bounds: Vec::new(),
+            assoc_bindings: Vec::new(),
             methods: HashMap::new(),
         }
+    }
+
+    /// Attach the impl's associated type bindings (`type Error = String;`).
+    #[must_use]
+    pub fn with_assoc_bindings(mut self, assoc_bindings: Vec<(Arc<str>, Type)>) -> Self {
+        self.assoc_bindings = assoc_bindings;
+        self
+    }
+
+    /// The impl's binding for an associated type, by name.
+    #[must_use]
+    pub fn assoc_binding(&self, name: &str) -> Option<&Type> {
+        self.assoc_bindings
+            .iter()
+            .find(|(n, _)| n.as_ref() == name)
+            .map(|(_, ty)| ty)
     }
 
     /// Attach the impl's trait type arguments (`impl From<Number> for …`).

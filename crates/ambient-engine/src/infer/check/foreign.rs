@@ -295,8 +295,26 @@ fn register_foreign_impl(
         .filter_map(crate::types::trait_arg_head)
         .collect();
 
-    let mut impl_record =
-        crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name).with_trait_args(trait_args);
+    // Associated bindings resolve under the impl's rigid parameters,
+    // mirroring `check_single_impl`; missing/unknown bindings are the
+    // defining module's errors, so anything spelled is taken as-is.
+    let rigid: Vec<Arc<str>> = impl_def
+        .type_params
+        .iter()
+        .filter(|tp| !tp.is_ability)
+        .map(|tp| Arc::clone(&tp.name))
+        .collect();
+    let assoc_bindings: Vec<(Arc<str>, Type)> = infer.with_rigid_params(rigid, |infer| {
+        impl_def
+            .assoc_types
+            .iter()
+            .map(|a| (Arc::clone(&a.name), infer.resolve_holes(&a.ty)))
+            .collect()
+    });
+
+    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name)
+        .with_trait_args(trait_args)
+        .with_assoc_bindings(assoc_bindings);
     // Mirror `check_single_impl`: every impl records its resolved target
     // (conversion candidates read it as the produced type).
     impl_record.target = Some(for_type.clone());

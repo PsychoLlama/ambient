@@ -678,6 +678,12 @@ impl Infer {
                 Type::Named(n.map_args(args))
             }
             Type::Nominal(n) => Type::Nominal(n.map_inner(self.resolve_holes(&n.inner))),
+            // A projection is opaque to hole/alias resolution: its base is
+            // `Named("Self")` (a stored trait signature) or a rigid `Param`,
+            // and its meaning comes from an impl's binding — resolved where
+            // the dispatching impl is known, never here. Recurse the base so
+            // a rigid name mints its `Param` like any other position.
+            Type::Projection(p) => p.with_base(self.resolve_holes(&p.base)),
             Type::Forall(f) => Type::Forall(ForallType::with_abilities(
                 f.vars.clone(),
                 f.ability_vars.clone(),

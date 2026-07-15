@@ -162,6 +162,42 @@ fn check_single_impl(
     // the inner dictionaries in.
     let impl_bounds = infer.resolve_bound_params(&impl_def.type_params, errors);
 
+    // Associated type bindings (`type Error = String;`): every name the
+    // trait declares is bound exactly once, nothing else is. Resolved under
+    // the impl's rigid parameters (a conditional impl's binding may carry
+    // `Param`s), exactly like the target and the trait arguments. Method
+    // signatures then check against these — a `Self::Error` in the trait's
+    // signature *is* this binding for this impl.
+    let mut assoc_bindings: Vec<(Arc<str>, Type)> = Vec::new();
+    for assoc in &impl_def.assoc_types {
+        let declared = trait_def.assoc_types.iter().any(|n| n == &assoc.name);
+        let duplicate = assoc_bindings.iter().any(|(n, _)| n == &assoc.name);
+        if !declared || duplicate {
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::ImplUnknownAssocType {
+                    context: Arc::clone(&trait_def.name),
+                    assoc: Arc::clone(&assoc.name),
+                },
+                (assoc.name_span.start, assoc.name_span.end),
+            )));
+            continue;
+        }
+        let ty = infer.with_rigid_params(rigid.clone(), |infer| resolve_erroring(infer, &assoc.ty));
+        assoc_bindings.push((Arc::clone(&assoc.name), ty));
+    }
+    for declared in &trait_def.assoc_types {
+        if !assoc_bindings.iter().any(|(n, _)| n == declared) {
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::ImplMissingAssocType {
+                    trait_name: Arc::clone(&trait_def.name),
+                    assoc: Arc::clone(declared),
+                },
+                span,
+            )));
+        }
+    }
+    let assoc_map: HashMap<Arc<str>, Type> = assoc_bindings.iter().cloned().collect();
+
     // Check each method's body under the impl's rigid parameters and bounds.
     let impl_type_params = impl_def.type_params.clone();
     check_impl_methods(
@@ -170,6 +206,7 @@ fn check_single_impl(
         &trait_def,
         &for_type,
         &trait_arg_map,
+        &assoc_map,
         &impl_type_params,
         env,
         errors,
@@ -183,8 +220,9 @@ fn check_single_impl(
     // The compiler registers method bodies under these symbols so they are
     // content-addressed like ordinary functions; call sites resolve the
     // symbol through the same name→hash table as regular calls.
-    let mut impl_record =
-        crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name).with_trait_args(trait_args);
+    let mut impl_record = crate::types::TraitImpl::new(trait_uuid, type_uuid, type_name)
+        .with_trait_args(trait_args)
+        .with_assoc_bindings(assoc_bindings);
     // Every impl records its resolved target: the solver only *matches* it
     // for conditional impls, but conversion candidates read it as the
     // produced type (`n.into()` needs the `From` impl's target to name the
@@ -233,6 +271,7 @@ fn check_impl_methods(
     trait_def: &TraitDef,
     for_type: &Type,
     trait_arg_map: &HashMap<Arc<str>, Type>,
+    assoc_map: &HashMap<Arc<str>, Type>,
     impl_type_params: &[crate::ast::TypeParam],
     env: &TypeEnv,
     errors: &mut Vec<BoxedTypeError>,
@@ -272,8 +311,10 @@ fn check_impl_methods(
             infer,
             method,
             tm,
+            trait_def.uuid,
             for_type,
             trait_arg_map,
+            assoc_map,
             impl_type_params,
             env,
             errors,
@@ -345,8 +386,10 @@ fn check_impl_method_body(
     infer: &mut Infer,
     method: &mut crate::ast::ImplMethod,
     tm: &crate::types::TraitMethodDef,
+    trait_uuid: uuid::Uuid,
     for_type: &Type,
     trait_arg_map: &HashMap<Arc<str>, Type>,
+    assoc_map: &HashMap<Arc<str>, Type>,
     impl_type_params: &[crate::ast::TypeParam],
     env: &TypeEnv,
     errors: &mut Vec<BoxedTypeError>,
@@ -385,12 +428,14 @@ fn check_impl_method_body(
                 }
 
                 // Each parameter's expected type comes from the trait signature
-                // (trait-level parameters → this impl's trait arguments, then
-                // Self → the implementing type, resolved under the scopes
-                // above); an explicit annotation on the impl method is
-                // resolved the same way and used in its place.
+                // (associated projections → this impl's bindings, trait-level
+                // parameters → this impl's trait arguments, then Self → the
+                // implementing type, resolved under the scopes above); an
+                // explicit annotation on the impl method is resolved the same
+                // way and used in its place.
                 let instantiate_expected = |infer: &mut Infer, ty: &Type| {
-                    let ty = substitute_named(ty, trait_arg_map);
+                    let ty = super::subst::substitute_assoc(ty, trait_uuid, assoc_map);
+                    let ty = substitute_named(&ty, trait_arg_map);
                     resolve_erroring(infer, &substitute_self(&ty, for_type))
                 };
                 for (param, expected_ty) in method.params.iter().zip(tm.params.iter()) {
@@ -512,6 +557,18 @@ pub(super) fn register_inherent_impls(
             continue;
         }
         let span = (item.span.start, item.span.end);
+
+        // Associated types are trait vocabulary: an inherent impl has no
+        // trait declaring them, so a `type` item here binds nothing.
+        for assoc in &impl_def.assoc_types {
+            errors.push(Box::new(TypeError::new(
+                TypeErrorKind::ImplUnknownAssocType {
+                    context: Arc::from(format!("{}", infer.resolve_holes(&impl_def.for_type))),
+                    assoc: Arc::clone(&assoc.name),
+                },
+                (assoc.name_span.start, assoc.name_span.end),
+            )));
+        }
 
         let target = inherent_impl_target(infer, impl_def);
         // Beyond being keyable, a `Named` target must actually exist. After

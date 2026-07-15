@@ -47,7 +47,7 @@ pub use ambient_core::AbilityId;
 pub use abilities::{AbilityInfo, AbilityRegistry, AbilitySet};
 pub use core::{
     ForallType, FunctionType, HandlerAnnotationType, HandlerType, NamedType, NominalType,
-    RecordType, Type, TypeVarGen,
+    ProjectionType, RecordType, Type, TypeVarGen,
 };
 pub use primitives::{
     BINARY_UUID, BOOL_UUID, Container, LIST_UUID, MAP_UUID, NUMBER_UUID, OPTION_UUID, Primitive,
