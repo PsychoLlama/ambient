@@ -28,8 +28,7 @@ pub struct AbilityMethodRef {
     /// Content hash of the method's default implementation — the function
     /// an unhandled perform calls. `None` for abstract methods: a method
     /// returning `!` (never) may omit its body, in which case an unhandled
-    /// perform is a runtime fault (the VM's uncaught-exception path for
-    /// `Exception::throw`, an unhandled-ability error otherwise).
+    /// perform is an unhandled-ability runtime fault.
     pub impl_fn: Option<blake3::Hash>,
     /// Whether the method returns `!` (never). A never-returning perform
     /// unwinds: the VM discards the delimited continuation instead of
@@ -66,7 +65,7 @@ pub struct SuspendedAbility {
 
     /// Content hash of the method's default implementation, which an
     /// unhandled perform calls (`None` for abstract never-returning
-    /// methods, e.g. `Exception::throw`).
+    /// methods, e.g. the platform's `Drain::requested`).
     pub impl_fn: Option<blake3::Hash>,
 
     /// Whether the method returns `!` (never) — performing it unwinds to

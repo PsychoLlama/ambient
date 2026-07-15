@@ -11,7 +11,8 @@
 //! `FFFFFFFF-FFFF-FFFF-FFFE-XXXXXXXXXXXX` ([`uuid`]), assigned in
 //! per-module ranges (`0x01__` number, `0x02__` string, `0x03__` list,
 //! `0x04__` map, `0x05__` set, `0x06__` binary, `0x07__` convert,
-//! `0x08__` reflect, `0x09__` protocol). An assigned id is **permanent**:
+//! `0x08__` reflect, `0x09__` protocol, `0x0A__` exception). An assigned
+//! id is **permanent**:
 //! it names a behavior, compiled code links to it by hash, and remote
 //! hosts bind it by id — never reuse or renumber one. Removing a function
 //! retires its id; changing semantics mints a new id.
@@ -25,6 +26,7 @@ use super::NativeRegistry;
 mod binary;
 mod collections;
 mod convert;
+mod exception;
 mod number;
 mod protocol;
 mod reflect;
@@ -40,6 +42,7 @@ pub(super) fn registry() -> NativeRegistry {
     convert::register(&mut reg);
     reflect::register(&mut reg);
     protocol::register(&mut reg);
+    exception::register(&mut reg);
     reg
 }
 
@@ -407,5 +410,6 @@ mod tests {
         expect(&["core", "reflect"], "payload", 0x0802, 1);
         expect(&["core", "protocol"], "serialize_value", 0x0901, 1);
         expect(&["core", "protocol"], "binary_to_hex", 0x0907, 1);
+        expect(&["core", "exception"], "uncaught", 0x0A01, 1);
     }
 }

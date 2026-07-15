@@ -86,7 +86,7 @@ pub(super) fn register_abilities(
         // never-returning methods (`: !`): performing one unwinds to its
         // handler instead of resuming, so a declaration may leave the
         // unhandled case abstract — an unhandled perform is then a
-        // runtime fault, exactly like the prelude's `Exception::throw`.
+        // runtime fault, exactly like the platform's `Drain::requested`.
         // Runs after resolution so an alias-spelled `!` (normalized above)
         // counts as never.
         for method in &def.methods {

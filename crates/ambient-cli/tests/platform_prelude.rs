@@ -252,12 +252,15 @@ fn declared_drain_reproduces_the_runtime_anchors() {
 }
 
 /// `Exception` is declared in Ambient source (`core::exception`) rather than
-/// as an engine builtin, but the VM's throw/unwind path still keys on the
-/// anchors in `ambient_core::exception` (the reserved uuid and the derived
-/// `throw` method key). The declaration must reproduce them byte-for-byte —
-/// otherwise a `throw` compiles to a perform the VM no longer recognizes as
-/// an exception. Resolve it through the same path a real check uses and pin
-/// it to the VM's anchors.
+/// as an engine builtin, but the VM's Rust-level raise channel
+/// (`Vm::raise_exception`, how a native's `Err(VmError::Exception)` finds
+/// in-language handlers) still keys on the anchors in
+/// `ambient_core::exception`: the reserved uuid, the canonical `throw`
+/// signature, and the pinned content hash of `throw`'s compiled default
+/// implementation. The declaration must reproduce them byte-for-byte —
+/// otherwise a `throw` handler compiles to a method key the raise channel
+/// no longer matches. Resolve and compile it through the same path a real
+/// build uses and pin it to the anchors.
 #[test]
 fn declared_exception_reproduces_the_vm_anchor_id() {
     let mut registry = ambient_engine::module_registry::ModuleRegistry::new();
@@ -282,11 +285,42 @@ fn declared_exception_reproduces_the_vm_anchor_id() {
     let throw = &exception.methods[0];
     assert_eq!(throw.name.as_ref(), "throw");
     assert!(
-        !throw.has_impl,
-        "`throw` is abstract (never-returning; unhandled = uncaught)"
+        throw.has_impl,
+        "`throw` carries a default implementation (deliver the value to \
+         the host as an uncaught exception)"
+    );
+
+    // Compile core for real and pin the default implementation's content
+    // hash — the third `MethodKey` input, which `ambient-core` cannot
+    // derive itself. When this fails after editing `exception.ab` (or
+    // codegen), update `ambient_core::exception::THROW_IMPL_HASH` to the
+    // hash reported here.
+    let mut compile_registry = ambient_engine::module_registry::ModuleRegistry::new();
+    let mut module_function_hashes = std::collections::HashMap::new();
+    let core_compiled = ambient_engine::build::compile_core_modules(
+        &mut compile_registry,
+        &mut module_function_hashes,
+        |s| ambient_parser::parse(s).map_err(|e| e.to_string()),
+    )
+    .expect("core modules must compile");
+    let impl_symbol = format!("{}::throw", ambient_core::exception::EXCEPTION_UUID);
+    let impl_hash = core_compiled
+        .function_names
+        .get(impl_symbol.as_str())
+        .unwrap_or_else(|| panic!("compiled core must bind `{impl_symbol}`"));
+    assert_eq!(
+        impl_hash.as_bytes(),
+        &ambient_core::exception::THROW_IMPL_HASH,
+        "`throw`'s compiled default implementation drifted from the pinned \
+         THROW_IMPL_HASH; update the constant to {:?}",
+        impl_hash.as_bytes()
     );
     assert_eq!(
-        ambient_core::MethodKey::derive(&exception.uuid, &throw.signature, None),
+        ambient_core::MethodKey::derive(
+            &exception.uuid,
+            &throw.signature,
+            Some(impl_hash.as_bytes())
+        ),
         ambient_core::exception::throw_method_key(),
         "the declared signature must reproduce the VM's throw method key"
     );

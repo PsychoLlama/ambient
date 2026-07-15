@@ -373,9 +373,10 @@ pub struct AbilityMethod {
     pub params: Vec<Param>,
     /// Return type.
     pub ret_ty: Type,
-    /// Default implementation. `None` only for the `Exception` carve-out
-    /// (its unhandled behavior is the VM's uncaught-exception path); the
-    /// checker rejects a missing body everywhere else.
+    /// Default implementation. `None` only for abstract never-returning
+    /// methods (`: !`, e.g. the platform's `Drain::requested`), whose
+    /// unhandled perform is a runtime fault; the checker rejects a missing
+    /// body everywhere else.
     pub body: Option<Expr>,
     /// Hash of the canonical signature rendering, written back during type
     /// checking (like `AbilityDef::resolved_id`); the compiler reads it to

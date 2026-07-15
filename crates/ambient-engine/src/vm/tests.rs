@@ -695,8 +695,8 @@ fn test_uncovered_method_falls_through_to_default_impl() {
 #[test]
 fn test_unhandled_abstract_method_errors() {
     // An abstract method (no default implementation) with no handler in
-    // scope is a hard error. Only `Exception::throw` is abstract in
-    // practice, but the VM rule is general.
+    // scope is a hard error. Only never-returning methods may stay
+    // abstract (e.g. `Drain::requested`), but the VM rule is general.
     let method = test_method_ref(1, 0, None);
     VmTest::new()
         .push(42.0)

@@ -7,15 +7,22 @@
 //! Exception is declared in Ambient source (`core::exception`, re-exported
 //! from the prelude) like any other ability; it is not an engine builtin.
 //! What lives here is only its *identity*: the reserved declaration uuid,
-//! the uuid-derived [`AbilityId`] the VM's throw/unwind path keys on, and
-//! the [`MethodKey`] of `throw`. The in-language declaration reproduces
-//! these exactly, so the two never drift.
+//! the uuid-derived [`AbilityId`] the VM's Rust-level raise channel keys
+//! on, and the [`MethodKey`] of `throw`. The in-language declaration
+//! reproduces these exactly, so the two never drift.
 //!
-//! `throw` is the language's one **abstract** ability method — a signature
-//! with no default implementation. Every other ability method carries a
-//! body (the behavior of an unhandled perform); an unhandled `throw` is
-//! the VM's own uncaught-exception path, which no in-language body could
-//! express (`throw` returns `!`).
+//! Like every ability method, `throw` carries a default implementation —
+//! the behavior of an unhandled perform. Its body delivers the thrown
+//! value to the host through the module-private `extern fn uncaught`
+//! (`core_lib/exception.ab`), so an unhandled `throw` surfaces as an
+//! uncaught exception with no VM special-casing. Because a method's
+//! identity folds in its default implementation's content hash, that
+//! compiled body's hash is pinned here ([`THROW_IMPL_HASH`]) — the one
+//! anchor the VM's raise channel (`Vm::raise_exception`, how a native's
+//! `Err(VmError::Exception)` finds in-language handlers) needs without
+//! compiling core itself. A golden test pins it against the real compiled
+//! core, so an edit to the body (or to codegen) fails loudly instead of
+//! silently splitting the raise channel from compiled handlers.
 
 use std::sync::OnceLock;
 
@@ -52,15 +59,31 @@ pub fn throw_signature() -> SignatureHash {
     SignatureHash::new(&["var0", "bound:0:Show"], "never")
 }
 
+/// Content hash of `throw`'s compiled default implementation — the
+/// `core::exception` body that delivers an unhandled throw to the host
+/// (`fn throw<E: Show>(error: E): ! { uncaught(error) }`).
+///
+/// Pinned here because the implementation hash is a [`MethodKey`] input
+/// and the VM's raise channel must derive the same `throw` key as compiled
+/// perform sites and handler arms — without compiling core. A golden test
+/// re-compiles core and compares byte-for-byte; when it fails (the body or
+/// codegen changed), update this literal to the hash it reports.
+pub const THROW_IMPL_HASH: [u8; 32] = [
+    0xb8, 0x6f, 0x95, 0x4e, 0x97, 0xde, 0x1b, 0xda, 0xb9, 0xcf, 0x2c, 0x36, 0x29, 0xfe, 0x3c, 0x67,
+    0x0f, 0x80, 0xda, 0x56, 0xa1, 0xe4, 0x3f, 0x45, 0x6d, 0xe0, 0x76, 0xbf, 0x13, 0x8d, 0xa5, 0xa6,
+];
+
 /// The content-addressed identity of `Exception::throw`.
 ///
-/// Derived with no implementation hash (the abstract carve-out): the VM's
-/// `raise_exception` path and compiled `Exception::throw!` sites both key
-/// on exactly this value.
+/// Derived from the reserved uuid, the canonical signature, and the pinned
+/// default-implementation hash: the VM's `raise_exception` path and
+/// compiled `Exception::throw!` sites both key on exactly this value.
 #[must_use]
 pub fn throw_method_key() -> MethodKey {
     static KEY: OnceLock<MethodKey> = OnceLock::new();
-    *KEY.get_or_init(|| MethodKey::derive(&EXCEPTION_UUID, &throw_signature(), None))
+    *KEY.get_or_init(|| {
+        MethodKey::derive(&EXCEPTION_UUID, &throw_signature(), Some(&THROW_IMPL_HASH))
+    })
 }
 
 /// Ability name.
@@ -89,7 +112,7 @@ mod tests {
             MethodKey::derive(
                 &EXCEPTION_UUID,
                 &SignatureHash::new(&["var0", "bound:0:Show"], "never"),
-                None
+                Some(&THROW_IMPL_HASH)
             )
         );
     }

@@ -59,9 +59,9 @@ ability, which is also what keeps method identity well-founded: an
 implementation hash never depends on itself.
 
 The carve-out is **never-returning methods** (`: !`), which may omit the
-body and stay abstract — an unhandled perform is then a runtime fault
-(the uncaught-exception path for `Exception::throw`, an
-unhandled-ability error otherwise). See "Never-returning methods" below.
+body and stay abstract — an unhandled perform is then an
+unhandled-ability runtime fault (the platform's `Drain::requested` is the
+canonical case). See "Never-returning methods" below.
 
 ```ambient
 // Default implementations bottom out in extern fns (the pure host
@@ -276,11 +276,11 @@ special case:
   but nothing was captured or retained.
 - **Declaration**: the method may omit its default implementation
   (`fn abort(code: Number): !;`) — there is often nothing sensible for
-  an unhandled perform to run. An unhandled abstract perform is a
-  runtime fault: the uncaught-exception error for `Exception::throw`,
-  an unhandled-ability error for anything else. A never method may
-  still provide a body (e.g. one that translates into another never
-  ability it declares in its `with` row).
+  an unhandled perform to run. An unhandled abstract perform is an
+  unhandled-ability runtime fault. A never method may still provide a
+  body — one that translates into another never ability it declares in
+  its `with` row, or, like `Exception::throw`, one that delivers the
+  value to the host through a module-private extern fn.
 
 ### Suspended ability operations with never results (design note)
 
@@ -434,13 +434,18 @@ completion only; arms bypass it — and arms still spell
 `Exception::throw(e)`: method re-exports cover calls only.
 
 ```ambient
-// The one abstract ability method in the language: `throw` returns `!`,
-// and its unhandled behavior is the VM's own uncaught-exception path,
-// which no in-language default implementation could express. It carries an
-// arbitrary `E: Show` (see "Typed exceptions" below) — a message, a record,
-// an enum — so an uncaught handler can always render it.
+// `throw` returns `!` and, like every ability method, carries a default
+// implementation — the body an unhandled perform runs. It delivers the
+// thrown value to the host through `core::exception`'s module-private
+// `extern fn uncaught` (the same pattern as the platform abilities), so
+// an unhandled throw surfaces as an uncaught exception with no VM
+// special-casing. It carries an arbitrary `E: Show` (see "Typed
+// exceptions" below) — a message, a record, an enum — so an uncaught
+// handler can always render it.
 pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000001) ability Exception {
-  fn throw<E: Show>(error: E): !;
+  fn throw<E: Show>(error: E): ! {
+    uncaught(error)
+  }
 }
 
 fn parse_int(s: String): Number with Exception {

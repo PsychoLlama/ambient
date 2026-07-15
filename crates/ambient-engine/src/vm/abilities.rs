@@ -111,12 +111,6 @@ impl Vm {
 
         if let Some(idx) = handler_idx {
             self.perform_with_bytecode_handler(idx, ability)?;
-        } else if ability.ability_id == ambient_core::exception::ability_id() {
-            // Exception is core language semantics: `throw` is the one
-            // abstract ability method, and an unhandled throw is an
-            // uncaught exception carrying the thrown value.
-            let error = ability.args.first().cloned().unwrap_or(Value::Unit);
-            return Err(VmError::Exception(error));
         } else if let Some(impl_fn) = ability.impl_fn {
             // Unhandled perform: run the method's default implementation
             // as an ordinary call at the perform site. Its own performs

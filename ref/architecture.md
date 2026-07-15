@@ -503,8 +503,10 @@ Roughly in priority order:
 - **Cross-module ability imports (done).** The platform-bindings split
   is done: platform abilities are in-language declarations
   (`platform.ab`) whose default implementations call module-private
-  extern fns, the engine crate knows only Exception, and embedders bind
-  natives by uuid. The general form is done too: exporting an `ability`
+  extern fns, and embedders bind natives by uuid. Exception follows the
+  same pattern (`core_lib/exception.ab`); the engine keeps only its
+  identity anchors, for the Rust-level raise channel
+  (`Err(VmError::Exception)` from a native). The general form is done too: exporting an `ability`
   from one user module and importing it in another works end-to-end
   through checker, compiler, and VM — bare import, fully-qualified use,
   default implementations, dependency (`with`) rows, re-exports, and

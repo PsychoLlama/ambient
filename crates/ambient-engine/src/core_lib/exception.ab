@@ -2,19 +2,27 @@
 //
 // Exception is the language's error-signalling effect. `throw` raises a
 // message that unwinds to the nearest `handle { Exception::throw(e) => ... }`
-// block; with no handler in scope the exception is uncaught and surfaces as
-// an engine fault. Unlike the platform abilities (`core::system::*`), it is
-// re-exported onto the prelude (see `prelude.ab`), so it is in scope bare in
-// every module without an import — exactly like `Option`/`Result`. The
-// `throw` method rides the prelude too (an ability-method re-export), so
-// raising is just `throw!("...")`; handler arms still spell
-// `Exception::throw(e)`, since method imports cover calls only.
+// block; with no handler in scope the default implementation runs and
+// delivers the value to the host as an uncaught exception. Unlike the
+// platform abilities (`core::system::*`), it is re-exported onto the
+// prelude (see `prelude.ab`), so it is in scope bare in every module
+// without an import — exactly like `Option`/`Result`. The `throw` method
+// rides the prelude too (an ability-method re-export), so raising is just
+// `throw!("...")`; handler arms still spell `Exception::throw(e)`, since
+// method imports cover calls only.
 //
 // The ability's identity derives from its declaration uuid, so this
-// declaration reproduces exactly the id the VM anchors its throw/unwind
-// path on (`ambient_core::exception::ability_id()`). `throw` returns `!`
-// (never): performing it unwinds — no continuation is captured, handler
-// arms cannot `resume`, and the method needs no default implementation.
+// declaration reproduces exactly the id the VM's Rust-level raise channel
+// anchors on (`ambient_core::exception::ability_id()`). `throw` returns `!`
+// (never): performing it unwinds — no continuation is captured and handler
+// arms cannot `resume`.
+
+/// Deliver an uncaught throw to the host: surfaces as the runtime's
+/// uncaught-exception fault, carrying the thrown value. Module-private on
+/// purpose — `Exception::throw`'s default implementation is its only
+/// caller; user code raises through `throw!`.
+extern fn uncaught<E>(error: E): !;
+
 pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000001) ability Exception {
   /// Raise an error value, unwinding to the nearest Exception handler.
   ///
@@ -23,5 +31,11 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000001) ability Exception {
   /// dictionary rides as a hidden trailing perform argument, exactly like a
   /// bounded free function's; a single `Exception::throw(e) => …` arm catches
   /// every `E`.
-  fn throw<E: Show>(error: E): !;
+  ///
+  /// Like every ability method, the body is what an unhandled perform
+  /// runs: with no handler in scope the thrown value goes to the host as
+  /// an uncaught exception.
+  fn throw<E: Show>(error: E): ! {
+    uncaught(error)
+  }
 }

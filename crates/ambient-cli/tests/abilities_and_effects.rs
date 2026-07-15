@@ -577,11 +577,26 @@ fn test_uncaught_throw_prints_a_hash_bearing_trace() {
         .filter(|l| l.starts_with("at "))
         .collect();
     assert!(
-        frames.len() >= 3,
-        "expected at least three frames, got {frames:?}"
+        frames.len() >= 4,
+        "expected at least four frames, got {frames:?}"
+    );
+    // The innermost frame is `Exception::throw`'s default implementation —
+    // an unhandled throw runs it like any other unhandled ability method,
+    // and it is what delivers the value to the host. Core ships no debug
+    // info, so it renders hash-only.
+    assert!(
+        frames[0].starts_with(&format!(
+            "at <{}",
+            &ambient_core::exception::THROW_IMPL_HASH
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()[..8]
+        )),
+        "frame 0 must be `Exception::throw`'s default implementation: {}",
+        frames[0]
     );
     for (idx, name) in ["level_three", "level_two", "level_one"].iter().enumerate() {
-        let line = frames[idx];
+        let line = frames[idx + 1];
         assert!(
             line.starts_with(&format!("at {name} ")),
             "frame {idx} must be `{name}` (innermost first): {line}"

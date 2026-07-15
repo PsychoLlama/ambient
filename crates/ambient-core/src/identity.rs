@@ -80,9 +80,8 @@ impl fmt::Debug for SignatureHash {
 /// Content-addressed identity of one ability method.
 ///
 /// `derive`d from the ability uuid, the canonical signature, and the
-/// default implementation's content hash (`None` only for the abstract
-/// `Exception::throw`, whose unhandled behavior is the VM's own
-/// uncaught-exception path).
+/// default implementation's content hash (`None` only for abstract
+/// never-returning methods, whose unhandled perform is a runtime fault).
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]

@@ -142,31 +142,43 @@ fn entry_fault_carries_a_structured_hash_bearing_trace() {
         rt.error
     );
 
-    // Assert on the actual frames, innermost first.
+    // Assert on the actual frames, innermost first. The innermost frame is
+    // `Exception::throw`'s default implementation — the body an unhandled
+    // throw runs to deliver the value to the host. Core ships no debug
+    // info, so it carries no name.
     let names: Vec<Option<&str>> = rt
         .stack_trace
         .iter()
         .map(|f| f.function_name.as_deref())
         .collect();
     assert!(
-        names.len() >= 3,
-        "expected at least three frames, got {names:?}"
+        names.len() >= 4,
+        "expected at least four frames, got {names:?}"
     );
     assert_eq!(
-        &names[..3],
+        rt.stack_trace[0].function_hash.as_bytes(),
+        &ambient_core::exception::THROW_IMPL_HASH,
+        "the innermost frame must be `Exception::throw`'s default implementation"
+    );
+    assert_eq!(
+        &names[1..4],
         &[Some("level_three"), Some("level_two"), Some("level_one")],
         "frames must be innermost-first"
     );
 
-    for frame in &rt.stack_trace[..3] {
+    for frame in &rt.stack_trace[..4] {
         assert_ne!(
             frame.function_hash,
             blake3::Hash::from_bytes([0; 32]),
             "every frame must carry a real content hash"
         );
+    }
+    // Source locations on the user frames (the throw-impl frame has none —
+    // core ships no debug info).
+    for frame in &rt.stack_trace[1..4] {
         assert!(
             frame.line.is_some(),
-            "every frame must carry a source location: {frame:?}"
+            "every user frame must carry a source location: {frame:?}"
         );
     }
 

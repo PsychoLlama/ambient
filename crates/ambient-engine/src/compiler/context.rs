@@ -334,7 +334,7 @@ pub(crate) struct CompiledMethodInfo {
     /// Canonical signature hash (a `MethodKey` input), from the checker.
     pub signature: ambient_core::SignatureHash,
     /// Whether a default implementation exists (`false` only for abstract
-    /// never-returning methods, e.g. `Exception::throw`).
+    /// never-returning methods, e.g. the platform's `Drain::requested`).
     pub has_impl: bool,
     /// Whether the method returns `!` (never) — its performs unwind
     /// instead of capturing a continuation.

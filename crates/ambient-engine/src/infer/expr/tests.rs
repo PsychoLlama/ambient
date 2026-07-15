@@ -359,7 +359,7 @@ fn test_handler_literal_exception_throw() {
             quantified_abilities: vec![],
             bounds: Vec::new(),
             signature: ambient_core::exception::throw_signature(),
-            has_impl: false,
+            has_impl: true,
         }],
         dependencies: vec![],
     });
@@ -740,7 +740,7 @@ fn infer_with_exception() -> Infer {
             quantified_abilities: vec![],
             bounds: Vec::new(),
             signature: ambient_core::exception::throw_signature(),
-            has_impl: false,
+            has_impl: true,
         }],
         dependencies: vec![],
     });
