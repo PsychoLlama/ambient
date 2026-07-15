@@ -309,3 +309,43 @@ fn test_unique_uuid_not_offered_after_close() {
         .done()
         .shutdown();
 }
+
+#[test]
+fn test_completes_params_inside_impl_method_body() {
+    LspTest::new()
+        .with_source(
+            "unique(A1B2C3D4-0000-0000-0000-000000000001) struct Point { x: Number }\n\
+             impl Point { fn scale(self, factor: Number): Number { fac/*|*/ } }",
+        )
+        .complete_at("0")
+        .expect_item("factor")
+        .expect_item_kind("factor", CompletionItemKind::VARIABLE)
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn test_completes_self_inside_impl_method_body() {
+    LspTest::new()
+        .with_source(
+            "unique(A1B2C3D4-0000-0000-0000-000000000001) struct Point { x: Number }\n\
+             impl Point { fn scale(self, factor: Number): Number { se/*|*/ } }",
+        )
+        .complete_at("0")
+        .expect_item("self")
+        .done()
+        .shutdown();
+}
+
+#[test]
+fn test_completes_locals_inside_impl_method_body() {
+    LspTest::new()
+        .with_source(
+            "unique(A1B2C3D4-0000-0000-0000-000000000001) struct Point { x: Number }\n\
+             impl Point { fn scale(self): Number { let doubled = 2; dou/*|*/ } }",
+        )
+        .complete_at("0")
+        .expect_item("doubled")
+        .done()
+        .shutdown();
+}
