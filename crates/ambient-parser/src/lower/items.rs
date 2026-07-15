@@ -6,9 +6,9 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use ambient_engine::ast::{
-    AbilityDef, AbilityMethod, ConstDef, EnumDef, EnumVariant, ExternFnDef, FunctionDef, ImplDef,
-    ImplMethod, Item, ItemKind, Param, Span, StructDef, TraitDef, TraitMethod, TraitRef,
-    TypeAliasDef, TypeParam, UseDef, UsePrefix,
+    AbilityDef, AbilityMethod, ConstDef, EnumDef, EnumVariant, ExternFnDef, FunctionDef,
+    ImplAssocType, ImplDef, ImplMethod, Item, ItemKind, Param, Span, StructDef, TraitAssocType,
+    TraitDef, TraitMethod, TraitRef, TypeAliasDef, TypeParam, UseDef, UsePrefix,
 };
 use ambient_engine::types::{NominalType, Type};
 
@@ -625,6 +625,15 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
 
     let supertraits = t.supertraits.iter().map(lower_qualified_name).collect();
 
+    let assoc_types = t
+        .assoc_types
+        .iter()
+        .map(|a| TraitAssocType {
+            name: a.name.name.clone(),
+            span: a.span,
+        })
+        .collect();
+
     let methods = t
         .methods
         .iter()
@@ -690,6 +699,7 @@ fn lower_trait_def(t: &CstTraitDef) -> Result<TraitDef, ParseError> {
         uuid,
         type_params,
         supertraits,
+        assoc_types,
         methods,
     })
 }
@@ -716,6 +726,19 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
     // clause into its type parameter so bounds have exactly one AST
     // representation.
     fold_where_clauses(&mut type_params, &i.where_clauses)?;
+
+    let assoc_types = i
+        .assoc_types
+        .iter()
+        .map(|a| {
+            Ok(ImplAssocType {
+                name: a.name.name.clone(),
+                name_span: a.name.span,
+                ty: lower_type(&a.ty)?,
+                span: a.span,
+            })
+        })
+        .collect::<Result<Vec<_>, ParseError>>()?;
 
     let methods = i
         .methods
@@ -783,6 +806,7 @@ fn lower_impl_def(ctx: &mut LoweringContext, i: &CstImplDef) -> Result<ImplDef, 
         type_params,
         trait_name,
         for_type,
+        assoc_types,
         methods,
         span: i.span,
     })

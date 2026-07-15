@@ -192,6 +192,7 @@ fn impl_of_imported_trait_for_imported_type_is_check_only() {
                 args: vec![],
             }),
             for_type: named("Widget"),
+            assoc_types: vec![],
             methods: vec![describe],
             span: Span::default(),
         }),

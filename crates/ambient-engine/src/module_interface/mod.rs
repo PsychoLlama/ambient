@@ -153,6 +153,8 @@ pub struct TraitShape {
     pub type_params: Vec<String>,
     /// Rendered supertrait references, sorted.
     pub supertraits: Vec<String>,
+    /// Associated type names (`type Error;`), sorted.
+    pub assoc_types: Vec<String>,
     /// Method signatures, sorted by name.
     pub methods: Vec<TraitMethodSig>,
 }
@@ -215,6 +217,9 @@ pub struct ImplShape {
     pub for_type: String,
     /// Generic parameter names, in order.
     pub type_params: Vec<String>,
+    /// Associated type bindings (`type Error = String;`) as
+    /// `(name, rendered type)`, sorted by name.
+    pub assoc_types: Vec<(String, String)>,
     /// Method implementations, sorted by name.
     pub methods: Vec<ImplMethodEntry>,
 }
@@ -457,6 +462,11 @@ fn trait_shape(t: &crate::ast::TraitDef) -> TraitShape {
         uuid: t.uuid.to_string(),
         type_params: param_names(&t.type_params),
         supertraits: sorted_names(&t.supertraits),
+        assoc_types: {
+            let mut names: Vec<String> = t.assoc_types.iter().map(|a| a.name.to_string()).collect();
+            names.sort();
+            names
+        },
         methods: {
             let mut methods: Vec<TraitMethodSig> = t
                 .methods
@@ -528,10 +538,17 @@ fn impl_shape(i: &crate::ast::ImplDef) -> ImplShape {
         })
         .collect();
     methods.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut assoc_types: Vec<(String, String)> = i
+        .assoc_types
+        .iter()
+        .map(|a| (a.name.to_string(), render_type(&a.ty)))
+        .collect();
+    assoc_types.sort();
     ImplShape {
         trait_ref: i.trait_name.as_ref().map(ast_hash::render_trait_ref),
         for_type: render_type(&i.for_type),
         type_params: param_names(&i.type_params),
+        assoc_types,
         methods,
     }
 }

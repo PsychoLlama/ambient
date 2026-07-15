@@ -508,8 +508,21 @@ pub struct TraitDef {
     pub type_params: Vec<TypeParam>,
     /// Supertraits that this trait requires.
     pub supertraits: Vec<QualifiedName>,
+    /// Associated types declared by this trait (`type Error;`). Each impl
+    /// binds every entry (`type Error = String;`); method signatures
+    /// reference them as `Self::Error`, resolved per impl.
+    pub assoc_types: Vec<TraitAssocType>,
     /// Method signatures.
     pub methods: Vec<TraitMethod>,
+}
+
+/// An associated type declared in a trait body (`type Error;`).
+#[derive(Debug, Clone)]
+pub struct TraitAssocType {
+    /// The associated type's name.
+    pub name: Arc<str>,
+    /// Span of the declaration.
+    pub span: Span,
 }
 
 /// A method signature in a trait definition.
@@ -550,9 +563,25 @@ pub struct ImplDef {
     pub trait_name: Option<TraitRef>,
     /// The type implementing the trait.
     pub for_type: Type,
+    /// Associated type bindings (`type Error = String;`), one per associated
+    /// type the implemented trait declares.
+    pub assoc_types: Vec<ImplAssocType>,
     /// Method implementations.
     pub methods: Vec<ImplMethod>,
     /// Source span.
+    pub span: Span,
+}
+
+/// An associated type binding in an impl body (`type Error = String;`).
+#[derive(Debug, Clone)]
+pub struct ImplAssocType {
+    /// The associated type's name (matching the trait's declaration).
+    pub name: Arc<str>,
+    /// Span of the binding's name.
+    pub name_span: Span,
+    /// The assigned type.
+    pub ty: Type,
+    /// Span of the binding.
     pub span: Span,
 }
 

@@ -92,6 +92,12 @@ impl Resolver<'_> {
                     }
                 }
                 self.resolve_type(&mut imp.for_type);
+                // Associated type bindings (`type Error = String;`): the
+                // assigned type is an ordinary type reference, resolved
+                // under the impl's own parameters.
+                for assoc in &mut imp.assoc_types {
+                    self.resolve_type(&mut assoc.ty);
+                }
                 for method in &mut imp.methods {
                     self.resolve_type_param_bounds(&mut method.type_params);
                     self.push_type_params(&method.type_params);

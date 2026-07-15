@@ -441,6 +441,10 @@ fn write_item(sink: &mut Sink, item: &Item) {
             sink.str(&t.uuid.to_string());
             write_type_params(sink, &t.type_params);
             write_qn_list(sink, &t.supertraits);
+            sink.u32(t.assoc_types.len() as u32);
+            for a in &t.assoc_types {
+                sink.str(&a.name);
+            }
             sink.u32(t.methods.len() as u32);
             for m in &t.methods {
                 sink.str(&m.name);
@@ -471,6 +475,11 @@ fn write_item(sink: &mut Sink, item: &Item) {
             }
             sink.ty(&i.for_type);
             write_type_params(sink, &i.type_params);
+            sink.u32(i.assoc_types.len() as u32);
+            for a in &i.assoc_types {
+                sink.str(&a.name);
+                sink.ty(&a.ty);
+            }
             sink.u32(i.methods.len() as u32);
             for m in &i.methods {
                 sink.str(&m.name);

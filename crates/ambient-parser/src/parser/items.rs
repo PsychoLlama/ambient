@@ -8,9 +8,9 @@ use ambient_engine::ast::Span;
 use super::Parser;
 use crate::cst::{
     CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstExternFnDef,
-    CstFunctionDef, CstImplDef, CstImplMethod, CstItem, CstItemKind, CstParam, CstStructDef,
-    CstTraitDef, CstTraitMethod, CstTraitParam, CstTraitParamKind, CstTypeAliasDef, CstTypeParam,
-    CstWhereClause,
+    CstFunctionDef, CstImplAssocType, CstImplDef, CstImplMethod, CstItem, CstItemKind, CstParam,
+    CstStructDef, CstTraitAssocType, CstTraitDef, CstTraitMethod, CstTraitParam, CstTraitParamKind,
+    CstTypeAliasDef, CstTypeParam, CstWhereClause,
 };
 use crate::error::{ParseError, ParseErrorKind};
 use crate::lexer::TokenKind;
@@ -645,12 +645,17 @@ impl Parser<'_> {
 
         self.expect(TokenKind::LBrace)?;
 
+        let mut assoc_types = Vec::new();
         let mut methods = Vec::new();
         loop {
             if self.check(TokenKind::RBrace) {
                 break;
             }
-            methods.push(self.parse_trait_method()?);
+            if self.check(TokenKind::Type) {
+                assoc_types.push(self.parse_trait_assoc_type()?);
+            } else {
+                methods.push(self.parse_trait_method()?);
+            }
         }
 
         let end = self.expect(TokenKind::RBrace)?.span.end;
@@ -661,7 +666,21 @@ impl Parser<'_> {
             name,
             type_params,
             supertraits,
+            assoc_types,
             methods,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse an associated type declaration in a trait body: `type Error;`
+    fn parse_trait_assoc_type(&mut self) -> Result<CstTraitAssocType, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::Type)?;
+        let name = self.parse_ident()?;
+        let end = self.expect(TokenKind::Semi)?.span.end;
+
+        Ok(CstTraitAssocType {
+            name,
             span: Span::new(start, end),
         })
     }
@@ -792,12 +811,17 @@ impl Parser<'_> {
 
         self.expect(TokenKind::LBrace)?;
 
+        let mut assoc_types = Vec::new();
         let mut methods = Vec::new();
         loop {
             if self.check(TokenKind::RBrace) {
                 break;
             }
-            methods.push(self.parse_impl_method()?);
+            if self.check(TokenKind::Type) {
+                assoc_types.push(self.parse_impl_assoc_type()?);
+            } else {
+                methods.push(self.parse_impl_method()?);
+            }
         }
 
         let end = self.expect(TokenKind::RBrace)?.span.end;
@@ -807,7 +831,24 @@ impl Parser<'_> {
             trait_name,
             for_type,
             where_clauses,
+            assoc_types,
             methods,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse an associated type binding in an impl body: `type Error = String;`
+    fn parse_impl_assoc_type(&mut self) -> Result<CstImplAssocType, ParseError> {
+        let start = self.current().span.start;
+        self.expect(TokenKind::Type)?;
+        let name = self.parse_ident()?;
+        self.expect(TokenKind::Eq)?;
+        let ty = self.parse_type()?;
+        let end = self.expect(TokenKind::Semi)?.span.end;
+
+        Ok(CstImplAssocType {
+            name,
+            ty,
             span: Span::new(start, end),
         })
     }

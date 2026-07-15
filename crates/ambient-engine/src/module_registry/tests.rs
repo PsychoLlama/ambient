@@ -64,6 +64,7 @@ fn make_trait(name: &str, is_public: bool) -> Item {
             uuid: uuid::Uuid::nil(),
             type_params: vec![],
             supertraits: vec![],
+            assoc_types: vec![],
             methods: vec![],
         }),
         Span::default(),

@@ -54,6 +54,7 @@ fn sample_interface() -> ModuleInterface {
             uuid: "f1b2c3d4-0000-0000-0000-000000000001".to_string(),
             type_params: vec![],
             supertraits: vec![],
+            assoc_types: vec!["Error".to_string()],
             methods: vec![TraitMethodSig {
                 name: "show".to_string(),
                 has_self: true,
@@ -78,6 +79,7 @@ fn sample_interface() -> ModuleInterface {
             trait_ref: Some("@workspace::pkg::math::Show".to_string()),
             for_type: "nominal:a1b2c3d4-0000-0000-0000-000000000001:{}".to_string(),
             type_params: vec![],
+            assoc_types: vec![("Error".to_string(), "named:String".to_string())],
             methods: vec![ImplMethodEntry {
                 name: "show".to_string(),
                 has_self: true,

@@ -367,3 +367,54 @@ fn test_lower_trait_requires_unique() {
         ParseErrorKind::TraitRequiresUnique
     ));
 }
+
+#[test]
+fn test_lower_trait_assoc_type() {
+    // `type Error;` in a trait body lowers to the trait's assoc_types list,
+    // and a `Self::Error` reference in a signature lowers as an ordinary
+    // qualified `Named` head (the checker interprets the projection).
+    let source = r"
+        unique(A1B2C3D4-0000-0000-0000-000000000001) trait TryParse<T> {
+            type Error;
+            fn try_parse(value: T): Result<Self, Self::Error>;
+        }
+    ";
+    let module = parse(source).expect("parse error");
+    match &module.items[0].kind {
+        ItemKind::Trait(t) => {
+            let names: Vec<&str> = t.assoc_types.iter().map(|a| &*a.name).collect();
+            assert_eq!(names, ["Error"]);
+            assert_eq!(t.methods.len(), 1);
+            let ret = format!("{:?}", t.methods[0].ret_ty);
+            assert!(ret.contains("Self::Error"), "got: {ret}");
+        }
+        _ => panic!("Expected trait"),
+    }
+}
+
+#[test]
+fn test_lower_impl_assoc_type_binding() {
+    // `type Error = String;` in an impl body lowers to the impl's
+    // assoc_types list with the assigned type.
+    let source = r"
+        unique(A1B2C3D4-0000-0000-0000-000000000001) trait TryParse<T> {
+            type Error;
+            fn try_parse(value: T): Result<Self, Self::Error>;
+        }
+        unique(A1B2C3D4-0000-0000-0000-000000000002) struct Money { cents: Number }
+        impl TryParse<String> for Money {
+            type Error = String;
+            fn try_parse(value: String): Result<Money, String> { Err(value) }
+        }
+    ";
+    let module = parse(source).expect("parse error");
+    match &module.items[2].kind {
+        ItemKind::Impl(i) => {
+            assert_eq!(i.assoc_types.len(), 1);
+            assert_eq!(&*i.assoc_types[0].name, "Error");
+            let ty = format!("{:?}", i.assoc_types[0].ty);
+            assert!(ty.contains("String"), "got: {ty}");
+        }
+        _ => panic!("Expected impl"),
+    }
+}

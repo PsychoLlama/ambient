@@ -15,7 +15,7 @@ use super::{
 /// Magic bytes identifying an Ambient module-interface encoding.
 const INTERFACE_MAGIC: [u8; 4] = *b"ABMI";
 /// Current interface encoding version.
-const INTERFACE_VERSION: u8 = 1;
+const INTERFACE_VERSION: u8 = 2;
 
 /// An error decoding a [`ModuleInterface`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -240,6 +240,7 @@ fn write_trait(w: &mut Writer, t: &TraitShape) {
     w.str(&t.uuid);
     w.strs(&t.type_params);
     w.strs(&t.supertraits);
+    w.strs(&t.assoc_types);
     w.vec(&t.methods, write_trait_method);
 }
 
@@ -249,6 +250,7 @@ fn read_trait(r: &mut Reader<'_>) -> Result<TraitShape, InterfaceError> {
         uuid: r.str()?,
         type_params: r.strs()?,
         supertraits: r.strs()?,
+        assoc_types: r.strs()?,
         methods: r.vec(read_trait_method)?,
     })
 }
@@ -309,7 +311,13 @@ fn write_impl(w: &mut Writer, i: &ImplShape) {
     w.opt_str(i.trait_ref.as_deref());
     w.str(&i.for_type);
     w.strs(&i.type_params);
+    w.vec(&i.assoc_types, write_assoc_binding);
     w.vec(&i.methods, write_impl_method);
+}
+
+fn write_assoc_binding(w: &mut Writer, (name, ty): &(String, String)) {
+    w.str(name);
+    w.str(ty);
 }
 
 /// The body-free shape bytes for one impl block, standalone — the same
@@ -329,6 +337,7 @@ fn write_impl_shape(w: &mut Writer, i: &ImplShape) {
     w.opt_str(i.trait_ref.as_deref());
     w.str(&i.for_type);
     w.strs(&i.type_params);
+    w.vec(&i.assoc_types, write_assoc_binding);
     w.vec(&i.methods, write_impl_method_shape);
 }
 
@@ -363,6 +372,7 @@ fn read_impl(r: &mut Reader<'_>) -> Result<ImplShape, InterfaceError> {
         trait_ref: r.opt_str()?,
         for_type: r.str()?,
         type_params: r.strs()?,
+        assoc_types: r.vec(|r| Ok((r.str()?, r.str()?)))?,
         methods: r.vec(read_impl_method)?,
     })
 }

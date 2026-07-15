@@ -52,6 +52,14 @@ impl Resolver<'_> {
                 let Some((item, prefix)) = segments.split_last() else {
                     return;
                 };
+                // An associated-type projection (`Self::Error`, `T::Error`)
+                // is type syntax anchored on `Self` or a type parameter, not
+                // a module path — leave it for the checker to interpret.
+                if let [head] = prefix
+                    && (head.as_ref() == "Self" || self.is_type_param(head))
+                {
+                    return;
+                }
                 let Some(target) = self.resolve_module_prefix(prefix) else {
                     return;
                 };

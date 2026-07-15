@@ -176,6 +176,7 @@ fn trait_item(name: &str, uuid: u128) -> Item {
             uuid: uuid::Uuid::from_u128(uuid),
             type_params: vec![],
             supertraits: vec![],
+            assoc_types: vec![],
             methods: vec![],
         }),
         Span::default(),

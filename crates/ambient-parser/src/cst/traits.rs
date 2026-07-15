@@ -26,8 +26,22 @@ pub struct CstTraitDef {
     pub type_params: Vec<CstTypeParam>,
     /// Supertraits (`with Trait1, Trait2`).
     pub supertraits: Vec<CstQualifiedName>,
+    /// Associated type declarations (`type Error;`).
+    pub assoc_types: Vec<CstTraitAssocType>,
     /// Method signatures.
     pub methods: Vec<CstTraitMethod>,
+    /// Source span.
+    pub span: Span,
+}
+
+/// An associated type declared in a trait body.
+///
+/// Syntax: `type Error;` — a name each impl must bind (`type Error = T;`),
+/// referenced in the trait's method signatures as `Self::Error`.
+#[derive(Debug, Clone)]
+pub struct CstTraitAssocType {
+    /// The associated type's name.
+    pub name: CstIdent,
     /// Source span.
     pub span: Span,
 }
@@ -90,8 +104,24 @@ pub struct CstImplDef {
     pub for_type: CstTypeExpr,
     /// Where clauses.
     pub where_clauses: Vec<CstWhereClause>,
+    /// Associated type bindings (`type Error = String;`).
+    pub assoc_types: Vec<CstImplAssocType>,
     /// Method implementations.
     pub methods: Vec<CstImplMethod>,
+    /// Source span.
+    pub span: Span,
+}
+
+/// An associated type binding in an impl body.
+///
+/// Syntax: `type Error = String;` — assigns the trait's declared associated
+/// type for this impl.
+#[derive(Debug, Clone)]
+pub struct CstImplAssocType {
+    /// The associated type's name (matching the trait's declaration).
+    pub name: CstIdent,
+    /// The assigned type.
+    pub ty: CstTypeExpr,
     /// Source span.
     pub span: Span,
 }
