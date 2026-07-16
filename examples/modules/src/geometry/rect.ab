@@ -1,0 +1,15 @@
+//! Sibling of `circle` under the same directory namespace.
+
+/// `self` roots a path in the current directory; `super` in the parent.
+/// This import reaches a sibling module through the directory they share.
+use self::circle;
+
+pub fn area(width: Number, height: Number): Number {
+  width * height
+}
+
+/// How much of a bounding square a circle covers — a cross-module call
+/// through the `self::circle` alias above.
+pub fn circle_coverage(radius: Number): Number {
+  circle::area(radius) / area(radius * 2, radius * 2)
+}

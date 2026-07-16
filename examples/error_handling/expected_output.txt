@@ -1,1 +1,5 @@
-197
+withdrew 40, 60 left
+declined: insufficient funds (short 150)
+fault: ledger is empty
+settled at 82
+insufficient funds (short 9000)

@@ -1,79 +1,79 @@
-//! Word Count Example.
+//! Word count — receiver-first pipelines over the core collections.
 //!
-//! Counts words, lines, and characters in text.
-//! Demonstrates string processing and accumulator patterns.
+//! `List`, `Map`, `Set`, `String`, `Option`, and `Result` expose their
+//! combinators as inherent methods, so data flows left to right through
+//! the chain. There is no mutation anywhere: every step produces a new
+//! value, and "updating" a map inside a fold means folding the new map
+//! forward.
+//!
+//! One deliberate wrinkle worth knowing: `Set` and `Map` compare keys
+//! *structurally* (by the value's bytes, insertion-ordered) — a custom
+//! `Eq` impl never changes container membership. Normalize keys before
+//! inserting, as `normalize` does below.
 
-/// Counts the number of characters in text.
-fn count_chars(text: String): Number {
-    text.length()
+use core::system::Stdio;
+
+const SAMPLE: String = "the quick brown fox
+jumps over the lazy dog
+then the dog barks
+and the fox runs";
+
+/// Lowercase and strip the punctuation we expect in prose, so "Fox" and
+/// "fox," land on the same map key.
+fn normalize(word: String): String {
+  word.to_lower().replace(",", "").replace(".", "").replace("!", "")
 }
 
-/// Counts the number of lines in text.
-fn count_lines(text: String): Number {
-    if text.length() == 0 {
-        0
-    } else {
-        let parts = text.split("\n");
-        parts.length()
-    }
+/// Split into words: every line contributes its space-separated pieces,
+/// empties dropped. `fold` + `concat` is the flatten idiom.
+fn words(text: String): List<String> {
+  text
+    .lines()
+    .fold([], (acc: List<String>, line: String) => acc.concat(line.split(" ")))
+    .map(normalize)
+    .filter((word: String) => !word.is_empty())
 }
 
-/// Checks if a character is part of a word.
-fn is_word_char(c: String): Bool {
-    // Check if character is alphanumeric (simplified)
-    let code = c.length();  // Can't get char code, so use a workaround
-    c != " " && c != "\t" && c != "\n" && c != "\r" &&
-    c != "." && c != "," && c != "!" && c != "?" &&
-    c != ":" && c != ";" && c != "\"" && c != "'"
+/// Tally words into a map. `Map::empty()` is an associated function (no
+/// receiver to hang it on); from there the pipeline is insert-with-default.
+fn tally(all: List<String>): Map<String, Number> {
+  all.fold(Map::empty(), (counts: Map<String, Number>, word: String) =>
+    counts.insert(word, counts.get(word).unwrap_or(0) + 1))
 }
 
-/// Counts words by iterating through characters.
-fn count_words_impl(text: String, idx: Number, in_word: Bool, count: Number): Number {
-    if idx >= text.length() {
-        // End of string - add 1 if we were in a word
-        if in_word { count + 1 } else { count }
-    } else {
-        let c = text.slice(idx, idx + 1);
-        let is_word = is_word_char(c);
-
-        if in_word && !is_word {
-            // Exiting a word
-            count_words_impl(text, idx + 1, false, count + 1)
-        } else if !in_word && is_word {
-            // Entering a word
-            count_words_impl(text, idx + 1, true, count)
-        } else {
-            // Staying in same state
-            count_words_impl(text, idx + 1, in_word, count)
-        }
-    }
+/// The most frequent word. `head` returns an Option — the empty case is a
+/// value to handle, not a sentinel.
+fn favorite(counts: Map<String, Number>): String {
+  counts.keys().fold("", (best: String, word: String) => {
+    let count = counts.get(word).unwrap_or(0);
+    if count > counts.get(best).unwrap_or(0) { word } else { best }
+  })
 }
 
-/// Counts the number of words in text.
-fn count_words(text: String): Number {
-    count_words_impl(text, 0, false, 0)
-}
+pub fn run(): () with Stdio {
+  let all = words(SAMPLE);
+  let counts = tally(all);
 
-/// Builds a stats summary with lines, words, and characters.
-fn wc(text: String): String {
-    let lines = count_lines(text);
-    let words = count_words(text);
-    let chars = count_chars(text);
+  // A Set deduplicates structurally as it goes.
+  let vocabulary = all.fold(Set::empty(), (seen: Set<String>, word: String) => seen.insert(word));
 
-    core::convert::to_string(lines).concat(" lines, ".concat(
-    core::convert::to_string(words).concat(" words, ".concat(
-    core::convert::to_string(chars).concat(" characters")))))
-}
+  Stdio::out!("words:  ${core::convert::to_string(all.length())}");
+  Stdio::out!("unique: ${core::convert::to_string(vocabulary.length())}");
 
-pub fn run(): String {
-    let sample = "Hello, world!
-This is a sample text.
-It has multiple lines.
+  let top = favorite(counts);
+  let top_count = counts.get(top).unwrap_or(0);
+  Stdio::out!("top:    ${top} (x${core::convert::to_string(top_count)})");
 
-And some blank lines too.
-Let's count everything!";
+  // Sets deduplicate structurally; sort (an `Ord` bound on the element
+  // type — strings order lexicographically) makes the report stable.
+  let repeated = counts
+    .keys()
+    .filter((word: String) => counts.get(word).unwrap_or(0) > 1)
+    .sort();
+  Stdio::out!("repeats: ${String::join(repeated, ", ")}");
 
-    let stats = wc(sample);
-
-    "Text:\n".concat(sample.concat("\n\nStats: ".concat(stats)))
+  // Longest word, through a fold that threads the best candidate.
+  let longest = all.fold("", (best: String, word: String) =>
+    if word.length() > best.length() { word } else { best });
+  Stdio::out!("longest: ${longest}");
 }

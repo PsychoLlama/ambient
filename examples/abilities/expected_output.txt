@@ -1,0 +1,4 @@
+best of three (loaded dice): 4
+best of three (rigged high): 20
+refused to roll: -1
+expected average: 10.5

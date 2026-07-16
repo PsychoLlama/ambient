@@ -1,6 +1,11 @@
-//! Hello World example.
+//! The smallest possible Ambient program.
 //!
-//! The simplest possible Ambient program.
+//! `ambient run` compiles the package and calls its `run` function. The
+//! entry declares its abilities up front — printing is a side effect, so
+//! it needs `Stdio` — and performs them with `!`.
 
-/// Entry point that returns the answer to everything.
-fn run(): Number { 42 }
+use core::system::Stdio;
+
+pub fn run(): () with Stdio {
+  Stdio::out!("Hello, world!");
+}

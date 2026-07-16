@@ -1,0 +1,112 @@
+//! Money — nominal types, traits, and operators.
+//!
+//! A `unique(<uuid>)` declaration gives a type its own identity: the uuid,
+//! not the name or the shape, is what impls, operators, and trait bounds
+//! key on. Renaming `Money` changes nothing; a same-shaped type elsewhere
+//! can never claim its methods. Implementing the prelude's operator traits
+//! (`Add`, `Eq`, `Ord`, ...) enables the corresponding operators, and
+//! `Show` is what `throw!` and any renderer ask of a value.
+
+use core::system::Stdio;
+use core::traits::Default;
+
+/// An amount in cents. Structurally this is just `{ cents: Number }`, but
+/// the uuid makes it nominal: a bare record — or a same-shaped `Points`
+/// type — will not type-check where `Money` is expected.
+unique(B0B0CAFE-0001-4000-8000-000000000001) struct Money {
+  cents: Number,
+}
+
+impl Add for Money {
+  fn add(self, other: Money): Money {
+    Money { cents: self.cents + other.cents }
+  }
+}
+
+impl Eq for Money {
+  fn eq(self, other: Money): Bool {
+    self.cents == other.cents
+  }
+}
+
+impl Ord for Money {
+  fn cmp(self, other: Money): Number {
+    if self.cents < other.cents { -1 }
+    else if self.cents > other.cents { 1 }
+    else { 0 }
+  }
+}
+
+impl Show for Money {
+  fn show(self): String {
+    let dollars = core::convert::to_string((self.cents / 100).trunc());
+    let cents = core::convert::to_string(self.cents % 100).pad_start(2, "0");
+    "$${dollars}.${cents}"
+  }
+}
+
+/// Conversions are `From` impls: implement `From`, and both `Money::from(x)`
+/// and `x.into()` work (the checker bridges `Into` through it).
+impl From<Number> for Money {
+  fn from(dollars: Number): Money {
+    Money { cents: dollars * 100 }
+  }
+}
+
+/// The fallible half: `TryFrom` returns `Result<Self, Self::Error>`, with
+/// each impl choosing its rejection type through the associated `Error`.
+impl TryFrom<String> for Money {
+  type Error = String;
+  fn try_from(text: String): Result<Money, String> {
+    match Number::try_from(text) {
+      Ok(dollars) => Ok(Money { cents: (dollars * 100).round() }),
+      Err(_) => Err("not an amount: ${text}"),
+    }
+  }
+}
+
+impl Default for Money {
+  fn default(): Money {
+    Money { cents: 0 }
+  }
+}
+
+/// An inherent impl attaches methods directly to the type — no trait
+/// ceremony for behavior nothing shares.
+impl Money {
+  fn times(self, n: Number): Money {
+    Money { cents: self.cents * n }
+  }
+}
+
+/// A generic function with a trait bound: `T: Ord` is what makes `<`
+/// legal on values nothing is known about. `Money` qualifies through its
+/// impl above; `Number` and `String` qualify through the core impls.
+fn max_of<T: Ord>(a: T, b: T): T {
+  if a < b { b } else { a }
+}
+
+pub fn run(): () with Stdio {
+  let espresso: Money = 3.into();          // From<Number>, result-directed
+  let pastry = Money::from(4.5);           // ...and argument-directed
+  Stdio::out!("espresso = ${espresso.show()}");
+  Stdio::out!("pastry   = ${pastry.show()}");
+
+  // Operators dispatch to the impls: `+` is Add::add, `==` is Eq::eq.
+  let order = espresso + pastry.times(2);
+  Stdio::out!("order    = ${order.show()}");
+  Stdio::out!("free?    ${core::convert::to_string(order == Money::default())}");
+
+  // The bound picks up Money's Ord impl.
+  Stdio::out!("larger   = ${max_of(espresso, pastry).show()}");
+
+  // Fallible parsing returns a Result to match on, not a fault.
+  match Money::try_from("12.50") {
+    Ok(amount) => Stdio::out!("parsed   = ${amount.show()}"),
+    Err(problem) => Stdio::out!("rejected: ${problem}"),
+  };
+  match Money::try_from("twelve") {
+    Ok(amount) => Stdio::out!("parsed   = ${amount.show()}"),
+    Err(problem) => Stdio::out!("rejected: ${problem}"),
+  }
+}

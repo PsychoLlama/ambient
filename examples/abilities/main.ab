@@ -1,0 +1,72 @@
+//! Abilities — effects you can declare, intercept, and deny.
+//!
+//! Functions are pure; anything effectful goes through an *ability*: a
+//! nominal interface whose methods are performed with `!` and resolved at
+//! runtime by the nearest handler — or, with no handler in scope, by the
+//! method's own default implementation. That one mechanism is the
+//! language's whole story for IO, state, mocking, sandboxing, and remote
+//! capability granting.
+//!
+//! This example declares a `Dice` ability, writes game logic against it,
+//! and then runs that logic under different handlers — including a
+//! deterministic mock, which is why a program built on randomness can
+//! have a golden expected output at all.
+
+use core::system::{Random, Stdio};
+
+/// A custom ability. The `with core::system::Random` row bounds what the
+/// *default implementations* may perform — it is the ability's private
+/// business, not the caller's: performing `Dice` adds only `Dice` to a
+/// caller's effect row, and handling `Dice` discharges it completely
+/// (an intercepted roll never touches `Random` at all).
+unique(D1CEB0A5-0001-4000-8000-000000000001) ability Dice with Random {
+  /// A roll of a fair die in `[1, sides]`. Unhandled, it is genuinely
+  /// random; a handler can replace the physics wholesale.
+  fn roll(sides: Number): Number {
+    Random::in_range!(sides) + 1
+  }
+}
+
+/// Game logic, written once, against the interface. The row says `Dice`
+/// and nothing else: whether the rolls come from the host's entropy or
+/// from a test handler is invisible from here.
+fn best_of_three(sides: Number): Number with Dice {
+  [Dice::roll!(sides), Dice::roll!(sides), Dice::roll!(sides)]
+    .max()
+    .unwrap_or(0)
+}
+
+/// Pure code can be *proven* pure: a `sandbox` block is checked at
+/// compile time — a `Dice::roll!` (or any perform) inside this body,
+/// however deeply nested in local calls, would be a type error.
+fn expected_average(sides: Number): Number {
+  sandbox {
+    (sides + 1) / 2
+  }
+}
+
+pub fn run(): () with Stdio {
+  // A handler value: one ability's arms, bound to a name, typed
+  // `Handler<Dice>`. `resume(v)` feeds the perform site its result and
+  // continues the computation — this one turns every roll into a 4.
+  let always_four: Handler<Dice> = {
+    Dice::roll(sides) => resume(4),
+  };
+
+  let outcome = with always_four handle best_of_three(20);
+  Stdio::out!("best of three (loaded dice): ${core::convert::to_string(outcome)}");
+
+  // Handlers install left to right and later entries win per method, so
+  // an inline arm can override a shared fixture for one run.
+  let rigged = with always_four, { Dice::roll(sides) => resume(sides) }
+    handle best_of_three(20);
+  Stdio::out!("best of three (rigged high): ${core::convert::to_string(rigged)}");
+
+  // An arm that does NOT resume aborts the handled body: the arm's value
+  // becomes the whole handle expression's result. The second and third
+  // rolls never happen.
+  let walked_away = with { Dice::roll(sides) => -1 } handle best_of_three(20);
+  Stdio::out!("refused to roll: ${core::convert::to_string(walked_away)}");
+
+  Stdio::out!("expected average: ${core::convert::to_string(expected_average(20))}");
+}

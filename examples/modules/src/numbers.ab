@@ -1,0 +1,16 @@
+//! Integer helpers — an ordinary leaf module.
+//!
+//! `pub` gates every export: `gcd` and `lcm` are importable anywhere in
+//! the package; a helper without `pub` would be private to this file.
+
+/// Greatest common divisor (Euclid's algorithm — the recursive call is
+/// a tail call, so it runs in constant stack space).
+pub fn gcd(a: Number, b: Number): Number {
+  if b == 0 { a } else { gcd(b, a % b) }
+}
+
+/// Least common multiple, defined in terms of a sibling: a bare name is
+/// a same-module reference — never an import, never a cycle edge.
+pub fn lcm(a: Number, b: Number): Number {
+  a * b / gcd(a, b)
+}

@@ -1,0 +1,41 @@
+//! The module system in one small package.
+//!
+//! Files under `src/` map 1:1 to modules; a directory is a namespace
+//! module with no `mod`-style ceremony. Path roots: `pkg` (package
+//! root), `self` (same directory), `super` (parent), and `core` (the
+//! standard library, host bindings under `core::system`). Anything
+//! reachable fully-qualified works through `use`, and vice versa.
+
+use core::system::Stdio;
+
+// A use-tree, Rust-style: brace groups nest and flatten to item
+// imports; `as` renames the local binding (the item itself never moves).
+use pkg::{
+  numbers::{gcd, lcm},
+  geometry::rect::area as rect_area,
+};
+
+// Whole-module imports bind a module alias...
+use pkg::geometry;
+// ...and a later use may root at that alias (order doesn't matter; the
+// resolver runs to a fixed point).
+use geometry::circle;
+
+pub fn run(): () with Stdio {
+  // Item imports are bare names at the use site.
+  Stdio::out!("gcd(48, 60)   = ${core::convert::to_string(gcd(48, 60))}");
+  Stdio::out!("lcm(4, 6)     = ${core::convert::to_string(lcm(4, 6))}");
+
+  // Module-alias paths and renamed imports.
+  Stdio::out!("circle area   = ${core::convert::to_string(circle::area(1))}");
+  Stdio::out!("rect area     = ${core::convert::to_string(rect_area(3, 4))}");
+
+  // Inline fully-qualified paths need no import at all.
+  let coverage = pkg::geometry::rect::circle_coverage(5);
+  Stdio::out!("coverage      = ${core::convert::to_string(coverage)}");
+
+  // `use` is also a statement: a block-scoped import binds from here to
+  // the end of the enclosing block and compiles to nothing.
+  use pkg::geometry::circle::TAU;
+  Stdio::out!("tau           = ${core::convert::to_string(TAU)}");
+}

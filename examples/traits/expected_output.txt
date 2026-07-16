@@ -1,0 +1,7 @@
+espresso = $3.00
+pastry   = $4.50
+order    = $12.00
+free?    false
+larger   = $4.50
+parsed   = $12.50
+rejected: not an amount: twelve

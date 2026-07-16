@@ -1,0 +1,15 @@
+//! Part of the `geometry` directory namespace: this file is the module
+//! `pkg::geometry::circle`, with no registration ceremony anywhere —
+//! the `src/` tree *is* the module tree.
+
+/// A module-scope constant: content-addressed like a function, inlined
+/// nowhere, shared by hash.
+pub const TAU: Number = 6.283185307179586;
+
+pub fn area(radius: Number): Number {
+  TAU / 2 * radius * radius
+}
+
+pub fn circumference(radius: Number): Number {
+  TAU * radius
+}

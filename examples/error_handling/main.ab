@@ -1,71 +1,114 @@
-//! Error handling example with Exception effects.
+//! Error handling — data for the expected, unwinding for the rest.
 //!
-//! Demonstrates the Exception ability for error handling.
-//! Shows how to catch and handle errors using handlers. Raising is just
-//! `throw!(…)` — `Exception::throw` rides the prelude — while catching
-//! still names the ability (`Exception::throw(msg) => …`).
+//! Ambient splits failure into two channels:
+//!
+//! - **Values.** Failure a caller should branch on is ordinary data: a
+//!   lookup that can miss returns `Option`, a fallible operation returns
+//!   `Result` — including every fallible platform method
+//!   (`FileSystem::read`, `Tcp::connect`, `Number::try_from`). Matching
+//!   on the variants IS the error handling.
+//! - **Exceptions.** `throw!(error)` performs the `Exception` ability and
+//!   unwinds to the nearest handler. It is catch-only: `throw` returns
+//!   `!` (never), so a handler can observe the failure and carry on past
+//!   the `handle` expression, but nothing can resume the failing code
+//!   with a substitute value. Reserve it for faults — conditions the
+//!   program shouldn't routinely recover from.
+//!
+//! Any `E: Show` can be thrown. Inside a catch arm the value is opaque
+//! except through that bound (`e.show()`), which is the deliberate
+//! asymmetry: errors worth branching on belong in a `Result`.
 
-/// Throws on a negative input, otherwise passes the number through.
-fn positive_or_throw(n: Number): Number with Exception {
-    if (n < 0) {
-        throw!("negative input")
-    } else {
-        n
-    }
+use core::system::Stdio;
+
+/// A domain error: plain data, returned in a `Result`, matched on by
+/// name. This is the channel for failure the caller is expected to
+/// handle.
+unique(BADDEB70-0001-4000-8000-000000000001) enum PaymentError {
+  InsufficientFunds(Number),
+  AccountFrozen,
 }
 
-/// Entry point demonstrating error handling with handlers.
-pub fn run(): Number {
-    // Test 1: Success case - no exception thrown
-    let success_result = with {
-        Exception::throw(msg) => {
-            // On error, return -1
-            -1
-        }
-    } handle {
-        // No error here, just return a value
-        42
+/// `Show` is what makes a value *throwable* (and renderable anywhere):
+/// every thrown value must produce a string, so an uncaught-exception
+/// report always has something to print.
+impl Show for PaymentError {
+  fn show(self): String {
+    match self {
+      InsufficientFunds(shortfall) => {
+        let amount = core::convert::to_string(shortfall);
+        "insufficient funds (short ${amount})"
+      },
+      AccountFrozen => "account frozen",
+    }
+  }
+}
+
+/// The expected failures travel as data. Nothing here can unwind.
+fn withdraw(balance: Number, frozen: Bool, amount: Number): Result<Number, PaymentError> {
+  if frozen {
+    Err(AccountFrozen)
+  } else if amount > balance {
+    Err(InsufficientFunds(amount - balance))
+  } else {
+    Ok(balance - amount)
+  }
+}
+
+/// A fault path. `throw!` returns `!`, so it sits in value position with
+/// no ceremony: the `match` still types as `Number` (a value that can
+/// never exist fits any context).
+fn settled_balance(ledger: List<Number>): Number with Exception {
+  match ledger.head() {
+    Some(opening) => ledger.tail().fold(opening, (acc, entry) => acc + entry),
+    None => throw!("ledger is empty"),
+  }
+}
+
+pub fn run(): () with Stdio {
+  // Failure as data: match the variants and branch — the typed channel.
+  match withdraw(100, false, 40) {
+    Ok(remaining) => Stdio::out!("withdrew 40, ${core::convert::to_string(remaining)} left"),
+    Err(InsufficientFunds(shortfall)) =>
+      Stdio::out!("need ${core::convert::to_string(shortfall)} more"),
+    Err(AccountFrozen) => Stdio::out!("call the bank"),
+  };
+  match withdraw(100, false, 250) {
+    Ok(remaining) => Stdio::out!("withdrew 250, ${core::convert::to_string(remaining)} left"),
+    Err(problem) => Stdio::out!("declined: ${problem.show()}"),
+  };
+
+  // Catch-and-continue: the arm's value becomes the handle expression's
+  // value, and execution carries on after it. `e` is an opaque
+  // `E: Show`, so its bound is the only way to look at it.
+  let report = with { Exception::throw(e) => "fault: ${e.show()}" }
+    handle {
+      let total = settled_balance([]);
+      "settled at ${core::convert::to_string(total)}"
     };
-    // Expected: 42 (success path)
+  Stdio::out!(report);
 
-    // Test 2: Sequential operations without error
-    let seq_result = with {
-        Exception::throw(msg) => {
-            -1
-        }
-    } handle {
-        let step1 = 10;
-        let step2 = step1 * 2;  // 20
-        let step3 = step2 + 5;  // 25
-        step3
-    };
-    // Expected: 25 (no errors)
+  // The catch-to-Result idiom: the arm renders the fault into an `Err`,
+  // the trailing `else` wraps normal completion in `Ok` (it runs only
+  // when the body completes without unwinding).
+  let settled: Result<Number, String> =
+    with { Exception::throw(e) => Err(e.show()) }
+      handle settled_balance([100, -30, 12])
+      else (total) => Ok(total);
+  match settled {
+    Ok(total) => Stdio::out!("settled at ${core::convert::to_string(total)}"),
+    Err(problem) => Stdio::out!("could not settle: ${problem}"),
+  };
 
-    // Test 3: Nested handle expressions
-    let nested_result = with {
-        Exception::throw(msg) => {
-            -999
-        }
-    } handle {
-        let inner = with {
-            Exception::throw(msg) => {
-                -50
-            }
-        } handle {
-            100
-        };
-        inner + 23  // 123
-    };
-    // Expected: 123 (no errors in either layer)
+  // Thrown enums render through their Show impl — even uncaught, the
+  // report would carry this text.
+  let outcome = with { Exception::throw(e) => e.show() }
+    handle process_payment()
+    else (cleared) => "payment cleared";
+  Stdio::out!(outcome);
+}
 
-    // Test 4: An actual throw - unwinds to the handler, which yields 7
-    let caught_result = with {
-        Exception::throw(msg) => {
-            7
-        }
-    } handle positive_or_throw(-3);
-    // Expected: 7 (the throw unwound; -3 never came back)
-
-    // Sum the results: 42 + 25 + 123 + 7 = 197
-    success_result + seq_result + nested_result + caught_result
+/// A fault built from the domain enum: unusual failures can still carry
+/// structure into the log line.
+fn process_payment(): () with Exception {
+  throw!(InsufficientFunds(9000))
 }

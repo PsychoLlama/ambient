@@ -352,25 +352,26 @@ fn test_example_hello() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("42"), "expected 42 in output: {stdout}");
+    assert!(
+        stdout.contains("Hello, world!"),
+        "expected the greeting in output: {stdout}"
+    );
 }
 
 #[test]
-fn test_example_factorial() {
-    let output = ambient_cmd()
-        .arg("run")
-        .arg("../../examples/factorial")
-        .output()
-        .expect("failed to execute command");
+fn test_recursive_package_function() {
+    CliTest::new(
+        r#"
+        fn factorial(n: Number): Number {
+            if n <= 1 { 1 } else { n * factorial(n - 1) }
+        }
 
-    assert!(
-        output.status.success(),
-        "factorial package should run successfully: {:?}\nstderr: {}",
-        output,
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("120"), "expected 120 in output: {stdout}");
+        fn run(): Number {
+            factorial(5)
+        }
+    "#,
+    )
+    .expect_output("120");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
