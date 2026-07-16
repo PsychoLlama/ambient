@@ -12,8 +12,7 @@ local M = {}
 
 --- @class ambient.TreesitterConfig
 --- @field enable boolean Register the grammar and wire highlight/fold/indent.
---- @field grammar_path? string Directory holding the grammar (with `parser/ambient.so`).
---- @field parser_path? string Explicit path to the compiled parser; wins over `grammar_path`.
+--- @field parser_path? string Path to the compiled parser (`ambient.so`); defaults to the copy bundled with the plugin.
 
 --- @class ambient.LspConfig
 --- @field enable boolean Configure and enable the `ambient` language server.
@@ -24,7 +23,6 @@ local M = {}
 M.defaults = {
   treesitter = {
     enable = true,
-    grammar_path = nil,
     parser_path = nil,
   },
   lsp = {

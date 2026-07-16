@@ -30,8 +30,9 @@ queries here:
 ```lua
 require('ambient').setup({
   treesitter = {
-    -- Directory holding the built grammar (with `parser/ambient.so`).
-    grammar_path = '/path/to/tree-sitter-ambient',
+    -- Path to the built parser. Defaults to the copy bundled with the plugin,
+    -- so this is only needed to point at a parser built elsewhere.
+    parser_path = '/path/to/tree-sitter-ambient/parser/ambient.so',
   },
 })
 ```

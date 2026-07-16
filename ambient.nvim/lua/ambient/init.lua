@@ -7,7 +7,7 @@
 --- Usage:
 ---
 ---   require('ambient').setup({
----     treesitter = { grammar_path = '/path/to/tree-sitter-ambient' },
+---     treesitter = { parser_path = '/path/to/tree-sitter-ambient/parser/ambient.so' },
 ---   })
 ---
 --- See `lua/ambient/config.lua` for the full set of options.
