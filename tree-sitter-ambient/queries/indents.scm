@@ -1,99 +1,91 @@
-; indents.scm - Indentation queries for nvim-treesitter
+; indents.scm - Indentation queries for nvim-treesitter's indent module.
+;
+; The model (see nvim-treesitter's `indent.lua`): a line's indent is the number
+; of enclosing `@indent.begin` nodes that open on an *earlier* line, minus one
+; level for a leading closing delimiter (`@indent.branch`). So we mark every
+; multi-line container as `@indent.begin` and let the closing `}`/`)`/`]` pull
+; its own line back out. One indent per source row is applied, so a container
+; and a body node that open on the same line (`match x {`, `let y = with {`)
+; only count once.
 
 ; -----------------------------------------------------------------------------
-; Indent increases (after opening brace/bracket)
+; Containers — their inner lines indent one level.
 ; -----------------------------------------------------------------------------
 
-; Blocks
-(block) @indent.begin
+; Brace bodies. `block` covers every `{ ... }` statement body (functions, `if`
+; / `else`, `handle`, `sandbox`, handler-method arms); the rest open their
+; braces directly on the definition/expression node, with no inner body node.
+[
+  (block)
+  (record_type_body)
+  (record_type)
+  (record_literal)
+  (record_pattern)
+  (enum_definition)
+  (ability_definition)
+  (trait_definition)
+  (impl_definition)
+  (match_expression)
+  (handler_literal)
+  (use_group)
+] @indent.begin
 
-; Function definitions (for the body)
-(function_definition
-  body: (block) @indent.begin)
+; Bracket / paren bodies.
+[
+  (list_literal)
+  (tuple)
+  (tuple_type)
+  (tuple_pattern)
+  (parameter_list)
+  (argument_list)
+  (lambda_parameters)
+  (parenthesized_expression)
+] @indent.begin
 
-; Enum definitions
-(enum_definition) @indent.begin
+; Method chains — each `.method(...)` on its own line aligns one level under
+; the receiver. The nested `member_expression`s all open on the receiver's
+; row, so the one-indent-per-row rule keeps the whole chain at a single level.
+(member_expression) @indent.begin
 
-; Ability definitions
-(ability_definition) @indent.begin
+; Continuations — a construct whose value/body wraps onto later lines. Each
+; opens on its keyword line, so a wrapped tail indents one level under it.
+[
+  (let_statement)
+  (const_definition)
+  (match_arm)
+  (handler_method)
+  (with_handle_expression)
+] @indent.begin
 
-; Trait definitions
-(trait_definition) @indent.begin
-
-; Impl blocks
-(impl_definition) @indent.begin
-
-; Type definitions with record body
-(struct_definition
-  (record_type_body) @indent.begin)
-
-; If expressions
-(if_expression
-  then: (block) @indent.begin)
-(if_expression
-  else: (block) @indent.begin)
-
-; Match expressions
-(match_expression) @indent.begin
-
-; Match arms (for the body)
-(match_arm) @indent.begin
-
-; Handle expressions
-(with_handle_expression) @indent.begin
-
-; Sandbox expressions
-(sandbox_expression) @indent.begin
-
-; Handler literals
-(handler_literal) @indent.begin
-
-; Record literals
-(record_literal) @indent.begin
-
-; List literals
-(list_literal) @indent.begin
-
-; Tuples (multiline)
-(tuple) @indent.begin
-
-; Parameter lists (multiline)
-(parameter_list) @indent.begin
-(argument_list) @indent.begin
-
-; Lambda parameters
-(lambda_parameters) @indent.begin
+; A wrapped signature clause (`with ...`, `where ...` dropped onto its own line
+; below the parameter list) indents one level under `fn`. These clauses sit on
+; a single line, so `immediate` lets them count and `start_at_same_line` lets
+; the clause's own line pick up the level; because the clause is a sibling of
+; the body block — not an ancestor of it — the body is left untouched.
+((ability_clause) @indent.begin
+  (#set! indent.immediate)
+  (#set! indent.start_at_same_line))
+((where_clause) @indent.begin
+  (#set! indent.immediate)
+  (#set! indent.start_at_same_line))
 
 ; -----------------------------------------------------------------------------
-; Indent ends (closing braces/brackets)
+; Closing delimiters — a line that opens with one dedents back a level.
 ; -----------------------------------------------------------------------------
 
-"}" @indent.end
-"]" @indent.end
-")" @indent.end
+[
+  "}"
+  ")"
+  "]"
+] @indent.branch
 
 ; -----------------------------------------------------------------------------
-; Branch points (same indent level as parent)
+; Ignore — never reflow the insides of strings or comments.
 ; -----------------------------------------------------------------------------
 
-; Else branches should align with if
-"else" @indent.branch
-
-; Match arms should align with each other
-(match_arm) @indent.branch
-
-; Handler arms should align with each other
-(handler_method) @indent.branch
-
-; Enum variants should align with each other
-(enum_variant) @indent.branch
-
-; -----------------------------------------------------------------------------
-; Ignore certain nodes
-; -----------------------------------------------------------------------------
-
-; Don't auto-indent inside strings
-(string) @indent.ignore
-
-; Don't auto-indent comments
-(comment) @indent.ignore
+[
+  (string)
+  (comment)
+  (doc_comment)
+  (inner_doc_comment)
+] @indent.ignore
