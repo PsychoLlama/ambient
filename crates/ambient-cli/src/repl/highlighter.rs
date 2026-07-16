@@ -1,7 +1,15 @@
 //! Syntax highlighting for the REPL.
+//!
+//! Classification is driven by the real language lexer via
+//! [`ambient_parser::tokenize_for_highlighting`], so highlighting can never
+//! drift from the grammar: a keyword or literal form added to the lexer is
+//! highlighted here automatically, with no parallel token list to maintain.
+//! Lexing is error-tolerant (the REPL re-highlights on every keystroke, so
+//! most inputs are mid-edit); error regions render uncolored.
 
 use std::borrow::Cow;
 
+use ambient_parser::{TokenKind, tokenize_for_highlighting};
 use rustyline::highlight::Highlighter;
 
 /// ANSI color codes for syntax highlighting.
@@ -13,35 +21,8 @@ mod colors {
     pub const COMMENT: &str = "\x1b[90m"; // Gray
     pub const OPERATOR: &str = "\x1b[36m"; // Cyan
     pub const BOOLEAN: &str = "\x1b[33m"; // Yellow (same as number)
-    pub const ABILITY: &str = "\x1b[1;34m"; // Bold blue
+    pub const PROMPT: &str = "\x1b[1;36m"; // Bold cyan
 }
-
-/// Keywords in the Ambient language.
-const KEYWORDS: &[&str] = &[
-    "fn", "pub", "let", "const", "if", "else", "match", "enum", "type", "struct", "ability", "use",
-    "with", "handle", "resume", "sandbox", "unique",
-];
-
-/// Built-in type names and abilities.
-const BUILTINS: &[&str] = &[
-    "Stdio",
-    "FileSystem",
-    "Tcp",
-    "Time",
-    "Random",
-    "Log",
-    "Env",
-    "Exception",
-    "Option",
-    "Result",
-    "List",
-    "Map",
-    "Set",
-    "Some",
-    "None",
-    "Ok",
-    "Err",
-];
 
 /// Syntax highlighter for the Ambient REPL.
 #[derive(Default)]
@@ -62,119 +43,192 @@ impl Highlighter for AmbientHighlighter {
         prompt: &'p str,
         _default: bool,
     ) -> Cow<'b, str> {
-        // Highlight the prompt in bold cyan
-        Cow::Owned(format!("\x1b[1;36m{prompt}\x1b[0m"))
+        Cow::Owned(format!("{}{prompt}{}", colors::PROMPT, colors::RESET))
+    }
+}
+
+/// Map a token kind to its ANSI color, or `None` to leave it unstyled.
+fn color_for(kind: TokenKind) -> Option<&'static str> {
+    match kind {
+        TokenKind::True | TokenKind::False => Some(colors::BOOLEAN),
+        // Every other keyword, current and future, comes from the lexer's own
+        // keyword table — never a string list that could drift.
+        kind if kind.as_keyword_str().is_some() => Some(colors::KEYWORD),
+        TokenKind::String
+        | TokenKind::StringStart
+        | TokenKind::StringMiddle
+        | TokenKind::StringEnd => Some(colors::STRING),
+        TokenKind::Number | TokenKind::Uuid => Some(colors::NUMBER),
+        TokenKind::Comment | TokenKind::DocComment | TokenKind::InnerDocComment => {
+            Some(colors::COMMENT)
+        }
+        TokenKind::Plus
+        | TokenKind::Minus
+        | TokenKind::Star
+        | TokenKind::Slash
+        | TokenKind::Percent
+        | TokenKind::EqEq
+        | TokenKind::Ne
+        | TokenKind::Lt
+        | TokenKind::Le
+        | TokenKind::Gt
+        | TokenKind::Ge
+        | TokenKind::AndAnd
+        | TokenKind::OrOr
+        | TokenKind::Bang
+        | TokenKind::Eq
+        | TokenKind::FatArrow
+        | TokenKind::Arrow => Some(colors::OPERATOR),
+        // Identifiers, punctuation, whitespace, and error/unknown regions stay
+        // uncolored.
+        _ => None,
     }
 }
 
 /// Highlight Ambient source code with ANSI colors.
+///
+/// The output round-trips: stripping the ANSI escapes yields the input
+/// exactly. Bytes the lexer's error recovery skips over are copied through
+/// verbatim and uncolored.
 fn highlight_ambient(input: &str) -> String {
     let mut result = String::with_capacity(input.len() * 2);
-    let chars: Vec<char> = input.chars().collect();
-    let len = chars.len();
-    let mut i = 0;
+    let mut cursor = 0usize;
 
-    while i < len {
-        let c = chars[i];
+    for (span, kind) in tokenize_for_highlighting(input) {
+        let start = usize::try_from(span.start).unwrap_or(usize::MAX);
+        let end = usize::try_from(span.end).unwrap_or(usize::MAX);
 
-        // Comments
-        if c == '/' && i + 1 < len && chars[i + 1] == '/' {
-            result.push_str(colors::COMMENT);
-            while i < len {
-                result.push(chars[i]);
-                i += 1;
-            }
+        // Copy any bytes error recovery skipped over.
+        if start > cursor {
+            result.push_str(&input[cursor..start]);
+        }
+
+        let text = &input[start..end];
+        if let Some(color) = color_for(kind) {
+            result.push_str(color);
+            result.push_str(text);
             result.push_str(colors::RESET);
-            continue;
+        } else {
+            result.push_str(text);
         }
-
-        // Strings
-        if c == '"' {
-            result.push_str(colors::STRING);
-            result.push(c);
-            i += 1;
-            while i < len {
-                let sc = chars[i];
-                result.push(sc);
-                i += 1;
-                if sc == '"' {
-                    break;
-                }
-                if sc == '\\' && i < len {
-                    result.push(chars[i]);
-                    i += 1;
-                }
-            }
-            result.push_str(colors::RESET);
-            continue;
-        }
-
-        // Numbers
-        if c.is_ascii_digit() {
-            result.push_str(colors::NUMBER);
-            while i < len && (chars[i].is_ascii_digit() || chars[i] == '.') {
-                result.push(chars[i]);
-                i += 1;
-            }
-            result.push_str(colors::RESET);
-            continue;
-        }
-
-        // Identifiers/keywords
-        if c.is_ascii_alphabetic() || c == '_' {
-            let start = i;
-            while i < len && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
-                i += 1;
-            }
-            let word: String = chars[start..i].iter().collect();
-
-            if KEYWORDS.contains(&word.as_str()) {
-                result.push_str(colors::KEYWORD);
-                result.push_str(&word);
-                result.push_str(colors::RESET);
-            } else if word == "true" || word == "false" {
-                result.push_str(colors::BOOLEAN);
-                result.push_str(&word);
-                result.push_str(colors::RESET);
-            } else if BUILTINS.contains(&word.as_str()) {
-                result.push_str(colors::ABILITY);
-                result.push_str(&word);
-                result.push_str(colors::RESET);
-            } else {
-                result.push_str(&word);
-            }
-            continue;
-        }
-
-        // Operators
-        if "+-*/%=<>!&|".contains(c) {
-            result.push_str(colors::OPERATOR);
-            result.push(c);
-            // Handle two-character operators
-            if i + 1 < len {
-                let next = chars[i + 1];
-                let is_two_char = matches!(
-                    (c, next),
-                    ('=' | '!' | '<' | '>', '=')
-                        | ('&', '&')
-                        | ('|', '|')
-                        | ('=', '>')
-                        | ('-', '>')
-                );
-                if is_two_char {
-                    result.push(next);
-                    i += 1;
-                }
-            }
-            result.push_str(colors::RESET);
-            i += 1;
-            continue;
-        }
-
-        // Other characters pass through
-        result.push(c);
-        i += 1;
+        cursor = end;
     }
 
+    // Copy any trailing bytes not covered by a token.
+    result.push_str(&input[cursor..]);
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Remove ANSI escape sequences (`ESC [ ... m`) from a string.
+    fn strip_ansi(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(c) = chars.next() {
+            if c == '\x1b' {
+                for c2 in chars.by_ref() {
+                    if c2 == 'm' {
+                        break;
+                    }
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    fn assert_round_trips(input: &str) {
+        let highlighted = highlight_ambient(input);
+        assert_eq!(strip_ansi(&highlighted), input, "input: {input:?}");
+    }
+
+    #[test]
+    fn test_round_trips_exactly() {
+        for input in [
+            "",
+            "pub fn greet(name: String): String { \"hi ${name}\" }",
+            "let x = 1 + 2.5e3 // trailing comment",
+            "/// doc comment",
+            "match x { Some(y) => y, None => 0 }",
+            "struct Point unique(01234567-89AB-CDEF-0123-456789ABCDEF) { x: Number }",
+            // Unterminated string, mid-keystroke.
+            "let s = \"unfinished",
+            "let s = \"half ${interp",
+            // Invalid escape and stray characters.
+            "\"bad \\q escape\"",
+            "1 @ 2 # 3",
+            "a & b | c",
+            // Multi-byte UTF-8, inside and outside strings.
+            "let greeting = \"héllo wörld 🦀\"",
+            "café ← è",
+            "\"unterminated é🦀",
+        ] {
+            assert_round_trips(input);
+        }
+    }
+
+    #[test]
+    fn test_keywords_colored_from_lexer_table() {
+        // `struct` and `extern` were missing from the old hand-rolled keyword
+        // list; the lexer-driven classifier covers every keyword.
+        for keyword in TokenKind::all_keywords() {
+            let highlighted = highlight_ambient(keyword);
+            let color = if *keyword == "true" || *keyword == "false" {
+                colors::BOOLEAN
+            } else {
+                colors::KEYWORD
+            };
+            assert_eq!(
+                highlighted,
+                format!("{color}{keyword}{}", colors::RESET),
+                "keyword: {keyword}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_literal_and_comment_colors() {
+        assert_eq!(
+            highlight_ambient("42"),
+            format!("{}42{}", colors::NUMBER, colors::RESET)
+        );
+        assert_eq!(
+            highlight_ambient("\"hi\""),
+            format!("{}\"hi\"{}", colors::STRING, colors::RESET)
+        );
+        assert_eq!(
+            highlight_ambient("// note"),
+            format!("{}// note{}", colors::COMMENT, colors::RESET)
+        );
+        assert_eq!(
+            highlight_ambient("+"),
+            format!("{}+{}", colors::OPERATOR, colors::RESET)
+        );
+    }
+
+    #[test]
+    fn test_identifiers_punctuation_and_errors_uncolored() {
+        assert_eq!(highlight_ambient("foo_bar"), "foo_bar");
+        assert_eq!(highlight_ambient("(,;)"), "(,;)");
+        // Stray characters are lexer errors and stay uncolored.
+        assert_eq!(highlight_ambient("@"), "@");
+    }
+
+    #[test]
+    fn test_unterminated_string_still_reads_as_string() {
+        let highlighted = highlight_ambient("\"unfinished");
+        assert!(highlighted.starts_with(colors::STRING));
+        assert_round_trips("\"unfinished");
+    }
+
+    #[test]
+    fn test_prompt_is_colored() {
+        let highlighter = AmbientHighlighter;
+        let prompt = highlighter.highlight_prompt("ambient> ", true);
+        assert_eq!(prompt, "\x1b[1;36mambient> \x1b[0m");
+    }
 }

@@ -460,3 +460,91 @@ fn test_error_invalid_escape() {
         ParseErrorKind::InvalidEscape('x')
     ));
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// tokenize_for_highlighting
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Assert the highlighting invariants: spans are in-order, non-overlapping,
+/// on char boundaries, and (with gaps copied verbatim) reconstruct the input.
+fn assert_highlight_covers(source: &str) -> Vec<(Span, TokenKind)> {
+    let tokens = tokenize_for_highlighting(source);
+    let mut reconstructed = String::new();
+    let mut cursor = 0usize;
+    for &(span, _) in &tokens {
+        let (start, end) = (span.start as usize, span.end as usize);
+        assert!(start >= cursor, "spans out of order in {source:?}");
+        assert!(end >= start, "inverted span in {source:?}");
+        assert!(source.is_char_boundary(start) && source.is_char_boundary(end));
+        reconstructed.push_str(&source[cursor..start]);
+        reconstructed.push_str(&source[start..end]);
+        cursor = end;
+    }
+    reconstructed.push_str(&source[cursor..]);
+    assert_eq!(reconstructed, source);
+    tokens
+}
+
+#[test]
+fn test_highlighting_never_fails_on_broken_input() {
+    // None of these lex cleanly; all must still produce covering tokens.
+    for source in [
+        r#""unterminated"#,
+        r#"let s = "half ${name"#,
+        r#""bad \x escape""#,
+        "let a = b & c",
+        "let a = b | c",
+        "emoji 🦀 outside a string",
+        "café",
+        "@#$",
+        "\"unterminated with unicode é🦀",
+    ] {
+        assert_highlight_covers(source);
+    }
+}
+
+#[test]
+fn test_highlighting_unterminated_string_classified_as_string() {
+    let tokens = assert_highlight_covers(r#"let x = "hel"#);
+    let (span, kind) = *tokens.last().expect("tokens");
+    assert_eq!(kind, TokenKind::String);
+    assert_eq!(span, Span::new(8, 12));
+}
+
+#[test]
+fn test_highlighting_stray_char_is_error_token() {
+    let tokens = assert_highlight_covers("1 @ 2");
+    let kinds: Vec<TokenKind> = tokens.iter().map(|&(_, k)| k).collect();
+    assert_eq!(
+        kinds,
+        [
+            TokenKind::Number,
+            TokenKind::Whitespace,
+            TokenKind::Error,
+            TokenKind::Whitespace,
+            TokenKind::Number,
+        ]
+    );
+}
+
+#[test]
+fn test_highlighting_resumes_after_error() {
+    // The stray `&` errors, but the keyword after it is still classified.
+    let tokens = assert_highlight_covers("a & fn");
+    let kinds: Vec<TokenKind> = tokens.iter().map(|&(_, k)| k).collect();
+    assert!(kinds.contains(&TokenKind::Error));
+    assert!(kinds.contains(&TokenKind::Fn));
+}
+
+#[test]
+fn test_highlighting_matches_lexer_on_valid_input() {
+    let source = r#"pub fn greet(name: String): String { "hi ${name}" } // done"#;
+    let expected: Vec<(Span, TokenKind)> = Lexer::new(source)
+        .tokenize()
+        .expect("valid source")
+        .into_iter()
+        .filter(|t| t.kind != TokenKind::Eof)
+        .map(|t| (t.span, t.kind))
+        .collect();
+    assert_eq!(assert_highlight_covers(source), expected);
+}

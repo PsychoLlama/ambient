@@ -73,7 +73,7 @@ pub use cst::{
     CstWithHandleExpr, Trivia, TriviaKind,
 };
 pub use error::{ParseError, ParseErrorKind};
-pub use lexer::{Lexer, Token, TokenKind};
+pub use lexer::{Lexer, Token, TokenKind, tokenize_for_highlighting};
 pub use lower::{lower_module, lower_module_recovering};
 pub use parser::Parser;
 

@@ -935,6 +935,61 @@ impl<'src> Lexer<'src> {
     }
 }
 
+/// Tokenize source into `(span, kind)` pairs for syntax highlighting.
+///
+/// Unlike [`Lexer::tokenize`], this never fails: it exists so live
+/// highlighters (the REPL highlights on every keystroke) can classify
+/// arbitrarily broken, mid-edit input. Lexer errors are converted into
+/// tokens covering the region the lexer consumed while failing, and lexing
+/// resumes after it:
+///
+/// - An unterminated string is reported as [`TokenKind::String`] — it reads
+///   as a string while it is being typed.
+/// - Any other error region (stray character, invalid escape, lone `&`)
+///   becomes [`TokenKind::Error`].
+///
+/// Spans are byte offsets, non-overlapping, and in source order, but error
+/// recovery may leave gaps between consecutive spans; consumers rendering
+/// the source must copy uncovered bytes through verbatim. The trailing
+/// [`TokenKind::Eof`] token is omitted.
+#[must_use]
+pub fn tokenize_for_highlighting(source: &str) -> Vec<(Span, TokenKind)> {
+    let mut lexer = Lexer::new(source);
+    let mut tokens = Vec::new();
+    loop {
+        let start = lexer.position();
+        match lexer.next_token() {
+            Ok(token) => {
+                if token.kind == TokenKind::Eof {
+                    break;
+                }
+                tokens.push((token.span, token.kind));
+            }
+            Err(error) => {
+                let end = lexer.position();
+                if end <= start {
+                    // The lexer made no progress. This should be unreachable —
+                    // every error path consumes at least one character — but
+                    // bail rather than loop forever; the rest of the input
+                    // simply renders unclassified.
+                    break;
+                }
+                let kind = if error.kind == ParseErrorKind::UnterminatedString {
+                    TokenKind::String
+                } else {
+                    TokenKind::Error
+                };
+                let span = Span::new(
+                    u32::try_from(start).unwrap_or(u32::MAX),
+                    u32::try_from(end).unwrap_or(u32::MAX),
+                );
+                tokens.push((span, kind));
+            }
+        }
+    }
+    tokens
+}
+
 #[cfg(test)]
 #[path = "lexer_tests.rs"]
 mod tests;
