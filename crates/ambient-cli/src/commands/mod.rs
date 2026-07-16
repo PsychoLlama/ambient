@@ -9,6 +9,7 @@ pub(crate) mod host;
 mod init;
 mod run;
 mod store;
+pub(crate) mod watch;
 
 pub use build::cmd_build;
 pub use check::cmd_check;

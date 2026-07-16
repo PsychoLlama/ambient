@@ -1,33 +1,31 @@
 //! REPL (Read-Eval-Print-Loop) implementation.
 //!
-//! The REPL is a thin frontend over the same pipeline that powers `ambient
-//! check`, the LSP, and `ambient run`. Each session is modeled as an
-//! accumulating in-memory module named `repl`: every turn re-checks and
-//! re-compiles the committed definitions (plus the new input) through
-//! `ambient_analysis`/`ambient_engine`, so the REPL gets the full language —
-//! type checking, every item kind, cross-module `use`, real shared
-//! diagnostics, and the full platform ability set — without a bespoke
-//! parallel compiler. "What is an error" and "how to compile a module set"
-//! live in the shared layer, never here (see AGENTS.md).
+//! The REPL is an **exploration surface**: it evaluates expressions, saves
+//! bindings (`x = expr`), imports names (`use …`), and inspects modules and
+//! signatures. It does not author code — definitions live in module files,
+//! and the session stays fresh the other way around: a background watcher
+//! marks the session stale when a project source changes, and the next
+//! prompt interaction rebuilds the base from disk and redeploys it
+//! (`:reload` forces the same thing). See [`session`] for the session
+//! model, scope anchoring, and binding semantics.
+//!
+//! It is a thin frontend over the same pipeline that powers `ambient
+//! check`, the LSP, and `ambient run`: every turn re-checks and re-compiles
+//! the session module through `ambient_analysis`/`ambient_engine`, so the
+//! REPL gets real diagnostics and the full platform ability set without a
+//! bespoke parallel compiler. "What is an error" and "how to compile a
+//! module set" live in the shared layer, never here (see AGENTS.md).
 //!
 //! Execution-wise the REPL is a **deploy frontend** (see
 //! `ref/live-upgrade.md`, "Generations"): the session holds one running
-//! [`RuntimeHost`], and every turn — definition or expression — applies a
-//! generation through [`RuntimeHost::deploy_incremental`]: load, validate,
-//! swap the name table, run a synthetic entry as the reconciliation body.
-//! A definition turn's entry is a no-op (the deploy *is* the point: the
-//! swap rebinds the redefined name, and a running program picks it up at
-//! its late-bound points — a task's next pass, a `Live::latest!` read); an
-//! expression turn's entry is the expression. A rejected deploy (a failed
-//! migration check) errors the turn with nothing committed and the running
-//! program untouched. The generation re-ships the whole session build each
-//! turn; content addressing makes the diff exact, so "one item plus
-//! dependents" falls out as everything else reports `unchanged`.
-//!
-//! Turns deploy *incrementally*: one turn is never a full declaration of
-//! the running program, so nothing is stopped or drained for being absent
-//! from it — tasks ensured three turns ago keep running until an explicit
-//! `Task::drain!` (or `:clear`, which winds the whole program down).
+//! [`RuntimeHost`], and every expression turn applies a generation through
+//! [`RuntimeHost::deploy_incremental`] whose synthetic entry is the
+//! expression (called with the saved bindings as arguments). A rejected
+//! deploy (a failed migration check) errors the turn with the running
+//! program untouched. Turns deploy *incrementally*: one turn is never a
+//! full declaration of the running program, so nothing is drained for
+//! being absent from it — tasks ensured three turns ago keep running until
+//! an explicit `Task::drain!` (or `:clear`, which winds the program down).
 
 mod completer;
 mod editor;
@@ -41,8 +39,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
-use rustyline::{Config as RustylineConfig, Editor, EventHandler, KeyEvent};
+use rustyline::{Config as RustylineConfig, Editor, EventHandler, ExternalPrinter, KeyEvent};
 
+use crate::commands::watch;
 use editor::ExternalEditorHandler;
 
 use ambient_engine::format::format_value_colored;
@@ -93,6 +92,30 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         let _ = rl.load_history(&history_path);
     }
 
+    // Watch project sources so the session stays fresh: a change marks it
+    // stale (announced once, prompt-safely, via the external printer) and
+    // the next prompt interaction reloads before evaluating. Watch errors
+    // degrade to `:reload`-only, they don't block the REPL.
+    let watcher = session.project_root().and_then(|root| {
+        let printer = rl.create_external_printer().ok();
+        let printer = std::sync::Mutex::new(printer);
+        match watch::SourceWatcher::spawn(root, move || {
+            if let Ok(mut printer) = printer.lock()
+                && let Some(printer) = printer.as_mut()
+            {
+                let _ = printer.print(
+                    "\x1b[2msources changed; reloading at the next input\x1b[0m".to_string(),
+                );
+            }
+        }) {
+            Ok(watcher) => Some(watcher),
+            Err(e) => {
+                eprintln!("warning: source watching disabled: {e}");
+                None
+            }
+        }
+    });
+
     loop {
         // Flush stdout before reading (in case any output is buffered).
         let _ = io::stdout().flush();
@@ -101,6 +124,17 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         match readline {
             Ok(line) => {
                 let line = line.trim();
+
+                // Sources changed while we sat at the prompt: refresh the
+                // base before doing anything with this input, so the turn
+                // always sees the code that is on disk.
+                if watcher
+                    .as_ref()
+                    .is_some_and(watch::SourceWatcher::take_dirty)
+                    && let Err(e) = session.reload()
+                {
+                    eprintln!("\x1b[1;31merror\x1b[0m: {e}");
+                }
 
                 // Skip empty lines.
                 if line.is_empty() {

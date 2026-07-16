@@ -181,6 +181,13 @@ impl ReplSession {
         (self.io.control)(line);
     }
 
+    /// The project root the session was opened in, if any — what a
+    /// frontend watches for live reload.
+    #[must_use]
+    pub fn project_root(&self) -> Option<&Path> {
+        self.project_root.as_deref()
+    }
+
     /// Wind the running program down: drain every task and wait for it to
     /// stop, so a lingering ticker can't print into a dropped buffer or
     /// keep the test process alive.

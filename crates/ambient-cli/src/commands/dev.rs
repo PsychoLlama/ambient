@@ -122,15 +122,7 @@ pub fn cmd_dev(path: &Path, entry: &str, watch_dirs: Option<&[PathBuf]>) -> Resu
     }
 }
 
-/// Whether a watch event touches an `.ab` source file, ignoring the
-/// package-local store under `.ambient/` (a deploy persists hundreds of
-/// objects there; redeploying on those would loop forever).
-fn is_ab_change(event: &notify::Event) -> bool {
-    event.paths.iter().any(|p| {
-        p.extension().is_some_and(|ext| ext == "ab")
-            && !p.components().any(|c| c.as_os_str() == ".ambient")
-    })
-}
+use super::watch::is_ab_change;
 
 /// Compile and deploy one generation. Errors are reported and leave the
 /// currently running generation untouched.
