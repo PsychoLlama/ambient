@@ -1,50 +1,41 @@
-//! Tcp client example using the new Tcp ability.
+//! The echo server's client: one framed round-trip, then quit.
 //!
-//! This client demonstrates low-level TCP operations with
-//! message-oriented I/O (length-prefixed messages).
-//!
-//! Run with: `ambient run examples/network_client`
-//! (Make sure the network_server is running first!)
+//! Run with `examples/network_server` already listening — a refused
+//! connect is a `Result::Err`, which `need` below turns into a fatal
+//! throw (the process exits non-zero, so a supervisor can retry).
 
 use core::system::{Stdio, Tcp};
 
-/// Unwrap a fallible handle, turning an `Err` into a fatal throw at the
-/// application boundary — a setup failure (e.g. connection refused) should
-/// abort the client, not continue with an invalid handle.
-fn need(result: Result<Number, String>): Number with Exception {
-    match result {
-        Ok(value) => value,
-        Err(msg) => {
-            throw!(msg);
-            -1
-        }
-    }
+pub fn run(): () with Stdio, Tcp, Exception {
+  Stdio::out!("Client: connecting to 127.0.0.1:9000...");
+  let conn = need(Tcp::connect!(("127.0.0.1", 9000)));
+  let local = Tcp::local_addr!(conn).unwrap_or("unknown");
+  Stdio::out!("Client: connected from ${local}");
+
+  // `Binary::from(String)` is the UTF-8 encoding conversion from core.
+  let message = Binary::from("Hello from Ambient!");
+  let size = core::convert::to_string(message.length());
+  Stdio::out!("Client: sending ${size} bytes...");
+  Tcp::send!(conn, message);
+
+  // Receive the echo (a receive error reads as an empty response).
+  let response = Tcp::receive!(conn).unwrap_or(Binary::empty());
+  let returned = core::convert::to_string(response.length());
+  Stdio::out!("Client: received ${returned} bytes back");
+
+  // An empty frame is this little protocol's quit signal.
+  Stdio::out!("Client: sending empty message to quit...");
+  Tcp::send!(conn, Binary::empty());
+
+  Tcp::close!(conn);
+  Stdio::out!("Client: done")
 }
 
-/// Entry point that connects to a server and sends messages.
-pub fn run(): () with Stdio, Tcp, Exception {
-    Stdio::out!("Client: connecting to 127.0.0.1:9000...");
-    // Fallible Tcp ops return `Result<T, String>`; a failed connect is
-    // fatal here (via `need`), so the process exits non-zero.
-    let conn = need(Tcp::connect!(("127.0.0.1", 9000)));
-
-    let local = Tcp::local_addr!(conn).unwrap_or("unknown");
-    Stdio::out!("Client: connected from ".concat(local));
-
-    // Encode the message as its UTF-8 bytes via core's `From<String> for
-    // Binary` conversion.
-    let message = Binary::from("Hello from Ambient!");
-    Stdio::out!("Client: sending ".concat(core::convert::to_string(message.length()).concat(" bytes...")));
-    Tcp::send!(conn, message);
-
-    // Receive the echo (a receive error reads as an empty response).
-    let response = Tcp::receive!(conn).unwrap_or(Binary::empty());
-    Stdio::out!("Client: received ".concat(core::convert::to_string(response.length()).concat(" bytes back")));
-
-    // Send empty message to signal quit
-    Stdio::out!("Client: sending empty message to quit...");
-    Tcp::send!(conn, Binary::empty());
-
-    Tcp::close!(conn);
-    Stdio::out!("Client: done")
+/// Unwrap a fallible handle at the application boundary. `throw!`
+/// returns `!`, so the match still types as `Number`.
+fn need(result: Result<Number, String>): Number with Exception {
+  match result {
+    Ok(value) => value,
+    Err(message) => throw!(message),
+  }
 }

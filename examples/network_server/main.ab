@@ -1,58 +1,53 @@
-//! Tcp server example using the new Tcp ability.
+//! A one-connection TCP echo server.
 //!
-//! This server demonstrates low-level TCP operations with
-//! message-oriented I/O (length-prefixed messages).
+//! `Tcp::send!`/`receive!` are message-oriented (length-prefixed frames),
+//! and every fallible operation returns `Result` — a refused bind is a
+//! value to match on, not a crash. Pair with `examples/network_client`:
 //!
-//! Run with: `ambient run examples/network_server`
+//!     ambient run examples/network_server   # first
+//!     ambient run examples/network_client   # then, in another shell
 
 use core::system::{Stdio, Tcp};
 
-/// Unwrap a fallible handle, turning an `Err` into a fatal throw at the
-/// application boundary — a failed bind or accept should abort the server,
-/// not continue with an invalid handle.
-fn need(result: Result<Number, String>): Number with Exception {
-    match result {
-        Ok(value) => value,
-        Err(msg) => {
-            throw!(msg);
-            -1
-        }
-    }
-}
-
-/// Entry point that starts a TCP server and echoes messages.
 pub fn run(): () with Stdio, Tcp, Exception {
-    Stdio::out!("Server: binding to 127.0.0.1:9000...");
-    // Fallible Tcp ops return `Result<T, String>`; a failed bind/accept
-    // is fatal here (via `need`).
-    let listener = need(Tcp::listen!(("127.0.0.1", 9000)));
+  Stdio::out!("Server: binding to 127.0.0.1:9000...");
+  // A failed bind or accept should abort the server, not continue with
+  // an invalid handle — `need` turns the Err into a fatal throw.
+  let listener = need(Tcp::listen!(("127.0.0.1", 9000)));
 
-    Stdio::out!("Server: waiting for connection...");
-    let conn = need(Tcp::accept!(listener));
+  Stdio::out!("Server: waiting for connection...");
+  let conn = need(Tcp::accept!(listener));
+  let peer = Tcp::peer_addr!(conn).unwrap_or("unknown");
+  Stdio::out!("Server: client connected from ${peer}");
 
-    let peer = Tcp::peer_addr!(conn).unwrap_or("unknown");
-    Stdio::out!("Server: client connected from ".concat(peer));
+  Stdio::out!("Server: entering echo loop (send empty message to quit)...");
+  echo(conn);
 
-    // Echo loop: receive message, send it back
-    Stdio::out!("Server: entering echo loop (send empty message to quit)...");
-    echo_loop(conn);
-
-    Tcp::close!(conn);
-    Tcp::close_listener!(listener);
-    Stdio::out!("Server: done")
+  Tcp::close!(conn);
+  Tcp::close_listener!(listener);
+  Stdio::out!("Server: done")
 }
 
-/// Echo messages back to the client until an empty message is received.
-fn echo_loop(conn: Number): () with Stdio, Tcp {
-    // A receive error reads as an empty message, which ends the loop.
-    let msg = Tcp::receive!(conn).unwrap_or(Binary::empty());
-    let len = msg.length();
+/// Echo frames back until the client sends an empty one. The recursive
+/// call is a tail call, so the loop runs in constant stack space; a
+/// receive error reads as an empty message, which also ends the loop.
+fn echo(conn: Number): () with Stdio, Tcp {
+  let message = Tcp::receive!(conn).unwrap_or(Binary::empty());
+  if message.is_empty() {
+    Stdio::out!("Server: received empty message, closing connection")
+  } else {
+    let size = core::convert::to_string(message.length());
+    Stdio::out!("Server: received ${size} bytes, echoing back...");
+    Tcp::send!(conn, message);
+    echo(conn)
+  }
+}
 
-    if len > 0 {
-        Stdio::out!("Server: received ".concat(core::convert::to_string(len).concat(" bytes, echoing back...")));
-        Tcp::send!(conn, msg);
-        echo_loop(conn)
-    } else {
-        Stdio::out!("Server: received empty message, closing connection")
-    }
+/// Unwrap a fallible handle at the application boundary. `throw!`
+/// returns `!`, so the match still types as `Number`.
+fn need(result: Result<Number, String>): Number with Exception {
+  match result {
+    Ok(value) => value,
+    Err(message) => throw!(message),
+  }
 }

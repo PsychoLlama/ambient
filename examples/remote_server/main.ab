@@ -1,147 +1,114 @@
-//! Remote execution server example.
+//! A remote-execution server: run code by hash, shipped over TCP.
 //!
-//! This server demonstrates the remote execution protocol:
-//! 1. Receive function hash and captures from client
-//! 2. Load missing functions
-//! 3. Execute and return result
+//! The protocol is the example convention from `ref/remote-execution.md`
+//! — one tag byte, then a payload — not engine code:
 //!
-//! Run with: `ambient run examples/remote_server`
+//!     Client                          Server
+//!       |-- 1 Execute(hash, arg) ------>|
+//!       |<-- 2 NeedDeps([hash]) --------|  (if the code is missing)
+//!       |-- 3 Provide(pack) ----------->|
+//!       |<-- 4 Result(value) -----------|
+//!
+//! Shipped code runs in an *isolated* VM: nothing proxies back to the
+//! sender, and its effects are exactly what this host grants (the CLI
+//! grants Stdio and Log) — an ungranted perform raises a loud,
+//! catchable "not wired" fault. Packs are self-verifying: every hash is
+//! recomputed from the received bytes, so a tampered pack cannot
+//! smuggle code under a false hash.
+//!
+//! Run with: `ambient run examples/remote_server`, then the paired
+//! `examples/remote_client` (REMOTE_HOST/REMOTE_PORT override the
+//! default endpoint on both sides).
 
-use core::system::{Stdio, Tcp, Execute, Env};
+use core::system::{Env, Execute, Stdio, Tcp};
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Entry Point
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Resolve the listen endpoint from the environment, defaulting to
-/// `127.0.0.1:8080`. `REMOTE_HOST` overrides the interface;
-/// `REMOTE_PORT` the port — `Number::try_from` yields Err for a
-/// non-numeric value, which falls back to the default port too.
-fn endpoint(): (String, Number) with Env {
-    let host = Env::var!("REMOTE_HOST").unwrap_or("127.0.0.1");
-    let port = Number::try_from(Env::var!("REMOTE_PORT").unwrap_or("8080")).unwrap_or(8080);
-    (host, port)
-}
-
-/// Unwrap a fallible handle, turning an `Err` into a fatal throw at the
-/// application boundary — a failed bind or accept should abort the server,
-/// not continue with an invalid handle.
-fn need(result: Result<Number, String>): Number with Exception {
-    match result {
-        Ok(value) => value,
-        Err(msg) => {
-            throw!(msg);
-            -1
-        }
-    }
-}
-
-/// Entry point that starts the server.
 pub fn run(): () with Stdio, Tcp, Execute, Env, Exception {
-    let addr = endpoint();
-    Stdio::out!("Server: listening on ".concat(addr.0).concat(":").concat(core::convert::to_string(addr.1)).concat("..."));
-    let listener = need(Tcp::listen!(addr));
+  let addr = endpoint();
+  let port = core::convert::to_string(addr.1);
+  Stdio::out!("Server: listening on ${addr.0}:${port}...");
+  let listener = need(Tcp::listen!(addr));
 
-    Stdio::out!("Server: waiting for connection...");
-    let conn = need(Tcp::accept!(listener));
+  Stdio::out!("Server: waiting for connection...");
+  let conn = need(Tcp::accept!(listener));
+  let peer = Tcp::peer_addr!(conn).unwrap_or("unknown");
+  Stdio::out!("Server: client connected from ${peer}");
 
-    let peer = Tcp::peer_addr!(conn).unwrap_or("unknown");
-    Stdio::out!("Server: client connected from ".concat(peer));
+  serve_request(conn);
 
-    // Handle the remote execution request
-    serve_request(conn);
-
-    Tcp::close!(conn);
-    Tcp::close_listener!(listener);
-    Stdio::out!("Server: done")
+  Tcp::close!(conn);
+  Tcp::close_listener!(listener);
+  Stdio::out!("Server: done")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Server Protocol
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Serve a remote execution request.
+/// Serve one Execute request.
 fn serve_request(conn: Number): () with Stdio, Tcp, Execute {
-    let bytes = Tcp::receive!(conn).unwrap_or(Binary::empty());
-
-    if bytes.length() == 0 {
-        Stdio::out!("Server: connection closed")
-    } else {
-        let msg_type = bytes.get(0).unwrap_or(0);
-
-        if msg_type == 1 {
-            // Execute message
-            let payload = bytes.slice(1, bytes.length());
-            handle_execute(conn, payload)
-        } else {
-            Stdio::out!("Server: unknown message type")
-        }
-    }
+  let request = Tcp::receive!(conn).unwrap_or(Binary::empty());
+  if request.is_empty() {
+    Stdio::out!("Server: connection closed")
+  } else if request.get(0).unwrap_or(0) == 1 {
+    handle_execute(conn, request.slice(1, request.length()))
+  } else {
+    Stdio::out!("Server: unknown message type")
+  }
 }
 
-/// Handle an Execute request.
+/// Decode an Execute payload — `[hash_len, serialized hash, serialized
+/// arg]` — fetch the code if it is missing, run it, reply.
 fn handle_execute(conn: Number, payload: Binary): () with Stdio, Tcp, Execute {
-    // Parse hash length and hash
-    let hash_len = payload.get(0).unwrap_or(0);
-    let rest = payload.slice(1, payload.length());
-    let hash_bytes = rest.slice(0, hash_len);
-    let captures = rest.slice(hash_len, rest.length());
+  let hash_len = payload.get(0).unwrap_or(0);
+  let rest = payload.slice(1, payload.length());
+  let hash: String = core::protocol::deserialize_value(rest.slice(0, hash_len)).unwrap_or("");
+  let arg_bytes = rest.slice(hash_len, rest.length());
 
-    // Deserialize hash string
-    let hash_opt = core::protocol::deserialize_value(hash_bytes);
-    let hash = hash_opt.unwrap_or("");
+  Stdio::out!("Server: received Execute for hash ${hash}");
 
-    Stdio::out!("Server: received Execute for hash ".concat(hash));
-
-    // Check if we have the function
-    if Execute::has_function!(hash) {
-        Stdio::out!("Server: function found locally");
-        execute_function(conn, hash, captures)
-    } else {
-        Stdio::out!("Server: function not found, requesting from client");
-        request_function(conn, hash);
-        // After receiving the function, execute it
-        execute_function(conn, hash, captures)
-    }
+  if Execute::has_function!(hash) {
+    Stdio::out!("Server: function found locally")
+  } else {
+    Stdio::out!("Server: function not found, requesting from client");
+    fetch_function(conn, hash)
+  };
+  execute_function(conn, hash, arg_bytes)
 }
 
-/// Request a function from the client.
-fn request_function(conn: Number, hash: String): () with Stdio, Tcp, Execute {
-    // Send NeedDeps message with the hash
-    let serialized = core::protocol::serialize_value([hash]);
-    let msg = Binary::from([2]).concat(serialized);
-    Tcp::send!(conn, msg);
+/// Ask the client for the function's object pack and load it.
+fn fetch_function(conn: Number, hash: String): () with Stdio, Tcp, Execute {
+  Tcp::send!(conn, Binary::from([2]).concat(core::protocol::serialize_value([hash])));
 
-    // Receive Provide message
-    let response = Tcp::receive!(conn).unwrap_or(Binary::empty());
-    let msg_type = response.get(0).unwrap_or(0);
-
-    if msg_type == 3 {
-        let payload = response.slice(1, response.length());
-        Execute::load_functions!(payload);
-        Stdio::out!("Server: loaded function from client")
-    } else {
-        Stdio::out!("Server: unexpected response to NeedDeps")
-    }
+  let response = Tcp::receive!(conn).unwrap_or(Binary::empty());
+  if response.get(0).unwrap_or(0) == 3 {
+    Execute::load_functions!(response.slice(1, response.length()));
+    Stdio::out!("Server: loaded function from client")
+  } else {
+    Stdio::out!("Server: unexpected response to NeedDeps")
+  }
 }
 
-/// Execute the function and send the result.
-fn execute_function(conn: Number, hash: String, captures: Binary): () with Stdio, Tcp, Execute {
-    // Deserialize captures
-    let arg_opt = core::protocol::deserialize_value(captures);
-    let arg: Number = arg_opt.unwrap_or(0);
+/// Run the shipped function in an isolated VM and send the result back.
+fn execute_function(conn: Number, hash: String, arg_bytes: Binary): () with Stdio, Tcp, Execute {
+  let arg: Number = core::protocol::deserialize_value(arg_bytes).unwrap_or(0);
+  Stdio::out!("Server: executing with arg = ${core::convert::to_string(arg)}");
 
-    Stdio::out!("Server: executing with arg = ".concat(core::convert::to_string(arg)));
+  let result: Number = Execute::run!(hash, arg);
+  Stdio::out!("Server: result = ${core::convert::to_string(result)}");
 
-    // Execute the function remotely using the loaded bytecode
-    let result: Number = Execute::run!(hash, arg);
+  Tcp::send!(conn, Binary::from([4]).concat(core::protocol::serialize_value(result)));
+  Stdio::out!("Server: sent result to client")
+}
 
-    Stdio::out!("Server: result = ".concat(core::convert::to_string(result)));
+/// The listen endpoint: `REMOTE_HOST`/`REMOTE_PORT` override the
+/// defaults (a non-numeric port also falls back).
+fn endpoint(): (String, Number) with Env {
+  let host = Env::var!("REMOTE_HOST").unwrap_or("127.0.0.1");
+  let port = Number::try_from(Env::var!("REMOTE_PORT").unwrap_or("8080")).unwrap_or(8080);
+  (host, port)
+}
 
-    // Send Result message
-    let result_bytes = core::protocol::serialize_value(result);
-    let msg = Binary::from([4]).concat(result_bytes);
-    Tcp::send!(conn, msg);
-
-    Stdio::out!("Server: sent result to client")
+/// Unwrap a fallible handle at the application boundary. `throw!`
+/// returns `!`, so the match still types as `Number`.
+fn need(result: Result<Number, String>): Number with Exception {
+  match result {
+    Ok(value) => value,
+    Err(message) => throw!(message),
+  }
 }

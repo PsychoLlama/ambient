@@ -1,134 +1,99 @@
-//! Remote execution client example.
+//! The remote-execution client: ship a function, get its result.
 //!
-//! This client demonstrates the remote execution protocol:
-//! 1. Send function hash and captures to server
-//! 2. Provide function bytecode if requested
-//! 3. Receive result
+//! The function is ordinary local code (`double`, below). What crosses
+//! the wire is its content hash plus a serialized argument; if the
+//! server has never seen the hash, it asks (`NeedDeps`) and the client
+//! ships the canonical object pack (`Provide`) — code and its transitive
+//! dependencies, self-verifying by construction.
 //!
-//! Run with: `ambient run examples/remote_client`
-//! (Make sure the remote_server is running first!)
+//! `double` is effectful, and that is the interesting part: its `Log`
+//! perform runs on the *server*, against whatever the server's host
+//! granted to executed code — never proxied back here.
+//!
+//! Run with `examples/remote_server` already listening
+//! (REMOTE_HOST/REMOTE_PORT override the endpoint on both sides).
 
-use core::system::{Stdio, Tcp, Execute, Log, Env};
+use core::system::{Env, Execute, Log, Stdio, Tcp};
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Entry Point
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// A function we want to execute remotely.
-///
-/// It is effectful: the Log perform runs on the *server*, dispatched to
-/// the Log handler the server's host granted to executed code.
+/// The function to run remotely.
 fn double(x: Number): Number with Log, Stdio {
-    Log::info!("doubling remotely");
-    x * 2
+  Log::info!("doubling remotely");
+  x * 2
 }
 
-/// Resolve the server endpoint from the environment, defaulting to
-/// `127.0.0.1:8080` — the same `REMOTE_HOST`/`REMOTE_PORT`
-/// the server reads, so pointing both at one address only takes setting
-/// two variables.
-fn endpoint(): (String, Number) with Env {
-    let host = Env::var!("REMOTE_HOST").unwrap_or("127.0.0.1");
-    let port = Number::try_from(Env::var!("REMOTE_PORT").unwrap_or("8080")).unwrap_or(8080);
-    (host, port)
-}
-
-/// Unwrap a fallible handle, turning an `Err` into a fatal throw at the
-/// application boundary — a failed connect should abort the client, not
-/// continue with an invalid handle.
-fn need(result: Result<Number, String>): Number with Exception {
-    match result {
-        Ok(value) => value,
-        Err(msg) => {
-            throw!(msg);
-            -1
-        }
-    }
-}
-
-/// Entry point that connects to server and executes a function remotely.
 pub fn run(): () with Stdio, Tcp, Execute, Env, Exception {
-    let addr = endpoint();
-    Stdio::out!("Client: connecting to ".concat(addr.0).concat(":").concat(core::convert::to_string(addr.1)).concat("..."));
-    let conn = need(Tcp::connect!(addr));
+  let addr = endpoint();
+  let port = core::convert::to_string(addr.1);
+  Stdio::out!("Client: connecting to ${addr.0}:${port}...");
+  let conn = need(Tcp::connect!(addr));
+  let local = Tcp::local_addr!(conn).unwrap_or("unknown");
+  Stdio::out!("Client: connected from ${local}");
 
-    let local = Tcp::local_addr!(conn).unwrap_or("unknown");
-    Stdio::out!("Client: connected from ".concat(local));
+  // A lambda gives the shipped code a stable, capture-free shape: the
+  // argument travels as data alongside the hash, not as a capture.
+  let value = 21;
+  let thunk = (x) => double(x);
+  Stdio::out!("Client: sending double(${core::convert::to_string(value)}) for remote execution...");
 
-    // The value we want to double remotely
-    let value = 21;
+  let result = execute_remotely(conn, value, thunk);
+  Stdio::out!("Client: got result = ${core::convert::to_string(result)}");
 
-    // Create a function that takes an argument (not a capture) for remote execution
-    let thunk = (x) => double(x);
-
-    Stdio::out!("Client: sending double(".concat(core::convert::to_string(value).concat(") for remote execution...")));
-
-    // Send the Execute message
-    let result = send_and_receive(conn, value, thunk);
-
-    Stdio::out!("Client: got result = ".concat(core::convert::to_string(result)));
-
-    Tcp::close!(conn);
-    Stdio::out!("Client: done")
+  Tcp::close!(conn);
+  Stdio::out!("Client: done")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Client Protocol
-// ─────────────────────────────────────────────────────────────────────────────
+/// Send the Execute message — `[1, hash_len, serialized hash, serialized
+/// arg]` — then answer the server's questions until the result arrives.
+fn execute_remotely<A>(conn: Number, arg: A, thunk: (A) -> Number with Log, Stdio): Number
+  with Stdio, Tcp, Execute
+{
+  let hash = core::protocol::closure_hash(thunk);
+  Stdio::out!("Client: closure hash = ${hash}");
 
-/// Send a function for remote execution and receive the result.
-fn send_and_receive<A>(conn: Number, arg: A, thunk: (A) -> Number with Log, Stdio): Number with Stdio, Tcp, Execute {
-    let hash = core::protocol::closure_hash(thunk);
-    let captures = core::protocol::serialize_value(arg);
+  let hash_bytes = core::protocol::serialize_value(hash);
+  let header = Binary::from([1, hash_bytes.length()]);
+  Tcp::send!(conn, header.concat(hash_bytes).concat(core::protocol::serialize_value(arg)));
 
-    Stdio::out!("Client: closure hash = ".concat(hash));
-
-    // Build Execute message: [msg_type, hash_len, hash_bytes, captures]
-    let hash_bytes = core::protocol::serialize_value(hash);
-    let hash_len = hash_bytes.length();
-    let msg = Binary::from([1, hash_len]).concat(hash_bytes.concat(captures));
-    Tcp::send!(conn, msg);
-
-    // Wait for response
-    handle_response(conn, thunk)
+  await_result(conn)
 }
 
-/// Handle server response.
-fn handle_response<A>(conn: Number, thunk: (A) -> Number with Log, Stdio): Number with Stdio, Tcp, Execute {
-    let response = Tcp::receive!(conn).unwrap_or(Binary::empty());
-
-    if response.length() == 0 {
-        Stdio::out!("Client: connection closed");
-        0
+/// One protocol turn: a Result frame (tag 4) finishes the exchange; a
+/// NeedDeps frame (tag 2) ships the requested code and recurses.
+fn await_result(conn: Number): Number with Stdio, Tcp, Execute {
+  let response = Tcp::receive!(conn).unwrap_or(Binary::empty());
+  if response.is_empty() {
+    Stdio::out!("Client: connection closed");
+    0
+  } else {
+    let payload = response.slice(1, response.length());
+    if response.get(0).unwrap_or(0) == 4 {
+      core::protocol::deserialize_value(payload).unwrap_or(0)
+    } else if response.get(0).unwrap_or(0) == 2 {
+      Stdio::out!("Client: server needs function bytecode");
+      let hashes: List<String> = core::protocol::deserialize_value(payload).unwrap_or([]);
+      Tcp::send!(conn, Binary::from([3]).concat(Execute::get_functions!(hashes)));
+      Stdio::out!("Client: sent function bytecode");
+      await_result(conn)
     } else {
-        let msg_type = response.get(0).unwrap_or(0);
-
-        if msg_type == 4 {
-            // Result message
-            let payload = response.slice(1, response.length());
-            let result_opt = core::protocol::deserialize_value(payload);
-            result_opt.unwrap_or(0)
-        } else {
-            if msg_type == 2 {
-                // NeedDeps message
-                Stdio::out!("Client: server needs function bytecode");
-                let payload = response.slice(1, response.length());
-                let hashes_opt = core::protocol::deserialize_value(payload);
-                let hashes: List<String> = hashes_opt.unwrap_or([]);
-
-                // Send Provide message with function bytecode
-                let data = Execute::get_functions!(hashes);
-                let provide_msg = Binary::from([3]).concat(data);
-                Tcp::send!(conn, provide_msg);
-
-                Stdio::out!("Client: sent function bytecode");
-
-                // Continue waiting for result
-                handle_response(conn, thunk)
-            } else {
-                Stdio::out!("Client: unexpected message type");
-                0
-            }
-        }
+      Stdio::out!("Client: unexpected message type");
+      0
     }
+  }
+}
+
+/// The server endpoint: the same `REMOTE_HOST`/`REMOTE_PORT` variables
+/// the server reads, so pointing both at one address takes two exports.
+fn endpoint(): (String, Number) with Env {
+  let host = Env::var!("REMOTE_HOST").unwrap_or("127.0.0.1");
+  let port = Number::try_from(Env::var!("REMOTE_PORT").unwrap_or("8080")).unwrap_or(8080);
+  (host, port)
+}
+
+/// Unwrap a fallible handle at the application boundary. `throw!`
+/// returns `!`, so the match still types as `Number`.
+fn need(result: Result<Number, String>): Number with Exception {
+  match result {
+    Ok(value) => value,
+    Err(message) => throw!(message),
+  }
 }
