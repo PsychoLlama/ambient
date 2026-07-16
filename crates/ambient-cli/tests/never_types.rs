@@ -117,9 +117,9 @@ fn test_throw_in_match_arm() {
 
         pub fn run(): String {
             with {
-                // `throw<E: Show>` binds `msg: E` rigid (opaque); render it
-                // through the forwarded `Show` dictionary to yield a `String`.
-                Exception::throw(msg) => msg.show()
+                // `throw<E: Error>` binds `msg: E` rigid (opaque); render it
+                // through the forwarded `Error` dictionary to yield a `String`.
+                Exception::throw(msg) => msg.message()
             } handle describe(1)
         }
         "#,

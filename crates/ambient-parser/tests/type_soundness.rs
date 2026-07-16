@@ -114,7 +114,7 @@ fn pure_trait_impl_method_is_accepted() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Handler arm parameters take the ability method's declared types.
-/// `throw<E: Show>` binds `e: E` rigid (opaque, `Show`-bounded only), so
+/// `throw<E: Error>` binds `e: E` rigid (opaque, `Error`-bounded only), so
 /// using it at another type — `e * 2` needs `Mul` — is rejected. Previously
 /// they were fresh unconstrained variables, so treating a thrown value as a
 /// number type-checked.
@@ -136,9 +136,9 @@ fn handler_arm_param_takes_declared_type() {
     );
 }
 
-/// The thrown value is usable through its `Show` bound: the rigid `E` in a
-/// catch arm has no known shape, but `e.show()` renders it via the forwarded
-/// dictionary, yielding a `String`.
+/// The thrown value is usable through its `Error` bound: the rigid `E` in a
+/// catch arm has no known shape, but `e.message()` renders it via the
+/// forwarded dictionary, yielding a `String`.
 #[test]
 fn handler_arm_param_usable_at_declared_type() {
     assert_ok(
@@ -149,7 +149,7 @@ fn handler_arm_param_usable_at_declared_type() {
         }
 
         pub fn run(): String {
-          with { Exception::throw(e) => e.show() + '!' } handle boom()
+          with { Exception::throw(e) => e.message() + '!' } handle boom()
         }
         "
         .replace('\'', "\""),
@@ -478,9 +478,10 @@ fn handler_annotation_ability_obeys_namespace_policy() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Builtin descriptor abilities check arguments too: `Exception::throw<E:
-/// Show>` requires its argument to satisfy the `Show` bound. A tuple has no
-/// `Show` impl, so the perform is rejected. (`throw!(42)` now *succeeds* —
-/// `Number: Show` — so the check is the bound, not a fixed `String`.)
+/// Error>` requires its argument to satisfy the `Error` bound. A tuple has
+/// no `Error` impl, so the perform is rejected — and neither does `Number`,
+/// so `throw!(42)` is rejected too: only values that opt into being errors
+/// (`String` via core's impl, user types via their own) are throwable.
 /// Previously the builtin path resolved only the return type and ignored
 /// arguments entirely.
 #[test]
@@ -493,7 +494,7 @@ fn builtin_perform_arguments_are_checked() {
         }
         "
         .replace('\'', "\""),
-        "`(Number, Number): Show` is not satisfied",
+        "`(Number, Number): Error` is not satisfied",
     );
 }
 

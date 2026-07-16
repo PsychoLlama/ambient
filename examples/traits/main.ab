@@ -5,7 +5,8 @@
 //! key on. Renaming `Money` changes nothing; a same-shaped type elsewhere
 //! can never claim its methods. Implementing the prelude's operator traits
 //! (`Add`, `Eq`, `Ord`, ...) enables the corresponding operators, and
-//! `Show` is what `throw!` and any renderer ask of a value.
+//! `Show` is what any renderer asks of a value (`throw!` asks for the
+//! separate `Error` trait — see the error_handling example).
 
 use core::system::Stdio;
 use core::traits::Default;

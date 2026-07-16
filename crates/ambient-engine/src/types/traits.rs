@@ -48,10 +48,10 @@ pub const TRAIT_ORD_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff
 /// Canonical identity of the `core::traits::Default` trait (not in the
 /// prelude — no operator desugars to it). See [`TRAIT_ADD_UUID`].
 pub const TRAIT_DEFAULT_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0017);
-/// Canonical identity of the `core::traits::Show` trait — the stringifier
-/// (`fn show(self): String`) that bounds `Exception::throw<E: Show>`. Not an
-/// operator (no desugar anchors on it), but reserved and prelude-exported so
-/// `throw`'s bound is always in scope. See [`TRAIT_ADD_UUID`]; it claims the
+/// Canonical identity of the `core::traits::Show` trait — the conventional
+/// stringifier (`fn show(self): String`). Not an operator (no desugar
+/// anchors on it), but reserved and prelude-exported as the rendering
+/// vocabulary generic code bounds on. See [`TRAIT_ADD_UUID`]; it claims the
 /// slot after `Default` in the reserved trait block.
 pub const TRAIT_SHOW_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_0018);
 /// Canonical identity of the prelude `From<T>` conversion trait
@@ -89,6 +89,16 @@ pub const TRAIT_TRY_FROM_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff
 /// binding (associated types are checker-only, so nothing at runtime can
 /// disagree).
 pub const TRAIT_TRY_INTO_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_001c);
+/// Canonical identity of the prelude `Error` trait (`core::exception::Error`):
+/// `fn message(self): String`, what a value must be to be thrown. It bounds
+/// `Exception::throw<E: Error>`, so a handler (or the uncaught path) can
+/// always ask a caught value for its message. Reserved because the throw
+/// method key's canonical signature (`bound:0:Error`) is pinned in
+/// `ambient_core::exception` and no user trait may claim the identity the
+/// bound resolves through. Declared next to the `Exception` ability in
+/// `core_lib/exception.ab` (not `traits.ab`) so the bound resolves in its
+/// defining module; claims the slot after `TryInto`.
+pub const TRAIT_ERROR_UUID: Uuid = Uuid::from_u128(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_001d);
 
 /// A reserved core trait: name/uuid pairs for the declarations in
 /// `core_lib/traits.ab`, the trait analogue of [`super::Primitive`] /
@@ -112,7 +122,7 @@ pub enum ReservedTrait {
     Ord,
     /// `Default` — no operator; standard-library convenience.
     Default,
-    /// `Show` — no operator; the stringifier that bounds `Exception::throw`.
+    /// `Show` — no operator; the conventional stringifier.
     Show,
     /// `From<T>` — no operator; the declaration side of a conversion.
     From,
@@ -126,11 +136,14 @@ pub enum ReservedTrait {
     /// satisfiable through a `TryFrom` impl (the same uuid-anchored bridge
     /// shape as `Into`-via-`From`).
     TryInto,
+    /// `Error` — no operator; what a value must be to be thrown
+    /// (`Exception::throw<E: Error>`).
+    Error,
 }
 
 impl ReservedTrait {
     /// Every reserved core trait.
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -144,6 +157,7 @@ impl ReservedTrait {
         Self::Into,
         Self::TryFrom,
         Self::TryInto,
+        Self::Error,
     ];
 
     /// The reserved identity uuid for this trait.
@@ -163,6 +177,7 @@ impl ReservedTrait {
             Self::Into => TRAIT_INTO_UUID,
             Self::TryFrom => TRAIT_TRY_FROM_UUID,
             Self::TryInto => TRAIT_TRY_INTO_UUID,
+            Self::Error => TRAIT_ERROR_UUID,
         }
     }
 
@@ -183,6 +198,7 @@ impl ReservedTrait {
             Self::Into => "Into",
             Self::TryFrom => "TryFrom",
             Self::TryInto => "TryInto",
+            Self::Error => "Error",
         }
     }
 

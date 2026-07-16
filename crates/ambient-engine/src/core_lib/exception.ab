@@ -23,19 +23,41 @@
 /// caller; user code raises through `throw!`.
 extern fn uncaught<E>(error: E): !;
 
+/// What a value must be to be thrown: `Exception::throw`'s bound. A caught
+/// error is rigid (opaque) in a handler arm, so `message` is the one handle
+/// every handler has on it — declare an error enum or struct, `impl Error`
+/// for it, and any handler (or the uncaught path) can render it.
+///
+/// Declared here, next to the ability whose bound it is, rather than in
+/// `core::traits`. Reserved identity: the throw method key's canonical
+/// signature spells this bound, so the engine pins the uuid/name/shape
+/// (`validate_reserved_trait`) exactly like the operator traits. Prelude
+/// re-exported (see `prelude.ab`) so `impl Error for …` needs no import.
+pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF001D) trait Error {
+    fn message(self): String;
+}
+
+/// A bare `String` is the minimal error: `throw!("boom")` stays a
+/// one-liner, and the message is the string itself.
+impl Error for String {
+    fn message(self): String {
+        self
+    }
+}
+
 pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000001) ability Exception {
   /// Raise an error value, unwinding to the nearest Exception handler.
   ///
-  /// The value is any `E: Show` — a `String` message, a record, an enum —
-  /// so an uncaught (or logging) handler can always render it. The bound's
-  /// dictionary rides as a hidden trailing perform argument, exactly like a
-  /// bounded free function's; a single `Exception::throw(e) => …` arm catches
-  /// every `E`.
+  /// The value is any `E: Error` — a `String` message, or a domain error
+  /// type carrying an `impl Error` — so an uncaught (or logging) handler
+  /// can always ask it for a message. The bound's dictionary rides as a
+  /// hidden trailing perform argument, exactly like a bounded free
+  /// function's; a single `Exception::throw(e) => …` arm catches every `E`.
   ///
   /// Like every ability method, the body is what an unhandled perform
   /// runs: with no handler in scope the thrown value goes to the host as
   /// an uncaught exception.
-  fn throw<E: Show>(error: E): ! {
+  fn throw<E: Error>(error: E): ! {
     uncaught(error)
   }
 }

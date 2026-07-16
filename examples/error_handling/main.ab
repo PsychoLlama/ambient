@@ -14,8 +14,8 @@
 //!   with a substitute value. Reserve it for faults — conditions the
 //!   program shouldn't routinely recover from.
 //!
-//! Any `E: Show` can be thrown. Inside a catch arm the value is opaque
-//! except through that bound (`e.show()`), which is the deliberate
+//! Any `E: Error` can be thrown. Inside a catch arm the value is opaque
+//! except through that bound (`e.message()`), which is the deliberate
 //! asymmetry: errors worth branching on belong in a `Result`.
 
 use core::system::Stdio;
@@ -28,11 +28,11 @@ unique(BADDEB70-0001-4000-8000-000000000001) enum PaymentError {
   AccountFrozen,
 }
 
-/// `Show` is what makes a value *throwable* (and renderable anywhere):
-/// every thrown value must produce a string, so an uncaught-exception
-/// report always has something to print.
-impl Show for PaymentError {
-  fn show(self): String {
+/// `Error` is what makes a value *throwable*: every thrown value must
+/// produce a message, so an uncaught-exception report (or a logging
+/// handler) always has something to print.
+impl Error for PaymentError {
+  fn message(self): String {
     match self {
       InsufficientFunds(shortfall) => {
         let amount = core::convert::to_string(shortfall);
@@ -74,13 +74,13 @@ pub fn run(): () with Stdio {
   };
   match withdraw(100, false, 250) {
     Ok(remaining) => Stdio::out!("withdrew 250, ${core::convert::to_string(remaining)} left"),
-    Err(problem) => Stdio::out!("declined: ${problem.show()}"),
+    Err(problem) => Stdio::out!("declined: ${problem.message()}"),
   };
 
   // Catch-and-continue: the arm's value becomes the handle expression's
   // value, and execution carries on after it. `e` is an opaque
-  // `E: Show`, so its bound is the only way to look at it.
-  let report = with { Exception::throw(e) => "fault: ${e.show()}" }
+  // `E: Error`, so its bound is the only way to look at it.
+  let report = with { Exception::throw(e) => "fault: ${e.message()}" }
     handle {
       let total = settled_balance([]);
       "settled at ${core::convert::to_string(total)}"
@@ -91,7 +91,7 @@ pub fn run(): () with Stdio {
   // the trailing `else` wraps normal completion in `Ok` (it runs only
   // when the body completes without unwinding).
   let settled: Result<Number, String> =
-    with { Exception::throw(e) => Err(e.show()) }
+    with { Exception::throw(e) => Err(e.message()) }
       handle settled_balance([100, -30, 12])
       else (total) => Ok(total);
   match settled {
@@ -99,9 +99,9 @@ pub fn run(): () with Stdio {
     Err(problem) => Stdio::out!("could not settle: ${problem}"),
   };
 
-  // Thrown enums render through their Show impl — even uncaught, the
+  // Thrown enums render through their Error impl — even uncaught, the
   // report would carry this text.
-  let outcome = with { Exception::throw(e) => e.show() }
+  let outcome = with { Exception::throw(e) => e.message() }
     handle process_payment()
     else (cleared) => "payment cleared";
   Stdio::out!(outcome);

@@ -637,9 +637,9 @@ fn test_uncaught_throw_prints_a_hash_bearing_trace() {
 
 #[test]
 fn test_throw_carries_a_record_caught_arm_shows_it() {
-    // `throw<E: Show>` carries an arbitrary value, not just a string. A single
-    // polymorphic arm binds `e: E` in a rigid scope with the `Show` dictionary
-    // forwarded, so `e.show()` renders the caught record through the bound.
+    // `throw<E: Error>` carries an arbitrary value, not just a string. A single
+    // polymorphic arm binds `e: E` in a rigid scope with the `Error` dictionary
+    // forwarded, so `e.message()` renders the caught record through the bound.
     CliTest::new(
         r#"
         unique(D098767B-4093-4D5C-BA37-AD92AA7B1001) struct AppError {
@@ -647,8 +647,8 @@ fn test_throw_carries_a_record_caught_arm_shows_it() {
             detail: String,
         }
 
-        impl Show for AppError {
-            fn show(self): String {
+        impl Error for AppError {
+            fn message(self): String {
                 "AppError(" + core::convert::to_string(self.code) + ": " + self.detail + ")"
             }
         }
@@ -658,7 +658,7 @@ fn test_throw_carries_a_record_caught_arm_shows_it() {
         }
 
         pub fn run(): String {
-            with { Exception::throw(e) => e.show() } handle risky()
+            with { Exception::throw(e) => e.message() } handle risky()
         }
         "#,
     )
@@ -678,8 +678,8 @@ fn test_uncaught_record_exception_renders_structurally() {
             detail: String,
         }
 
-        impl Show for AppError {
-            fn show(self): String { self.detail }
+        impl Error for AppError {
+            fn message(self): String { self.detail }
         }
 
         pub fn run(): Number with Exception {

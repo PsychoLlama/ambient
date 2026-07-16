@@ -26,8 +26,9 @@ pub use core::collections::{List, Map, Set};
 // The operator traits desugar `+`, `-`, `==`, `<`, ... so the checker must
 // always have them in scope. `Default` is deliberately omitted: it has no
 // desugaring hook and is reachable through `use core::traits::Default`.
-// `Show` has no desugaring either, but it is the bound on `Exception::throw`,
-// so it rides the prelude next to `Exception` to stay always in scope.
+// `Show` has no desugaring either, but it is the conventional stringifier —
+// `impl Show` / `T: Show` is the rendering vocabulary idiomatic code reaches
+// for without an import — so it stays on the prelude.
 pub use core::traits::{Add, Sub, Mul, Div, Mod, Eq, Ord, Show};
 
 // The conversion pairs. `Into`/`TryInto` are load-bearing like `Show`: the
@@ -45,8 +46,11 @@ pub use core::convert::{From, Into, TryFrom, TryInto};
 // `core::exception::Exception` fully-qualified. Its one method rides the
 // prelude too, as an ability-method re-export, so raising an error is just
 // `throw!("...")` — no import, no prefix. Handler arms still spell
-// `Exception::throw(e)`: method imports cover calls only.
-pub use core::exception::Exception;
+// `Exception::throw(e)`: method imports cover calls only. `Error` is the
+// bound on `Exception::throw` — what a value must be to be thrown — so it
+// rides the prelude next to the ability and `impl Error for …` needs no
+// import.
+pub use core::exception::{Exception, Error};
 pub use core::exception::Exception::throw;
 
 // The `System` ability set: every platform ability as one name, the full

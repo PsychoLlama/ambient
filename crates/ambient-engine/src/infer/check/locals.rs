@@ -303,6 +303,7 @@ fn reserved_trait_method_shape(
         R::Into => ("into", true, 0),
         R::TryFrom => ("try_from", false, 1),
         R::TryInto => ("try_into", true, 0),
+        R::Error => ("message", true, 0),
     }
 }
 /// Register a single trait definition into the trait registry, binding its

@@ -59,10 +59,10 @@ pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0017) trait Default {
 
 /// Trait for rendering a value as a human-readable string.
 ///
-/// `Show` is the bound on `Exception::throw<E: Show>`: every thrown value
-/// can be rendered, so an uncaught or logging handler always has a string.
-/// It has no operator, but it is prelude-exported (next to `Exception`) so
-/// the bound is always in scope. Reserved uuid, pinned like the operator
+/// `Show` has no operator; it is the conventional stringifier — the bound
+/// generic code reaches for to render a value (`Exception::throw`'s bound
+/// is the separate `Error` trait in `core::exception`). Prelude-exported as
+/// everyday rendering vocabulary. Reserved uuid, pinned like the operator
 /// traits by `validate_reserved_trait`.
 pub unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFF0018) trait Show {
     fn show(self): String;
@@ -149,9 +149,9 @@ impl Eq for Bool {
     }
 }
 
-// `Show` impls: a thrown value satisfies `Exception::throw`'s `E: Show`
-// bound through one of these dictionaries. `String` renders as itself; the
-// rest delegate to the host `to_string` renderer.
+// `Show` impls: a bounded caller (`T: Show`) stringifies any primitive
+// through one of these dictionaries. `String` renders as itself; the rest
+// delegate to the host `to_string` renderer.
 
 impl Show for String {
     fn show(self): String {
