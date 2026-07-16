@@ -66,11 +66,13 @@ A **deploy** applies a generation to a running system, in this order:
    migrated/adopted, plus the diagnostics below.
 
 Deploys are produced by frontends, and the runtime does not know which:
-the dev loop (`ambient dev`, from the file watcher), the REPL
-(redefining an Fqn produces a one-item generation), and remote deploy
-(the same pack received over the wire and applied via the `Deploy`
-ability — see [remote-execution.md](remote-execution.md)). One
-mechanism, three producers.
+the dev loop (`ambient dev`, from the file watcher), the REPL (every
+expression turn ships a generation whose entry is the expression, and a
+live reload redeploys the freshly built project so running tasks rebind),
+and remote deploy (the same pack received over the wire and applied via
+the `Deploy` ability — see
+[remote-execution.md](remote-execution.md)). One mechanism, three
+producers.
 
 ## The Live ability
 

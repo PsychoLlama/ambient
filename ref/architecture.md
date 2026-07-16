@@ -419,7 +419,10 @@ ambient build foo.ab     # Compile to a foo.ambient artifact pack
 ambient ast foo.ab         # Dump the parsed AST
 ambient store stats        # Inspect the package store (also: ls, show,
                            #   deps, verify, gc, snapshot, tag, diff)
-ambient repl               # Interactive REPL
+ambient repl               # Interactive exploration: evaluate expressions,
+                           #   save bindings (x = expr), import names, and
+                           #   inspect modules/signatures. Definitions live
+                           #   in files; the session live-reloads on save
 ambient dev <pkg>          # Live-upgrade development: watches sources and
                            #   deploys each change onto the running system
                            #   (cells keep state, tasks pick up rebound
@@ -514,9 +517,9 @@ Roughly in priority order:
   through checker, compiler, and VM — bare import, fully-qualified use,
   default implementations, dependency (`with`) rows, re-exports, and
   nominal-typed method signatures all cross the module boundary. The
-  REPL registers `core::system` and every project module, and honours an
-  `ability` declared in one turn and used in a later one
-  (`crates/ambient-cli/tests/module_system.rs`, `repl_tests.rs`).
+  REPL registers `core::system` and every project module, so both
+  `use core::system::…` and `use pkg::b::SomeAbility;` work at the
+  prompt (`crates/ambient-cli/tests/module_system.rs`, `repl_tests.rs`).
 - **Workspace mechanism (multi-package local development).** Resolve
   sibling packages by name, share a build directory, and compile
   independent packages in parallel. Lands before the package manager, and
@@ -526,7 +529,8 @@ Roughly in priority order:
   applied through deployable generations, with author-placed late-bound
   points (the `Live` ability), runtime-owned state cells with an
   explicit migration contract, drainable named tasks, exact generation
-  retirement, and three deploy frontends (the dev loop, the REPL, and
+  retirement, and three deploy frontends (the dev loop, the REPL —
+  whose expression turns and live reloads are deploys — and
   remote deploy over the `Deploy` ability). The in-language loop idiom
   is now spellable — proper tail calls mean a task's loop can re-enter
   through `Live::latest!` in tail position and run in constant stack

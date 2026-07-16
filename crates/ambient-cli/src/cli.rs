@@ -75,10 +75,17 @@ pub enum Command {
         file: PathBuf,
     },
 
-    /// Start an interactive REPL session.
+    /// Explore code interactively: evaluate expressions, save bindings
+    /// (`x = expr`), import names, and inspect modules and signatures.
+    ///
+    /// The session's scope is the directory the REPL starts in — `pkg`,
+    /// `self`, and `super` resolve as they would in a file there — and it
+    /// live-reloads as project sources change. Definitions belong in
+    /// module files, not the prompt.
     Repl {
-        /// Project directory for completions (defaults to current directory).
-        /// Can be the package root (containing ambient.toml) or any subdirectory.
+        /// Directory to anchor the session at (defaults to the current
+        /// directory). Can be the package root (containing ambient.toml)
+        /// or any subdirectory.
         #[arg(long, value_name = "DIR")]
         project: Option<PathBuf>,
     },
