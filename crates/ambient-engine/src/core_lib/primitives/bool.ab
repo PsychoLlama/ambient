@@ -5,3 +5,23 @@
 // must equal `BOOL_UUID` in `types.rs`, and the compiler's literal anchor
 // (`Type::bool()`) lowers to this exact declaration.
 pub extern unique(FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFF01) struct Bool;
+
+/// Parse a boolean: true/1/yes and false/0/no (case-insensitive).
+/// Module-private: the public surface is the `TryFrom<String>` impl below
+/// (`Bool::try_from` / `s.try_into()`).
+extern fn parse_bool(value: String): Option<Bool>;
+
+/// Parse a `Bool` (true/1/yes and false/0/no, case-insensitive); the error
+/// carries the rejected input. Lives here, with its target type, rather than
+/// in `core::convert`: constructing `Ok`/`Err` is a value edge to
+/// `core::result`, and `convert` must stay clear of it (see `convert.ab`).
+impl TryFrom<String> for Bool {
+    type Error = String;
+
+    fn try_from(value: String): Result<Bool, String> {
+        match parse_bool(value) {
+            Some(b) => Ok(b),
+            None => Err("not a boolean: " + value),
+        }
+    }
+}

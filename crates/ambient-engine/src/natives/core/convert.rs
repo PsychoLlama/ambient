@@ -1,8 +1,13 @@
-//! Natives for `core::convert`: primitive value conversions.
+//! Natives for `core::convert`: value rendering.
+//!
+//! The `TryFrom<String>` parsers (`parse_number`, `parse_bool`) moved to
+//! their target primitives' native modules (`number.rs`, `bool.rs`), mirroring
+//! the `.ab` move that keeps `core::convert` free of the `core::result` value
+//! edge. Their uuids (0x0702, 0x0703) rode along unchanged.
 
 use crate::{Value, VmError};
 
-use super::{NativeRegistry, arg, bind, module, string};
+use super::{NativeRegistry, arg, bind, module};
 
 // Uniform native signature; the wrap is the calling convention.
 #[allow(clippy::unnecessary_wraps)]
@@ -11,26 +16,7 @@ fn to_string(mut args: Vec<Value>) -> Result<Value, VmError> {
     Ok(Value::string(crate::format::format_value(&value)))
 }
 
-fn parse_number(mut args: Vec<Value>) -> Result<Value, VmError> {
-    let s = string(&mut args, 0, "parse_number")?;
-    Ok(match s.trim().parse::<f64>() {
-        Ok(n) => Value::some(Value::Number(n)),
-        Err(_) => Value::none(),
-    })
-}
-
-fn parse_bool(mut args: Vec<Value>) -> Result<Value, VmError> {
-    let s = string(&mut args, 0, "parse_bool")?;
-    Ok(match s.trim().to_lowercase().as_str() {
-        "true" | "1" | "yes" => Value::some(Value::Bool(true)),
-        "false" | "0" | "no" => Value::some(Value::Bool(false)),
-        _ => Value::none(),
-    })
-}
-
 pub(super) fn register(reg: &mut NativeRegistry) {
     let m = module(&["core", "convert"]);
     bind(reg, &m, "to_string", 0x0701, 1, to_string);
-    bind(reg, &m, "parse_number", 0x0702, 1, parse_number);
-    bind(reg, &m, "parse_bool", 0x0703, 1, parse_bool);
 }

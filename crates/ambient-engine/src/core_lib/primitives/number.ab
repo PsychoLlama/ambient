@@ -54,6 +54,10 @@ extern fn atan2(y: Number, x: Number): Number;
 extern fn log10(value: Number): Number;
 /// Base-2 logarithm.
 extern fn log2(value: Number): Number;
+/// Parse a number from its decimal rendering (leading/trailing whitespace
+/// ignored). Module-private: the public surface is the `TryFrom<String>`
+/// impl below (`Number::try_from` / `s.try_into()`).
+extern fn parse_number(value: String): Option<Number>;
 
 // The public math API: inherent methods on `Number`, delegating to the
 // externs above (or implemented directly when there is no native half).
@@ -162,5 +166,20 @@ impl Number {
     // Base-2 logarithm.
     fn log2(self): Number {
         log2(self)
+    }
+}
+
+/// Parse a `Number` from its decimal rendering; the error carries the
+/// rejected input. Lives here, with its target type, rather than in
+/// `core::convert`: constructing `Ok`/`Err` is a value edge to `core::result`,
+/// and `convert` must stay clear of it (see `convert.ab`).
+impl TryFrom<String> for Number {
+    type Error = String;
+
+    fn try_from(value: String): Result<Number, String> {
+        match parse_number(value) {
+            Some(n) => Ok(n),
+            None => Err("not a number: " + value),
+        }
     }
 }

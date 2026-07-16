@@ -15,7 +15,10 @@
 //! id is **permanent**:
 //! it names a behavior, compiled code links to it by hash, and remote
 //! hosts bind it by id — never reuse or renumber one. Removing a function
-//! retires its id; changing semantics mints a new id.
+//! retires its id; changing semantics mints a new id. The ranges describe
+//! where an id was *minted*, not where it binds today: `parse_number`
+//! (0x0702) and `parse_bool` (0x0703) keep their convert-range ids but now
+//! bind under `number`/`bool`, having moved off `core::convert`.
 
 use std::sync::Arc;
 
@@ -24,6 +27,7 @@ use crate::{Value, VmError};
 use super::NativeRegistry;
 
 mod binary;
+mod bool;
 mod collections;
 mod convert;
 mod exception;
@@ -36,6 +40,7 @@ mod string;
 pub(super) fn registry() -> NativeRegistry {
     let mut reg = NativeRegistry::new();
     number::register(&mut reg);
+    bool::register(&mut reg);
     string::register(&mut reg);
     collections::register(&mut reg);
     binary::register(&mut reg);
@@ -405,7 +410,11 @@ mod tests {
         expect(&["core", "primitives", "binary"], "from_string", 0x0607, 1);
         expect(&["core", "primitives", "binary"], "to_string", 0x0608, 1);
         expect(&["core", "convert"], "to_string", 0x0701, 1);
-        expect(&["core", "convert"], "parse_bool", 0x0703, 1);
+        // parse_number/parse_bool keep their 0x07 convert-range ids (a uuid is
+        // permanent) but bind under their target primitives after moving off
+        // `core::convert` — see the `.ab` move in number.ab/bool.ab.
+        expect(&["core", "primitives", "number"], "parse_number", 0x0702, 1);
+        expect(&["core", "primitives", "bool"], "parse_bool", 0x0703, 1);
         expect(&["core", "reflect"], "tag", 0x0801, 1);
         expect(&["core", "reflect"], "payload", 0x0802, 1);
         expect(&["core", "protocol"], "serialize_value", 0x0901, 1);

@@ -2,7 +2,19 @@
 
 use crate::{Value, VmError};
 
-use super::{NativeRegistry, bind, module, number};
+use super::{NativeRegistry, bind, module, number, string};
+
+// Parse a number from its decimal rendering; the `.ab` `TryFrom<String> for
+// Number` impl wraps the `Option` this returns into a `Result`. Bound here,
+// with the rest of `core::primitives::number`, since the parser moved off
+// `core::convert` (see `convert.rs`). Uuid 0x0702 is unchanged from that move.
+fn parse_number(mut args: Vec<Value>) -> Result<Value, VmError> {
+    let s = string(&mut args, 0, "parse_number")?;
+    Ok(match s.trim().parse::<f64>() {
+        Ok(n) => Value::some(Value::Number(n)),
+        Err(_) => Value::none(),
+    })
+}
 
 fn unary(mut args: Vec<Value>, op: &'static str, f: fn(f64) -> f64) -> Result<Value, VmError> {
     let n = number(&mut args, 0, op)?;
@@ -51,4 +63,5 @@ pub(super) fn register(reg: &mut NativeRegistry) {
         unary(a, "log10", f64::log10)
     });
     bind(reg, &m, "log2", 0x0114, 1, |a| unary(a, "log2", f64::log2));
+    bind(reg, &m, "parse_number", 0x0702, 1, parse_number);
 }
