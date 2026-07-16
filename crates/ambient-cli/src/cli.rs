@@ -7,6 +7,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(name = "ambient")]
 #[command(author, version, about, long_about = None)]
+#[command(disable_help_subcommand = true)]
 pub struct Args {
     #[command(subcommand)]
     pub command: Command,
