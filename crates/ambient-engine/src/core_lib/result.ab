@@ -70,3 +70,16 @@ impl<T, E> Result<T, E> {
         }
     }
 }
+
+// `expect` renders the error into its thrown message, so it needs `E: Error`.
+// The bound rides this second block, not the one above — `map`/`is_ok`/... must
+// stay available to results whose error cannot render.
+impl<T, E: Error> Result<T, E> {
+    // Unwrap the `Ok`, or throw `assertion: error` on `Err`.
+    fn expect(self, assertion: String): T with core::exception::Exception {
+        match self {
+            Ok(v) => v,
+            Err(e) => throw!("${assertion}: ${e.message()}"),
+        }
+    }
+}

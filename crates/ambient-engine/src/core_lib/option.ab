@@ -77,4 +77,11 @@ impl<T> Option<T> {
             None => fallback,
         }
     }
+    // Unwrap the `Some`, or throw `assertion` on `None`.
+    fn expect(self, assertion: String): T with core::exception::Exception {
+        match self {
+            Some(v) => v,
+            None => throw!(assertion),
+        }
+    }
 }
