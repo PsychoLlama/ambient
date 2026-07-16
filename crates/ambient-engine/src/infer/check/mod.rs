@@ -199,6 +199,7 @@ pub fn check_module_with_registry_and_resolver(
 /// 4. Ability enforcement — deferred until all bodies are checked so calls
 ///    to functions defined later (whose ability variables bind in phase 3)
 ///    resolve before their callers are judged.
+#[allow(clippy::too_many_lines)] // one linear phase pipeline
 fn check_module_core(
     mut infer: Infer,
     mut module: crate::ast::Module,
