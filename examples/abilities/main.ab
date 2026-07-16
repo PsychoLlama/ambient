@@ -36,9 +36,10 @@ fn best_of_three(sides: Number): Number with Dice {
     .unwrap_or(0)
 }
 
-/// Pure code can be *proven* pure: a `sandbox` block is checked at
-/// compile time — a `Dice::roll!` (or any perform) inside this body,
-/// however deeply nested in local calls, would be a type error.
+/// The average of a single fair roll. Pure code can be *proven* pure:
+/// a `sandbox` block is checked at compile time — a `Dice::roll!` (or
+/// any perform) inside this body, however deeply nested in local
+/// calls, would be a type error.
 fn expected_average(sides: Number): Number {
   sandbox {
     (sides + 1) / 2

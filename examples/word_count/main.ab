@@ -41,8 +41,9 @@ fn tally(all: List<String>): Map<String, Number> {
     counts.insert(word, counts.get(word).unwrap_or(0) + 1))
 }
 
-/// The most frequent word. `head` returns an Option — the empty case is a
-/// value to handle, not a sentinel.
+/// The most frequent word ("" when the text is empty). `Map::get`
+/// returns an Option — a missing key is a value to handle, not a
+/// sentinel — and `unwrap_or` picks the default at the use site.
 fn favorite(counts: Map<String, Number>): String {
   counts.keys().fold("", (best: String, word: String) => {
     let count = counts.get(word).unwrap_or(0);
