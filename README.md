@@ -123,7 +123,7 @@ ambient dev my_project           # live-upgrade loop (hot-swaps processes, keepi
 ambient lsp                      # language server (see ambient.nvim/)
 ```
 
-Every build lands in a per-package content-addressed store (`.ambient/store/`) laid out git-style. `ambient store` gives you `stats`, `ls`, `show` (with disassembly), `deps`, `verify`, and `gc`. `ambient build` emits a single-file `.ambient` artifact (the same object format plus name bindings and an entry point) that `ambient run` executes after recomputing every hash from content.
+Every build lands in a per-package content-addressed store (`.ambient/store/`) laid out git-style. `ambient store` gives you `stats`, `list` (aliased `ls`), `show` (with disassembly), `deps`, `verify`, and `gc`. `ambient build` emits a single-file `.ambient` artifact (the same object format plus name bindings and an entry point) that `ambient run` executes after recomputing every hash from content.
 
 See the `examples/` directory for runnable programs.
 

@@ -133,7 +133,8 @@ pub enum StoreCommand {
     /// Reads the current snapshot's structured index, so types, traits, and
     /// abilities appear alongside functions and consts. Falls back to the
     /// flat names index when there is no snapshot.
-    Ls {
+    #[command(alias = "ls")]
+    List {
         /// Comma-separated kinds to show (`fn,const,struct,enum,type,trait,
         /// ability`, or a namespace `value,type,trait,ability`). Omit for all.
         #[arg(long, value_name = "KINDS")]
@@ -142,7 +143,7 @@ pub enum StoreCommand {
 
     /// Show an object: metadata, dependencies, and disassembly.
     ///
-    /// REF is a bound name (see `ambient store ls`) or a hash prefix.
+    /// REF is a bound name (see `ambient store list`) or a hash prefix.
     Show {
         #[arg(value_name = "REF")]
         reference: String,

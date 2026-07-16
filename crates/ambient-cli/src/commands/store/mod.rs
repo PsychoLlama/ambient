@@ -100,7 +100,7 @@ pub fn cmd_store(path: &Path, command: &StoreCommand) -> Result<()> {
     let store = DiskStore::open(find_store_root(path)?)?;
     match command {
         StoreCommand::Stats => stats(&store),
-        StoreCommand::Ls { kinds } => index::ls(&store, kinds.as_deref()),
+        StoreCommand::List { kinds } => index::list(&store, kinds.as_deref()),
         StoreCommand::Show { reference } => show(&store, reference),
         StoreCommand::Deps { reference } => deps(&store, reference),
         StoreCommand::Verify => verify(&store),

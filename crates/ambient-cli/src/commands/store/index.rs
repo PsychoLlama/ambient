@@ -1,4 +1,4 @@
-//! The structured-index views behind `ambient store ls` and the type/trait/
+//! The structured-index views behind `ambient store list` and the type/trait/
 //! ability half of `ambient store show`. These read the current snapshot's
 //! per-module item records (kind, identity, span, source path) so items that
 //! are not objects — types, traits, abilities — are inspectable, and every
@@ -68,8 +68,8 @@ fn kind_matches(kind: ItemKindTag, filter: &[String]) -> bool {
             .any(|k| k == kind.label() || k == kind.namespace().label())
 }
 
-/// `ambient store ls [--kinds ...]`.
-pub fn ls(store: &DiskStore, kinds: Option<&str>) -> Result<()> {
+/// `ambient store list [--kinds ...]`.
+pub fn list(store: &DiskStore, kinds: Option<&str>) -> Result<()> {
     let filter: Vec<String> = kinds
         .map(|s| {
             s.split(',')

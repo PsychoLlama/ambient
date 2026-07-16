@@ -1,6 +1,6 @@
 //! End-to-end coverage of the structured names index (Phase 6): `store show`
 //! resolves types, traits, and abilities (not just objects) with kind, uuid,
-//! span, and source path; `store ls --kinds` filters by namespace/kind.
+//! span, and source path; `store list --kinds` filters by namespace/kind.
 
 use std::fs;
 use std::path::Path;
@@ -119,16 +119,20 @@ fn ls_unfiltered_lists_typed_items_and_retains_dispatch_symbols() {
     let dir = package();
     build(dir.path());
 
-    let out = stdout(&store(dir.path(), &["ls"]));
+    let out = stdout(&store(dir.path(), &["list"]));
     // Typed items appear with their kind.
     assert!(out.contains("struct  "), "kind column present: {out}");
     assert!(out.contains("::Shape"), "type listed: {out}");
     // Content dispatch symbols (<uuid>::method) are not structured items but
-    // must still be listed (with a bare kind), so `ls` never loses a binding.
+    // must still be listed (with a bare kind), so `list` never loses a binding.
     assert!(
         out.lines().any(|l| l.starts_with('—')),
         "dispatch-symbol rows retained under a bare kind"
     );
+
+    // `ls` is an alias for `list` and produces identical output.
+    let aliased = stdout(&store(dir.path(), &["ls"]));
+    assert_eq!(aliased, out, "`store ls` must alias `store list`");
 }
 
 #[test]
@@ -137,7 +141,7 @@ fn ls_kinds_filters_by_kind_and_namespace() {
     build(dir.path());
 
     // Precise kind filter: only structs.
-    let structs = stdout(&store(dir.path(), &["ls", "--kinds", "struct"]));
+    let structs = stdout(&store(dir.path(), &["list", "--kinds", "struct"]));
     assert!(
         structs.contains("workspace::idx::shapes::Shape"),
         "struct listed: {structs}"
@@ -146,7 +150,7 @@ fn ls_kinds_filters_by_kind_and_namespace() {
     assert!(!structs.contains("::area"), "fn excluded: {structs}");
 
     // Namespace filter: all types (struct + enum), no values/traits.
-    let types = stdout(&store(dir.path(), &["ls", "--kinds", "type"]));
+    let types = stdout(&store(dir.path(), &["list", "--kinds", "type"]));
     assert!(types.contains("::Shape"), "{types}");
     assert!(types.contains("::Color"), "{types}");
     assert!(!types.contains("::area"), "value excluded: {types}");
