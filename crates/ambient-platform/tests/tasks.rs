@@ -181,6 +181,7 @@ fn deploy(h: &Harness, compiled: &CompiledModule) -> TaskReconcileOutcome {
     let result = h.core.deploy(
         &functions_from_module(compiled),
         &named_hash(compiled, "run"),
+        Vec::new(),
         |vm| install_task_natives(vm, &h.tasks, true),
     );
     let outcome = h.tasks.finish_reconcile(result.is_ok());

@@ -990,3 +990,58 @@ fn test_parse_qualified_perform_still_carries_its_ability() {
         other => panic!("Expected perform, got {other:?}"),
     }
 }
+
+#[test]
+fn test_repl_input_binding_is_ident_equals_expr() {
+    let mut parser = Parser::new("x = 1 + 2").unwrap();
+    match parser.parse_repl_input().expect("parse error") {
+        crate::cst::CstReplInput::Binding { name, expr } => {
+            assert_eq!(&*name.name, "x");
+            assert!(matches!(expr.kind, CstExprKind::Binary { .. }));
+        }
+        other => panic!("Expected binding, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_repl_input_equality_is_an_expression_not_a_binding() {
+    let mut parser = Parser::new("x == 1").unwrap();
+    assert!(matches!(
+        parser.parse_repl_input().expect("parse error"),
+        crate::cst::CstReplInput::Expr(_)
+    ));
+}
+
+#[test]
+fn test_repl_input_bare_ident_and_call_stay_expressions() {
+    for source in ["x", "f(x)", "x.method()"] {
+        let mut parser = Parser::new(source).unwrap();
+        assert!(
+            matches!(
+                parser.parse_repl_input().expect("parse error"),
+                crate::cst::CstReplInput::Expr(_)
+            ),
+            "{source} should parse as an expression"
+        );
+    }
+}
+
+#[test]
+fn test_repl_binding_rejects_trailing_garbage() {
+    let mut parser = Parser::new("x = 1 2").unwrap();
+    assert!(parser.parse_repl_input().is_err());
+}
+
+#[test]
+fn test_repl_binding_to_lambda_and_struct_literal() {
+    for source in ["f = (x) => x + 1", "p = Point { x: 1, y: 2 }"] {
+        let mut parser = Parser::new(source).unwrap();
+        assert!(
+            matches!(
+                parser.parse_repl_input().expect("parse error"),
+                crate::cst::CstReplInput::Binding { .. }
+            ),
+            "{source} should parse as a binding"
+        );
+    }
+}

@@ -121,13 +121,13 @@ fn old_code_picks_up_new_behavior_through_latest() {
     );
 
     let core = runtime();
-    core.deploy(&functions_from_module(&v1), &named_hash(&v1, "run"), |_| {})
+    core.deploy(&functions_from_module(&v1), &named_hash(&v1, "run"), Vec::new(), |_| {})
         .expect("v1 deploys");
     let mut vm = core.build_vm();
     let before = vm.call(&use_latest_v1, Vec::new()).expect("v1 code runs");
     assert_eq!(format!("{before:?}"), "Number(1.0)");
 
-    core.deploy(&functions_from_module(&v2), &named_hash(&v2, "run"), |_| {})
+    core.deploy(&functions_from_module(&v2), &named_hash(&v2, "run"), Vec::new(), |_| {})
         .expect("v2 deploys");
 
     // Same old hash, fresh VM: the `latest!` read resolves target's name
@@ -162,10 +162,10 @@ fn signature_changed_target_stays_pinned_for_old_code() {
     let use_latest_v1 = named_hash(&v1, "use_latest");
 
     let core = runtime();
-    core.deploy(&functions_from_module(&v1), &named_hash(&v1, "run"), |_| {})
+    core.deploy(&functions_from_module(&v1), &named_hash(&v1, "run"), Vec::new(), |_| {})
         .expect("v1 deploys");
     let report = core
-        .deploy(&functions_from_module(&v2), &named_hash(&v2, "run"), |_| {})
+        .deploy(&functions_from_module(&v2), &named_hash(&v2, "run"), Vec::new(), |_| {})
         .expect("v2 deploys");
     assert!(
         report.names.retired.contains(&Arc::from("target")),
@@ -226,6 +226,7 @@ fn latest_rejects_non_functions() {
     core.deploy(
         &functions_from_module(&compiled),
         &named_hash(&compiled, "run"),
+        Vec::new(),
         |_| {},
     )
     .expect("deploys");

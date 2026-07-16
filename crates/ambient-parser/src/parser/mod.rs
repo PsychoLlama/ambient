@@ -273,13 +273,18 @@ impl<'src> Parser<'src> {
         (module, std::mem::take(&mut self.errors))
     }
 
-    /// Parse REPL input, which may be either an item (function, const, etc.) or an expression.
+    /// Parse REPL input: an item (function, const, etc.), a REPL binding
+    /// (`<ident> = <expr>`), or an expression.
     ///
-    /// This is used by the REPL to support defining functions and constants interactively.
+    /// The binding form is REPL-only surface syntax — the language has no
+    /// assignment. It is recognized by token lookahead (an identifier
+    /// followed by a lone `=`), so `x == y`, `x`, and `f(x)` all still
+    /// parse as expressions.
     ///
     /// # Errors
     ///
-    /// Returns a `ParseError` if the source is not a valid item or expression.
+    /// Returns a `ParseError` if the source is not a valid item, binding,
+    /// or expression.
     pub fn parse_repl_input(&mut self) -> Result<CstReplInput, ParseError> {
         self.skip_trivia();
 
@@ -301,24 +306,38 @@ impl<'src> Parser<'src> {
 
         if is_item {
             let item = self.parse_item()?;
-            self.skip_trivia();
-            if !self.at_end() {
-                return Err(ParseError::new(
-                    ParseErrorKind::UnexpectedToken(format!("{:?}", self.current_kind())),
-                    self.current().span,
-                ));
+            self.expect_repl_end()?;
+            return Ok(CstReplInput::Item(Box::new(item)));
+        }
+
+        // A REPL binding: `<ident> = <expr>`. Backtrack if the `=` isn't
+        // there (`x`, `x == y`, `x.method()` are ordinary expressions).
+        if self.current_kind() == TokenKind::Ident {
+            let save = self.pos;
+            let name = self.parse_ident()?;
+            if self.consume(TokenKind::Eq).is_some() {
+                let expr = self.parse_expression()?;
+                self.expect_repl_end()?;
+                return Ok(CstReplInput::Binding { name, expr });
             }
-            Ok(CstReplInput::Item(Box::new(item)))
+            self.pos = save;
+        }
+
+        let expr = self.parse_expression()?;
+        self.expect_repl_end()?;
+        Ok(CstReplInput::Expr(expr))
+    }
+
+    /// After a parsed REPL input, require the rest of the line to be empty.
+    fn expect_repl_end(&mut self) -> Result<(), ParseError> {
+        self.skip_trivia();
+        if self.at_end() {
+            Ok(())
         } else {
-            let expr = self.parse_expression()?;
-            self.skip_trivia();
-            if !self.at_end() {
-                return Err(ParseError::new(
-                    ParseErrorKind::UnexpectedToken(format!("{:?}", self.current_kind())),
-                    self.current().span,
-                ));
-            }
-            Ok(CstReplInput::Expr(expr))
+            Err(ParseError::new(
+                ParseErrorKind::UnexpectedToken(format!("{:?}", self.current_kind())),
+                self.current().span,
+            ))
         }
     }
 

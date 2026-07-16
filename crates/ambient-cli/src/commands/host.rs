@@ -253,6 +253,10 @@ impl RuntimeHost {
     /// declaration of the running program, so absence means "leave it
     /// running".
     ///
+    /// `entry_args` are passed positionally to the entry function — the
+    /// REPL's session bindings ride in here, so a turn's entry can take
+    /// the previously bound values as parameters.
+    ///
     /// Two deliberate asymmetries with [`Self::deploy`]:
     ///
     /// - The entry's own name binding is stripped from the generation.
@@ -266,6 +270,7 @@ impl RuntimeHost {
         &self,
         compiled: &CompiledModule,
         entry: &str,
+        entry_args: Vec<ambient_engine::value::Value>,
     ) -> Result<HostDeployOutcome> {
         let _pass = self.deploy_lock.acquire();
         let (entry_name, entry_hash) = resolve_entry(compiled, entry)?;
@@ -283,7 +288,7 @@ impl RuntimeHost {
         }
         let report = self
             .core
-            .deploy(&functions, &entry_hash, |vm| {
+            .deploy(&functions, &entry_hash, entry_args, |vm| {
                 install_task_natives(vm, &self.tasks, false);
             })
             .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -409,7 +414,7 @@ fn deploy_build(
     // declaration must not drain anything).
     let functions = functions_from_module(compiled);
     tasks.begin_reconcile();
-    let result = core.deploy(&functions, &entry_hash, |vm| {
+    let result = core.deploy(&functions, &entry_hash, Vec::new(), |vm| {
         install_task_natives(vm, tasks, true);
     });
     let task_outcome = tasks.finish_reconcile(result.is_ok());

@@ -119,13 +119,22 @@ pub enum TriviaKind {
 // REPL Input
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Input to the REPL, which may be either an item definition or an expression.
+/// Input to the REPL: an item, an expression, or a REPL-only binding.
 #[derive(Debug, Clone)]
 pub enum CstReplInput {
     /// An item definition (function, const, type, etc.).
     Item(Box<CstItem>),
     /// An expression to evaluate.
     Expr(CstExpr),
+    /// A REPL session binding: `<ident> = <expr>`. Not valid in the
+    /// language proper — the REPL evaluates the expression once and keeps
+    /// the value under the name for later turns.
+    Binding {
+        /// The bound name.
+        name: CstIdent,
+        /// The initializer, evaluated once when the binding is entered.
+        expr: CstExpr,
+    },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

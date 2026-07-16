@@ -242,6 +242,8 @@ impl ReplSession {
         match input {
             ReplInput::Items(items) => self.eval_items(line, &items),
             ReplInput::Expr(_) => self.eval_expression(line),
+            // Placeholder until the session rework lands bindings.
+            ReplInput::Binding { .. } => Err("bindings are not supported yet".to_string()),
         }
     }
 
@@ -266,14 +268,17 @@ impl ReplSession {
         let trial_source = format!("{committed}{line}\nfn {entry_local}() {{ }}\n");
 
         // Type-check the whole trial module once; commit only if it is clean.
-        let (registry, check) = self.check_trial(&trial_source)?;
+        let (registry, check) = self.check_trial(&trial_source, &entry_local, &[])?;
 
         let merged = self
             .compile_trial(&registry, &check, &trial_source)
             .map_err(|e| format!("{e}"))?;
 
         let entry_qualified = format!("{REPL_MODULE}::{entry_local}");
-        let outcome = match self.host.deploy_incremental(&merged, &entry_qualified) {
+        let outcome = match self
+            .host
+            .deploy_incremental(&merged, &entry_qualified, Vec::new())
+        {
             Ok(outcome) => outcome,
             Err(e) => {
                 // Leave the committed module in place for the next turn.
@@ -309,7 +314,7 @@ impl ReplSession {
         // `use` needed for fully-qualified platform calls.
         let trial_source = format!("{committed}fn {entry_local}() {{\n{line}\n}}\n");
 
-        let (registry, check) = self.check_trial(&trial_source)?;
+        let (registry, check) = self.check_trial(&trial_source, &entry_local, &[])?;
         let merged = self
             .compile_trial(&registry, &check, &trial_source)
             .map_err(|e| format!("{e}"))?;
@@ -321,7 +326,7 @@ impl ReplSession {
         let entry_qualified = format!("{REPL_MODULE}::{entry_local}");
         let outcome = self
             .host
-            .deploy_incremental(&merged, &entry_qualified)
+            .deploy_incremental(&merged, &entry_qualified, Vec::new())
             .map_err(|e| format!("{e}"))?;
         self.report_deploy(&outcome);
 
@@ -341,11 +346,21 @@ impl ReplSession {
     fn check_trial(
         &mut self,
         trial_source: &str,
+        entry_local: &str,
+        param_types: &[ambient_engine::types::Type],
     ) -> std::result::Result<(ModuleRegistry, ambient_analysis::SessionCheck), String> {
         self.sync_repl_module(trial_source);
         let registry = self.package.build_registry();
-        let check =
-            ambient_analysis::check_session_module(trial_source, &self.repl_path, &registry);
+        let entry_spec = ambient_engine::infer::SessionEntrySpec {
+            entry: entry_local,
+            param_types,
+        };
+        let check = ambient_analysis::check_session_module(
+            trial_source,
+            &self.repl_path,
+            &registry,
+            &entry_spec,
+        );
         let diagnostics = check.diagnostics();
         if diagnostics.is_empty() {
             Ok((registry, check))

@@ -563,6 +563,10 @@ impl DeployRuntime {
     /// called — the client's hook for installing its own natives (the
     /// host binds the task runtime's `task_*` set here).
     ///
+    /// `entry_args` are passed positionally to the entry function. A full
+    /// program declaration's entry takes none (`run`/`dev` pass an empty
+    /// vec); the REPL's per-turn entry takes its session bindings.
+    ///
     /// # Errors
     ///
     /// [`DeployError::Validation`] if the generation is malformed (a
@@ -578,6 +582,7 @@ impl DeployRuntime {
         &self,
         generation: &Functions,
         entry: &blake3::Hash,
+        entry_args: Vec<Value>,
         wire: impl FnOnce(&mut Vm),
     ) -> Result<DeployReport, DeployError> {
         // 1. Load additively. Content addressing makes re-loading a known
@@ -604,7 +609,7 @@ impl DeployRuntime {
         // 4. Reconcile: run the entry on a fully loaded, client-wired VM.
         let mut vm = self.build_vm();
         wire(&mut vm);
-        let value = match vm.call(entry, Vec::new()) {
+        let value = match vm.call(entry, entry_args) {
             Ok(value) => value,
             Err(e) => return Err(DeployError::Entry(vm.runtime_error(e))),
         };

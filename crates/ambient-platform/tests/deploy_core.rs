@@ -127,6 +127,7 @@ fn entry_fault_carries_a_structured_hash_bearing_trace() {
         .deploy(
             &functions_from_module(&compiled),
             &entry_hash(&compiled),
+            Vec::new(),
             |_| {},
         )
         .expect_err("the uncaught throw must fault the entry");
@@ -199,9 +200,9 @@ fn loading_is_additive_across_deploys() {
     assert_ne!(entry1, entry2, "the two builds must differ");
 
     let core = runtime();
-    core.deploy(&functions_from_module(&v1), &entry1, |_| {})
+    core.deploy(&functions_from_module(&v1), &entry1, Vec::new(), |_| {})
         .expect("first deploy succeeds");
-    core.deploy(&functions_from_module(&v2), &entry2, |_| {})
+    core.deploy(&functions_from_module(&v2), &entry2, Vec::new(), |_| {})
         .expect("second deploy succeeds");
 
     // Both generations' entries are loaded and runnable side by side.
@@ -233,6 +234,7 @@ fn diff_reports_added_retired_and_unchanged() {
         .deploy(
             &with_bindings(&compiled, &[("a", one), ("b", two)]),
             &entry,
+            Vec::new(),
             |_| {},
         )
         .expect("first deploy succeeds");
@@ -245,6 +247,7 @@ fn diff_reports_added_retired_and_unchanged() {
         .deploy(
             &with_bindings(&compiled, &[("a", one), ("b", one), ("c", two)]),
             &entry,
+            Vec::new(),
             |_| {},
         )
         .expect("second deploy succeeds");
@@ -285,10 +288,10 @@ fn same_signature_rebinding_resolves_old_refs_forward() {
     );
 
     let core = runtime();
-    core.deploy(&functions_from_module(&v1), &entry_hash(&v1), |_| {})
+    core.deploy(&functions_from_module(&v1), &entry_hash(&v1), Vec::new(), |_| {})
         .expect("v1 deploys");
     let report = core
-        .deploy(&functions_from_module(&v2), &entry_hash(&v2), |_| {})
+        .deploy(&functions_from_module(&v2), &entry_hash(&v2), Vec::new(), |_| {})
         .expect("v2 deploys");
     assert!(report.names.rebound.contains(&Arc::from("target")));
     assert!(report.names.retired.is_empty());
@@ -299,7 +302,7 @@ fn same_signature_rebinding_resolves_old_refs_forward() {
     assert_eq!(core.latest(&t2), t2);
 
     // Transitive: after v3, the whole lineage resolves to the head.
-    core.deploy(&functions_from_module(&v3), &entry_hash(&v3), |_| {})
+    core.deploy(&functions_from_module(&v3), &entry_hash(&v3), Vec::new(), |_| {})
         .expect("v3 deploys");
     assert_eq!(core.latest(&t1), t3);
     assert_eq!(core.latest(&t2), t3);
@@ -325,10 +328,10 @@ fn signature_change_is_retire_and_fresh() {
     let (t1, t2) = (named_hash(&v1, "target"), named_hash(&v2, "target"));
 
     let core = runtime();
-    core.deploy(&functions_from_module(&v1), &entry_hash(&v1), |_| {})
+    core.deploy(&functions_from_module(&v1), &entry_hash(&v1), Vec::new(), |_| {})
         .expect("v1 deploys");
     let report = core
-        .deploy(&functions_from_module(&v2), &entry_hash(&v2), |_| {})
+        .deploy(&functions_from_module(&v2), &entry_hash(&v2), Vec::new(), |_| {})
         .expect("v2 deploys");
     assert_eq!(report.names.retired, vec![Arc::from("target")]);
     assert!(!report.names.rebound.contains(&Arc::from("target")));
@@ -366,13 +369,13 @@ fn diverged_aliases_resolve_to_themselves() {
     );
 
     let core = runtime();
-    core.deploy(&functions_from_module(&v1), &entry_hash(&v1), |_| {})
+    core.deploy(&functions_from_module(&v1), &entry_hash(&v1), Vec::new(), |_| {})
         .expect("v1 deploys");
     // Both names still bind the shared hash: resolving forward is
     // unambiguous (it goes nowhere new yet).
     assert_eq!(core.latest(&shared), shared);
 
-    core.deploy(&functions_from_module(&v2), &entry_hash(&v2), |_| {})
+    core.deploy(&functions_from_module(&v2), &entry_hash(&v2), Vec::new(), |_| {})
         .expect("v2 deploys");
     // `a` moved on, `b` still binds the shared hash: the names disagree,
     // so the shared hash resolves to itself rather than guessing.
@@ -424,6 +427,7 @@ fn name_table_swap_is_atomic() {
     core.deploy(
         &with_bindings(&compiled, &[("p", one), ("q", one)]),
         &entry,
+        Vec::new(),
         |_| {},
     )
     .expect("initial deploy succeeds");
@@ -451,6 +455,7 @@ fn name_table_swap_is_atomic() {
         core.deploy(
             &with_bindings(&compiled, &[("p", hash), ("q", hash)]),
             &entry,
+            Vec::new(),
             |_| {},
         )
         .expect("deploy succeeds");
@@ -472,7 +477,7 @@ fn rejected_deploy_leaves_the_name_table_untouched() {
     let entry = entry_hash(&compiled);
 
     let core = runtime();
-    core.deploy(&with_bindings(&compiled, &[("a", entry)]), &entry, |_| {})
+    core.deploy(&with_bindings(&compiled, &[("a", entry)]), &entry, Vec::new(), |_| {})
         .expect("first deploy succeeds");
 
     let unknown = blake3::hash(b"never deployed");
@@ -480,6 +485,7 @@ fn rejected_deploy_leaves_the_name_table_untouched() {
         .deploy(
             &with_bindings(&compiled, &[("a", unknown), ("fresh", entry)]),
             &entry,
+            Vec::new(),
             |_| {},
         )
         .expect_err("binding an unloaded object is rejected");
@@ -532,11 +538,12 @@ fn unconstrained_effectful_return_rebinds_across_caller_context() {
     core.deploy(
         &functions_from_module(&pinned),
         &entry_hash(&pinned),
+        Vec::new(),
         |_| {},
     )
     .expect("pinned deploys");
     let report = core
-        .deploy(&functions_from_module(&open), &entry_hash(&open), |_| {})
+        .deploy(&functions_from_module(&open), &entry_hash(&open), Vec::new(), |_| {})
         .expect("open deploys");
     assert!(
         report.names.rebound.contains(&Arc::from("tick")),
@@ -548,12 +555,13 @@ fn unconstrained_effectful_return_rebinds_across_caller_context() {
 
     // Open-then-monomorphized: the reverse order must rebind too.
     let core = runtime();
-    core.deploy(&functions_from_module(&open), &entry_hash(&open), |_| {})
+    core.deploy(&functions_from_module(&open), &entry_hash(&open), Vec::new(), |_| {})
         .expect("open deploys");
     let report = core
         .deploy(
             &functions_from_module(&pinned),
             &entry_hash(&pinned),
+            Vec::new(),
             |_| {},
         )
         .expect("pinned deploys");
@@ -582,7 +590,7 @@ fn plan_reports_the_would_be_diff_without_committing() {
     let (t1, t2) = (named_hash(&v1, "target"), named_hash(&v2, "target"));
 
     let core = runtime();
-    core.deploy(&functions_from_module(&v1), &entry_hash(&v1), |_| {})
+    core.deploy(&functions_from_module(&v1), &entry_hash(&v1), Vec::new(), |_| {})
         .expect("v1 deploys");
 
     // Snapshot the pre-plan world.
@@ -604,7 +612,7 @@ fn plan_reports_the_would_be_diff_without_committing() {
 
     // The subsequent real deploy produces exactly the diff the plan predicted.
     let report = core
-        .deploy(&functions_from_module(&v2), &entry_hash(&v2), |_| {})
+        .deploy(&functions_from_module(&v2), &entry_hash(&v2), Vec::new(), |_| {})
         .expect("v2 deploys");
     assert_eq!(report.names.rebound, plan.names.rebound);
     assert_eq!(report.names.added, plan.names.added);
@@ -624,7 +632,7 @@ fn plan_reports_validation_problems_instead_of_erroring() {
     let entry = entry_hash(&compiled);
 
     let core = runtime();
-    core.deploy(&with_bindings(&compiled, &[("a", entry)]), &entry, |_| {})
+    core.deploy(&with_bindings(&compiled, &[("a", entry)]), &entry, Vec::new(), |_| {})
         .expect("first deploy succeeds");
 
     // Bind a name to an object that was never loaded: validation rejects it.
@@ -669,11 +677,12 @@ fn unconstrained_parameter_rebinds_across_caller_context() {
     core.deploy(
         &functions_from_module(&pinned),
         &entry_hash(&pinned),
+        Vec::new(),
         |_| {},
     )
     .expect("pinned deploys");
     let report = core
-        .deploy(&functions_from_module(&open), &entry_hash(&open), |_| {})
+        .deploy(&functions_from_module(&open), &entry_hash(&open), Vec::new(), |_| {})
         .expect("open deploys");
     assert!(
         report.names.rebound.contains(&Arc::from("echo")),

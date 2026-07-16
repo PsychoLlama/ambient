@@ -68,8 +68,9 @@ pub(crate) mod target_match;
 mod unify;
 
 pub use check::{
-    CheckResult, check_module, check_module_with_registry, check_module_with_registry_and_resolver,
-    check_module_with_resolver, resolve_ability_declarations, resolve_registry_abilities,
+    CheckResult, SessionEntrySpec, check_module, check_module_with_registry,
+    check_module_with_registry_and_resolver, check_module_with_resolver,
+    check_session_module_with_registry, resolve_ability_declarations, resolve_registry_abilities,
 };
 pub use env::{AliasTarget, Scheme, TypeEnv};
 pub use error::{BoxedTypeError, BoxedTypeErrorExt, InferResult, TypeError, TypeErrorKind};

@@ -312,6 +312,10 @@ pub struct SessionCheck {
     pub check: CheckResult,
     /// An import-cycle diagnostic when this module is in a dependency cycle.
     pub import_cycle: Option<Diagnostic>,
+    /// The session entry's resolved return type — the type of the turn's
+    /// expression with the final substitution applied. `None` when the
+    /// entry didn't parse or its scheme is not a function.
+    pub entry_type: Option<ambient_engine::types::Type>,
 }
 
 impl SessionCheck {
@@ -336,21 +340,33 @@ impl SessionCheck {
 /// it, so the REPL avoids a redundant second inference pass per turn. The
 /// module must already be registered under `path` alongside the rest of the
 /// package and the core/platform declaration modules.
+///
+/// `entry` names the turn's synthetic entry function and carries the
+/// concrete types of the session bindings the host passes as its arguments;
+/// the entry's parameter types are pinned to them before bodies check, and
+/// its resolved return type comes back as [`SessionCheck::entry_type`].
 #[must_use]
 pub fn check_session_module(
     source: &str,
     path: &ModulePath,
     registry: &ModuleRegistry,
+    entry: &ambient_engine::infer::SessionEntrySpec<'_>,
 ) -> SessionCheck {
     let recovered = parse_recovering(source);
     let parse_errors = recovered.errors;
-    let check = check_module_with_registry(recovered.module, path, registry);
+    let (check, entry_type) = ambient_engine::infer::check_session_module_with_registry(
+        recovered.module,
+        path,
+        registry,
+        entry,
+    );
     let import_cycle = ambient_engine::module_cycles::import_cycle_containing(registry, path)
         .map(|cycle| Diagnostic::error(Span::new(0, 0), cycle.describe(), None));
     SessionCheck {
         parse_errors,
         check,
         import_cycle,
+        entry_type,
     }
 }
 

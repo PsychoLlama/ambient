@@ -108,6 +108,7 @@ fn deploy(core: &DeployRuntime, compiled: &CompiledModule) {
     core.deploy(
         &functions_from_module(compiled),
         &named_hash(compiled, "run"),
+        Vec::new(),
         |_| {},
     )
     .expect("test program deploys");

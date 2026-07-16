@@ -99,7 +99,7 @@ impl CheckResult {
 /// ```
 #[must_use]
 pub fn check_module(module: crate::ast::Module) -> CheckResult {
-    check_module_core(Infer::new(), module, None)
+    check_module_core(Infer::new(), module, None, None).0
 }
 /// Check a module with cross-module imports resolved.
 ///
@@ -117,7 +117,45 @@ pub fn check_module_with_registry(
     module_path: &ModulePath,
     registry: &ModuleRegistry,
 ) -> CheckResult {
-    check_module_core(Infer::new(), module, Some((module_path, registry)))
+    check_module_core(Infer::new(), module, Some((module_path, registry)), None).0
+}
+
+/// A REPL session's entry-function contract for one check: the synthetic
+/// entry's name and the concrete types of the values the host will pass as
+/// its arguments (the session's saved bindings, in parameter order).
+///
+/// Seeding happens right after signature registration, so the entry's
+/// (unannotated) parameter variables are pinned to the bindings' types
+/// before any body is checked — a use of a binding checks against the type
+/// of the value it actually holds, never against whatever the body would
+/// have inferred.
+pub struct SessionEntrySpec<'a> {
+    /// The synthetic entry function's (bare) name in the session module.
+    pub entry: &'a str,
+    /// The concrete type of each entry parameter, in declaration order.
+    pub param_types: &'a [crate::types::Type],
+}
+
+/// Check a REPL session module: [`check_module_with_registry`] plus the
+/// session entry seeding described on [`SessionEntrySpec`].
+///
+/// Returns the check result alongside the entry function's resolved return
+/// type — the type of the turn's expression, with the final substitution
+/// applied. `None` when the entry is missing (a parse-failed turn) or its
+/// scheme is not a function.
+#[must_use]
+pub fn check_session_module_with_registry(
+    module: crate::ast::Module,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+    session: &SessionEntrySpec<'_>,
+) -> (CheckResult, Option<crate::types::Type>) {
+    check_module_core(
+        Infer::new(),
+        module,
+        Some((module_path, registry)),
+        Some(session),
+    )
 }
 /// Check a single module with a custom ability resolver.
 ///
@@ -128,7 +166,7 @@ pub fn check_module_with_resolver(
     module: crate::ast::Module,
     resolver: AbilityResolver,
 ) -> CheckResult {
-    check_module_core(Infer::with_resolver(resolver), module, None)
+    check_module_core(Infer::with_resolver(resolver), module, None, None).0
 }
 /// Check a module with cross-module support and a custom ability resolver.
 ///
@@ -146,7 +184,9 @@ pub fn check_module_with_registry_and_resolver(
         Infer::with_resolver(resolver),
         module,
         Some((module_path, registry)),
+        None,
     )
+    .0
 }
 /// The shared checking pipeline behind all `check_module*` entry points.
 ///
@@ -163,7 +203,8 @@ fn check_module_core(
     mut infer: Infer,
     mut module: crate::ast::Module,
     cross_module: Option<(&ModulePath, &ModuleRegistry)>,
-) -> CheckResult {
+    session: Option<&SessionEntrySpec<'_>>,
+) -> (CheckResult, Option<crate::types::Type>) {
     let mut errors = Vec::new();
 
     // Seed the workspace package name so any `ModuleId`/`Fqn` the checker
@@ -210,6 +251,24 @@ fn check_module_core(
         &mut errors,
         current_module_id.as_ref(),
     );
+
+    // Session seeding: pin the REPL entry's (unannotated, so fresh-var)
+    // parameter types to the concrete types of the values the host will
+    // pass, before any body checks. The scheme's variables are shared with
+    // the body, so every use of a binding checks against the value's real
+    // type. Arity mismatches can't happen (the session generates the
+    // entry), and the seeded types are var-free (the session refuses to
+    // store an underdetermined binding), so unification cannot fail here;
+    // any error would surface as a body type error anyway.
+    if let Some(spec) = session
+        && let Some(scheme) = locals::own_item_scheme(&env, current_module_id.as_ref(), spec.entry)
+        && let crate::types::Type::Function(f) = &scheme.ty
+        && f.params.len() == spec.param_types.len()
+    {
+        for (param, seeded) in f.params.clone().iter().zip(spec.param_types) {
+            let _ = infer.unify(param, seeded, (0, 0));
+        }
+    }
 
     // Now that every ability — local and (in a registry) foreign — is
     // registered with its resolved dependencies, reject `with` cycles: the
@@ -304,11 +363,24 @@ fn check_module_core(
     // not the pre-inference placeholder vars).
     let signatures = render_item_signatures(&infer, &module, &env, current_module_id.as_ref());
 
-    CheckResult {
-        errors,
-        module,
-        signatures,
-    }
+    // The session entry's resolved return type — the type of a REPL turn's
+    // expression, with the final substitution applied.
+    let session_entry_type = session.and_then(|spec| {
+        let scheme = locals::own_item_scheme(&env, current_module_id.as_ref(), spec.entry)?;
+        match infer.apply(&scheme.ty) {
+            crate::types::Type::Function(f) => Some((*f.ret).clone()),
+            _ => None,
+        }
+    });
+
+    (
+        CheckResult {
+            errors,
+            module,
+            signatures,
+        },
+        session_entry_type,
+    )
 }
 
 /// Render the canonical type signature of every named item from its checked

@@ -102,6 +102,15 @@ pub enum ReplInput {
     /// An expression to evaluate. Boxed to keep the variants close in
     /// size.
     Expr(Box<Expr>),
+    /// A REPL session binding: `<ident> = <expr>`. REPL-only surface
+    /// syntax — the expression is evaluated once and its value kept under
+    /// the name for later turns.
+    Binding {
+        /// The bound name.
+        name: std::sync::Arc<str>,
+        /// The initializer expression.
+        expr: Box<Expr>,
+    },
 }
 
 /// Parse source code into an AST module.
@@ -203,5 +212,9 @@ pub fn parse_repl_input(source: &str) -> Result<ReplInput, ParseError> {
     match cst {
         CstReplInput::Item(item) => Ok(ReplInput::Items(lower::lower_item(&item)?)),
         CstReplInput::Expr(expr) => Ok(ReplInput::Expr(Box::new(lower::lower_expr(&expr)?))),
+        CstReplInput::Binding { name, expr } => Ok(ReplInput::Binding {
+            name: name.name,
+            expr: Box::new(lower::lower_expr(&expr)?),
+        }),
     }
 }
