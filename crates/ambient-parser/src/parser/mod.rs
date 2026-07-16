@@ -26,6 +26,9 @@ mod items;
 #[cfg(test)]
 mod pattern_tests;
 mod patterns;
+mod sets;
+#[cfg(test)]
+mod sets_tests;
 mod strings;
 #[cfg(test)]
 mod tests;

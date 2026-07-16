@@ -111,11 +111,10 @@ pub struct Infer {
     /// `Named(name, args, uuid)`.
     pub(crate) type_aliases: HashMap<NameKey, AliasTarget>,
     /// Named ability sets (`set IO = ...`), each resolved to its concrete
-    /// member [`AbilitySet`]. Keyed by the set's [`NameKey`] — `Item(fqn)`
-    /// for resolved references and `Bare(name)` for registry-less checks.
-    /// A name in an ability position that hits this map expands to its
-    /// members; sets carry no runtime identity (they are transparent
-    /// aliases), so nothing downstream of expansion sees them.
+    /// member [`AbilitySet`], keyed by the set's [`NameKey`] (`Item(fqn)` for
+    /// resolved references, `Bare(name)` for registry-less checks). A name in
+    /// an ability position that hits this map expands to its members; sets are
+    /// transparent aliases with no runtime identity.
     pub(crate) set_registry: HashMap<NameKey, AbilitySet>,
     /// Trait registry for trait and impl lookup.
     pub(crate) trait_registry: TraitRegistry,
