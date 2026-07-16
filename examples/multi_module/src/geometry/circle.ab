@@ -1,6 +1,0 @@
-//! A module inside a directory namespace: directories need no
-//! declaration — `src/geometry/circle.ab` is `pkg::geometry::circle`.
-
-pub fn area(radius: Number): Number {
-    (3.14159 * radius * radius).floor()
-}

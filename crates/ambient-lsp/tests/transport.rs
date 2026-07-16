@@ -210,7 +210,7 @@ fn pos_of(text: &str, needle: &str, occurrence: usize) -> Position {
 
 /// The regression this whole change exists for, pinned over the *production
 /// transport*: a package that declares `[build] src = "./"` with `main.ab` at
-/// the package root (the `examples/strings/` layout). The server discovers the
+/// the package root (the root-layout examples ship this shape). The server discovers the
 /// package itself and mints its own URIs, while the test sends the editor-shaped
 /// URI (no `/./` segment). Before the fix, that spelling mismatch made
 /// find-references return `[]`, rename refuse everything, method-goto return

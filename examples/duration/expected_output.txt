@@ -1,5 +1,0 @@
-timeout secs = 30
-latency = 1500ms
-total = 31500ms
-slack = 28500ms
-latency < timeout

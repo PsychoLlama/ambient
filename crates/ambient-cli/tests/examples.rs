@@ -168,9 +168,12 @@ fn examples_match_expected_output() {
         failures.len(),
         failures.join("\n\n")
     );
+    // The full one-shot set (hello, traits, abilities, error_handling,
+    // word_count, modules) — a lower count means an example lost its
+    // ambient.toml or grew a golden it shouldn't have.
     assert!(
-        checked > 10,
-        "expected to check many examples, got {checked}"
+        checked >= 6,
+        "expected to check every one-shot example, got {checked}"
     );
 }
 

@@ -180,21 +180,25 @@ fn test_inline_multi_method_dispatch() {
 }
 
 #[test]
-fn test_example_handler_value() {
-    let output = ambient_cmd()
-        .arg("run")
-        .arg("../../examples/handler_value_test")
-        .output()
-        .expect("failed to execute command");
+fn test_handler_value_in_with_list() {
+    // A let-bound handler value (qualified arms, one ability) installs
+    // through `with` exactly like an inline brace group.
+    CliTest::new(
+        r#"
+        fn simple_function(): Number {
+          100
+        }
 
-    assert!(
-        output.status.success(),
-        "handler_value_test package should run successfully: {:?}\nstderr: {}",
-        output,
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("100"), "expected 100 in output: {stdout}");
+        fn run(): Number {
+          let mock_console = {
+            core::system::Stdio::out(msg) => resume(())
+          };
+
+          with mock_console handle simple_function()
+        }
+    "#,
+    )
+    .expect_output("100");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

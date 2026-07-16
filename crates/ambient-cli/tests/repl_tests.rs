@@ -324,8 +324,8 @@ fn test_redefine_function_across_turns() {
 fn test_project_module_is_usable() {
     // Started inside a project, the REPL builds the whole package as its base
     // and project modules are reachable (fully-qualified or via `use`).
-    ReplTest::with_project(&example_project("multi_module"))
-        .type_line("pkg::math_utils::gcd(48, 60)")
+    ReplTest::with_project(&example_project("modules"))
+        .type_line("pkg::numbers::gcd(48, 60)")
         .expect_output("12")
         .shutdown();
 }

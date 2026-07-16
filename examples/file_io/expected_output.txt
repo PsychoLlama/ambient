@@ -1,2 +1,0 @@
-Hello from the FileSystem ability!
-missing file, using a fallback

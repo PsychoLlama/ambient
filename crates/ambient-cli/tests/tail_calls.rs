@@ -385,8 +385,8 @@ fn core_lib_range_over_long_span() {
 
 #[test]
 fn fibonacci_example_tail_variant() {
-    // The `examples/fibonacci` `fib_tail`/`fib_tail_helper` pair is genuine
-    // tail recursion; its output must be unchanged. `fib_tail(20)` is the
+    // A `fib_tail`/`fib_tail_helper` accumulator pair is genuine tail
+    // recursion; its output must be unchanged. `fib_tail(20)` is the
     // 20th Fibonacci number, 6765.
     CliTest::new(
         r#"

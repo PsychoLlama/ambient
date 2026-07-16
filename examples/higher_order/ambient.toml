@@ -1,6 +1,0 @@
-[package]
-name = "higher_order"
-version = "0.1.0"
-
-[build]
-src = "src"
