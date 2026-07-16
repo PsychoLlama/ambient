@@ -219,6 +219,69 @@ fn fetch_and_log(url: Url): Response
 fn add(x: Number, y: Number): Number { x + y }
 ```
 
+## Ability Sets
+
+A `set` declaration names a reusable group of abilities. It is a
+**transparent alias** — it expands to its members at every use site and
+carries no `unique(<uuid>)`, exactly like a `type` alias. It never survives
+into a content hash as itself, so a set is a pure convenience of the surface
+language; remote execution and dispatch see only the abilities it expanded
+to.
+
+```ambient
+use core::system::{Stdio, FileSystem, Tcp};
+
+set Files   = Stdio, FileSystem;   // comma is union
+set All      = Union<Files, Tcp>;  // a set may name another set
+set Offline = Difference<All, Tcp>;
+
+fn serve(): () with All { ... }       // = with Stdio, FileSystem, Tcp
+fn quiet(): () with Offline { ... }   // = with Stdio, FileSystem
+```
+
+A set lives in the **ability namespace**: a bare `set MySet` is used bare
+(`with MySet`), a `pub set` imports and re-exports like any item
+(`use pkg::effects::MySet;`), and a set name is interchangeable with an
+ability name **wherever a row is required** — a `with` clause, a
+`sandbox with` list, an ability's dependency row, or another set's body.
+A set is _not_ an ability: you never `perform` one and never `handle` one
+(you install handlers for the concrete abilities it names), so the
+`with … handle` grammar is untouched by this feature.
+
+### Row combinators: `Union` and `Difference`
+
+Union and difference are the algebra of effect rows, which are literally
+sets of abilities. They are spelled as **generic type constructors** —
+`Union<A, B>` and `Difference<A, B>` — consistent with `Handler<A, R>` and
+every other generic, and are type syntax (exempt from name resolution, like
+`Handler`). They are not general type arithmetic: generalizing `|`/`-` to
+arbitrary types would be set-theoretic types, a separate and much larger
+feature, so the combinators live only in row position.
+
+- `Union<A, B>` — every ability in `A` or `B`. Comma in a `with`/`set`
+  list is the same union in shorthand.
+- `Difference<A, B>` — the abilities of `A` that are **not** in `B`. To
+  exclude several, make `B` a set (`Difference<System, Net>`) or nest
+  (`Difference<Difference<System, Tcp>, FileSystem>`).
+
+Both take any row as an argument — an ability, a set, or another
+combinator — and nest freely.
+
+### The `System` set
+
+`core::system::System` is a set of **every platform ability**, and the one
+member of the namespaced `core::system` module that rides the prelude — so
+a privileged entry point can spell its full authority as `with System` with
+no import, and narrow it with the algebra:
+
+```ambient
+pub fn run(): () with System { ... }                     // may perform anything
+pub fn run(): () with Difference<System, Tcp> { ... }    // ...except networking
+```
+
+The individual platform abilities (`Stdio`, `Tcp`, …) stay namespaced and
+still require their prefix or a `use`; only `System` is bare.
+
 ## Ability Polymorphism
 
 ```ambient
