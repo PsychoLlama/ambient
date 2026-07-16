@@ -8,6 +8,7 @@
   "match"
   "enum"
   "type"
+  "set"
   "struct"
   "ability"
   "trait"
@@ -24,6 +25,9 @@
 ] @keyword
 
 (visibility) @keyword
+
+; Row-set combinators read as generic type constructors (like `Handler<…>`).
+(set_combinator ["Union" "Difference"] @type.builtin)
 
 ; Literals
 (boolean) @boolean

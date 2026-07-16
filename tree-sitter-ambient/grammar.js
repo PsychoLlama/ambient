@@ -67,6 +67,7 @@ module.exports = grammar({
         $.extern_function_definition,
         $.const_definition,
         $.type_definition,
+        $.set_definition,
         $.struct_definition,
         $.enum_definition,
         $.ability_definition,
@@ -127,6 +128,36 @@ module.exports = grammar({
         "=",
         field("type", $._type),
         ";"
+      ),
+
+    // A named ability set: `set IO = Stdio, FileSystem, Tcp;`. `set` is a
+    // contextual keyword — only a declaration at item position — so the
+    // `core::collections::set` module path (a plain identifier) is untouched.
+    set_definition: ($) =>
+      seq(
+        optional($.visibility),
+        "set",
+        field("name", $.identifier),
+        "=",
+        field("body", $._row_expression),
+        ";"
+      ),
+
+    // A row expression: a comma-separated union of terms, each an ability/set
+    // name or a `Union<A, B>` / `Difference<A, B>` combinator.
+    _row_expression: ($) => seq($._row_term, repeat(seq(",", $._row_term))),
+
+    _row_term: ($) =>
+      choice($.identifier, $.scoped_identifier, $.set_combinator),
+
+    set_combinator: ($) =>
+      seq(
+        field("op", choice("Union", "Difference")),
+        "<",
+        $._row_term,
+        ",",
+        $._row_term,
+        ">"
       ),
 
     struct_definition: ($) =>

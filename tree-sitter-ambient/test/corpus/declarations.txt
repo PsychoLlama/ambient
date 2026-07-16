@@ -922,3 +922,20 @@ impl TryFrom<String> for Number {
           (identifier)
           (argument_list
             (identifier)))))))
+
+================================================================================
+Ability set with union and difference
+================================================================================
+
+pub set IO = Stdio, Difference<System, Tcp>;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (set_definition
+    (visibility)
+    name: (identifier)
+    body: (identifier)
+    body: (set_combinator
+      (identifier)
+      (identifier))))
