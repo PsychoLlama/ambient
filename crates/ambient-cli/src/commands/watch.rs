@@ -70,3 +70,54 @@ impl SourceWatcher {
         self.dirty.swap(false, Ordering::SeqCst)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::time::Instant;
+
+    use super::*;
+
+    /// A `.ab` write under the watched root sets the dirty flag and fires
+    /// the transition callback exactly once until the flag is consumed;
+    /// store writes under `.ambient/` never do.
+    #[test]
+    fn ab_writes_set_dirty_once_and_store_writes_do_not() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join(".ambient/store")).unwrap();
+
+        let fired = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&fired);
+        let watcher = SourceWatcher::spawn(dir.path(), move || {
+            count.fetch_add(1, Ordering::SeqCst);
+        })
+        .expect("spawn watcher");
+
+        // Store writes are filtered out entirely.
+        std::fs::write(dir.path().join(".ambient/store/aabbcc.ab"), b"x").unwrap();
+        // Two source writes coalesce into one dirty period.
+        std::fs::write(dir.path().join("one.ab"), b"pub fn a(): Number { 1 }").unwrap();
+        std::fs::write(dir.path().join("two.ab"), b"pub fn b(): Number { 2 }").unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !watcher.take_dirty() {
+            assert!(Instant::now() < deadline, "watcher never flagged the .ab write");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            fired.load(Ordering::SeqCst),
+            1,
+            "one dirty period must announce exactly once"
+        );
+
+        // Consumed: stays clean until the next change re-arms it.
+        assert!(!watcher.take_dirty());
+        std::fs::write(dir.path().join("one.ab"), b"pub fn a(): Number { 3 }").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !watcher.take_dirty() {
+            assert!(Instant::now() < deadline, "watcher missed the re-arm write");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(fired.load(Ordering::SeqCst), 2);
+    }
+}
