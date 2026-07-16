@@ -115,7 +115,7 @@ fn show_of_a_function_adds_a_source_location_then_disassembles() {
 }
 
 #[test]
-fn ls_unfiltered_lists_typed_items_and_retains_dispatch_symbols() {
+fn list_unfiltered_lists_typed_items_and_retains_dispatch_symbols() {
     let dir = package();
     build(dir.path());
 
@@ -136,7 +136,7 @@ fn ls_unfiltered_lists_typed_items_and_retains_dispatch_symbols() {
 }
 
 #[test]
-fn ls_kinds_filters_by_kind_and_namespace() {
+fn list_kinds_filters_by_kind_and_namespace() {
     let dir = package();
     build(dir.path());
 

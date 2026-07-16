@@ -4,7 +4,7 @@ use std::cell::Cell;
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 use ambient_engine::build::build_and_persist;
 
@@ -25,6 +25,26 @@ pub fn cmd_build(file: &Path, output: Option<&Path>) -> Result<()> {
         };
         build_package_cmd(&pkg_path, output)?;
         return Ok(());
+    }
+
+    // Otherwise treat the target as a bare source file. `build` is primarily
+    // a package command, so when the target is neither a package nor a usable
+    // `.ab` file, explain it in those terms rather than leaking the
+    // single-file reader's "expected .ab source file" message.
+    if !file.exists() {
+        bail!(
+            "no such build target: {} — `ambient build` takes a package \
+             directory (containing ambient.toml) or a bare .ab source file",
+            file.display()
+        );
+    }
+    let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if ext != "ab" && ext != "ambient" {
+        bail!(
+            "`{}` is not a build target — `ambient build` takes a package \
+             directory (containing ambient.toml) or a bare .ab source file",
+            file.display()
+        );
     }
 
     // Single file compilation

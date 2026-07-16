@@ -838,15 +838,15 @@ fn cache_off_flag_forces_a_cold_build() {
 // ── `ambient build` warm builds (feeds and consumes the cache) ────────────
 
 /// The artifact-pack bytes `ambient build -o` writes for a build: the same
-/// encoding `compile_package_cmd` emits, so a byte comparison here proves the
+/// encoding `build_package_cmd` emits, so a byte comparison here proves the
 /// warm and cold artifacts are identical.
 fn artifact_pack_bytes(result: &BuildResult) -> Vec<u8> {
     result.compiled.to_pack().encode()
 }
 
 #[test]
-fn compile_wiring_second_build_is_a_full_warm_hit() {
-    // In-process mirror of `compile_package_cmd`'s wiring (build reading the
+fn build_wiring_second_build_is_a_full_warm_hit() {
+    // In-process mirror of `build_package_cmd`'s wiring (build reading the
     // package store + persist). The second build must be a full warm hit and
     // its artifact pack byte-identical to the cold one — the guarantee the
     // command depends on.
@@ -878,7 +878,7 @@ fn compile_wiring_second_build_is_a_full_warm_hit() {
 }
 
 #[test]
-fn ambient_compile_twice_is_warm_and_byte_identical() {
+fn ambient_build_twice_is_warm_and_byte_identical() {
     // Drive the real `ambient build` command twice (own process, own env) so
     // the whole command wiring — warm read + persist + artifact write — is
     // exercised. `AMBIENT_CACHE_VERIFY=1` turns the second (warm) build into

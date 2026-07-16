@@ -1,4 +1,4 @@
-//! Run/compile/check/ast command tests, block-scoped consts, example packages, error message rendering, and end-to-end language feature tests.
+//! Run/build/check/ast command tests, block-scoped consts, example packages, error message rendering, and end-to-end language feature tests.
 
 mod common;
 use common::*;
@@ -164,7 +164,7 @@ fn test_run_string_literal() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn test_compile_creates_output_file() {
+fn test_build_creates_output_file() {
     let (dir, path) = temp_source("fn run(): Number { 42 }");
     let output_path = dir.path().join("test.ambient");
 
@@ -197,7 +197,7 @@ fn test_compile_creates_output_file() {
 }
 
 #[test]
-fn test_compile_custom_output_path() {
+fn test_build_custom_output_path() {
     let (dir, path) = temp_source("fn run(): Number { 42 }");
     let output_path = dir.path().join("custom.abc");
 
@@ -216,7 +216,7 @@ fn test_compile_custom_output_path() {
 }
 
 #[test]
-fn test_compile_then_run() {
+fn test_build_then_run() {
     let (dir, path) = temp_source(
         r#"
         fn factorial(n: Number): Number {
@@ -227,17 +227,17 @@ fn test_compile_then_run() {
     );
     let compiled_path = dir.path().join("test.ambient");
 
-    // First compile
-    let compile_output = ambient_cmd()
+    // First build
+    let build_output = ambient_cmd()
         .arg("build")
         .arg(&path)
         .output()
-        .expect("failed to execute compile command");
+        .expect("failed to execute build command");
 
     assert!(
-        compile_output.status.success(),
-        "compile failed: {:?}",
-        compile_output
+        build_output.status.success(),
+        "build failed: {:?}",
+        build_output
     );
     assert!(compiled_path.exists(), "compiled file not created");
 
@@ -253,6 +253,44 @@ fn test_compile_then_run() {
     assert!(
         stdout.contains("720"),
         "expected 720 (6!) in output: {stdout}"
+    );
+
+    drop(dir);
+}
+
+#[test]
+fn test_build_invalid_target_explains_it_takes_a_package() {
+    // A regular non-.ab file is neither a package nor a source file; the
+    // error must point at the two real target shapes, not leak "expected .ab
+    // source file".
+    let dir = TempDir::new().expect("failed to create temp dir");
+    let path = dir.path().join("notes.txt");
+    fs::write(&path, "not source").expect("failed to write");
+
+    let output = ambient_cmd()
+        .arg("build")
+        .arg(&path)
+        .output()
+        .expect("failed to execute command");
+
+    assert!(!output.status.success(), "build must reject a non-.ab file");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("is not a build target") && stderr.contains("package"),
+        "error should describe valid build targets: {stderr}"
+    );
+
+    // A path that does not exist reports so, still in build's own terms.
+    let missing = ambient_cmd()
+        .arg("build")
+        .arg(dir.path().join("gone.ab"))
+        .output()
+        .expect("failed to execute command");
+    assert!(!missing.status.success());
+    let stderr = String::from_utf8_lossy(&missing.stderr);
+    assert!(
+        stderr.contains("no such build target"),
+        "missing target should say so: {stderr}"
     );
 
     drop(dir);
