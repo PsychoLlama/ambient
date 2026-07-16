@@ -7,9 +7,9 @@ use lsp_types::{DocumentSymbol, SymbolKind as LspSymbolKind};
 
 use ambient_engine::ast::{ItemKind, Module};
 
+use crate::analysis::extern_fn_signature;
 use crate::analysis::format_type;
 use crate::convert::offset_range_to_lsp_range;
-use crate::hover_format::format_extern_fn_hover;
 
 /// Extract document symbols from an AST module.
 pub(crate) fn extract_document_symbols(
@@ -130,7 +130,7 @@ fn extern_fn_symbol(
     range: lsp_types::Range,
 ) -> DocumentSymbol {
     let mut signature = String::new();
-    format_extern_fn_hover(e, &mut signature);
+    extern_fn_signature(e, &mut signature);
     make_symbol(
         e.name.to_string(),
         Some(signature),

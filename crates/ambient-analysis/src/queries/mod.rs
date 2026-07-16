@@ -15,11 +15,16 @@ use ambient_engine::types::Type;
 
 mod bindings;
 mod members;
+mod signature;
 
 use bindings::find_binding_definition;
 pub use members::{
     MissingImplMembers, ReceiverMember, missing_impl_members_at_offset, receiver_members,
     receiver_type_at,
+};
+pub use signature::{
+    assoc_type_signature, expr_signature, extern_fn_signature, item_doc, item_signature,
+    method_signature_at, module_doc, module_signature, type_params_signature,
 };
 
 /// Find the expression at a given byte offset in the module.

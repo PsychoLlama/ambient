@@ -12,7 +12,7 @@ use ambient_engine::types::Type;
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionItemLabelDetails, InsertTextFormat};
 
 use crate::analysis::format_type;
-use crate::hover_format::format_type_params;
+use crate::analysis::type_params_signature;
 
 /// Stub completions for the trait members still missing from the impl body
 /// containing `offset`. Empty when the cursor isn't at item position inside a
@@ -307,7 +307,7 @@ fn blank_current_member(source: &str, offset: usize) -> Option<String> {
 fn method_header(method: &TraitMethod) -> String {
     let mut s = String::from("fn ");
     s.push_str(&method.name);
-    format_type_params(&method.type_params, &mut s);
+    type_params_signature(&method.type_params, &mut s);
     s.push('(');
     let mut first = true;
     if method.has_self {
