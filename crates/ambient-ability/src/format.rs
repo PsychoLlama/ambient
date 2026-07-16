@@ -387,7 +387,21 @@ fn format_module(m: &crate::value::ModuleValue, color: bool) -> String {
 
 fn format_module_member(m: &crate::value::ModuleMemberRef, color: bool) -> String {
     let blue = if color { colors::BLUE } else { "" };
+    let dim = if color { colors::DIM } else { "" };
     let reset = if color { colors::RESET } else { "" };
+
+    // With a known signature, show the real declaration (with its doc
+    // below and the defining path dimmed above); otherwise fall back to
+    // `<kind> <path>`.
+    if let Some(sig) = &m.signature {
+        let mut out = format!("{dim}// {}{reset}\n{sig}", m.path);
+        if let Some(doc) = &m.doc {
+            for line in doc.lines() {
+                let _ = write!(out, "\n{dim}/// {line}{reset}");
+            }
+        }
+        return out;
+    }
 
     let kind_str = match m.kind {
         ModuleExportKind::Function => "fn",

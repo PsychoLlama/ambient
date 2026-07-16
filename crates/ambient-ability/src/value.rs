@@ -123,6 +123,13 @@ pub struct ModuleMemberRef {
     pub path: Arc<str>,
     /// The kind of member.
     pub kind: ModuleExportKind,
+    /// The member's rendered declaration signature, when the producer
+    /// knows it (e.g. `fn flatten<T>(o: Option<Option<T>>): Option<T>`).
+    #[serde(default)]
+    pub signature: Option<Arc<str>>,
+    /// The member's doc comment, when the producer knows it.
+    #[serde(default)]
+    pub doc: Option<Arc<str>>,
 }
 
 /// An enum variant instance.

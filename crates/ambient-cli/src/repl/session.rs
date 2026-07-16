@@ -35,7 +35,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 
 use ambient_analysis::Diagnostic;
 use ambient_analysis::package::AnalysisPackage;
@@ -106,6 +106,9 @@ struct UseEntry {
     names: Vec<Arc<str>>,
     /// The raw source text of the input.
     source: String,
+    /// Each bound name's target path as spelled (prefix words included),
+    /// so inspection can expand an imported alias to its full path.
+    targets: Vec<(Arc<str>, Vec<String>)>,
 }
 
 /// One saved session binding: the value a `name = expr` turn produced and
@@ -265,8 +268,8 @@ impl ReplSession {
 
     /// Execute a parsed REPL command. [`ReplCommand::Quit`] is a no-op here
     /// (the frontend decides how to exit); the rest write through the
-    /// control sink. A failed `:clear`/`:reload` is returned for the
-    /// frontend to render.
+    /// control sink. A failed command is returned for the frontend to
+    /// render.
     pub fn run_command(&mut self, command: ReplCommand) -> Result<()> {
         match command {
             ReplCommand::Help => {
@@ -276,6 +279,8 @@ impl ReplSession {
             }
             ReplCommand::Clear => self.clear(),
             ReplCommand::Reload => self.reload(),
+            ReplCommand::Sig(path) => self.show_signature(&path),
+            ReplCommand::Type(expr) => self.show_type(&expr),
             ReplCommand::Quit => Ok(()),
             ReplCommand::Unknown(cmd) => {
                 self.control(&format!("Unknown command: {cmd}"));
@@ -283,6 +288,62 @@ impl ReplSession {
                 Ok(())
             }
         }
+    }
+
+    /// `:sig <path>`: show a module member's declaration signature and doc
+    /// (or a binding's type). Unlike bare-path inspection this also reaches
+    /// names a binding shadows.
+    fn show_signature(&mut self, path: &str) -> Result<()> {
+        let path = path.trim();
+        if path.is_empty() {
+            bail!("usage: :sig <path> — e.g. `:sig core::option::flatten`");
+        }
+        if let Some(binding) = self.bindings.iter().find(|b| &*b.name == path) {
+            self.control(&format!(
+                "{path}: {}",
+                ambient_analysis::queries::format_type(&binding.ty)
+            ));
+            return Ok(());
+        }
+        if !looks_like_path(path) {
+            bail!("`:sig` takes a `::` path or a binding name, got `{path}`");
+        }
+        match self.introspect(path) {
+            Some(value) => {
+                let rendered = ambient_engine::format::format_value(&value);
+                for line in rendered.lines() {
+                    self.control(line);
+                }
+                Ok(())
+            }
+            None => bail!("nothing in scope is named `{path}`"),
+        }
+    }
+
+    /// `:type <expr>`: check the expression against the session (bindings
+    /// in scope) and show its inferred type without running it.
+    fn show_type(&mut self, expr_src: &str) -> Result<()> {
+        let expr_src = expr_src.trim();
+        if expr_src.is_empty() {
+            bail!("usage: :type <expr> — e.g. `:type [1, 2].contains(1)`");
+        }
+        self.entry_counter += 1;
+        let entry_local = format!("{ENTRY_PREFIX}{}", self.entry_counter);
+        let uses = self.uses_source();
+        let params: Vec<&str> = self.bindings.iter().map(|b| &*b.name).collect();
+        let param_types: Vec<Type> = self.bindings.iter().map(|b| b.ty.clone()).collect();
+        let trial_source = format!(
+            "{uses}fn {entry_local}({}) {{\n{expr_src}\n}}\n",
+            params.join(", ")
+        );
+        let checked = self.check_trial(&trial_source, &entry_local, &param_types);
+        self.sync_session_module(&uses);
+        let (_, check) = checked.map_err(|e| anyhow!("{}", self.annotate_error(expr_src, &e)))?;
+        let ty = check
+            .entry_type
+            .ok_or_else(|| anyhow!("no type could be inferred"))?;
+        self.control(&ambient_analysis::queries::format_type(&ty));
+        Ok(())
     }
 
     /// The concatenated source of every committed `use` import.
@@ -366,12 +427,20 @@ impl ReplSession {
 
         // Commit: drop earlier imports this input re-binds, then append.
         let names: Vec<Arc<str>> = items.iter().filter_map(use_bound_name).collect();
+        let targets: Vec<(Arc<str>, Vec<String>)> = items
+            .iter()
+            .filter_map(|item| {
+                let (name, target) = use_target(item)?;
+                Some((name, target))
+            })
+            .collect();
         self.uses.retain(|existing| {
             existing.source != line && !existing.names.iter().any(|n| names.contains(n))
         });
         self.uses.push(UseEntry {
             names,
             source: line.to_string(),
+            targets,
         });
         self.sync_session_module(&self.uses_source());
         Ok(None)
@@ -534,30 +603,139 @@ impl ReplSession {
         .map_err(report_build_error)
     }
 
-    /// Browse the registry for a module path or member path, if `path` names
-    /// one. Bare value names (variables, constants, functions) return `None`
-    /// so they evaluate normally.
+    /// Browse the registry for the module or member `path` names. Paths
+    /// resolve the way the language resolves them: `pkg`, `self`, and
+    /// `super` anchor at the session module (exactly as in a file at the
+    /// launch directory); anything else is an absolute path (`core::…`, or
+    /// a package module by its root-relative path). Bare value names
+    /// return `None` so they evaluate normally.
+    ///
+    /// What shows is what the session can access: a module lists its `pub`
+    /// exports and child modules; a member shows its declaration signature
+    /// and doc. Private items don't show — inspection answers "what can I
+    /// call from here", not "what does the file contain".
     fn introspect(&self, path: &str) -> Option<Value> {
         let registry = self.package.build_registry();
+        let mut segments: Vec<String> = path.split("::").map(str::to_string).collect();
 
-        // Whole module: `core`, `core::collections::list`.
-        if let Some(module_path) = parse_module_path(path)
-            && let Some(info) = registry.get(&module_path)
-        {
-            return Some(Value::Module(Arc::new(module_value(path, info))));
+        // Expand a leading `use`-bound alias to the path it was imported
+        // from (`use self::client;` makes `client::port` inspectable), a
+        // few levels deep in case an alias chains through another.
+        for _ in 0..4 {
+            let Some(first) = segments.first().cloned() else {
+                break;
+            };
+            let Some(target) = self
+                .uses
+                .iter()
+                .flat_map(|u| &u.targets)
+                .find(|(name, _)| **name == *first)
+            else {
+                break;
+            };
+            let mut expanded: Vec<String> = target.1.clone();
+            expanded.extend(segments.drain(1..));
+            segments = expanded;
         }
 
-        // Member: `core::option::flatten`. Split the trailing name
-        // off and look it up in the parent module's exports (raw, so the
-        // user's own non-`pub` items are browsable too).
-        let (parent, member) = path.rsplit_once("::")?;
-        let parent_path = parse_module_path(parent)?;
-        let info = registry.get(&parent_path)?;
-        let export = info.exports.get(member)?;
+        let seg_refs: Vec<&str> = segments.iter().map(String::as_str).collect();
+        if let Some(value) = self.introspect_absolute(&registry, &seg_refs) {
+            return Some(value);
+        }
+
+        // A bare name may be a prelude item (`Number`, `Option`, `Show`):
+        // every module sees the prelude's re-exports without an import.
+        if let [name] = seg_refs[..] {
+            return self.introspect_absolute(&registry, &["core", "prelude", name]);
+        }
+        None
+    }
+
+    /// Resolve and render one spelled path (roots not yet resolved).
+    fn introspect_absolute(&self, registry: &ModuleRegistry, segments: &[&str]) -> Option<Value> {
+        let absolute = self.resolve_inspect_path(segments)?;
+
+        // Whole module: a file module, a directory namespace, or the
+        // package root (`pkg`).
+        if let Some(value) = module_listing(&registry, &absolute, &self.session_path) {
+            return Some(value);
+        }
+
+        // Member: the trailing name inside its parent module, resolved
+        // through the registry's canonical lookup (which chases `pub use`
+        // re-export chains — `core::system::Stdio` really lives in
+        // `core::system::stdio` — and enforces visibility, so a private
+        // item reads as absent exactly like calling it would).
+        let (member, parent) = absolute.split_last()?;
+        let parent_path = ModulePath::from_segments(parent.to_vec())?;
+        let (export, defining) = registry.lookup_symbol(&parent_path, member).ok()?;
+        let signature = registry.get(&defining).and_then(|info| {
+            info.module
+                .items
+                .iter()
+                .find(|item| {
+                    ambient_analysis::queries::item_name(item).is_some_and(|n| *n == export.name)
+                })
+                .map(|item| Arc::from(inspect_signature(item)))
+        });
+        // Show where the item actually lives: a re-export chased through
+        // `pub use` (or the prelude) renders its defining module.
+        let mut shown = display_path(defining.segments());
+        shown.push_str("::");
+        shown.push_str(&export.name);
         Some(Value::ModuleMember(Arc::new(ModuleMemberRef {
-            path: path.into(),
+            path: shown.into(),
             kind: export_kind(export.kind),
+            signature,
+            doc: export.doc.clone(),
         })))
+    }
+
+    /// Resolve an inspection path's leading root against the session
+    /// module: `pkg`/`self`/`super` anchor exactly as a `use` in a file at
+    /// the launch directory would; anything else is already absolute.
+    /// Returns the absolute registry segments (empty = the package root).
+    fn resolve_inspect_path(&self, segments: &[&str]) -> Option<Vec<Arc<str>>> {
+        use ambient_engine::module_path::ImportPrefix;
+        let to_arcs =
+            |segs: &[&str]| -> Vec<Arc<str>> { segs.iter().map(|s| Arc::from(*s)).collect() };
+
+        let prefix = match *segments.first()? {
+            "pkg" => ImportPrefix::Pkg,
+            "self" => ImportPrefix::Self_,
+            "super" => {
+                let count = segments.iter().take_while(|s| **s == "super").count();
+                ImportPrefix::Super(count)
+            }
+            _ => return Some(to_arcs(segments)),
+        };
+        let rest = match &prefix {
+            ImportPrefix::Super(count) => &segments[*count..],
+            _ => &segments[1..],
+        };
+
+        if rest.is_empty() {
+            // A bare root names the anchor itself: `pkg` is the package
+            // root, `self` the launch directory, `super` its parent.
+            let dir = self.session_path.file_dir(false);
+            return match prefix {
+                ImportPrefix::Pkg => Some(Vec::new()),
+                ImportPrefix::Self_ => Some(dir.map_or_else(Vec::new, |d| d.segments().to_vec())),
+                ImportPrefix::Super(count) => {
+                    let mut dir = dir;
+                    for _ in 0..count {
+                        dir = dir?.parent();
+                    }
+                    Some(dir.map_or_else(Vec::new, |d| d.segments().to_vec()))
+                }
+                ImportPrefix::Core => None,
+            };
+        }
+
+        self.session_path
+            .resolve_relative(&prefix, &to_arcs(rest), false)
+            .ok()
+            .map(|p| p.segments().to_vec())
     }
 
     /// Narrate what a turn's deploy did to the running program: names the
@@ -696,6 +874,25 @@ fn use_bound_name(item: &Item) -> Option<Arc<str>> {
     }
 }
 
+/// The bound name and target path (as spelled, prefix words included) of a
+/// `use` item — how inspection expands an imported alias.
+fn use_target(item: &Item) -> Option<(Arc<str>, Vec<String>)> {
+    use ambient_engine::ast::UsePrefix;
+    let ItemKind::Use(def) = &item.kind else {
+        return None;
+    };
+    let name = use_bound_name(item)?;
+    let mut target: Vec<String> = match &def.prefix {
+        UsePrefix::Pkg => vec!["pkg".to_string()],
+        UsePrefix::Core => vec!["core".to_string()],
+        UsePrefix::Self_ => vec!["self".to_string()],
+        UsePrefix::Super(count) => vec!["super".to_string(); *count],
+        UsePrefix::Local => Vec::new(),
+    };
+    target.extend(def.path.iter().map(|(seg, _)| seg.to_string()));
+    Some((name, target))
+}
+
 /// The error for a definition entered at the prompt: the REPL is an
 /// exploration surface, not an authoring one.
 fn definitions_unsupported(item: &Item) -> String {
@@ -736,20 +933,194 @@ fn export_kind(kind: ExportKind) -> ModuleExportKind {
     }
 }
 
-/// Build a browsable module value from a registry module's exports and
-/// re-exported children.
-fn module_value(path: &str, info: &ModuleInfo) -> ModuleValue {
-    let mut exports: Vec<ModuleExport> = info
-        .exports
-        .values()
-        .map(|e| ModuleExport::new(e.name.as_ref(), export_kind(e.kind)))
+/// Build a browsable module listing for `segments` (empty = the package
+/// root), or `None` if nothing lives there.
+///
+/// The listing is the module's *accessible surface*: its `pub` exports
+/// (functions with their signatures), its re-exports, and its child
+/// modules — a directory namespace has only children, the package root
+/// lists the package's top-level modules. The session module itself never
+/// lists.
+fn module_listing(
+    registry: &ModuleRegistry,
+    segments: &[Arc<str>],
+    session_path: &ModulePath,
+) -> Option<Value> {
+    let info = ModulePath::from_segments(segments.to_vec()).and_then(|p| registry.get(&p));
+
+    // Child modules: every registered module directly under this path. The
+    // package root additionally filters to workspace modules (`core` and
+    // the platform declarations are not package members).
+    let mut children: Vec<Arc<str>> = registry
+        .all_modules()
+        .filter_map(|m| {
+            let segs = m.path.segments();
+            let is_child =
+                segs.len() == segments.len() + 1 && segs[..segments.len()] == segments[..];
+            let hidden =
+                m.path == *session_path || (segments.is_empty() && segs[0].as_ref() == "core");
+            (is_child && !hidden).then(|| Arc::clone(&segs[segs.len() - 1]))
+        })
         .collect();
-    for re in &info.re_exports {
-        if let Some(name) = re.exported_name() {
-            exports.push(ModuleExport::new(name, ModuleExportKind::Module));
+    children.sort();
+    children.dedup();
+
+    if info.is_none() && children.is_empty() {
+        return None;
+    }
+
+    let mut exports: Vec<ModuleExport> = Vec::new();
+    let mut seen_modules: std::collections::HashSet<Arc<str>> = std::collections::HashSet::new();
+    if let Some(info) = info {
+        for e in info.exports.values().filter(|e| e.is_public) {
+            let mut export = ModuleExport::new(e.name.as_ref(), export_kind(e.kind));
+            export.signature = export_signature(info, &e.name);
+            exports.push(export);
+        }
+        // Re-exports show under their real kind: `pub use self::stdio::Stdio;`
+        // lists as an ability, not a module. Only a whole-module re-export
+        // (or one the lookup can't resolve) stays a module entry.
+        for re in &info.re_exports {
+            let Some(name) = re.exported_name() else {
+                continue;
+            };
+            match registry.lookup_symbol(&info.path, name) {
+                Ok((export, defining)) => {
+                    let mut entry = ModuleExport::new(name, export_kind(export.kind));
+                    entry.signature = registry
+                        .get(&defining)
+                        .and_then(|di| export_signature(di, &export.name));
+                    exports.push(entry);
+                }
+                Err(_) => {
+                    if seen_modules.insert(Arc::from(name)) {
+                        exports.push(ModuleExport::new(name, ModuleExportKind::Module));
+                    }
+                }
+            }
         }
     }
-    ModuleValue::new(path, exports)
+    for child in children {
+        if seen_modules.insert(Arc::clone(&child)) {
+            exports.push(ModuleExport::new(child.as_ref(), ModuleExportKind::Module));
+        }
+    }
+
+    Some(Value::Module(Arc::new(ModuleValue::new(
+        display_path(segments).as_str(),
+        exports,
+    ))))
+}
+
+/// The signature suffix a module listing shows for an export: the part of
+/// the item's declaration after its name (`(x: Number): Number with Log`
+/// for a function, the type for a const). `None` when there is nothing
+/// useful to show.
+fn export_signature(info: &ModuleInfo, name: &str) -> Option<Arc<str>> {
+    let item =
+        info.module.items.iter().find(|item| {
+            ambient_analysis::queries::item_name(item).is_some_and(|n| &**n == name)
+        })?;
+    let sig = ambient_analysis::queries::item_signature(item);
+    match &item.kind {
+        ItemKind::Function(_) | ItemKind::ExternFn(_) => {
+            sig.find('(').map(|i| Arc::from(&sig[i..]))
+        }
+        ItemKind::Const(_) => sig.find(": ").map(|i| Arc::from(&sig[i + ": ".len()..])),
+        _ => None,
+    }
+}
+
+/// The signature a member inspection shows. Starts from the shared
+/// [`item_signature`](ambient_analysis::queries::item_signature) (the same
+/// rendering LSP hover uses) and, for the kinds whose hover header stays
+/// deliberately compact, appends the body a REPL explorer wants: an enum's
+/// variants, an ability's or trait's method signatures.
+fn inspect_signature(item: &Item) -> String {
+    use ambient_analysis::queries::format_type;
+    let mut sig = ambient_analysis::queries::item_signature(item);
+    match &item.kind {
+        ItemKind::Enum(e) => {
+            sig.push_str(" {");
+            for v in &e.variants {
+                sig.push_str("\n  ");
+                sig.push_str(&v.name);
+                if let Some(payload) = &v.payload {
+                    sig.push('(');
+                    sig.push_str(&format_type(payload));
+                    sig.push(')');
+                }
+                sig.push(',');
+            }
+            sig.push_str("\n}");
+        }
+        ItemKind::Ability(a) => {
+            sig.push_str(" {");
+            for m in &a.methods {
+                sig.push_str("\n  fn ");
+                sig.push_str(&m.name);
+                sig.push('(');
+                for (i, param) in m.params.iter().enumerate() {
+                    if i > 0 {
+                        sig.push_str(", ");
+                    }
+                    sig.push_str(&param.name);
+                    if let Some(ty) = &param.ty {
+                        sig.push_str(": ");
+                        sig.push_str(&format_type(ty));
+                    }
+                }
+                sig.push_str("): ");
+                sig.push_str(&format_type(&m.ret_ty));
+                sig.push(';');
+            }
+            sig.push_str("\n}");
+        }
+        ItemKind::Trait(t) => {
+            if t.assoc_types.is_empty() {
+                // With associated types the shared header already rendered
+                // a `{ … }` block; only open one here when it didn't.
+                sig.push_str(" {");
+                for m in &t.methods {
+                    sig.push_str("\n  fn ");
+                    sig.push_str(&m.name);
+                    sig.push('(');
+                    if m.has_self {
+                        sig.push_str("self");
+                    }
+                    for (i, (name, ty)) in m.params.iter().enumerate() {
+                        if i > 0 || m.has_self {
+                            sig.push_str(", ");
+                        }
+                        sig.push_str(name);
+                        sig.push_str(": ");
+                        sig.push_str(&format_type(ty));
+                    }
+                    sig.push_str("): ");
+                    sig.push_str(&format_type(&m.ret_ty));
+                    sig.push(';');
+                }
+                sig.push_str("\n}");
+            }
+        }
+        _ => {}
+    }
+    sig
+}
+
+/// The friendly rendering of absolute registry segments: `core::…` shows
+/// as-is, package modules show under the `pkg` root (`pkg::net::client`),
+/// the empty path is the root itself.
+fn display_path(segments: &[Arc<str>]) -> String {
+    if segments.first().is_some_and(|s| s.as_ref() == "core") {
+        return segments.join("::");
+    }
+    let mut out = String::from("pkg");
+    for seg in segments {
+        out.push_str("::");
+        out.push_str(seg);
+    }
+    out
 }
 
 /// Whether `s` is shaped like a module/member path: one or more identifier
@@ -765,14 +1136,6 @@ fn looks_like_path(s: &str) -> bool {
                 .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
                 && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
         })
-}
-
-/// Parse a `::`-separated module path, rejecting empty input.
-fn parse_module_path(path: &str) -> Option<ModulePath> {
-    if path.is_empty() {
-        return None;
-    }
-    ModulePath::from_segments(path.split("::").map(Arc::from).collect())
 }
 
 /// Whether the input references any of the project-relative path roots.
@@ -806,20 +1169,29 @@ pub enum ReplCommand {
     Quit,
     Clear,
     Reload,
+    /// `:sig <path>` — show a member's signature and doc.
+    Sig(String),
+    /// `:type <expr>` — show an expression's inferred type without running it.
+    Type(String),
     Unknown(String),
 }
 
 /// Parse a REPL command line (leading `:` already present).
 #[must_use]
 pub fn parse_repl_command(line: &str) -> ReplCommand {
-    let cmd = line.trim_start_matches(':').split_whitespace().next();
+    let line = line.trim_start_matches(':');
+    let (cmd, rest) = match line.split_once(char::is_whitespace) {
+        Some((cmd, rest)) => (cmd, rest.trim()),
+        None => (line, ""),
+    };
     match cmd {
-        Some("help") | Some("h") | Some("?") => ReplCommand::Help,
-        Some("quit") | Some("q") | Some("exit") => ReplCommand::Quit,
-        Some("clear") | Some("reset") => ReplCommand::Clear,
-        Some("reload") | Some("r") => ReplCommand::Reload,
-        Some(other) => ReplCommand::Unknown(other.to_string()),
-        None => ReplCommand::Unknown(String::new()),
+        "help" | "h" | "?" => ReplCommand::Help,
+        "quit" | "q" | "exit" => ReplCommand::Quit,
+        "clear" | "reset" => ReplCommand::Clear,
+        "reload" | "r" => ReplCommand::Reload,
+        "sig" | "signature" | "s" => ReplCommand::Sig(rest.to_string()),
+        "type" | "t" => ReplCommand::Type(rest.to_string()),
+        other => ReplCommand::Unknown(other.to_string()),
     }
 }
 

@@ -675,3 +675,168 @@ fn test_clear_drains_running_tasks() {
         .expect_output("2")
         .shutdown();
 }
+
+#[test]
+fn test_module_listing_shows_pub_surface_and_children() {
+    // A module lists its `pub` exports (functions with signatures) and its
+    // child modules; private items don't show — inspection answers "what
+    // can I call from here".
+    let dir = project_with(&[
+        ("main.ab", "pub fn run(): Number { 0 }\n"),
+        (
+            "util.ab",
+            "/// Adds one.\npub fn add_one(n: Number): Number { n + 1 }\n\
+             fn hidden(): Number { 0 }\n",
+        ),
+        ("util/extra.ab", "pub fn deep(): Number { 1 }\n"),
+    ]);
+    let repl = ReplTest::with_project(dir.path())
+        .type_line("pkg::util")
+        .expect_output("module pkg::util")
+        .expect_output("add_one")
+        .expect_output("mod extra");
+    assert!(
+        !repl.output().contains("hidden"),
+        "private items must not list:\n{}",
+        repl.output()
+    );
+    repl.shutdown();
+}
+
+#[test]
+fn test_pkg_and_self_list_modules() {
+    let dir = project_with(&[
+        ("main.ab", "pub fn run(): Number { 0 }\n"),
+        ("util.ab", "pub fn helper(): Number { 1 }\n"),
+        ("net/client.ab", "pub fn port(): Number { 8080 }\n"),
+    ]);
+    // `pkg` lists the package's top-level modules (and not `core`).
+    let repl = ReplTest::with_project(dir.path())
+        .type_line("pkg")
+        .expect_output("module pkg")
+        .expect_output("mod main")
+        .expect_output("mod net")
+        .expect_output("mod util");
+    assert!(
+        !repl.output().contains("mod core"),
+        "`pkg` must not list core as a package member:\n{}",
+        repl.output()
+    );
+    repl.shutdown();
+
+    // `self` at src/net is the net directory: it lists `client`.
+    ReplTest::with_project(&dir.path().join("src/net"))
+        .type_line("self")
+        .expect_output("mod client")
+        .shutdown();
+}
+
+#[test]
+fn test_member_inspection_shows_signature_and_doc() {
+    let dir = project_with(&[
+        ("main.ab", "pub fn run(): Number { 0 }\n"),
+        (
+            "util.ab",
+            "/// Adds one to a number.\npub fn add_one(n: Number): Number { n + 1 }\n",
+        ),
+    ]);
+    ReplTest::with_project(dir.path())
+        .type_line("pkg::util::add_one")
+        .expect_output("fn add_one(n: Number): Number")
+        .expect_output("Adds one to a number.")
+        .shutdown();
+}
+
+#[test]
+fn test_sig_command_shows_signatures_and_binding_types() {
+    let dir = project_with(&[
+        ("main.ab", "pub fn run(): Number { 0 }\n"),
+        (
+            "util.ab",
+            "/// Doubles.\npub fn double(n: Number): Number { n * 2 }\n",
+        ),
+    ]);
+    ReplTest::with_project(dir.path())
+        .type_line(":sig pkg::util::double")
+        .expect_output("fn double(n: Number): Number")
+        .clear_output()
+        .type_line("x = 5")
+        .clear_output()
+        .type_line(":sig x")
+        .expect_output("x: Number")
+        .shutdown();
+}
+
+#[test]
+fn test_type_command_infers_without_running() {
+    ReplTest::new()
+        .type_line(":type 1 + 2")
+        .expect_output("Number")
+        .clear_output()
+        .type_line(":type { core::system::Stdio::out!(\"nope\"); [true] }")
+        .expect_output("List<Bool>")
+        .shutdown();
+
+    // The expression was checked, never run.
+    let repl = ReplTest::new().type_line(":type { core::system::Stdio::out!(\"nope\"); [true] }");
+    assert!(
+        !repl.output().contains("nope"),
+        ":type must not execute the expression:\n{}",
+        repl.output()
+    );
+    repl.shutdown();
+}
+
+#[test]
+fn test_private_member_inspection_reads_as_absent() {
+    let dir = project_with(&[
+        ("main.ab", "pub fn run(): Number { 0 }\n"),
+        ("util.ab", "fn hidden(): Number { 0 }\n"),
+    ]);
+    ReplTest::with_project(dir.path())
+        .type_line("pkg::util::hidden")
+        .expect_error("error")
+        .shutdown();
+}
+
+#[test]
+fn test_reexported_ability_inspects_with_methods() {
+    // `core::system::Stdio` is a `pub use` re-export: inspection chases the
+    // chain to the defining module and shows the ability's methods and doc.
+    ReplTest::new()
+        .type_line("core::system::Stdio")
+        .expect_output("ability Stdio")
+        .expect_output("fn out(message: String): ()")
+        .expect_output("core::system::stdio::Stdio")
+        .shutdown();
+}
+
+#[test]
+fn test_imported_bare_name_inspects() {
+    // After `use`, the bare imported name inspects as its target.
+    ReplTest::new()
+        .type_line("use core::system::Stdio;")
+        .clear_output()
+        .type_line("Stdio")
+        .expect_output("ability Stdio")
+        .shutdown();
+}
+
+#[test]
+fn test_prelude_names_inspect_bare() {
+    // Prelude re-exports (`Option`, `Number`) inspect without any import.
+    ReplTest::new()
+        .type_line("Option")
+        .expect_output("enum Option<T>")
+        .expect_output("Some(T)")
+        .shutdown();
+}
+
+#[test]
+fn test_core_module_listing_has_no_duplicates() {
+    let repl = ReplTest::new().type_line("core").expect_output("module core");
+    let output = repl.output();
+    let count = output.matches("mod option;").count();
+    assert_eq!(count, 1, "each child must list once:\n{output}");
+    repl.shutdown();
+}
