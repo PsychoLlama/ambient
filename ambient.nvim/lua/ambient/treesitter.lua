@@ -32,24 +32,20 @@ local function resolve_parser(cfg)
   return cfg.parser_path or (plugin_root() .. '/parser/ambient.so')
 end
 
---- The `indentexpr` string for the installed `nvim-treesitter`, or nil if it is
---- not available. The `main` branch exposes `require('nvim-treesitter')
---- .indentexpr()`; the older `master` branch the `nvim_treesitter#indent()`
---- autoload function. Both drive the same query and the same indent module, so
---- either works — we just have to name the one that exists. (`exists()` cannot
---- probe the autoload function without sourcing it, so detect `master` by the
---- presence of its indent module instead.)
+--- The `indentexpr` string documented by `nvim-treesitter`, or nil when the
+--- plugin is not installed. This is the sole indent API it exposes
+--- (`:help nvim-treesitter.indentexpr()`):
+---
+---   vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+---
+--- `require` here also loads the plugin if it is lazy (`opt`) but on the
+--- runtimepath, so the guard doubles as the load trigger. When it is absent we
+--- return nil and leave `indentexpr` untouched; core highlight and fold still
+--- work without it.
 --- @return string?
 local function indentexpr()
-  local ok, nvim_ts = pcall(require, 'nvim-treesitter')
-  if not ok then
-    return nil
-  end
-  if type(nvim_ts.indentexpr) == 'function' then
+  if pcall(require, 'nvim-treesitter') then
     return "v:lua.require'nvim-treesitter'.indentexpr()"
-  end
-  if pcall(require, 'nvim-treesitter.indent') then
-    return 'nvim_treesitter#indent()'
   end
   return nil
 end
