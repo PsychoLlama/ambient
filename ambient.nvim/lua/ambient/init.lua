@@ -1,37 +1,31 @@
+--- Ambient language support for Neovim.
+---
+--- Public entry point. `setup()` registers the tree-sitter grammar and the
+--- language server; per-buffer editor features (highlight, fold, indent,
+--- conceal, options) are wired by `ftplugin/ambient.lua` as each buffer opens.
+---
+--- Usage:
+---
+---   require('ambient').setup({
+---     treesitter = { grammar_path = '/path/to/tree-sitter-ambient' },
+---   })
+---
+--- See `lua/ambient/config.lua` for the full set of options.
+
+local config = require('ambient.config')
+
 local M = {}
 
+--- Resolved configuration; the ftplugin reads this to know what is enabled.
+--- @type ambient.Config|nil
+M.config = nil
+
+--- @param opts table|nil
 function M.setup(opts)
-  opts = opts or {}
+  M.config = config.merge(opts)
 
-  -- Find the parser .so file
-  local plugin_dir =
-    vim.fn.fnamemodify(debug.getinfo(1, 'S').source:sub(2), ':h:h:h')
-  local parser_path = opts.parser_path
-    or (opts.grammar_path and opts.grammar_path .. '/parser/ambient.so')
-    or (plugin_dir .. '/parser/ambient.so')
-
-  -- Load the parser if it exists
-  if vim.fn.filereadable(parser_path) == 1 then
-    vim.treesitter.language.add('ambient', { path = parser_path })
-  end
-
-  -- Register filetype association
-  vim.treesitter.language.register('ambient', 'ambient')
-
-  -- Configure nvim-treesitter if available
-  local ok, parser_config = pcall(function()
-    return require('nvim-treesitter.parsers').get_parser_configs()
-  end)
-  if ok then
-    parser_config.ambient = {
-      install_info = {
-        url = opts.grammar_path
-          or vim.fn.fnamemodify(plugin_dir, ':h') .. '/tree-sitter-ambient',
-        files = { 'src/parser.c' },
-      },
-      filetype = 'ambient',
-    }
-  end
+  require('ambient.treesitter').setup(M.config.treesitter)
+  require('ambient.lsp').setup(M.config.lsp)
 end
 
 return M

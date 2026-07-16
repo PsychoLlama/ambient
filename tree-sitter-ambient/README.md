@@ -23,24 +23,22 @@ pnpm run build
 
 ### Usage with Neovim
 
-Add to your nvim-treesitter configuration:
+Use the [`ambient.nvim`](../ambient.nvim) plugin, which registers this grammar
+with Neovim core and wires up highlighting, folding, and indentation from the
+queries here:
 
 ```lua
-local parser_config = require("nvim-treesitter.parsers").get_parser_configs()
-parser_config.ambient = {
-  install_info = {
-    url = "/path/to/tree-sitter-ambient",
-    files = { "src/parser.c" },
+require('ambient').setup({
+  treesitter = {
+    -- Directory holding the built grammar (with `parser/ambient.so`).
+    grammar_path = '/path/to/tree-sitter-ambient',
   },
-  filetype = "ab",
-}
+})
 ```
 
-Then install the parser:
-
-```vim
-:TSInstall ambient
-```
+Highlighting and folding come from Neovim core (`vim.treesitter`); indentation
+uses `nvim-treesitter`'s indent expression. No `:TSInstall` step is needed —
+the plugin loads the compiled parser directly.
 
 ### Usage with Helix
 
