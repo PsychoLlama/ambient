@@ -69,6 +69,9 @@ pub enum ItemKind {
     /// A type alias.
     TypeAlias(TypeAliasDef),
 
+    /// A named ability set (`set IO = ...`).
+    Set(SetDef),
+
     /// An enum definition.
     Enum(EnumDef),
 
@@ -334,6 +337,45 @@ pub struct TypeAliasDef {
     pub type_params: Vec<TypeParam>,
     /// The aliased type.
     pub ty: Type,
+}
+
+/// A row expression: the right-hand side of a `set` declaration.
+///
+/// Ability sets are **transparent aliases** for a group of abilities — they
+/// expand to their members at every use site and carry no runtime identity
+/// (no `unique(<uuid>)`), exactly like a `type` alias. A `RowExpr` is the
+/// small algebra used to build one: names (each an ability or another set),
+/// unioned by a comma list, and combined with the `Union<A, B>` and
+/// `Difference<A, B>` combinators. It never carries a polymorphic tail — a
+/// set is always a concrete, named group.
+#[derive(Debug, Clone)]
+pub enum RowExpr {
+    /// A single ability or set name; resolved and expanded later.
+    Name(QualifiedName),
+    /// Union of its parts (`a, b` or `Union<A, B>`).
+    Union(Vec<RowExpr>),
+    /// Set difference `Difference<A, B>` — the abilities of `A` minus those
+    /// of `B`.
+    Difference(Box<RowExpr>, Box<RowExpr>),
+}
+
+/// A `set` declaration: `set IO = Stdio, FileSystem, Tcp;`.
+///
+/// Names a reusable group of abilities. A set is a transparent alias with no
+/// `unique(<uuid>)` — it expands to its members wherever it appears in an
+/// ability position (`with`, `sandbox with`, an ability's dependency row, or
+/// another set's body), and never survives into content hashes as itself.
+/// Union is a comma list (or `Union<A, B>`); exclusion is `Difference<A, B>`.
+#[derive(Debug, Clone)]
+pub struct SetDef {
+    /// Set name.
+    pub name: Arc<str>,
+    /// Span of the set name (for go-to-definition).
+    pub name_span: Span,
+    /// Whether this set is public (importable and part of the interface).
+    pub is_public: bool,
+    /// The abilities this set denotes.
+    pub body: RowExpr,
 }
 
 /// An enum definition.

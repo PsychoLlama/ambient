@@ -520,6 +520,7 @@ fn item_name(item: &Item) -> Option<Arc<str>> {
         ItemKind::Ability(def) => Some(def.name.clone()),
         ItemKind::Trait(def) => Some(def.name.clone()),
         ItemKind::ExternFn(def) => Some(def.name.clone()),
+        ItemKind::Set(def) => Some(def.name.clone()),
         ItemKind::Use(def) => def
             .alias
             .as_ref()
@@ -547,7 +548,7 @@ fn export_kind(kind: ExportKind) -> ModuleExportKind {
         ExportKind::EnumVariant => ModuleExportKind::Variant,
         // Ability methods are never module-level exports; render one like
         // its ability if it ever appears here.
-        ExportKind::Ability | ExportKind::Trait | ExportKind::AbilityMethod => {
+        ExportKind::Ability | ExportKind::Trait | ExportKind::AbilityMethod | ExportKind::Set => {
             ModuleExportKind::Ability
         }
     }

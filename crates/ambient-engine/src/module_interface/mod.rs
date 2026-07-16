@@ -317,6 +317,7 @@ pub(crate) const REKIND_ENUM_VARIANT: u8 = 7;
 pub(crate) const REKIND_ABILITY: u8 = 8;
 pub(crate) const REKIND_TRAIT: u8 = 9;
 pub(crate) const REKIND_ABILITY_METHOD: u8 = 10;
+pub(crate) const REKIND_SET: u8 = 11;
 
 const fn export_kind_tag(kind: ExportKind) -> u8 {
     match kind {
@@ -329,6 +330,7 @@ const fn export_kind_tag(kind: ExportKind) -> u8 {
         ExportKind::Ability => REKIND_ABILITY,
         ExportKind::AbilityMethod => REKIND_ABILITY_METHOD,
         ExportKind::Trait => REKIND_TRAIT,
+        ExportKind::Set => REKIND_SET,
     }
 }
 

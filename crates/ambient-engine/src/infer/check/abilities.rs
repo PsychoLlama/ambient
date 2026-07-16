@@ -4,10 +4,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::fqn::{Fqn, ModuleId};
+use crate::fqn::{Fqn, ModuleId, NameKey};
 use crate::module_path::ModulePath;
 use crate::module_registry::ModuleRegistry;
-use crate::types::{AbilityId, Type};
+use crate::types::{AbilityId, AbilitySet, Type};
 
 use crate::infer::Infer;
 use crate::infer::error::{BoxedTypeError, TypeError, TypeErrorKind};
@@ -362,6 +362,132 @@ pub(super) fn seed_namespaced_ability_dynamics(
         }
     }
 }
+
+/// One indexed `set` declaration awaiting evaluation.
+struct SetEntry {
+    /// The set's canonical key (`Item(fqn)`).
+    key: NameKey,
+    /// Bare name, for the `Bare`-keyed alias registry-less checks rely on.
+    bare: Arc<str>,
+    /// The unevaluated body.
+    body: crate::ast::RowExpr,
+    /// Name span, for cycle diagnostics.
+    span: (u32, u32),
+}
+
+/// Evaluate every `set` declaration in every registered module into its
+/// concrete member [`AbilitySet`] and register it under both its `Item(fqn)`
+/// key and a `Bare(name)` alias.
+///
+/// Runs after [`seed_namespaced_ability_dynamics`] so a set body's member
+/// abilities already resolve. Sets may reference other sets; evaluation is
+/// memoized and cycle-guarded (reusing the ability-dependency-cycle
+/// diagnostic). A set is a transparent alias — its members flow into every
+/// row that names it, and it never appears downstream as itself.
+pub(super) fn seed_ability_sets(
+    infer: &mut Infer,
+    registry: &ModuleRegistry,
+    errors: &mut Vec<BoxedTypeError>,
+) {
+    let mut entries: Vec<SetEntry> = Vec::new();
+    let mut by_key: HashMap<NameKey, usize> = HashMap::new();
+    for info in registry.all_modules() {
+        let module_id = registry.module_id(&info.path);
+        for item in &info.module.items {
+            if let crate::ast::ItemKind::Set(s) = &item.kind {
+                let key = NameKey::Item(Fqn::new(module_id.clone(), vec![Arc::clone(&s.name)]));
+                by_key.insert(key.clone(), entries.len());
+                entries.push(SetEntry {
+                    key,
+                    bare: Arc::clone(&s.name),
+                    body: s.body.clone(),
+                    span: (s.name_span.start, s.name_span.end),
+                });
+            }
+        }
+    }
+
+    let mut visiting: HashSet<NameKey> = HashSet::new();
+    for idx in 0..entries.len() {
+        let set = eval_set(infer, &entries, &by_key, idx, &mut visiting, errors);
+        infer
+            .set_registry
+            .insert(NameKey::Bare(Arc::clone(&entries[idx].bare)), set);
+    }
+}
+
+/// Evaluate the set at `idx`, memoizing the result under its `Item` key.
+fn eval_set(
+    infer: &mut Infer,
+    entries: &[SetEntry],
+    by_key: &HashMap<NameKey, usize>,
+    idx: usize,
+    visiting: &mut HashSet<NameKey>,
+    errors: &mut Vec<BoxedTypeError>,
+) -> AbilitySet {
+    let key = entries[idx].key.clone();
+    if let Some(existing) = infer.set_registry.get(&key) {
+        return existing.clone();
+    }
+    if !visiting.insert(key.clone()) {
+        errors.push(Box::new(TypeError::new(
+            TypeErrorKind::AbilityDependencyCycle {
+                cycle: vec![Arc::clone(&entries[idx].bare)],
+            },
+            entries[idx].span,
+        )));
+        return AbilitySet::Empty;
+    }
+    let result = eval_row(infer, entries, by_key, &entries[idx].body, visiting, errors);
+    visiting.remove(&key);
+    infer.set_registry.insert(key, result.clone());
+    result
+}
+
+/// Fold a [`RowExpr`](crate::ast::RowExpr) into an [`AbilitySet`]: names
+/// expand (a set recursively, an ability to itself), unions merge, and a
+/// `Difference` removes the right set's members from the left's.
+fn eval_row(
+    infer: &mut Infer,
+    entries: &[SetEntry],
+    by_key: &HashMap<NameKey, usize>,
+    row: &crate::ast::RowExpr,
+    visiting: &mut HashSet<NameKey>,
+    errors: &mut Vec<BoxedTypeError>,
+) -> AbilitySet {
+    use crate::ast::RowExpr;
+    match row {
+        RowExpr::Name(qn) => {
+            if let Some(&idx) = by_key.get(&qn.resolution_key()) {
+                return eval_set(infer, entries, by_key, idx, visiting, errors);
+            }
+            let span = qn.name_span.map_or((0, 0), |s| (s.start, s.end));
+            match infer.resolve_ability_ref(qn, span) {
+                Ok(id) => AbilitySet::single(id),
+                Err(e) => {
+                    errors.push(e);
+                    AbilitySet::Empty
+                }
+            }
+        }
+        RowExpr::Union(parts) => parts.iter().fold(AbilitySet::Empty, |acc, part| {
+            let part = eval_row(infer, entries, by_key, part, visiting, errors);
+            acc.union(&part)
+        }),
+        RowExpr::Difference(a, b) => {
+            let left = eval_row(infer, entries, by_key, a, visiting, errors);
+            let right = eval_row(infer, entries, by_key, b, visiting, errors);
+            let excluded: HashSet<AbilityId> = right.concrete_abilities().iter().copied().collect();
+            AbilitySet::from_abilities(
+                left.concrete_abilities()
+                    .iter()
+                    .copied()
+                    .filter(|id| !excluded.contains(id)),
+            )
+        }
+    }
+}
+
 /// Find a residual bare primitive name (`Bool`/`Number`/`String`/`Binary`)
 /// anywhere in `ty` — an argument-less, uuid-less `Named` whose name is a
 /// primitive. Recurses into type arguments so a nested `List<String>` is

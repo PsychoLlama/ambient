@@ -506,6 +506,35 @@ fn write_item(sink: &mut Sink, item: &Item) {
             sink.tag(9);
             write_use(sink, u);
         }
+        ItemKind::Set(s) => {
+            sink.tag(10);
+            sink.str(&s.name);
+            sink.buf.push(u8::from(s.is_public));
+            write_row_expr(sink, &s.body);
+        }
+    }
+}
+
+fn write_row_expr(sink: &mut Sink, row: &crate::ast::RowExpr) {
+    use crate::ast::RowExpr;
+    match row {
+        RowExpr::Name(qn) => {
+            sink.tag(0);
+            sink.name(qn);
+        }
+        RowExpr::Union(parts) => {
+            sink.tag(1);
+            #[allow(clippy::cast_possible_truncation)]
+            sink.u32(parts.len() as u32);
+            for part in parts {
+                write_row_expr(sink, part);
+            }
+        }
+        RowExpr::Difference(a, b) => {
+            sink.tag(2);
+            write_row_expr(sink, a);
+            write_row_expr(sink, b);
+        }
     }
 }
 

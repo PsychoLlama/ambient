@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use ambient_engine::ast::{
     AbilityDef, AbilityMethod, ConstDef, EnumDef, EnumVariant, ExternFnDef, FunctionDef,
-    ImplAssocType, ImplDef, ImplMethod, Item, ItemKind, Param, Span, StructDef, TraitAssocType,
-    TraitDef, TraitMethod, TraitRef, TypeAliasDef, TypeParam, UseDef, UsePrefix,
+    ImplAssocType, ImplDef, ImplMethod, Item, ItemKind, Param, RowExpr, SetDef, Span, StructDef,
+    TraitAssocType, TraitDef, TraitMethod, TraitRef, TypeAliasDef, TypeParam, UseDef, UsePrefix,
 };
 use ambient_engine::types::{NominalType, Type};
 
@@ -17,8 +17,8 @@ use super::exprs::lower_expression;
 use super::types::{lower_qualified_name, lower_type};
 use crate::cst::{
     CstAbilityDef, CstConstDef, CstEnumDef, CstExternFnDef, CstFunctionDef, CstImplDef, CstItem,
-    CstItemKind, CstParam, CstStructDef, CstTraitDef, CstTraitParamKind, CstTypeAliasDef,
-    CstTypeExprKind, CstUseDef, CstUseTree, CstUseTreeKind, CstWhereClause,
+    CstItemKind, CstParam, CstRowExpr, CstSetDef, CstStructDef, CstTraitDef, CstTraitParamKind,
+    CstTypeAliasDef, CstTypeExprKind, CstUseDef, CstUseTree, CstUseTreeKind, CstWhereClause,
 };
 use crate::error::{ParseError, ParseErrorKind};
 
@@ -162,6 +162,7 @@ pub(super) fn lower_item_impl(
         CstItemKind::Const(c) => ItemKind::Const(lower_const(ctx, c)?),
         CstItemKind::Struct(s) => ItemKind::Struct(lower_struct_def(s)?),
         CstItemKind::TypeAlias(t) => ItemKind::TypeAlias(lower_type_alias(t)?),
+        CstItemKind::Set(s) => ItemKind::Set(lower_set(s)),
         CstItemKind::Enum(e) => ItemKind::Enum(lower_enum(e)?),
         CstItemKind::Ability(a) => ItemKind::Ability(lower_ability_def(ctx, a)?),
         CstItemKind::Use(u) => {
@@ -374,6 +375,25 @@ fn lower_type_alias(t: &CstTypeAliasDef) -> Result<TypeAliasDef, ParseError> {
         type_params,
         ty,
     })
+}
+
+fn lower_set(s: &CstSetDef) -> SetDef {
+    SetDef {
+        name: s.name.name.clone(),
+        name_span: s.name.span,
+        is_public: s.is_public,
+        body: lower_row_expr(&s.body),
+    }
+}
+
+fn lower_row_expr(r: &CstRowExpr) -> RowExpr {
+    match r {
+        CstRowExpr::Name(name) => RowExpr::Name(lower_qualified_name(name)),
+        CstRowExpr::Union(parts) => RowExpr::Union(parts.iter().map(lower_row_expr).collect()),
+        CstRowExpr::Difference(a, b) => {
+            RowExpr::Difference(Box::new(lower_row_expr(a)), Box::new(lower_row_expr(b)))
+        }
+    }
 }
 
 fn lower_enum(e: &CstEnumDef) -> Result<EnumDef, ParseError> {

@@ -225,6 +225,7 @@ impl<'a> TokenCollector<'a> {
             // A struct or type-alias name both highlight as a type declaration.
             ItemKind::Struct(s) => self.add_type_decl_token(s.name_span),
             ItemKind::TypeAlias(t) => self.add_type_decl_token(t.name_span),
+            ItemKind::Set(s) => self.add_type_decl_token(s.name_span),
             ItemKind::Enum(e) => {
                 // Enum name at definition
                 self.add_token(

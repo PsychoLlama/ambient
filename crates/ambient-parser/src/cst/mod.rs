@@ -181,6 +181,8 @@ pub enum CstItemKind {
     Impl(CstImplDef),
     /// Extern function declaration (`extern fn name(...): Ret;`).
     ExternFn(CstExternFnDef),
+    /// Named ability set (`set IO = ...`).
+    Set(CstSetDef),
     /// Error recovery placeholder.
     Error,
 }
@@ -379,6 +381,28 @@ pub struct CstStructDef {
     /// Whether this struct is `extern`: an engine-provided type that user code
     /// may name and read from but not construct. Requires `unique(...)`.
     pub is_extern: bool,
+}
+
+/// A row expression: the right-hand side of a `set` declaration.
+#[derive(Debug, Clone)]
+pub enum CstRowExpr {
+    /// A single ability or set name.
+    Name(CstQualifiedName),
+    /// Union of its parts (`a, b` or `Union<A, B>`).
+    Union(Vec<CstRowExpr>),
+    /// Set difference `Difference<A, B>`.
+    Difference(Box<CstRowExpr>, Box<CstRowExpr>),
+}
+
+/// A named ability set: `set IO = Stdio, FileSystem, Tcp;`.
+#[derive(Debug, Clone)]
+pub struct CstSetDef {
+    /// Whether public (`pub set`).
+    pub is_public: bool,
+    /// Set name.
+    pub name: CstIdent,
+    /// The abilities this set denotes.
+    pub body: CstRowExpr,
 }
 
 /// A type alias definition: `type Foo = Bar`.

@@ -136,6 +136,9 @@ impl Resolver<'_> {
                 self.resolve_type(&mut t.ty);
                 self.pop_type_params();
             }
+            ItemKind::Set(s) => {
+                self.resolve_row_expr(&mut s.body);
+            }
             ItemKind::Enum(e) => {
                 self.resolve_type_param_bounds(&mut e.type_params);
                 self.push_type_params(&e.type_params);

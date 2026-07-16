@@ -147,6 +147,24 @@ impl Resolver<'_> {
         self.resolve_path_ref(name, RefPos::Value);
     }
 
+    /// Resolve every ability/set name inside a `set` body. Each leaf is an
+    /// ability reference (an ability or another set), stamped exactly like a
+    /// name in a `with` clause; the combinators carry no names of their own.
+    pub(super) fn resolve_row_expr(&mut self, row: &mut crate::ast::RowExpr) {
+        match row {
+            crate::ast::RowExpr::Name(name) => self.resolve_ability_ref(name),
+            crate::ast::RowExpr::Union(parts) => {
+                for part in parts {
+                    self.resolve_row_expr(part);
+                }
+            }
+            crate::ast::RowExpr::Difference(a, b) => {
+                self.resolve_row_expr(a);
+                self.resolve_row_expr(b);
+            }
+        }
+    }
+
     /// Resolve a bare-method perform (`seed!(…)`, no spelled ability)
     /// through the imported-ability-method scope channel
     /// (`use m::Random::seed;`, block-scoped included). On a hit the call

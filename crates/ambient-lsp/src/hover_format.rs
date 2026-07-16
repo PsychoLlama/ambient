@@ -59,6 +59,12 @@ pub(crate) fn format_item_signature(kind: &ItemKind, content: &mut String) {
             content.push_str(" = ");
             content.push_str(&format_type(&t.ty));
         }
+        ItemKind::Set(s) => {
+            content.push_str("set ");
+            content.push_str(&s.name);
+            content.push_str(" = ");
+            content.push_str(&format_row_expr(&s.body));
+        }
         ItemKind::Enum(e) => {
             content.push_str("enum ");
             content.push_str(&e.name);
@@ -272,6 +278,22 @@ pub(crate) fn format_method_hover(
 }
 
 /// Wrap a signature-building closure in an ```` ```ambient ```` fence.
+/// Render a `set` body (`Stdio, FileSystem`, `Difference<A, B>`).
+fn format_row_expr(row: &ambient_engine::ast::RowExpr) -> String {
+    use ambient_engine::ast::RowExpr;
+    match row {
+        RowExpr::Name(qn) => qn.joined().to_string(),
+        RowExpr::Union(parts) => parts
+            .iter()
+            .map(format_row_expr)
+            .collect::<Vec<_>>()
+            .join(", "),
+        RowExpr::Difference(a, b) => {
+            format!("Difference<{}, {}>", format_row_expr(a), format_row_expr(b))
+        }
+    }
+}
+
 fn fenced_signature(build: impl FnOnce(&mut String)) -> String {
     let mut content = String::from("```ambient\n");
     build(&mut content);

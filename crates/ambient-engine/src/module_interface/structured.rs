@@ -243,6 +243,12 @@ fn item_record(span: crate::ast::Span, kind: &ItemKind) -> Option<StructuredItem
             String::new(),
             format!("= {}", render(&t.ty)),
         ),
+        ItemKind::Set(s) => record(
+            &s.name,
+            ItemKindTag::Alias,
+            String::new(),
+            format!("= {}", render_row_expr(&s.body)),
+        ),
         ItemKind::Trait(t) => record(
             &t.name,
             ItemKindTag::Trait,
@@ -257,6 +263,21 @@ fn item_record(span: crate::ast::Span, kind: &ItemKind) -> Option<StructuredItem
         ),
         ItemKind::Use(_) | ItemKind::Impl(_) => return None,
     })
+}
+
+fn render_row_expr(row: &crate::ast::RowExpr) -> String {
+    use crate::ast::RowExpr;
+    match row {
+        RowExpr::Name(qn) => qn.joined().to_string(),
+        RowExpr::Union(parts) => parts
+            .iter()
+            .map(render_row_expr)
+            .collect::<Vec<_>>()
+            .join(", "),
+        RowExpr::Difference(a, b) => {
+            format!("Difference<{}, {}>", render_row_expr(a), render_row_expr(b))
+        }
+    }
 }
 
 fn fn_summary(params: &[Param], ret: Option<&crate::types::Type>) -> String {

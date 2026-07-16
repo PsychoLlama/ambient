@@ -9,8 +9,8 @@ use super::Parser;
 use crate::cst::{
     CstAbilityDef, CstAbilityMethod, CstConstDef, CstEnumDef, CstEnumVariant, CstExternFnDef,
     CstFunctionDef, CstImplAssocType, CstImplDef, CstImplMethod, CstItem, CstItemKind, CstParam,
-    CstStructDef, CstTraitAssocType, CstTraitDef, CstTraitMethod, CstTraitParam, CstTraitParamKind,
-    CstTypeAliasDef, CstTypeParam, CstWhereClause,
+    CstRowExpr, CstSetDef, CstStructDef, CstTraitAssocType, CstTraitDef, CstTraitMethod,
+    CstTraitParam, CstTraitParamKind, CstTypeAliasDef, CstTypeParam, CstWhereClause,
 };
 use crate::error::{ParseError, ParseErrorKind};
 use crate::lexer::TokenKind;
@@ -38,6 +38,12 @@ impl Parser<'_> {
                     TokenKind::Extern => self.parse_extern_item(true)?,
                     TokenKind::Ability => CstItemKind::Ability(self.parse_ability_def(true, None)?),
                     TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(true, None)?),
+                    // `set` is a contextual keyword: only a declaration at item
+                    // position, never elsewhere (so the `core::collections::set`
+                    // module path is untouched).
+                    TokenKind::Ident if self.current().text == "set" => {
+                        CstItemKind::Set(self.parse_set(true)?)
+                    }
                     _ => {
                         return Err(ParseError::new(
                             ParseErrorKind::Expected {
@@ -60,6 +66,10 @@ impl Parser<'_> {
             TokenKind::Use => CstItemKind::Use(self.parse_use(false)?),
             TokenKind::Trait => CstItemKind::Trait(self.parse_trait_def(false, None)?),
             TokenKind::Impl => CstItemKind::Impl(self.parse_impl_def()?),
+            // `set` is a contextual keyword (see the `pub` arm above).
+            TokenKind::Ident if self.current().text == "set" => {
+                CstItemKind::Set(self.parse_set(false)?)
+            }
             _ => {
                 return Err(ParseError::new(
                     ParseErrorKind::UnexpectedToken(format!("{:?}", self.current_kind())),
@@ -452,6 +462,65 @@ impl Parser<'_> {
             type_params,
             ty,
         })
+    }
+
+    /// Parse a `set` declaration: `set IO = Stdio, FileSystem, Tcp;`. The
+    /// contextual `set` keyword (an `Ident`) has already been recognized by
+    /// the caller but not consumed.
+    fn parse_set(&mut self, is_public: bool) -> Result<CstSetDef, ParseError> {
+        self.advance(); // consume the contextual `set` keyword
+        self.skip_trivia();
+        let name = self.parse_ident()?;
+        self.expect(TokenKind::Eq)?;
+        self.skip_trivia();
+        let body = self.parse_row_expr()?;
+        self.expect(TokenKind::Semi)?;
+        Ok(CstSetDef {
+            is_public,
+            name,
+            body,
+        })
+    }
+
+    /// Parse a row expression — a `set`'s right-hand side. A top-level comma
+    /// list is a union; each element is an ability/set name or a
+    /// `Union<A, B>` / `Difference<A, B>` combinator.
+    fn parse_row_expr(&mut self) -> Result<CstRowExpr, ParseError> {
+        let mut parts = vec![self.parse_row_atom()?];
+        while self.consume(TokenKind::Comma).is_some() {
+            self.skip_trivia();
+            parts.push(self.parse_row_atom()?);
+        }
+        Ok(if parts.len() == 1 {
+            parts.pop().expect("non-empty")
+        } else {
+            CstRowExpr::Union(parts)
+        })
+    }
+
+    /// Parse one row atom: an ability/set name, or a binary combinator.
+    /// Combinator arguments are themselves atoms (not comma lists), so a
+    /// union inside an argument is spelled `Union<A, B>` or named as a set.
+    fn parse_row_atom(&mut self) -> Result<CstRowExpr, ParseError> {
+        let name = self.parse_qualified_name()?;
+        let combinator = (name.segments.len() == 1).then(|| &*name.segments[0].name);
+        if self.check(TokenKind::Lt) && matches!(combinator, Some("Union" | "Difference")) {
+            let is_union = combinator == Some("Union");
+            self.advance(); // consume `<`
+            self.skip_trivia();
+            let a = self.parse_row_atom()?;
+            self.expect(TokenKind::Comma)?;
+            self.skip_trivia();
+            let b = self.parse_row_atom()?;
+            self.expect(TokenKind::Gt)?;
+            self.skip_trivia();
+            return Ok(if is_union {
+                CstRowExpr::Union(vec![a, b])
+            } else {
+                CstRowExpr::Difference(Box::new(a), Box::new(b))
+            });
+        }
+        Ok(CstRowExpr::Name(name))
     }
 
     fn parse_enum(

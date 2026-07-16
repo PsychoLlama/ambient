@@ -234,6 +234,11 @@ impl<'r> Resolver<'r> {
                 ItemKind::TypeAlias(t) => {
                     module_types.insert(Arc::clone(&t.name));
                 }
+                ItemKind::Set(s) => {
+                    // Sets live in the ability namespace: a bare `with MySet`
+                    // resolves like a bare ability, then expands to members.
+                    module_abilities.insert(Arc::clone(&s.name));
+                }
                 ItemKind::Enum(e) => {
                     module_types.insert(Arc::clone(&e.name));
                     for variant in &e.variants {

@@ -431,6 +431,7 @@ impl Collector<'_> {
             }
             ItemKind::Struct(s) => self.item_def(&s.name, s.name_span),
             ItemKind::TypeAlias(t) => self.item_def(&t.name, t.name_span),
+            ItemKind::Set(s) => self.item_def(&s.name, s.name_span),
             ItemKind::Enum(e) => {
                 self.item_def(&e.name, e.name_span);
                 // Each variant is its own symbol, keyed on the two-segment

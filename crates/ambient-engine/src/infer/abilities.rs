@@ -11,6 +11,7 @@ use std::sync::Arc;
 use super::error::TypeError;
 use super::{Infer, InferResult, TypeErrorKind, type_error};
 use crate::ast::QualifiedName;
+use crate::fqn::NameKey;
 use crate::types::{AbilityId, AbilitySet, AbilityVarId, Type};
 
 impl Infer {
@@ -88,6 +89,26 @@ impl Infer {
                 };
                 type_error(kind, span)
             })
+    }
+
+    /// Resolve a name in an ability position to the [`AbilitySet`] it
+    /// contributes. A named `set` expands to its (already-resolved) members;
+    /// any other name resolves to a single ability. This is the one place an
+    /// ability-set alias becomes its members — every ability-row resolver
+    /// funnels through it, so sets and abilities are interchangeable wherever
+    /// a row is *required* (`with`, `sandbox with`, an ability's dependency
+    /// row, another set's body), but never where an ability is *performed* or
+    /// *handled* (those still name a single ability).
+    pub(crate) fn resolve_ability_or_set(
+        &self,
+        name: &QualifiedName,
+        fallback_span: (u32, u32),
+    ) -> InferResult<AbilitySet> {
+        if let Some(set) = self.set_registry.get(&name.resolution_key()) {
+            return Ok(set.clone());
+        }
+        self.resolve_ability_ref(name, fallback_span)
+            .map(AbilitySet::single)
     }
 
     /// Convert an ability ID to its name using the resolver.
@@ -405,6 +426,15 @@ impl Infer {
                     Some((_, existing)) if *existing != var => {}
                     _ => tail = Some((Arc::clone(name), var)),
                 }
+                continue;
+            }
+            // A set named bare (a prelude set like `System`, or one declared
+            // in this module) expands to its members. Function-type
+            // annotations carry only the source spelling (lowering had no
+            // resolver), so only the bare key is available here; qualified
+            // set spellings in a function-type row are not expanded.
+            if let Some(set) = self.set_registry.get(&NameKey::Bare(Arc::clone(name))) {
+                ids.extend(set.concrete_abilities().iter().copied());
                 continue;
             }
             if let Some(id) = self.resolve_annotated_ability(name) {

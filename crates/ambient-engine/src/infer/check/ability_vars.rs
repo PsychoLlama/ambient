@@ -125,8 +125,8 @@ pub(in crate::infer) fn resolve_declared_with(
             }
             continue;
         }
-        match infer.resolve_ability_ref(qn, (0, 0)) {
-            Ok(id) => ids.push(id),
+        match infer.resolve_ability_or_set(qn, (0, 0)) {
+            Ok(set) => ids.extend(set.concrete_abilities().iter().copied()),
             Err(e) => infer
                 .pending_errors
                 .push(e.with_context(format!("in `with` clause of function `{fn_name}`"))),

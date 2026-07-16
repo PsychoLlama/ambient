@@ -449,12 +449,20 @@ pub(super) fn enforce_ability_subset(
     // second "uses ability but doesn't declare it" error.
     let declared: Vec<AbilityId> = declared
         .iter()
-        .filter_map(|qn| {
+        .flat_map(|qn| {
+            // A named set expands to its members; any other name resolves to
+            // a single ability (leniently — the namespace policy was already
+            // enforced at scheme build, so don't cascade a second error).
+            if let Some(set) = infer.set_registry.get(&qn.resolution_key()) {
+                return set.concrete_abilities().to_vec();
+            }
             infer
                 .ability_resolver
                 .resolve_ref(infer.ability_namespace(qn).as_ref(), qn.resolved_name())
                 .ok()
                 .or_else(|| infer.ability_name_to_id(&qn.name))
+                .into_iter()
+                .collect()
         })
         .collect();
     let declared_set = AbilitySet::from_abilities(declared);

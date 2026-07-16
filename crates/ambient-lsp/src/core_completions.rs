@@ -166,6 +166,7 @@ fn export_kind_completion(kind: ExportKind) -> Option<(CompletionItemKind, &'sta
         ExportKind::Enum => (CompletionItemKind::ENUM, "enum"),
         ExportKind::Trait => (CompletionItemKind::INTERFACE, "trait"),
         ExportKind::Ability => (CompletionItemKind::INTERFACE, "ability"),
+        ExportKind::Set => (CompletionItemKind::INTERFACE, "ability set"),
         // Variant constructors complete through their enum (and the prelude
         // ones need no qualification at all); ability methods are never
         // module-level exports (they import only through the explicit

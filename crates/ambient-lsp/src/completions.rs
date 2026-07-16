@@ -410,7 +410,9 @@ fn get_pkg_module_completions(
                 ExportKind::TypeAlias => CompletionItemKind::TYPE_PARAMETER,
                 ExportKind::Enum => CompletionItemKind::ENUM,
                 ExportKind::EnumVariant => CompletionItemKind::ENUM_MEMBER,
-                ExportKind::Ability | ExportKind::Trait => CompletionItemKind::INTERFACE,
+                ExportKind::Ability | ExportKind::Trait | ExportKind::Set => {
+                    CompletionItemKind::INTERFACE
+                }
                 // Never a module-level export (methods import only through
                 // the explicit `Ability::method` path shape).
                 ExportKind::AbilityMethod => return None,

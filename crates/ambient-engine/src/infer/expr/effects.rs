@@ -90,7 +90,13 @@ impl Infer {
         // namespace policy applies: `sandbox with core::system::Log { ... }`.
         let mut allowed_ability_ids = Vec::with_capacity(sandbox_expr.allowed_abilities.len());
         for ability_name in &sandbox_expr.allowed_abilities {
-            allowed_ability_ids.push(self.resolve_ability_ref(ability_name, span)?);
+            // A set in the allow-list permits its whole membership.
+            allowed_ability_ids.extend(
+                self.resolve_ability_or_set(ability_name, span)?
+                    .concrete_abilities()
+                    .iter()
+                    .copied(),
+            );
         }
 
         // Infer the body with a clean accumulator so its effect set can be

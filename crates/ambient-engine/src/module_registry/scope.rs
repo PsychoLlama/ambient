@@ -101,7 +101,7 @@ impl ExportKind {
         match self {
             Self::Function | Self::Const | Self::EnumVariant => Namespace::Value,
             Self::Struct | Self::TypeAlias | Self::Enum => Namespace::Type,
-            Self::Ability => Namespace::Ability,
+            Self::Ability | Self::Set => Namespace::Ability,
             Self::AbilityMethod => Namespace::AbilityMethod,
             Self::Trait => Namespace::Trait,
         }

@@ -15,7 +15,8 @@ use crate::infer::error::{BoxedTypeError, TypeError, TypeErrorKind};
 use crate::infer::{Infer, inherent};
 
 use super::abilities::{
-    register_imported_ability, seed_namespaced_ability_dynamics, seed_prelude_struct_aliases,
+    register_imported_ability, seed_ability_sets, seed_namespaced_ability_dynamics,
+    seed_prelude_struct_aliases,
 };
 use super::impls::{build_inherent_method_scheme, inherent_impl_target};
 use super::locals::{
@@ -51,6 +52,10 @@ pub(super) fn register_cross_module(
     // `use core::system::Tcp;` bridge all find their target — on every
     // path that has a registry, including the package build.
     seed_namespaced_ability_dynamics(infer, registry, errors);
+    // Ability sets expand to their members wherever a row names them; seed
+    // them now that every module's abilities are resolvable, so a `with`
+    // clause, sandbox, or another set can reference one.
+    seed_ability_sets(infer, registry, errors);
     // Imported enums register first: foreign impl registration (next)
     // must resolve an imported enum target to its uuid, or the impl's
     // dispatch key won't match the call sites'.
@@ -504,7 +509,8 @@ fn build_import_env(
                         | ExportKind::Struct
                         | ExportKind::TypeAlias
                         | ExportKind::Trait
-                        | ExportKind::AbilityMethod,
+                        | ExportKind::AbilityMethod
+                        | ExportKind::Set,
                     ..
                 } => {
                     // Modules resolve through paths; enums are registered by

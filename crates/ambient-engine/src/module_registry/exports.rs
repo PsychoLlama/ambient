@@ -41,6 +41,10 @@ pub enum ExportKind {
     Enum,
     EnumVariant,
     Ability,
+    /// A named ability set (`set IO = ...`). Occupies the ability namespace:
+    /// a set appears only in ability positions and is interchangeable with an
+    /// ability name there (it expands to its members).
+    Set,
     /// One method of an ability, importable only through the explicit
     /// `use m::Ability::method;` path shape (never a module-level symbol —
     /// [`extract_exports`] does not emit these; they are synthesized by
@@ -126,6 +130,13 @@ pub(super) fn extract_exports(module: &Module) -> HashMap<Arc<str>, ExportInfo> 
                 ExportKind::TypeAlias,
                 t.is_public,
                 t.name_span,
+                doc,
+            )),
+            ItemKind::Set(s) => Some(direct(
+                &s.name,
+                ExportKind::Set,
+                s.is_public,
+                s.name_span,
                 doc,
             )),
             ItemKind::Enum(e) => {

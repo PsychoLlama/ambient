@@ -30,6 +30,12 @@ fn item_to_document_symbol(
 ) -> Option<DocumentSymbol> {
     let range = offset_range_to_lsp_range(doc, item.span.start as usize, item.span.end as usize);
 
+    // A leaf symbol with no detail or children — just a name and a kind.
+    let simple = |name: &str, kind, span: ambient_engine::ast::Span| {
+        let name_range = offset_range_to_lsp_range(doc, span.start as usize, span.end as usize);
+        make_symbol(name.to_string(), None, kind, range, name_range, None)
+    };
+
     match &item.kind {
         ItemKind::Function(f) => Some(make_symbol(
             f.name.to_string(),
@@ -47,22 +53,9 @@ fn item_to_document_symbol(
             offset_range_to_lsp_range(doc, c.name_span.start as usize, c.name_span.end as usize),
             None,
         )),
-        ItemKind::Struct(s) => Some(make_symbol(
-            s.name.to_string(),
-            None,
-            LspSymbolKind::STRUCT,
-            range,
-            offset_range_to_lsp_range(doc, s.name_span.start as usize, s.name_span.end as usize),
-            None,
-        )),
-        ItemKind::TypeAlias(t) => Some(make_symbol(
-            t.name.to_string(),
-            None,
-            LspSymbolKind::TYPE_PARAMETER,
-            range,
-            offset_range_to_lsp_range(doc, t.name_span.start as usize, t.name_span.end as usize),
-            None,
-        )),
+        ItemKind::Struct(s) => Some(simple(&s.name, LspSymbolKind::STRUCT, s.name_span)),
+        ItemKind::TypeAlias(t) => Some(simple(&t.name, LspSymbolKind::TYPE_PARAMETER, t.name_span)),
+        ItemKind::Set(s) => Some(simple(&s.name, LspSymbolKind::INTERFACE, s.name_span)),
         ItemKind::Enum(e) => {
             let children = extract_enum_variants(e, doc);
             Some(make_symbol(
