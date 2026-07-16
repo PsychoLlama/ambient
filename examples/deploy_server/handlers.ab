@@ -1,6 +1,6 @@
 //! The request handler — the hot part of the tree.
 //!
-//! Edit the greeting, `ambient compile` the package, and ship the pack
+//! Edit the greeting, `ambient build` the package, and ship the pack
 //! with the deploy client: the next request answers with the new text,
 //! and the hit counter keeps counting because the cell never left the
 //! runtime.

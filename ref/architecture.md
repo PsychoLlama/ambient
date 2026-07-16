@@ -415,7 +415,7 @@ grant/shipped-handler split, and value serialization.
 ambient init my_project    # Scaffold a new package
 ambient run <pkg-dir>      # Compile and run a package (or a .ambient artifact)
 ambient check foo.ab       # Type-check only
-ambient compile foo.ab     # Compile to a foo.ambient artifact pack
+ambient build foo.ab     # Compile to a foo.ambient artifact pack
 ambient ast foo.ab         # Dump the parsed AST
 ambient store stats        # Inspect the package store (also: ls, show,
                            #   deps, verify, gc, snapshot, tag, diff)

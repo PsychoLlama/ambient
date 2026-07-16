@@ -4,7 +4,7 @@
 //! only needs the modules the entry point's behavior can actually reach, so it
 //! asks [`reachable_module_ids`] for that closure and compiles nothing else
 //! (see the build loop in [`super::build_package`]). `ambient check`, the LSP,
-//! `ambient compile`, and `ambient dev` stay whole-package — only `run` prunes.
+//! `ambient build`, and `ambient dev` stay whole-package — only `run` prunes.
 //!
 //! # What "reachable" must cover
 //!

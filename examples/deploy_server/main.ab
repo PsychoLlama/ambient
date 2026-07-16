@@ -8,7 +8,7 @@
 //! then upgrade it *from outside the process* (see README.md):
 //!
 //!     # edit handlers.ab, then
-//!     ambient compile examples/deploy_server -o v2.ambient
+//!     ambient build examples/deploy_server -o v2.ambient
 //!     DEPLOY_PACK=v2.ambient ambient run examples/deploy_client
 //!
 //! The entry is a declaration, re-run by every deploy as the

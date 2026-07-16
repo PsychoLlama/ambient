@@ -455,7 +455,7 @@ fn deploy_pair_upgrades_a_remote_service_mid_conversation() {
     .expect("write handlers.ab");
     let pack = tmp.path().join("v2.ambient");
     let compile = Command::new(ambient_bin())
-        .arg("compile")
+        .arg("build")
         .arg(&v2_src)
         .arg("-o")
         .arg(&pack)

@@ -2,16 +2,16 @@
 //!
 //! Each command is implemented in its own submodule.
 
+mod build;
 mod check;
-mod compile;
 mod dev;
 pub(crate) mod host;
 mod init;
 mod run;
 mod store;
 
+pub use build::cmd_build;
 pub use check::cmd_check;
-pub use compile::cmd_compile;
 pub use dev::cmd_dev;
 pub use init::cmd_init;
 pub use run::cmd_run;
@@ -55,7 +55,7 @@ pub struct CoreContext {
     pub hashes: HashMap<ambient_engine::fqn::NameKey, blake3::Hash>,
 }
 
-/// Build the core library context (used by check/compile/dev on bare
+/// Build the core library context (used by check/build/dev on bare
 /// files; package builds do this inside the build pipeline).
 pub fn core_context() -> Result<CoreContext> {
     let mut registry = ModuleRegistry::new();

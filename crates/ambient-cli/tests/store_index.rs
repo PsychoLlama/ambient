@@ -41,7 +41,7 @@ fn package() -> TempDir {
 
 fn build(dir: &Path) {
     let out = Command::new(ambient_bin())
-        .arg("compile")
+        .arg("build")
         .arg(dir)
         .output()
         .expect("run");

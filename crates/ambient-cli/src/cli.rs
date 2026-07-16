@@ -27,10 +27,11 @@ pub enum Command {
         name: Option<String>,
     },
 
-    /// Compile an Ambient source file to bytecode.
-    Compile {
-        /// The source file to compile (.ab).
-        #[arg(value_name = "FILE")]
+    /// Build an Ambient source file or package to bytecode.
+    Build {
+        /// Path to a package directory or bare source file (.ab).
+        /// Defaults to the current directory.
+        #[arg(value_name = "PROJECT", default_value = ".")]
         file: PathBuf,
 
         /// Output file path. Defaults to <input>.ambient.

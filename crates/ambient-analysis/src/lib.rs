@@ -112,7 +112,7 @@ impl Diagnostic {
 
 /// Render a set of type errors as diagnostics, in `ambient check` order.
 ///
-/// The build pipeline (`ambient run`/`compile`/`dev`) type-checks with the
+/// The build pipeline (`ambient run`/`build`/`dev`) type-checks with the
 /// same engine entry point as analysis but reports through the engine's
 /// `BuildError`. This is the one conversion both it and
 /// [`AnalysisResult::diagnostics`] use, so a type error renders identically

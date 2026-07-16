@@ -15,7 +15,7 @@ pub mod diagnostic;
 pub mod repl;
 
 use cli::{Args, Command};
-use commands::{cmd_check, cmd_compile, cmd_dev, cmd_init, cmd_run, cmd_store};
+use commands::{cmd_build, cmd_check, cmd_dev, cmd_init, cmd_run, cmd_store};
 use diagnostic::print_diagnostic;
 use repl::cmd_repl;
 
@@ -25,7 +25,7 @@ pub fn run() -> Result<()> {
 
     match args.command {
         Command::Init { path, name } => cmd_init(&path, name.as_deref())?,
-        Command::Compile { file, output } => cmd_compile(&file, output.as_deref())?,
+        Command::Build { file, output } => cmd_build(&file, output.as_deref())?,
         Command::Run { path, entry, args } => cmd_run(&path, &entry, args)?,
         Command::Check { file } => cmd_check(&file)?,
         Command::Ast { file } => cmd_ast(&file)?,

@@ -141,7 +141,7 @@ can import user code).
 `ambient run` compiles only the package modules **reachable** from its entry
 point; a module the entry can't reach is never checked or compiled. Every
 other frontend stays whole-package: `ambient check` and the LSP diagnose the
-entire package, `ambient compile` emits a whole-package artifact, and
+entire package, `ambient build` emits a whole-package artifact, and
 `ambient dev` builds every module (its deploy diff needs every module's
 bindings, and it is a snapshot writer — see below). The reachability decision
 lives in `crates/ambient-engine/src/build/reachability.rs`, gated by
@@ -195,7 +195,7 @@ unreached modules, so persisting its manifest would either strand ghost
 records or, if the manifest were marked partial, mislead `ambient store diff`
 (which computes removals) and the store gc (whose roots are a snapshot's
 referenced objects). The snapshot writers are the whole-package commands
-(`ambient compile`, `ambient dev`); a lazy `ambient run` fully exploits a
+(`ambient build`, `ambient dev`); a lazy `ambient run` fully exploits a
 snapshot they left but can never corrupt one. The trade-off — a run-only loop
 doesn't warm the store from `run` itself — is acceptable and reversible: a
 future step could carry a prior snapshot's unreached records forward.

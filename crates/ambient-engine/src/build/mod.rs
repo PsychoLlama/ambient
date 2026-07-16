@@ -3,7 +3,7 @@
 //! This is the *single* package pipeline: load every module, register the
 //! core/platform/user modules in one registry, canonicalize references
 //! (the resolve pass), order modules by their resolved dependencies, and
-//! check + compile each one. `ambient run`, `ambient compile`, and
+//! check + compile each one. `ambient run`, `ambient build`, and
 //! `ambient dev` are all frontends over [`build_package`]; behavior that
 //! must differ between them is expressed in [`BuildOptions`], never by
 //! forking the pipeline.
@@ -671,7 +671,7 @@ pub fn dep_interface_hashes(
 /// strand ghost records or, if partial, mislead `store diff` (which computes
 /// removals) and the store gc (whose roots are the snapshot's referenced
 /// objects). By only reading, a lazy run fully exploits a warm snapshot that a
-/// prior whole-package `ambient compile`/`dev` (the snapshot writers) left, yet
+/// prior whole-package `ambient build`/`dev` (the snapshot writers) left, yet
 /// can never corrupt one. The reached objects it produces are byte-identical to
 /// a full build's, so nothing is lost but the warming of the store from `run`
 /// itself. See `ref/modules.md` ("Lazy compilation").

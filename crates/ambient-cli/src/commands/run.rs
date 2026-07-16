@@ -79,7 +79,7 @@ pub(super) fn load_compiled(path: &Path, entry: Option<&str>) -> Result<Compiled
 /// This is a **lazy** build ([`ambient_engine::build::build_reachable`]): it
 /// compiles only the modules reachable from the `entry` point, reading the
 /// package-local store for warm cache hits but writing no snapshot. Whole-package
-/// snapshot writing (and thus cache warming) is `ambient compile`/`ambient dev`'s
+/// snapshot writing (and thus cache warming) is `ambient build`/`ambient dev`'s
 /// job — a lazy run must not persist a partial build (see `ref/modules.md`).
 /// Type errors in modules the entry can't reach are, by policy, not reported by
 /// `run`; `ambient check` reports them.

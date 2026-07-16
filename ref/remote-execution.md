@@ -61,7 +61,7 @@ Sender                          Runtime
   |<-- deploy report ------------|  (or Err: rejected, program untouched)
 ```
 
-The pack is an `ambient compile -o` artifact — canonical objects plus
+The pack is an `ambient build -o` artifact — canonical objects plus
 name bindings, canonical signatures (the rebinding rule's input), and
 the build's statically-named migration obligations. The runtime applies
 it through the same deploy core as the dev loop and the REPL: a

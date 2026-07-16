@@ -1,7 +1,7 @@
 //! Coverage of lazy (reachability-restricted) `ambient run` builds.
 //!
 //! `ambient run` compiles only the modules reachable from its entry point;
-//! `ambient check`/`compile`/`dev` stay whole-package. These tests pin the
+//! `ambient check`/`build`/`dev` stay whole-package. These tests pin the
 //! three correctness properties of that split:
 //!
 //! 1. **Byte-identity** — a reached module's objects are identical whether the

@@ -1,4 +1,4 @@
-//! Compile command implementation.
+//! Build command implementation.
 
 use std::cell::Cell;
 use std::fs;
@@ -11,11 +11,11 @@ use ambient_engine::build::build_and_persist;
 use super::{compile_source, parse_source, read_source};
 use crate::diagnostic::report_build_error;
 
-/// Compile an Ambient source file or package.
+/// Build an Ambient source file or package.
 ///
 /// If `file` is a directory with `ambient.toml`, compiles the package.
 /// Otherwise, compiles a single source file.
-pub fn cmd_compile(file: &Path, output: Option<&Path>) -> Result<()> {
+pub fn cmd_build(file: &Path, output: Option<&Path>) -> Result<()> {
     // Check if this is a package directory
     if file.is_dir() || file.join("ambient.toml").exists() {
         let pkg_path = if file.is_dir() {
@@ -23,7 +23,7 @@ pub fn cmd_compile(file: &Path, output: Option<&Path>) -> Result<()> {
         } else {
             file.parent().unwrap_or(file).to_path_buf()
         };
-        compile_package_cmd(&pkg_path, output)?;
+        build_package_cmd(&pkg_path, output)?;
         return Ok(());
     }
 
@@ -56,11 +56,11 @@ pub fn cmd_compile(file: &Path, output: Option<&Path>) -> Result<()> {
 /// The build is cache-aware, mirroring `ambient run`: it reads the
 /// package-local store's prior snapshot (a previously-built package
 /// compiles warm) and persists its objects + snapshot afterward, so
-/// `compile` also *feeds* the incremental cache. The written artifact
+/// `build` also *feeds* the incremental cache. The written artifact
 /// pack is byte-identical warm vs. cold — the cache only replaces
 /// recompilation with a store load, never the merged output. (Single-`.ab`-file
-/// compilation in [`cmd_compile`] has no package store and is left cold.)
-fn compile_package_cmd(path: &Path, output: Option<&Path>) -> Result<()> {
+/// compilation in [`cmd_build`] has no package store and is left cold.)
+fn build_package_cmd(path: &Path, output: Option<&Path>) -> Result<()> {
     // A warm build loads unchanged modules from the store rather than
     // compiling them; the callback reports each honestly ("Cached" vs.
     // "Compiling") and tallies the hits for the summary line, so a fully warm

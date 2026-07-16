@@ -47,7 +47,7 @@ pub fn persist_build(disk: &DiskStore, result: &BuildResult) -> Result<(), DiskS
 /// Build a package and persist it to its package-local content-addressed store
 /// so the next build is warm.
 ///
-/// This is the single wiring `ambient run`, `ambient compile`, and the
+/// This is the single wiring `ambient run`, `ambient build`, and the
 /// incremental-cache tests share: the build reads the prior snapshot from the
 /// same store this then persists to, so `store_path` is derived here (from
 /// `path`) rather than by each caller — any `store_path` on `options` is

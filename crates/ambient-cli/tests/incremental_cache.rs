@@ -835,9 +835,9 @@ fn cache_off_flag_forces_a_cold_build() {
     );
 }
 
-// ── `ambient compile` warm builds (feeds and consumes the cache) ────────────
+// ── `ambient build` warm builds (feeds and consumes the cache) ────────────
 
-/// The artifact-pack bytes `ambient compile -o` writes for a build: the same
+/// The artifact-pack bytes `ambient build -o` writes for a build: the same
 /// encoding `compile_package_cmd` emits, so a byte comparison here proves the
 /// warm and cold artifacts are identical.
 fn artifact_pack_bytes(result: &BuildResult) -> Vec<u8> {
@@ -879,7 +879,7 @@ fn compile_wiring_second_build_is_a_full_warm_hit() {
 
 #[test]
 fn ambient_compile_twice_is_warm_and_byte_identical() {
-    // Drive the real `ambient compile` command twice (own process, own env) so
+    // Drive the real `ambient build` command twice (own process, own env) so
     // the whole command wiring — warm read + persist + artifact write — is
     // exercised. `AMBIENT_CACHE_VERIFY=1` turns the second (warm) build into
     // the under-invalidation oracle: any stale hit panics → nonzero exit. The
@@ -897,16 +897,16 @@ fn ambient_compile_twice_is_warm_and_byte_identical() {
 
     for out in [&cold_out, &warm_out] {
         let status = Command::new(env!("CARGO_BIN_EXE_ambient"))
-            .arg("compile")
+            .arg("build")
             .arg(dir.path())
             .arg("-o")
             .arg(out)
             .env("AMBIENT_CACHE_VERIFY", "1")
             .output()
-            .expect("spawn ambient compile");
+            .expect("spawn ambient build");
         assert!(
             status.status.success(),
-            "ambient compile failed: {}",
+            "ambient build failed: {}",
             String::from_utf8_lossy(&status.stderr)
         );
     }
@@ -915,6 +915,6 @@ fn ambient_compile_twice_is_warm_and_byte_identical() {
     let warm_bytes = fs::read(&warm_out).expect("read warm artifact");
     assert_eq!(
         cold_bytes, warm_bytes,
-        "warm and cold `ambient compile` artifacts must be byte-identical"
+        "warm and cold `ambient build` artifacts must be byte-identical"
     );
 }

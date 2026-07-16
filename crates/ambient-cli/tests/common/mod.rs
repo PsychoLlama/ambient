@@ -79,9 +79,9 @@ impl CliTest {
         }
     }
 
-    /// Use the "compile" command instead of "run".
-    pub fn compile(mut self) -> Self {
-        self.command = "compile".into();
+    /// Use the "build" command instead of "run".
+    pub fn build(mut self) -> Self {
+        self.command = "build".into();
         self
     }
 
@@ -246,7 +246,7 @@ pub fn write_pkg_named(dir: &Path, pkg_name: &str, files: &[(&str, &str)]) {
 }
 
 /// Build reading the package's own store (cache Auto), then persist objects +
-/// snapshot exactly as `ambient run`/`compile` do — so the next build can hit.
+/// snapshot exactly as `ambient run`/`build` do — so the next build can hit.
 /// Shares the engine's build-and-persist wiring; a persist failure is a hard
 /// error here (the tests depend on the snapshot being durable).
 pub fn build_and_persist(dir: &Path) -> BuildResult {

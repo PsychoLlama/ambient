@@ -134,10 +134,10 @@ fn directory_module_records_its_main_ab_source_path() {
 fn run_records_a_snapshot_the_store_can_load() {
     let dir = package();
 
-    // `ambient compile` builds the whole package and persists a snapshot
+    // `ambient build` builds the whole package and persists a snapshot
     // (`ambient run` is lazy and read-only — it writes no snapshot).
     let out = Command::new(ambient_bin())
-        .arg("compile")
+        .arg("build")
         .arg(dir.path())
         .output()
         .expect("compile");
@@ -164,7 +164,7 @@ fn run_records_a_snapshot_the_store_can_load() {
 fn store_snapshot_command_summarizes_the_build() {
     let dir = package();
     Command::new(ambient_bin())
-        .arg("compile")
+        .arg("build")
         .arg(dir.path())
         .output()
         .expect("compile");

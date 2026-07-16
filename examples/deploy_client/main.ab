@@ -4,7 +4,7 @@
 //! server in the middle of it:
 //!
 //! 1. connect and send a request — answered by generation one;
-//! 2. ship a generation pack (an `ambient compile -o` artifact named by
+//! 2. ship a generation pack (an `ambient build -o` artifact named by
 //!    `DEPLOY_PACK`) to the deploy port and print the server's report;
 //! 3. send a second request **on the same connection** — answered by
 //!    the new generation, with the hit counter carried across.
@@ -56,7 +56,7 @@ fn receive_text(conn: Number): String with Tcp, Exception {
   Tcp::receive!(conn).expect("receive failed").to_string().unwrap_or("")
 }
 
-/// The generation pack to ship: the bytes `ambient compile -o` wrote.
+/// The generation pack to ship: the bytes `ambient build -o` wrote.
 fn read_pack(path: String): Binary with FileSystem, Exception {
   FileSystem::read_binary!(path).expect("could not read pack ${path}")
 }

@@ -20,7 +20,7 @@ generation packs on `127.0.0.1:7911` (override with `SERVICE_PORT` /
 build the next generation as a shippable artifact:
 
 ```bash
-ambient compile examples/deploy_server -o v2.ambient
+ambient build examples/deploy_server -o v2.ambient
 ```
 
 Ship it with the paired client, which holds one conversation across

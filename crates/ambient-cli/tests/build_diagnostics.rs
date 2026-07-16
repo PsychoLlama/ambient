@@ -2,7 +2,7 @@
 //!
 //! `build_package` must surface type errors as spanned, structured errors
 //! (not flattened strings) so the compiling commands (`ambient
-//! run`/`compile`/`dev`) can render them with source context — byte-for-byte
+//! run`/`build`/`dev`) can render them with source context — byte-for-byte
 //! what `ambient check` prints. These tests pin the engine-level contract
 //! that makes that possible.
 

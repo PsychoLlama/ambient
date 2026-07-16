@@ -71,7 +71,7 @@ pub struct BuildOptions<'a> {
     /// The entry function to build for, when the build should be **lazy**:
     /// compile only the package modules reachable from that entry (see
     /// [`reachability`](super::reachability)). `None` (the default) builds the
-    /// whole package — what `ambient check`, `ambient compile`, and `ambient
+    /// whole package — what `ambient check`, `ambient build`, and `ambient
     /// dev` want. Only `ambient run` sets this. If no package module declares a
     /// matching entry function, the build silently falls back to whole-package.
     pub entry: Option<&'a str>,

@@ -471,7 +471,7 @@ fn build_base(
                     platform_modules: ambient_platform::platform_modules(),
                     natives: Some(&stubs),
                     progress: None,
-                    // Warm the base build off a prior `ambient run`/`compile`
+                    // Warm the base build off a prior `ambient run`/`build`
                     // snapshot: REPL startup on a built project skips
                     // recompiling unchanged modules. The REPL is a read-only
                     // cache *consumer* — it never writes a snapshot. A REPL

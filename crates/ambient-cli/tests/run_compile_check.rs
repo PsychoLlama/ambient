@@ -160,7 +160,7 @@ fn test_run_string_literal() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Compile Command Tests
+// Build Command Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -169,7 +169,7 @@ fn test_compile_creates_output_file() {
     let output_path = dir.path().join("test.ambient");
 
     let output = ambient_cmd()
-        .arg("compile")
+        .arg("build")
         .arg(&path)
         .output()
         .expect("failed to execute command");
@@ -202,7 +202,7 @@ fn test_compile_custom_output_path() {
     let output_path = dir.path().join("custom.abc");
 
     let output = ambient_cmd()
-        .arg("compile")
+        .arg("build")
         .arg(&path)
         .arg("-o")
         .arg(&output_path)
@@ -229,7 +229,7 @@ fn test_compile_then_run() {
 
     // First compile
     let compile_output = ambient_cmd()
-        .arg("compile")
+        .arg("build")
         .arg(&path)
         .output()
         .expect("failed to execute compile command");
