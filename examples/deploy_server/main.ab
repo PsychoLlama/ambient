@@ -32,8 +32,8 @@ pub fn run(): () with State, Task, Env {
   // the deploy socket bound once, served by every generation after.
   let service_port = port("SERVICE_PORT", 7910);
   let deploy_port = port("DEPLOY_PORT", 7911);
-  State::init!("service-listener", () => need(Tcp::listen!(("127.0.0.1", service_port))));
-  State::init!("deploy-listener", () => need(Tcp::listen!(("127.0.0.1", deploy_port))));
+  State::init!("service-listener", () => Tcp::listen!(("127.0.0.1", service_port)).expect("bind failed"));
+  State::init!("deploy-listener", () => Tcp::listen!(("127.0.0.1", deploy_port)).expect("bind failed"));
 
   // Named tasks, reconciled by name: the conversation loop and the
   // deploy receiver. A deploy's entry re-declares both, so `ensure`
@@ -45,14 +45,4 @@ pub fn run(): () with State, Task, Env {
 /// A port from the environment, with a default for running by hand.
 fn port(var: String, default: Number): Number with Env {
   Number::try_from(Env::var!(var).unwrap_or("")).unwrap_or(default)
-}
-
-/// Unwrap a fallible bind at the application boundary: a failed bind
-/// faults the deploy (an already-running previous generation keeps
-/// serving untouched).
-fn need(result: Result<Number, String>): Number with Exception {
-  match result {
-    Ok(value) => value,
-    Err(message) => throw!(message),
-  }
 }

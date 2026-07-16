@@ -1,14 +1,14 @@
 //! The echo server's client: one framed round-trip, then quit.
 //!
 //! Run with `examples/network_server` already listening — a refused
-//! connect is a `Result::Err`, which `need` below turns into a fatal
+//! connect is a `Result::Err`, which `.expect` turns into a fatal
 //! throw (the process exits non-zero, so a supervisor can retry).
 
 use core::system::{Stdio, Tcp};
 
 pub fn run(): () with Stdio, Tcp, Exception {
   Stdio::out!("Client: connecting to 127.0.0.1:9000...");
-  let conn = need(Tcp::connect!(("127.0.0.1", 9000)));
+  let conn = Tcp::connect!(("127.0.0.1", 9000)).expect("connect failed");
   let local = Tcp::local_addr!(conn).unwrap_or("unknown");
   Stdio::out!("Client: connected from ${local}");
 
@@ -29,13 +29,4 @@ pub fn run(): () with Stdio, Tcp, Exception {
 
   Tcp::close!(conn);
   Stdio::out!("Client: done")
-}
-
-/// Unwrap a fallible handle at the application boundary. `throw!`
-/// returns `!`, so the match still types as `Number`.
-fn need(result: Result<Number, String>): Number with Exception {
-  match result {
-    Ok(value) => value,
-    Err(message) => throw!(message),
-  }
 }

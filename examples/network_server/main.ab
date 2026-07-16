@@ -12,11 +12,11 @@ use core::system::{Stdio, Tcp};
 pub fn run(): () with Stdio, Tcp, Exception {
   Stdio::out!("Server: binding to 127.0.0.1:9000...");
   // A failed bind or accept should abort the server, not continue with
-  // an invalid handle — `need` turns the Err into a fatal throw.
-  let listener = need(Tcp::listen!(("127.0.0.1", 9000)));
+  // an invalid handle — `.expect` turns the Err into a fatal throw.
+  let listener = Tcp::listen!(("127.0.0.1", 9000)).expect("listen failed");
 
   Stdio::out!("Server: waiting for connection...");
-  let conn = need(Tcp::accept!(listener));
+  let conn = Tcp::accept!(listener).expect("accept failed");
   let peer = Tcp::peer_addr!(conn).unwrap_or("unknown");
   Stdio::out!("Server: client connected from ${peer}");
 
@@ -40,14 +40,5 @@ fn echo(conn: Number): () with Stdio, Tcp {
     Stdio::out!("Server: received ${size} bytes, echoing back...");
     Tcp::send!(conn, message);
     echo(conn)
-  }
-}
-
-/// Unwrap a fallible handle at the application boundary. `throw!`
-/// returns `!`, so the match still types as `Number`.
-fn need(result: Result<Number, String>): Number with Exception {
-  match result {
-    Ok(value) => value,
-    Err(message) => throw!(message),
   }
 }

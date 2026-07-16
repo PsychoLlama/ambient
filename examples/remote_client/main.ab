@@ -25,7 +25,7 @@ pub fn run(): () with Stdio, Tcp, Execute, Env, Exception {
   let addr = endpoint();
   let port = core::convert::to_string(addr.1);
   Stdio::out!("Client: connecting to ${addr.0}:${port}...");
-  let conn = need(Tcp::connect!(addr));
+  let conn = Tcp::connect!(addr).expect("connect failed");
   let local = Tcp::local_addr!(conn).unwrap_or("unknown");
   Stdio::out!("Client: connected from ${local}");
 
@@ -87,13 +87,4 @@ fn endpoint(): (String, Number) with Env {
   let host = Env::var!("REMOTE_HOST").unwrap_or("127.0.0.1");
   let port = Number::try_from(Env::var!("REMOTE_PORT").unwrap_or("8080")).unwrap_or(8080);
   (host, port)
-}
-
-/// Unwrap a fallible handle at the application boundary. `throw!`
-/// returns `!`, so the match still types as `Number`.
-fn need(result: Result<Number, String>): Number with Exception {
-  match result {
-    Ok(value) => value,
-    Err(message) => throw!(message),
-  }
 }

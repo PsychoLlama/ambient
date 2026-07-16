@@ -25,7 +25,7 @@ pub fn run(): () with State, Task {
   // runtime's handle table; the cell holds an opaque handle to it.
   // Generation 1 binds it; generation 40 is still serving from it.
   // Nothing is ever handed off because nothing ever left the runtime.
-  State::init!("listener", () => need(Tcp::listen!(("127.0.0.1", 7878))));
+  State::init!("listener", () => Tcp::listen!(("127.0.0.1", 7878)).expect("bind failed"));
 
   // Named tasks, reconciled by name. `ensure` never restarts a live
   // task; the bodies stay fresh because the task runtime re-resolves
@@ -64,14 +64,5 @@ fn serve_once(): () with Tcp, State, Live, Stdio {
       Live::latest!(router::route)(conn)
     },
     Err(message) => Stdio::err!("accept failed: ${message}"),
-  }
-}
-
-/// Unwrap a fallible bind at the application boundary: a failed bind
-/// faults the deploy (the previous generation keeps running untouched).
-fn need(result: Result<Number, String>): Number with Exception {
-  match result {
-    Ok(value) => value,
-    Err(message) => throw!(message),
   }
 }
