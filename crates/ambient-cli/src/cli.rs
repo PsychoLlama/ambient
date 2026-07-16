@@ -196,8 +196,7 @@ pub enum StoreCommand {
         #[arg(value_name = "B")]
         b: Option<String>,
 
-        /// Output format: human-readable `text` (default) or
-        /// machine-readable `json`.
+        /// Output format: human-readable `text` or machine-readable `json`.
         #[arg(long, value_name = "FORMAT", default_value = "text")]
         format: DiffFormat,
     },
@@ -206,7 +205,7 @@ pub enum StoreCommand {
 /// Output format for `ambient store diff`.
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum DiffFormat {
-    /// Human-readable text (the default).
+    /// Human-readable text.
     Text,
     /// Machine-readable JSON.
     Json,
