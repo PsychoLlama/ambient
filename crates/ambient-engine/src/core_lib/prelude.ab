@@ -48,3 +48,11 @@ pub use core::convert::{From, Into, TryFrom, TryInto};
 // `Exception::throw(e)`: method imports cover calls only.
 pub use core::exception::Exception;
 pub use core::exception::Exception::throw;
+
+// The `System` ability set: every platform ability as one name, the full
+// authority a top-level `run` may hold. Unlike the individual platform
+// abilities (`Stdio`, `Tcp`, ...), which stay namespaced and require an
+// explicit `use core::system::…`, `System` rides the prelude so a privileged
+// entry point can spell its authority as `with System` — or narrow it with
+// the row algebra (`Difference<System, Tcp>`) — with no import.
+pub use core::system::System;

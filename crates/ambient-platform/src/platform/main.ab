@@ -48,3 +48,24 @@ pub use self::state::State;
 pub use self::drain::Drain;
 pub use self::task::Task;
 pub use self::deploy::Deploy;
+
+/// Every platform ability, as one named set — the full ambient authority a
+/// host grants to a top-level `run`. Declaring `with System` says, in the
+/// signature, "this may perform any platform effect"; narrow it with the row
+/// algebra (`Difference<System, Tcp>` to drop networking, `Union<System, …>`
+/// to extend). Members are written by their declaring submodule path
+/// (`core::system::stdio::Stdio`), the canonical origin a `with` row resolves.
+pub set System =
+  core::system::stdio::Stdio,
+  core::system::time::Time,
+  core::system::random::Random,
+  core::system::log::Log,
+  core::system::fs::FileSystem,
+  core::system::tcp::Tcp,
+  core::system::env::Env,
+  core::system::execute::Execute,
+  core::system::live::Live,
+  core::system::state::State,
+  core::system::drain::Drain,
+  core::system::task::Task,
+  core::system::deploy::Deploy;

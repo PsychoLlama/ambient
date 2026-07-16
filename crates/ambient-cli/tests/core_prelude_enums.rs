@@ -190,6 +190,10 @@ fn prelude_reexports_the_full_global_set() {
         "Into",
         "TryFrom",
         "TryInto",
+        // The `System` ability set — every platform ability under one name,
+        // the only member of `core::system` on the prelude (the individual
+        // platform abilities stay namespaced).
+        "System",
     ]
     .into_iter()
     .map(String::from)
