@@ -11,5 +11,8 @@ ambient-platform.workspace = true
 blake3.workspace = true
 dirs = "5.0"
 
+# UUID generation for `unique(…)` completions
+uuid.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true

@@ -27,9 +27,6 @@ log = "0.4"
 # Error handling
 anyhow.workspace = true
 
-# UUID generation for completions
-uuid.workspace = true
-
 # Snapshot assertions, used by the `test_harness` module (compiled into the lib).
 insta = "1.44"
 

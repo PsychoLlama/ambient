@@ -38,6 +38,7 @@
 #![cfg_attr(not(test), deny(clippy::expect_used, clippy::unwrap_used))]
 #![allow(clippy::missing_errors_doc)]
 
+pub mod completions;
 pub mod core_cache;
 pub mod occurrences;
 pub mod package;

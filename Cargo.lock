@@ -22,6 +22,7 @@ dependencies = [
  "blake3",
  "dirs",
  "tempfile",
+ "uuid",
 ]
 
 [[package]]
@@ -91,7 +92,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "uuid",
 ]
 
 [[package]]

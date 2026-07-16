@@ -1,0 +1,324 @@
+//! Member completions: trait-member stubs inside `impl` bodies, and
+//! field/method completion after a `.` on a typed receiver. Which members
+//! exist is decided by the queries layer (`missing_impl_members_at_offset`,
+//! `receiver_members`); this module shapes them into completion items —
+//! plus the completion-time source healing that keeps those queries
+//! answerable mid-keystroke.
+
+use ambient_engine::ast::{Module, TraitAssocType, TraitMethod};
+use ambient_engine::module_path::ModulePath;
+use ambient_engine::module_registry::ModuleRegistry;
+use ambient_engine::types::Type;
+
+use super::{CompletionItem, CompletionKind};
+use crate::queries::{
+    MissingImplMembers, ReceiverMember, format_type, missing_impl_members_at_offset,
+    receiver_members, receiver_type_at, type_params_signature,
+};
+
+/// Stub completions for the trait members still missing from the impl body
+/// containing `offset`. Empty when the cursor isn't at item position inside a
+/// trait impl's braces, or nothing is missing.
+pub(super) fn get_impl_member_completions(
+    source: &str,
+    offset: usize,
+    prefix: &str,
+    module: &Module,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> Vec<CompletionItem> {
+    let Some(missing) = missing_members_with_healing(source, offset, module, module_path, registry)
+    else {
+        return Vec::new();
+    };
+
+    // Item position is only *inside the braces*: the query's span check can't
+    // tell the header (`impl Show for Point`) from the body, but the source can.
+    let in_body = source
+        .get(missing.impl_span.start as usize..offset)
+        .is_some_and(|s| s.contains('{'));
+    if !in_body {
+        return Vec::new();
+    }
+
+    // When the line already spells the introducer (`fn sh…`, `type O…`), the
+    // inserted stub must not repeat it.
+    let line_start = source[..offset].rfind('\n').map_or(0, |i| i + 1);
+    let before_word = source[line_start..offset]
+        .trim_end_matches(|c: char| c.is_alphanumeric() || c == '_')
+        .trim_end();
+    let fn_spelled = before_word.ends_with("fn");
+    let type_spelled = before_word.ends_with("type");
+
+    let mut items = Vec::new();
+    for assoc in &missing.assoc_types {
+        // `"type".starts_with(prefix)` keeps the stub visible while the
+        // introducer itself is being typed.
+        if assoc.name.starts_with(prefix) || "type".starts_with(prefix) {
+            items.push(assoc_stub_item(assoc, &missing.trait_name, type_spelled));
+        }
+    }
+    for method in &missing.methods {
+        if method.name.starts_with(prefix) || "fn".starts_with(prefix) {
+            items.push(method_stub_item(method, &missing.trait_name, fn_spelled));
+        }
+    }
+    items
+}
+
+/// The missing-members query, with the completion heal as fallback.
+///
+/// A partial member (`fn sh`) breaks the whole impl item out of the live AST
+/// — exactly when stub completion matters most. If the cursor's typed word
+/// belongs to no parsed item, blank it out (offset-preserving) and re-check
+/// the healed text, then ask the same question of that module. The enclosure
+/// gate keeps healing off every clean-parse path.
+fn missing_members_with_healing(
+    source: &str,
+    offset: usize,
+    module: &Module,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> Option<MissingImplMembers> {
+    let at = u32::try_from(offset).ok()?;
+    if let Some(missing) = missing_impl_members_at_offset(module, module_path, registry, at) {
+        return Some(missing);
+    }
+    let enclosed = module
+        .items
+        .iter()
+        .any(|i| at >= i.span.start && at <= i.span.end);
+    if enclosed {
+        return None;
+    }
+    let healed_src = blank_current_member(source, offset)?;
+    let healed = crate::healed_module_for_completion(&healed_src, module_path, registry)?;
+    missing_impl_members_at_offset(&healed, module_path, registry, at)
+}
+
+/// A `type X = …;` binding stub for a trait's associated type.
+fn assoc_stub_item(assoc: &TraitAssocType, trait_name: &str, type_spelled: bool) -> CompletionItem {
+    let binding = format!("{} = ${{1:Type}};", assoc.name);
+    CompletionItem {
+        label: assoc.name.to_string(),
+        kind: CompletionKind::Type,
+        detail: Some(format!("type {} = …;", assoc.name)),
+        description: Some(format!("bind {trait_name}::{}", assoc.name)),
+        filter_text: Some(format!("type {}", assoc.name)),
+        sort_text: Some(format!("0_{}", assoc.name)),
+        insert_text: Some(if type_spelled {
+            binding
+        } else {
+            format!("type {binding}")
+        }),
+        insert_is_snippet: true,
+        ..Default::default()
+    }
+}
+
+/// A full `fn …(…): … { }` stub for a trait method.
+fn method_stub_item(method: &TraitMethod, trait_name: &str, fn_spelled: bool) -> CompletionItem {
+    let header = method_header(method);
+    let stub = format!(
+        "{} {{\n    $0\n}}",
+        header.strip_prefix("fn ").unwrap_or(&header)
+    );
+    CompletionItem {
+        label: method.name.to_string(),
+        kind: CompletionKind::Method,
+        detail: Some(header.clone()),
+        description: Some(format!("implement {trait_name}::{}", method.name)),
+        filter_text: Some(format!("fn {}", method.name)),
+        sort_text: Some(format!("0_{}", method.name)),
+        insert_text: Some(if fn_spelled {
+            stub
+        } else {
+            format!("fn {stub}")
+        }),
+        insert_is_snippet: true,
+        ..Default::default()
+    }
+}
+
+/// Completions after a `.` on a value: the receiver's record fields and the
+/// `self`-taking methods of its type's impls. The receiver's type is the
+/// checker's own inference (`expr.ty`); when the dangling `.` broke the
+/// enclosing item out of the live AST, the text is healed with a placeholder
+/// ident after the dot and re-checked.
+pub(super) fn get_dot_completions(
+    source: &str,
+    dot_offset: usize,
+    prefix: &str,
+    module: &Module,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> Vec<CompletionItem> {
+    let Some(receiver_end) = dot_offset
+        .checked_sub(1)
+        .and_then(|o| u32::try_from(o).ok())
+    else {
+        return Vec::new();
+    };
+
+    let members = if let Some(ty) = receiver_type_at(module, receiver_end) {
+        receiver_members(&ty, module, registry)
+    } else {
+        healed_receiver_members(source, dot_offset, receiver_end, module_path, registry)
+    };
+
+    members
+        .into_iter()
+        .filter(|m| m.name().starts_with(prefix))
+        .map(|member| match member {
+            ReceiverMember::Field { name, ty } => field_item(&name, &ty),
+            ReceiverMember::Method {
+                name,
+                params,
+                ret_ty,
+                trait_name,
+            } => method_call_item(&name, &params, ret_ty.as_ref(), trait_name),
+        })
+        .collect()
+}
+
+/// Members of the receiver ending just before a dangling `.` — the case where
+/// the broken parse dropped the enclosing item, so the receiver has no live
+/// typed AST to answer from. Healing inserts a placeholder ident after the dot
+/// (offsets up to the dot are unchanged) and re-checks; `__c;` covers the
+/// receiver sitting in an unterminated statement (`let bar = foo.` before the
+/// `;` exists), where the bare ident alone still doesn't parse. Members are
+/// read from the healed module too — it is the one that still contains the
+/// enclosing item.
+fn healed_receiver_members(
+    source: &str,
+    dot_offset: usize,
+    receiver_end: u32,
+    module_path: &ModulePath,
+    registry: &ModuleRegistry,
+) -> Vec<ReceiverMember> {
+    for placeholder in ["__c", "__c;"] {
+        let mut healed_src = String::with_capacity(source.len() + placeholder.len());
+        healed_src.push_str(&source[..=dot_offset]);
+        healed_src.push_str(placeholder);
+        healed_src.push_str(&source[dot_offset + 1..]);
+        let Some(healed) = crate::healed_module_for_completion(&healed_src, module_path, registry)
+        else {
+            continue;
+        };
+        let Some(ty) = receiver_type_at(&healed, receiver_end) else {
+            continue;
+        };
+        return receiver_members(&ty, &healed, registry);
+    }
+    Vec::new()
+}
+
+/// A record-field completion.
+fn field_item(name: &str, ty: &Type) -> CompletionItem {
+    let type_str = format_type(ty);
+    CompletionItem {
+        label: name.to_string(),
+        kind: CompletionKind::Field,
+        detail: Some(format!("{name}: {type_str}")),
+        signature: Some(format!(": {type_str}")),
+        sort_text: Some(format!("0_{name}")),
+        ..Default::default()
+    }
+}
+
+/// A method-call completion with parameter placeholders.
+fn method_call_item(
+    name: &str,
+    params: &[(std::sync::Arc<str>, Option<Type>)],
+    ret_ty: Option<&Type>,
+    trait_name: Option<std::sync::Arc<str>>,
+) -> CompletionItem {
+    let rendered: Vec<String> = params
+        .iter()
+        .map(|(p, ty)| match ty {
+            Some(ty) => format!("{p}: {}", format_type(ty)),
+            None => p.to_string(),
+        })
+        .collect();
+    let ret = ret_ty.map_or("_".to_string(), format_type);
+    let signature = format!("({}): {ret}", rendered.join(", "));
+    let placeholders: Vec<String> = params
+        .iter()
+        .enumerate()
+        .map(|(i, (p, _))| format!("${{{}:{p}}}", i + 1))
+        .collect();
+    CompletionItem {
+        label: name.to_string(),
+        kind: CompletionKind::Method,
+        detail: Some(format!("fn {name}{signature}")),
+        signature: Some(signature),
+        description: trait_name.map(|t| t.to_string()),
+        sort_text: Some(format!("1_{name}")),
+        insert_text: Some(format!("{name}({})", placeholders.join(", "))),
+        insert_is_snippet: true,
+        ..Default::default()
+    }
+}
+
+/// Blank the in-progress member text at the cursor — the current word plus a
+/// directly preceding `fn`/`type` introducer — with spaces, preserving every
+/// byte offset, so the enclosing impl parses again. `None` when there is
+/// nothing typed at the cursor (healing can't change anything).
+fn blank_current_member(source: &str, offset: usize) -> Option<String> {
+    let line_start = source[..offset].rfind('\n').map_or(0, |i| i + 1);
+    let line = source.get(line_start..offset)?;
+    let word_start = line
+        .rfind(|c: char| !c.is_alphanumeric() && c != '_')
+        .map_or(0, |i| i + 1);
+    let mut blank_from = line_start + word_start;
+    let before_word = line[..word_start].trim_end();
+    for introducer in ["fn", "type"] {
+        if before_word.ends_with(introducer) {
+            blank_from = line_start + before_word.len() - introducer.len();
+            break;
+        }
+    }
+    if blank_from == offset {
+        return None;
+    }
+    let mut healed = String::with_capacity(source.len());
+    healed.push_str(&source[..blank_from]);
+    healed.extend(std::iter::repeat_n(' ', offset - blank_from));
+    healed.push_str(&source[offset..]);
+    Some(healed)
+}
+
+/// Render a trait method's declaration header, exactly as an impl would
+/// spell it: `fn name<T>(self, x: T): Ret with Ability`.
+fn method_header(method: &TraitMethod) -> String {
+    let mut s = String::from("fn ");
+    s.push_str(&method.name);
+    type_params_signature(&method.type_params, &mut s);
+    s.push('(');
+    let mut first = true;
+    if method.has_self {
+        s.push_str("self");
+        first = false;
+    }
+    for (name, ty) in &method.params {
+        if !first {
+            s.push_str(", ");
+        }
+        first = false;
+        s.push_str(name);
+        s.push_str(": ");
+        s.push_str(&format_type(ty));
+    }
+    s.push_str("): ");
+    s.push_str(&format_type(&method.ret_ty));
+    if !method.abilities.is_empty() {
+        s.push_str(" with ");
+        let names: Vec<_> = method
+            .abilities
+            .iter()
+            .map(|a| a.name.to_string())
+            .collect();
+        s.push_str(&names.join(", "));
+    }
+    s
+}
