@@ -541,11 +541,11 @@ completion only; arms bypass it — and arms still spell
 // thrown value to the host through `core::exception`'s module-private
 // `extern fn uncaught` (the same pattern as the platform abilities), so
 // an unhandled throw surfaces as an uncaught exception with no VM
-// special-casing. It carries an arbitrary `E: Show` (see "Typed
-// exceptions" below) — a message, a record, an enum — so an uncaught
-// handler can always render it.
+// special-casing. It carries an arbitrary `E: Error` (see "Typed
+// exceptions" below) — a message, or a domain error type — so a handler
+// can always ask the value for its message.
 pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000001) ability Exception {
-  fn throw<E: Show>(error: E): ! {
+  fn throw<E: Error>(error: E): ! {
     uncaught(error)
   }
 }
@@ -558,7 +558,7 @@ fn parse_int(s: String): Number with Exception {
 }
 
 // Handling exceptions. One polymorphic arm catches every `E`; `e` is opaque
-// except through its `Show` bound (a rigid `E` has no known shape).
+// except through its `Error` bound (a rigid `E` has no known shape).
 fn safe_parse(s: String): Option<Number> {
   with { Exception::throw(e) => None } handle parse_int(s) else (result) => Some(result)
 }
@@ -603,9 +603,9 @@ Engine-level faults (stack overflow, type errors in bytecode, arity
 mismatches) remain fatal `VmError`s — they indicate bugs, not conditions
 programs should handle.
 
-### Typed exceptions: `throw<E: Show>`
+### Typed exceptions: `throw<E: Error>`
 
-`throw` carries an arbitrary `E: Show`, not just a string. Because ability
+`throw` carries an arbitrary `E: Error`, not just a string. Because ability
 methods take type-parameter bounds and handler arms bind their dictionaries,
 this was a small, incremental change rather than a new subsystem.
 
@@ -613,7 +613,7 @@ this was a small, incremental change rather than a new subsystem.
 
 ```ambient
 pub unique(FFFFFFFF-FFFF-FFFF-FFFD-000000000001) ability Exception {
-  fn throw<E: Show>(error: E): !;
+  fn throw<E: Error>(error: E): !;
 }
 ```
 
@@ -632,7 +632,7 @@ already exists and adds only a bound.
 not mention the signature. Method identity is not: `throw`'s `MethodKey`
 is `MethodKey::derive(EXCEPTION_UUID, throw_signature(), None)`, and
 `throw_signature()` changed from `(string) -> never` to the generic
-canonical form `<E: Show>(E) -> never` (rendered `var0` + the `bound:0:Show`
+canonical form `<E: Error>(E) -> never` (rendered `var0` + the `bound:0:Error`
 pseudo-parameter — type variable numbered by first occurrence, bound
 rendered by the spelled-name convention). So `throw` **re-keyed**. That is
 acceptable and mostly invisible:
@@ -662,12 +662,12 @@ renumber `EXCEPTION_UUID` itself.
 with { Exception::throw(e) => handle_it(e) } handle body
 ```
 
-The arm binds `e: E` in a fresh rigid scope with the `Show` dictionary
+The arm binds `e: E` in a fresh rigid scope with the `Error` dictionary
 forwarded as `DictSource::Param` (exactly the bounded-method arm path
 described under Ability Identity). Inside the arm `e` is opaque except
-through `Show`'s methods (`e.show()`) — it cannot be inspected structurally,
-because a rigid `E` has no known shape; the dictionary is the only handle on
-it.
+through `Error`'s method (`e.message()`) — it cannot be inspected
+structurally, because a rigid `E` has no known shape; the dictionary is the
+only handle on it.
 `Result`-interop is the existing catch-and-continue plus `else`, with no
 new `try` keyword:
 
@@ -679,22 +679,24 @@ with { Exception::throw(e) => Err(e) } handle body else (r) => Ok(r)
 For a caller that wants a concrete error type it annotates it; the arm's
 rigid `E` unifies with the annotation at the `handle` site.
 
-**3. The `Show` bound.** `E` is bounded so an uncaught (or logging)
-handler can always render it. **Decision: `Show`, not a distinct `Error`
-marker.** The bound exists solely so a value can be turned into a string;
-`Show { fn show(self): String }` is the general, reusable, conventional
-minimum. A dedicated `Error` trait (`fn message(self)` plus, say, a cause)
-would add ceremony without behavior the language needs today — and a program
-that wants structured errors already has a better tool: throw a concrete
-enum and match on it after catching (the polymorphic-throw / monomorphic-
-catch asymmetry below). If structured errors ever earn their own trait, it
-is an additive change, not a migration. `Show` claims the slot after
-`Default` in the reserved trait block (`FFFF…-0010` holds `Add`…`Default` at
-`-0017`, so `Show` takes `FFFF…-0018`) and is validated by
-`validate_reserved_trait` like the operator traits. It is re-exported onto
-the prelude next to the operator traits so `throw` and its bound are always
-in scope bare, and `core::traits` provides `impl Show` for `String` (renders
-as itself), `Number`, `Bool`, and `Binary` (via the host `to_string`).
+**3. The `Error` bound.** `E` is bounded so an uncaught (or logging)
+handler can always render it. **Decision: a dedicated `Error` trait, not
+`Show`.** Throwability is an explicit opt-in: `Error { fn message(self):
+String }` says "this value is an error", where `Show` merely said "this
+value can be printed" — under the earlier `Show` bound, `throw!(42)`
+type-checked, which is a category mistake the bound now rejects. (`Show`
+survives as the general stringifier in `core::traits`; the earlier design
+used it as the throw bound and predicted the switch would be "an additive
+change, not a migration" — it was: one bound, one re-key, a handful of
+`impl` lines.) `Error` is declared in `core::exception` next to the ability
+whose bound it is — not in `core::traits` — so the bound resolves in its
+defining module. It claims the reserved slot after the conversion traits
+(`FFFF…-001D`) and is validated by `validate_reserved_trait` like the
+operator traits. It is re-exported onto the prelude next to `Exception` so
+`impl Error for …` needs no import, and `core::exception` provides
+`impl Error for String` (the message is the string itself) — the minimal
+error stays a one-liner. The other primitives get no impl: a bare `Number`
+or `Bool` is not an error.
 
 **4. Uncaught path.** `VmError::Exception(value)` already renders through
 `format_value`, which walks _any_ `Value` structurally (records, enums,
@@ -702,9 +704,9 @@ lists, primitives) — so an arbitrary `E` already prints without a
 dictionary at the crash site, and no dictionary is available there anyway
 (the value has outlived every frame). The structural rendering is the
 runtime floor (verified by `test_uncaught_record_exception_renders_
-structurally`). The `Show` bound is a compile-time _refinement_: where the
+structurally`). The `Error` bound is a compile-time _refinement_: where the
 thrown expression's static type is known, the compiler could emit
-`E::show(value)` before the throw and carry the rendered string alongside
+`E::message(value)` before the throw and carry the rendered string alongside
 the value, so the uncaught message reads as the type intends rather than
 as a raw record dump. **This refinement is not implemented** — structural
 fallback holds, and threading a pre-rendered string through the
@@ -712,40 +714,42 @@ perform/unwind path (a new channel on `VmError::Exception`) is out of scope
 for the initial landing. See step 4 of the sketch.
 
 **5. Arm typing.** One polymorphic arm, not per-instantiation arms. The
-arm is checked once with `E` rigid and the `Show` dictionary in scope
+arm is checked once with `E` rigid and the `Error` dictionary in scope
 (`check_handler_arm`), and it covers every throw regardless of the
 concrete `E` at each perform site — the same shape a bounded free function
 gets. There is no per-`E` handler table; dispatch is still the single
 `(EXCEPTION_UUID, throw_method_key)` match.
 
 **6. What stays a string.** `throw("msg")` keeps working unchanged: with
-`impl Show for String` in `core::traits`, the call infers `E = String` and
-builds the `String` dictionary at the site like any bounded call — no sugar,
-no special case, no deprecation step. A bare `throw(record)` works the
-moment `record`'s type implements `Show`.
+`impl Error for String` in `core::exception`, the call infers `E = String`
+and builds the `String` dictionary at the site like any bounded call — no
+sugar, no special case, no deprecation step. A bare `throw(value)` works the
+moment `value`'s type implements `Error`; anything else (a number, a tuple)
+is rejected at the perform site.
 
 **Implementation sketch** (each step landed independently):
 
-1. Add the `Show` trait to `core::traits` with the reserved
-   `FFFF…-0018` uuid, `validate_reserved_trait` entry, and prelude
-   re-export; `impl` it for `String` and the primitives. (Pure trait work,
-   no Exception change yet.)
+1. Add the `Error` trait to `core::exception` with the reserved
+   `FFFF…-001D` uuid, `validate_reserved_trait` entry, and prelude
+   re-export; `impl` it for `String`. (Pure trait work, no Exception
+   change yet.)
 2. Change `throw_signature()` to the generic form and update
-   `core_lib/exception.ab` to `fn throw<E: Show>(error: E): !`. Regenerate
+   `core_lib/exception.ab` to `fn throw<E: Error>(error: E): !`. Regenerate
    the golden tests pinning the signature/method key. `throw("msg")` now
    compiles through the dictionary path. **Done.**
 3. Confirm the uncaught path and `raise_exception` need no change (they key
    on the uuid / recompute the key); add a regression test throwing a
    record and asserting structural rendering. **Done.**
 4. (Optional refinement, **not done**) At compiled `throw!` sites with a
-   statically known `E`, emit `E::show` and thread the rendered string into
-   `VmError::Exception` for prettier uncaught output. Deferred: it needs a
-   new channel on the exception value threaded through the perform/unwind
-   path, and structural rendering (step 3) is the specified floor.
+   statically known `E`, emit `E::message` and thread the rendered string
+   into `VmError::Exception` for prettier uncaught output. Deferred: it
+   needs a new channel on the exception value threaded through the
+   perform/unwind path, and structural rendering (step 3) is the specified
+   floor.
 
 The one genuinely awkward spot: a rigid `E` in a catch arm is opaque, so
-"catch, then branch on which error it was" wants either the `Show` trait
-to expose enough (a tag/`show`) or the program to throw a concrete enum
+"catch, then branch on which error it was" wants either the `Error` trait
+to expose enough (a tag/`message`) or the program to throw a concrete enum
 and match after catching — the polymorphic-throw / monomorphic-catch
 asymmetry is inherent to a single-ability, single-arm design and is the
 price of not making `Exception` generic.

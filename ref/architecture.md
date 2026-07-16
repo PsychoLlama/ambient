@@ -173,7 +173,10 @@ process model was prototyped for the same goal and retired — see
 ## Error Handling
 
 Errors are abilities: `Exception::throw!` raises, and the nearest enclosing
-`with ... handle` for Exception catches (catch-and-continue). Exception is
+`with ... handle` for Exception catches (catch-and-continue). A thrown value
+must implement the prelude `Error` trait (`fn message(self): String`) —
+`String` does out of the box; domain error types opt in with `impl Error`.
+Exception is
 **catch-only** — `throw` returns `!` (never), so the perform site unwinds
 and a handler arm cannot `resume` a failing operation with a substitute
 value. A `!`-typed expression fits any context (bottom elimination:

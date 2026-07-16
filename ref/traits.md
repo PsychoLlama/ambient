@@ -407,13 +407,20 @@ Number has an Ord dictionary — while concrete operator uses on primitives
 
 `Show { fn show(self): String }` is a general-purpose stringifier — the
 minimum a value needs to be rendered. It has no operator either, but unlike
-`Default` it _is_ prelude-exported, because it is the bound on
-`Exception::throw<E: Show>` (see [abilities.md](abilities.md#error-handling)):
-every thrown value must be renderable, so an uncaught or logging handler
-always has a string. `core::traits` provides `impl Show` for `String`
-(renders as itself), `Number`, `Bool`, and `Binary` (via the host
-`to_string`); implement it on your own types to throw them. It claims the
-reserved uuid after the operator block (`TRAIT_SHOW_UUID`, `FFFF…-0018`).
+`Default` it _is_ prelude-exported: `impl Show` / `T: Show` is the rendering
+vocabulary idiomatic code reaches for without an import. `core::traits`
+provides `impl Show` for `String` (renders as itself), `Number`, `Bool`,
+and `Binary` (via the host `to_string`). It claims the reserved uuid after
+the operator block (`TRAIT_SHOW_UUID`, `FFFF…-0018`).
+
+`Error { fn message(self): String }` is what a value must be to be thrown:
+the bound on `Exception::throw<E: Error>` (see
+[abilities.md](abilities.md#error-handling)). It lives in `core::exception`
+next to the ability whose bound it is — not in `core::traits` — but is
+reserved (`TRAIT_ERROR_UUID`, `FFFF…-001D`) and prelude-exported the same
+way; `core::exception` provides `impl Error for String` (the message is the
+string itself), and implementing it on your own types is what makes them
+throwable.
 
 `Default` lives in `core::traits` too but is _not_ in the prelude: it has no
 operator that desugars to it, so it is standard-library convenience rather
