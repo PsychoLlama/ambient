@@ -86,15 +86,54 @@ unique(A1B2C3D4-0000-0000-0000-000000000002) ability Picker {
   }
 }
 
-// Abilities can depend on other abilities: the dependency row is what
-// the default bodies may perform, and performing Log also requires
-// Stdio in the caller's effect row.
+// Abilities can depend on other abilities: the dependency row is exactly
+// what the default bodies may perform. Dependencies are the ability's
+// *implementation detail* — effect rows are first-order, so a caller that
+// performs `Log` writes `with Log`, never `with Log, Stdio`. See
+// "Dependencies are first-order" below.
 unique(A1B2C3D4-0000-0000-0000-000000000003) ability Log with core::system::Stdio {
   fn info(message: String): () {
     core::system::Stdio::out!("info: ${message}")
   }
 }
 ```
+
+### Dependencies are first-order
+
+An ability's `with`-dependencies bound **its own default bodies**, and
+nothing more. Performing a method contributes only that ability to the
+caller's row:
+
+```ambient
+fn greet(): () with Log {        // just `Log` — not `Log, Stdio`
+  Log::info!("hi");              // performs Log; Stdio is Log's own business
+}
+```
+
+The dependency is the effect a default body runs _when the ability is
+unhandled_. It is checked at the declaration (a `Log` default may perform
+`Stdio` and nothing else) and discharged **together with the ability**: a
+handler for `Log` intercepts the perform before its default runs, so the
+`Stdio` the default would have performed never happens — and never lingers
+in the row.
+
+```ambient
+// `work` performs Log; handling Log leaves nothing behind, so `run` is
+// pure. (Were the row a flat `{Log, Stdio}` closure, handling Log would
+// strand Stdio and force `run` to handle or declare it too.)
+fn work(): () with Log { Log::info!("inside"); }
+
+fn run(): () {
+  with { Log::info(message) => resume(()) } handle work()
+}
+```
+
+Where a row must be _closed over host natives_ — a capability-grant
+boundary such as an isolated `Execute` VM — the dependency closure is
+materialized then (`AbilityRegistry::ability_with_dependencies`): granting
+`Log` without wiring `Stdio`'s native leaves `Log`'s default performing an
+unwired `Stdio`, which surfaces as the usual catchable "not wired" fault.
+The closure lives at that boundary, not in every caller's signature.
 
 Because the default implementation is an ordinary content-addressed
 function, it ships in packs like any code: a perform site depends on its

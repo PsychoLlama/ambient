@@ -474,15 +474,18 @@ impl Infer {
         self.r#gen.fresh_ability_var()
     }
 
-    /// Add an ability to the current requirements, including its dependencies.
+    /// Add an ability to the current requirements.
+    ///
+    /// Effect rows are **first-order**: only the named ability joins the row,
+    /// never its declared dependencies. An ability's dependencies are its
+    /// implementation detail — the effects its default bodies may perform,
+    /// checked at the declaration and discharged together with the ability
+    /// when it is handled — so performing `Log` requires only `with Log`, not
+    /// `with Log, Stdio`. The registry still tracks the dependency graph for
+    /// the default-body check and for closing a row over host natives at a
+    /// capability-grant boundary (`AbilityRegistry::ability_with_dependencies`).
     pub fn require_ability(&mut self, ability: AbilityId) {
-        // Add the ability and all its dependencies
-        let abilities = if let Some(registry) = &self.ability_registry {
-            registry.ability_with_dependencies(ability)
-        } else {
-            AbilitySet::single(ability)
-        };
-        self.current_abilities = self.current_abilities.union(&abilities);
+        self.current_abilities = self.current_abilities.union(&AbilitySet::single(ability));
     }
 
     /// Add an ability set to the current requirements.

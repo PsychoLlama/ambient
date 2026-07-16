@@ -183,7 +183,7 @@ impl Infer {
         dicts: &mut Option<crate::ast::Dicts>,
         fingerprints: &mut Option<crate::ast::Fingerprints>,
         span: (u32, u32),
-    ) -> InferResult<(AbilityId, Type, AbilitySet)> {
+    ) -> InferResult<(AbilityId, Type)> {
         // A bare-method perform (`seed!(…)`) resolves through an imported
         // ability method; the resolve pass fills `ability` when one is in
         // scope. Still-`None` means no import covers the name — diagnose,
@@ -228,9 +228,14 @@ impl Infer {
     /// Unlike builtin descriptors (which only expose a return type),
     /// dynamic abilities carry full declared signatures, so arguments are
     /// unified against the declared parameter types. Quantified method
-    /// type parameters instantiate to fresh variables per call site. The
-    /// returned ability set carries the ability's declared dependencies so
-    /// performing it also requires them.
+    /// type parameters instantiate to fresh variables per call site.
+    ///
+    /// Effect rows are **first-order**: performing a method contributes only
+    /// its own ability to the caller's row, never the ability's declared
+    /// dependencies. Those dependencies are the ability's implementation
+    /// detail — checked against its default bodies and discharged together
+    /// with the ability when it is handled — so they no longer leak into the
+    /// callers who merely perform it.
     fn lookup_dynamic_method(
         &mut self,
         dynamic: &crate::ability_resolver::DynAbility,
@@ -239,7 +244,7 @@ impl Infer {
         dicts: &mut Option<crate::ast::Dicts>,
         fingerprints: &mut Option<crate::ast::Fingerprints>,
         span: (u32, u32),
-    ) -> InferResult<(AbilityId, Type, AbilitySet)> {
+    ) -> InferResult<(AbilityId, Type)> {
         let Some(method) = dynamic.method(method_name).cloned() else {
             return Err(type_error(
                 TypeErrorKind::UnknownAbilityMethod {
@@ -337,8 +342,7 @@ impl Infer {
         // only the checking context supplies.
         let ret = self.resolve_holes(&method.ret.substitute_all(&subst, &ability_subst));
         let ret = self.apply(&ret);
-        let additional = AbilitySet::from_abilities(dynamic.dependencies.iter().copied());
-        Ok((dynamic.id, ret, additional))
+        Ok((dynamic.id, ret))
     }
 
     /// Run `f` with an item's ability (row) variables in scope.
@@ -504,7 +508,7 @@ mod tests {
         );
 
         let qualified = QualifiedName::qualified(vec!["core", "system"], "Printer");
-        let (id, ret, _) = infer
+        let (id, ret) = infer
             .lookup_ability_method(
                 Some(&qualified),
                 "go",
@@ -620,8 +624,12 @@ mod tests {
         assert_eq!(infer.ability_name_to_id("Printer"), Some(aid(7)));
     }
 
+    /// Effect rows are first-order: requiring an ability never pulls its
+    /// declared dependencies into the row. `FileSystem with IO` means
+    /// `FileSystem`'s default bodies may perform `IO`, not that a caller
+    /// performing `FileSystem` must also declare `IO`.
     #[test]
-    fn test_require_ability_with_registry() {
+    fn test_require_ability_is_first_order() {
         let mut registry = AbilityRegistry::new();
 
         // IO is ability 1
@@ -635,13 +643,16 @@ mod tests {
 
         let mut infer = Infer::with_registry(registry);
 
-        // When we require FileSystem, IO should also be required
+        // Requiring FileSystem contributes only FileSystem — IO stays out.
         infer.require_ability(aid(2));
 
         let abilities = infer.current_abilities();
         if let AbilitySet::Concrete(ids) = abilities {
-            assert!(ids.contains(&aid(1)), "IO should be required");
             assert!(ids.contains(&aid(2)), "FileSystem should be required");
+            assert!(
+                !ids.contains(&aid(1)),
+                "IO is FileSystem's dependency and must not leak into the row"
+            );
         } else {
             panic!("Expected concrete ability set");
         }

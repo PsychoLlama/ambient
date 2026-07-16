@@ -32,12 +32,11 @@ impl Infer {
             arg_tys.push(self.infer_expr(env, arg)?);
         }
 
-        // Look up the ability and method to get return type and additional
-        // abilities. A bounded method (`fn pick<T: Eq>(...)`) records its
-        // dictionary constraints against this perform expression: the
-        // dictionaries ride as hidden trailing perform arguments, exactly
-        // like a bounded function call's.
-        let (ability_id, result_ty, additional_abilities) = self.lookup_ability_method(
+        // Look up the ability and method to get the return type. A bounded
+        // method (`fn pick<T: Eq>(...)`) records its dictionary constraints
+        // against this perform expression: the dictionaries ride as hidden
+        // trailing perform arguments, exactly like a bounded function call's.
+        let (ability_id, result_ty) = self.lookup_ability_method(
             ability_call.ability.as_ref(),
             &ability_call.method,
             &arg_tys,
@@ -46,11 +45,12 @@ impl Infer {
             span,
         )?;
 
-        // Add primary ability to current requirements
+        // Effect rows are first-order: a perform contributes only its own
+        // ability, never the ability's declared dependencies. Those are the
+        // ability's implementation detail (checked against its default
+        // bodies, discharged together with it when handled), so `with Log`
+        // alone suffices even though `Log`'s default performs `Stdio`.
         self.require_ability(ability_id);
-
-        // Add any additional abilities (e.g., declared dependencies of module abilities)
-        self.require_abilities(&additional_abilities);
 
         Ok(result_ty)
     }
