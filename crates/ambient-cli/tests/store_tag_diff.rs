@@ -1,7 +1,7 @@
 //! End-to-end coverage of `ambient store tag` and `ambient store diff`:
 //! tagging the current snapshot, listing tags, and diffing two snapshots
 //! (body edit ⇒ rebound + body-only module change; signature edit ⇒ retired +
-//! interface change; identical ⇒ empty; `--json` is valid and stable).
+//! interface change; identical ⇒ empty; `--format json` is valid and stable).
 
 use std::fs;
 use std::path::Path;
@@ -131,8 +131,23 @@ fn diff_identical_is_empty_and_json_is_valid() {
     assert!(out.status.success());
     assert!(stdout(&out).contains("identical"), "{}", stdout(&out));
 
+    // `--format text` selects the same human-readable view as the default.
+    let explicit = store(
+        dir.path(),
+        &["diff", "current", "current", "--format", "text"],
+    );
+    assert!(explicit.status.success());
+    assert_eq!(
+        stdout(&explicit),
+        stdout(&out),
+        "`--format text` == default"
+    );
+
     // JSON of an identical diff parses and has empty collections.
-    let out = store(dir.path(), &["diff", "current", "current", "--json"]);
+    let out = store(
+        dir.path(),
+        &["diff", "current", "current", "--format", "json"],
+    );
     assert!(out.status.success());
     let value: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
     assert_eq!(value["modules"]["changed"], serde_json::json!([]));

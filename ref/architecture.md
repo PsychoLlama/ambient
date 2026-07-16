@@ -363,7 +363,7 @@ The store exists in three forms, all sharing the canonical object encoding:
    trait, or ability — its structured record; `tag` names a snapshot to
    keep; `diff` compares two snapshots (tags or manifest-hash prefixes),
    reporting module, item-binding (via the deploy rebinding rule), and
-   object deltas, with `--json` for scripting.
+   object deltas, with `--format json` for scripting.
 
 3. **Packs** (`"ABPK"`) — a batch of objects for transfer: the wire format
    of the Execute ability (remote code shipping) and the content of

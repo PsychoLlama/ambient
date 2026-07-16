@@ -1,6 +1,6 @@
 //! Command-line interface for the Ambient language.
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 /// Ambient programming language CLI.
@@ -196,8 +196,18 @@ pub enum StoreCommand {
         #[arg(value_name = "B")]
         b: Option<String>,
 
-        /// Emit machine-readable JSON instead of human-readable text.
-        #[arg(long)]
-        json: bool,
+        /// Output format: human-readable `text` (default) or
+        /// machine-readable `json`.
+        #[arg(long, value_name = "FORMAT", default_value = "text")]
+        format: DiffFormat,
     },
+}
+
+/// Output format for `ambient store diff`.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum DiffFormat {
+    /// Human-readable text (the default).
+    Text,
+    /// Machine-readable JSON.
+    Json,
 }

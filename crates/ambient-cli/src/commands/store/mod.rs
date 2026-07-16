@@ -109,7 +109,9 @@ pub fn cmd_store(path: &Path, command: &StoreCommand) -> Result<()> {
         StoreCommand::Tag { name, target } => {
             query::tag(&store, name.as_deref(), target.as_deref())
         }
-        StoreCommand::Diff { a, b, json } => query::diff(&store, a.as_deref(), b.as_deref(), *json),
+        StoreCommand::Diff { a, b, format } => {
+            query::diff(&store, a.as_deref(), b.as_deref(), *format)
+        }
     }
 }
 

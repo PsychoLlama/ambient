@@ -6,6 +6,7 @@ use anyhow::{Context, Result, bail};
 use ambient_engine::disk_store::{BuildManifest, DiskStore, SnapshotDiff};
 
 use super::short;
+use crate::cli::DiffFormat;
 
 /// Resolve a snapshot reference to a manifest hash: the literal `current`
 /// (the snapshot pointer), a tag name, or a manifest-hash prefix (git-style).
@@ -79,8 +80,8 @@ fn list_tags(store: &DiskStore) -> Result<()> {
     Ok(())
 }
 
-/// `ambient store diff [A B] [--json]`.
-pub fn diff(store: &DiskStore, a: Option<&str>, b: Option<&str>, json: bool) -> Result<()> {
+/// `ambient store diff [A B] [--format text|json]`.
+pub fn diff(store: &DiskStore, a: Option<&str>, b: Option<&str>, format: DiffFormat) -> Result<()> {
     let (Some(a), Some(b)) = (a, b) else {
         bail!(
             "`store diff` needs two refs (each a tag, manifest-hash prefix, or `current`); \
@@ -91,10 +92,9 @@ pub fn diff(store: &DiskStore, a: Option<&str>, b: Option<&str>, json: bool) -> 
     let to = load_ref(store, b)?;
     let diff = store.snapshot_diff(&from, &to);
 
-    if json {
-        println!("{}", serde_json::to_string_pretty(&diff)?);
-    } else {
-        render_human(a, b, &diff);
+    match format {
+        DiffFormat::Json => println!("{}", serde_json::to_string_pretty(&diff)?),
+        DiffFormat::Text => render_human(a, b, &diff),
     }
     Ok(())
 }
