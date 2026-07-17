@@ -177,10 +177,14 @@ use ::greeting_lib::casing;           // a whole-module alias
 pub use ::greeting_lib::greet;        // re-exports compose across packages
 ```
 
-Ordinary visibility applies — only `pub` items cross the boundary — and
-imports are the only channel: there is no implicit sharing, and the
-`[workspace]` manifest carries no dependency list (the dependency graph is
-whatever `use ::…` says it is).
+The same paths work inline in expression, type, and pattern position
+(`::greeting_lib::greet()`, `fn f(s: ::greeting_lib::Shape)`,
+`::greeting_lib::Shape::Circle(r) =>`); the AST carries the workspace
+root as a leading empty path segment, and resolution is byte-for-byte
+the `use ::` rule. Ordinary visibility applies — only `pub` items cross
+the boundary — and explicit references are the only channel: there is no
+implicit sharing, and the `[workspace]` manifest carries no dependency
+list (the dependency graph is whatever `::…` references say it is).
 
 **Identity and mounting.** Every package's modules register under a
 leading package-name segment (the package's _mount_): `foo`'s
