@@ -730,6 +730,9 @@ fn spelled_use(re: &ReExport) -> String {
         crate::ast::UsePrefix::Self_ => "self",
         crate::ast::UsePrefix::Super(_) => "super",
         crate::ast::UsePrefix::Local => "local",
+        // The path's head is the package name, so the spelling is just
+        // the empty root: `::pkg_name::...`.
+        crate::ast::UsePrefix::Workspace => "",
     };
     let path: Vec<&str> = re.path.iter().map(AsRef::as_ref).collect();
     format!("{prefix}::{}", path.join("::"))

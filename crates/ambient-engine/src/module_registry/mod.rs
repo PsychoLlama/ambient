@@ -14,6 +14,8 @@
 
 mod exports;
 mod imports;
+#[cfg(test)]
+mod mount_tests;
 mod scope;
 #[cfg(test)]
 mod tests;
@@ -126,8 +128,22 @@ pub struct ModuleRegistry {
     /// The workspace package name (`ambient.toml` `name`) user modules are
     /// scoped under (`workspace::<name>`). Empty until
     /// [`Self::set_workspace_name`] runs — a consistent placeholder that
-    /// keeps every key internally consistent within one build.
+    /// keeps every key internally consistent within one build. Only
+    /// consulted for modules that are not under a package mount (see
+    /// [`Self::mounts`]): the registry-less/bare layout single-file checks
+    /// and the REPL use.
     workspace_name: Arc<str>,
+    /// Package mounts: the package names whose modules are registered under
+    /// a leading name segment (`["foo", "utils"]` for package `foo`'s
+    /// `src/utils.ab`; the package root `main.ab` collapses to the mount
+    /// itself, `["foo"]`, as a directory module). Mounting is what lets
+    /// several packages share one registry without key collisions —
+    /// [`Self::module_id`] strips a mount into
+    /// [`Scope::Workspace`](crate::fqn::Scope) exactly like a leading
+    /// `core` strips into `Builtin`. Manifest-backed builds always mount
+    /// (a single package mounts alone); only registry-less bare layouts
+    /// leave this empty.
+    mounts: std::collections::BTreeSet<Arc<str>>,
     /// The prelude module whose public re-exports are injected into every
     /// module's scope at lowest precedence (see [`Self::inject_prelude`]).
     /// `None` disables injection entirely — the registry-less/single-file
@@ -160,6 +176,7 @@ impl Clone for ModuleRegistry {
         Self {
             modules: self.modules.clone(),
             workspace_name: Arc::clone(&self.workspace_name),
+            mounts: self.mounts.clone(),
             prelude: self.prelude.clone(),
             natives: self.natives.clone(),
             ability_revision: self.ability_revision,
@@ -176,6 +193,7 @@ impl Default for ModuleRegistry {
         Self {
             modules: BTreeMap::new(),
             workspace_name: Arc::from(""),
+            mounts: std::collections::BTreeSet::new(),
             prelude: None,
             natives: crate::natives::NativeRegistry::new(),
             ability_revision: 0,
@@ -275,10 +293,89 @@ impl ModuleRegistry {
         self.prelude.as_ref()
     }
 
+    /// Mount a package: its modules are registered under a leading `name`
+    /// segment, and [`Self::module_id`] scopes them under
+    /// `workspace::<name>`. Call once per package before registering its
+    /// modules.
+    pub fn add_mount(&mut self, name: impl Into<Arc<str>>) {
+        self.mounts.insert(name.into());
+        // Mounting changes how every mounted module's `Fqn` is minted.
+        self.ability_revision += 1;
+    }
+
+    /// The mounted package names, in order.
+    pub fn mounts(&self) -> impl Iterator<Item = &Arc<str>> {
+        self.mounts.iter()
+    }
+
+    /// The package mount `path` lives under: its leading segment when that
+    /// names a mounted package, else `None` (a bare-layout module, or a
+    /// reserved `core` path).
+    #[must_use]
+    pub fn mount_of(&self, path: &ModulePath) -> Option<&Arc<str>> {
+        let first = path.segments().first()?;
+        self.mounts.get(first)
+    }
+
+    /// The leading segments `pkg::` resolves under (and `super` may not
+    /// escape) for a module at `path`: its package mount, or empty for the
+    /// bare layout.
+    #[must_use]
+    pub fn package_root_of(&self, path: &ModulePath) -> Vec<Arc<str>> {
+        self.mount_of(path)
+            .map_or_else(Vec::new, |mount| vec![Arc::clone(mount)])
+    }
+
+    /// The package name a module at `path` belongs to: its mount, or the
+    /// bare-layout workspace name.
+    #[must_use]
+    pub fn package_name_of(&self, path: &ModulePath) -> Arc<str> {
+        self.mount_of(path)
+            .map_or_else(|| Arc::clone(&self.workspace_name), Arc::clone)
+    }
+
     /// The [`ModuleId`] for a module path under this registry's workspace.
+    ///
+    /// A path under a package mount scopes to that package with the mount
+    /// segment stripped (`["foo", "utils"]` → `workspace::foo::utils`; the
+    /// mount itself, `["foo"]`, is the package's root module,
+    /// `workspace::foo`). A leading `core` folds into `Builtin`; anything
+    /// else is bare-layout and scopes under [`Self::workspace_name`].
     #[must_use]
     pub fn module_id(&self, path: &ModulePath) -> ModuleId {
+        if let Some(mount) = self.mount_of(path) {
+            return ModuleId {
+                scope: crate::fqn::Scope::Workspace(Arc::clone(mount)),
+                path: path.segments()[1..].to_vec(),
+            };
+        }
         ModuleId::from_module_path(path, &self.workspace_name)
+    }
+
+    /// The [`ModulePath`] a [`ModuleId`] is registered under — the inverse
+    /// of [`Self::module_id`]. Re-attaches the mount segment for a mounted
+    /// package and the reserved `core` segment for a builtin. `None` only
+    /// for the degenerate empty bare-layout module.
+    #[must_use]
+    pub fn module_path_of(&self, id: &ModuleId) -> Option<ModulePath> {
+        if let crate::fqn::Scope::Workspace(pkg) = &id.scope
+            && self.mounts.contains(pkg)
+        {
+            let mut segments = vec![Arc::clone(pkg)];
+            segments.extend(id.path.iter().cloned());
+            return ModulePath::from_segments(segments);
+        }
+        id.to_module_path()
+    }
+
+    /// The dotted module-path key for a [`ModuleId`] (`foo::utils`,
+    /// `core::primitives`) — the mount-aware replacement for
+    /// [`ModuleId::module_path_string`], matching this registry's actual
+    /// registration keys.
+    #[must_use]
+    pub fn module_key(&self, id: &ModuleId) -> String {
+        self.module_path_of(id)
+            .map_or_else(String::new, |path| path.to_string())
     }
 
     /// The [`Fqn`] for an item named by `ident` in module `path`, scoped
@@ -619,6 +716,7 @@ impl ModuleRegistry {
     ) -> Option<ModulePath> {
         let prefix = match re_export.prefix {
             UsePrefix::Pkg => ImportPrefix::Pkg,
+            UsePrefix::Workspace => ImportPrefix::Workspace,
             UsePrefix::Core => ImportPrefix::Core,
             UsePrefix::Self_ => ImportPrefix::Self_,
             UsePrefix::Super(count) => ImportPrefix::Super(count),
@@ -627,8 +725,13 @@ impl ModuleRegistry {
             UsePrefix::Local => return None,
         };
 
-        from.resolve_relative(&prefix, path, self.is_dir_module(from))
-            .ok()
+        from.resolve_relative(
+            &prefix,
+            path,
+            self.is_dir_module(from),
+            &self.package_root_of(from),
+        )
+        .ok()
     }
 
     /// Get all registered modules, in ascending module-path-string order.
@@ -661,6 +764,7 @@ impl ModuleRegistry {
     ) -> Result<ModulePath, RegistryError> {
         let import_prefix = match prefix {
             UsePrefix::Pkg => ImportPrefix::Pkg,
+            UsePrefix::Workspace => ImportPrefix::Workspace,
             UsePrefix::Core => ImportPrefix::Core,
             UsePrefix::Self_ => ImportPrefix::Self_,
             UsePrefix::Super(count) => ImportPrefix::Super(*count),
@@ -674,7 +778,12 @@ impl ModuleRegistry {
             }
         };
 
-        from.resolve_relative(&import_prefix, path, self.is_dir_module(from))
-            .map_err(RegistryError::PathResolution)
+        from.resolve_relative(
+            &import_prefix,
+            path,
+            self.is_dir_module(from),
+            &self.package_root_of(from),
+        )
+        .map_err(RegistryError::PathResolution)
     }
 }

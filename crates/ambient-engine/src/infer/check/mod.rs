@@ -210,9 +210,12 @@ fn check_module_core(
 
     // Seed the workspace package name so any `ModuleId`/`Fqn` the checker
     // mints (ability annotation namespaces, imported type-alias keys)
-    // matches the ones the registry and resolve pass produce.
-    if let Some((_, registry)) = cross_module {
-        infer.set_workspace_name(registry.workspace_name().clone());
+    // matches the ones the registry and resolve pass produce. Dotted
+    // source spellings are package-relative, so the seed is the *current
+    // module's* package (its mount in a mounted build), not a build-global
+    // name.
+    if let Some((path, registry)) = cross_module {
+        infer.set_workspace_name(registry.package_name_of(path));
     }
 
     // The current module's identity: the key its own items bind under and

@@ -155,6 +155,10 @@ struct Resolver<'r> {
     /// Whether `current` is a directory module (backed by a `main.ab`),
     /// which anchors inline `self::`/`super::` at its own path.
     current_is_dir: bool,
+    /// The current module's package mount (`["foo"]` in a mounted build,
+    /// `None` in the bare layout): where inline `pkg::` anchors and the
+    /// floor `super::` may not step above.
+    package_root: Option<ModulePath>,
     scope: ModuleScope,
     /// Module-level value names (functions, consts, unit-struct values):
     /// these shadow imports for bare references, and resolve to their
@@ -255,10 +259,12 @@ impl<'r> Resolver<'r> {
             }
         }
         let current_is_dir = registry.get(current).is_some_and(|info| info.is_dir_module);
+        let package_root = ModulePath::from_segments(registry.package_root_of(current));
         Self {
             registry,
             current,
             current_is_dir,
+            package_root,
             scope,
             module_values,
             module_variants,
@@ -395,17 +401,31 @@ impl<'r> Resolver<'r> {
     fn resolve_module_prefix(&self, path: &[Arc<str>]) -> Option<ModulePath> {
         let head = path.first()?;
         let (mut cursor, rest): (Option<ModulePath>, &[Arc<str>]) = match head.as_ref() {
-            "pkg" => (None, &path[1..]),
+            // `pkg` anchors at the module's own package root: the mount in
+            // a mounted build, the registry root (`None`) in the bare
+            // layout.
+            "pkg" => (self.package_root.clone(), &path[1..]),
             "core" => (ModulePath::from_str_segments(&["core"]), &path[1..]),
             "self" => (self.current.file_dir(self.current_is_dir), &path[1..]),
             "super" => {
                 // `self` is the module's own directory; each `super` steps
                 // one directory further up. Stepping above the package root
-                // leaves the reference unresolved (the checker diagnoses).
+                // leaves the reference unresolved (the checker diagnoses) —
+                // in a mounted build the floor is the mount, not the
+                // registry root, so `super` can never cross into a sibling
+                // package.
                 let supers = path.iter().take_while(|s| s.as_ref() == "super").count();
+                let floor = self
+                    .package_root
+                    .as_ref()
+                    .map_or(0, |root| root.segments().len());
                 let mut dir = self.current.file_dir(self.current_is_dir);
                 for _ in 0..supers {
-                    dir = dir?.parent();
+                    let d = dir?;
+                    if d.segments().len() <= floor {
+                        return None;
+                    }
+                    dir = d.parent();
                 }
                 (dir, &path[supers..])
             }

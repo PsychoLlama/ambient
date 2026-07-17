@@ -48,6 +48,10 @@ pub enum ResolutionError {
 pub enum ImportPrefix {
     /// Local package: `pkg::module`
     Pkg,
+    /// Another workspace package: `::package::module`. The path's first
+    /// segment is the package name — an absolute path in the workspace's
+    /// mounted namespace.
+    Workspace,
     /// Standard library: `core::module`
     Core,
     /// Same directory: `self::sibling`
@@ -184,6 +188,11 @@ impl ModulePath {
     /// (a directory module): it changes where `self`/`super` anchor. See
     /// [`ModulePath::file_dir`].
     ///
+    /// `package_root` is the module's package mount — the leading segments
+    /// its package's modules are registered under (one segment, the package
+    /// name, in a mounted build; empty in the legacy bare layout). `pkg::`
+    /// resolves under it, and `super` may never step above it.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
@@ -195,6 +204,7 @@ impl ModulePath {
         prefix: &ImportPrefix,
         path: &[Arc<str>],
         is_dir_module: bool,
+        package_root: &[Arc<str>],
     ) -> Result<ModulePath, ResolutionError> {
         if path.is_empty() {
             return Err(ResolutionError::EmptyPath);
@@ -202,7 +212,14 @@ impl ModulePath {
 
         match prefix {
             ImportPrefix::Pkg => {
-                // Absolute path from package root
+                // Absolute path from the module's own package root.
+                let mut segments: Vec<Arc<str>> = package_root.to_vec();
+                segments.extend(path.iter().cloned());
+                Ok(ModulePath { segments })
+            }
+            ImportPrefix::Workspace => {
+                // Absolute path in the workspace's mounted namespace: the
+                // head segment is the target package's mount.
                 Ok(ModulePath {
                     segments: path.to_vec(),
                 })
@@ -224,16 +241,18 @@ impl ModulePath {
             }
             ImportPrefix::Super(count) => {
                 // Start from the module's own directory, then step up
-                // `count` further levels.
-                let mut dir = self.file_dir(is_dir_module);
+                // `count` further levels — never above the package root.
+                let mut dir: Vec<Arc<str>> = self
+                    .file_dir(is_dir_module)
+                    .map_or_else(Vec::new, |d| d.segments);
                 for _ in 0..*count {
-                    match dir {
-                        Some(d) => dir = d.parent(),
-                        None => return Err(ResolutionError::EscapedPackageRoot),
+                    if dir.len() <= package_root.len() {
+                        return Err(ResolutionError::EscapedPackageRoot);
                     }
+                    dir.pop();
                 }
 
-                let mut segments = dir.map_or_else(Vec::new, |d| d.segments);
+                let mut segments = dir;
                 segments.extend(path.iter().cloned());
 
                 if segments.is_empty() {
@@ -376,7 +395,7 @@ mod tests {
         let path = vec![Arc::from("utils"), Arc::from("helper")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Pkg, &path, false)
+            .resolve_relative(&ImportPrefix::Pkg, &path, false, &[])
             .unwrap();
         assert_eq!(resolved.to_string(), "utils::helper");
     }
@@ -387,7 +406,7 @@ mod tests {
         let path = vec![Arc::from("sibling")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Self_, &path, false)
+            .resolve_relative(&ImportPrefix::Self_, &path, false, &[])
             .unwrap();
         assert_eq!(resolved.to_string(), "foo::sibling");
     }
@@ -398,7 +417,7 @@ mod tests {
         let path = vec![Arc::from("sibling")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Self_, &path, false)
+            .resolve_relative(&ImportPrefix::Self_, &path, false, &[])
             .unwrap();
         assert_eq!(resolved.to_string(), "sibling");
     }
@@ -411,7 +430,7 @@ mod tests {
         let path = vec![Arc::from("list")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Self_, &path, true)
+            .resolve_relative(&ImportPrefix::Self_, &path, true, &[])
             .unwrap();
         assert_eq!(resolved.to_string(), "core::collections::list");
     }
@@ -424,7 +443,7 @@ mod tests {
         let path = vec![Arc::from("time")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Super(1), &path, true)
+            .resolve_relative(&ImportPrefix::Super(1), &path, true, &[])
             .unwrap();
         assert_eq!(resolved.to_string(), "core::time");
     }
@@ -435,7 +454,7 @@ mod tests {
         let path = vec![Arc::from("other")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Super(1), &path, false)
+            .resolve_relative(&ImportPrefix::Super(1), &path, false, &[])
             .unwrap();
         assert_eq!(resolved.to_string(), "a::other");
     }
@@ -446,7 +465,7 @@ mod tests {
         let path = vec![Arc::from("other")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Super(2), &path, false)
+            .resolve_relative(&ImportPrefix::Super(2), &path, false, &[])
             .unwrap();
         assert_eq!(resolved.to_string(), "other");
     }
@@ -457,7 +476,7 @@ mod tests {
         let path = vec![Arc::from("other")];
 
         let err = current
-            .resolve_relative(&ImportPrefix::Super(2), &path, false)
+            .resolve_relative(&ImportPrefix::Super(2), &path, false, &[])
             .unwrap_err();
         assert!(matches!(err, ResolutionError::EscapedPackageRoot));
     }
@@ -468,7 +487,7 @@ mod tests {
         let path = vec![Arc::from("list")];
 
         let resolved = current
-            .resolve_relative(&ImportPrefix::Core, &path, false)
+            .resolve_relative(&ImportPrefix::Core, &path, false, &[])
             .expect("core paths resolve under the reserved `core` root");
         assert_eq!(resolved.to_string(), "core::list");
     }
@@ -478,9 +497,43 @@ mod tests {
         let current = ModulePath::root();
 
         let err = current
-            .resolve_relative(&ImportPrefix::Pkg, &[], false)
+            .resolve_relative(&ImportPrefix::Pkg, &[], false, &[])
             .unwrap_err();
         assert!(matches!(err, ResolutionError::EmptyPath));
+    }
+
+    /// Under a package mount (`["foo"]`), `pkg::` anchors at the mount, a
+    /// workspace path is absolute, and `super` may not step above the
+    /// mount.
+    #[test]
+    fn test_resolve_with_package_root() {
+        let root: Vec<Arc<str>> = vec![Arc::from("foo")];
+        let current = ModulePath::from_str_segments(&["foo", "a", "b"]).unwrap();
+        let path = vec![Arc::from("utils"), Arc::from("helper")];
+
+        let resolved = current
+            .resolve_relative(&ImportPrefix::Pkg, &path, false, &root)
+            .unwrap();
+        assert_eq!(resolved.to_string(), "foo::utils::helper");
+
+        let other = vec![Arc::from("bar"), Arc::from("stuff")];
+        let resolved = current
+            .resolve_relative(&ImportPrefix::Workspace, &other, false, &root)
+            .unwrap();
+        assert_eq!(resolved.to_string(), "bar::stuff");
+
+        // One `super` from `foo/a/b.ab` lands at the package root...
+        let resolved = current
+            .resolve_relative(&ImportPrefix::Super(1), &path[..1], false, &root)
+            .unwrap();
+        assert_eq!(resolved.to_string(), "foo::utils");
+
+        // ...two escape the package, even though the *workspace* namespace
+        // continues above the mount.
+        let err = current
+            .resolve_relative(&ImportPrefix::Super(2), &path[..1], false, &root)
+            .unwrap_err();
+        assert!(matches!(err, ResolutionError::EscapedPackageRoot));
     }
 
     /// A nested `main.ab` collapses to its directory and is flagged as a

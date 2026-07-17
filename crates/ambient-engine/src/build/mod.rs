@@ -207,7 +207,7 @@ pub fn build_package(
             outcome
                 .deps
                 .iter()
-                .map(ModuleId::module_path_string)
+                .map(|id| registry.module_key(id))
                 .collect(),
         );
         link_deps.insert(
@@ -215,7 +215,7 @@ pub fn build_package(
             outcome
                 .link_deps
                 .iter()
-                .map(ModuleId::module_path_string)
+                .map(|id| registry.module_key(id))
                 .collect(),
         );
         dep_ids.insert(

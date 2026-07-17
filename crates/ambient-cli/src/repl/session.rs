@@ -736,12 +736,13 @@ impl ReplSession {
                     }
                     Some(dir.map_or_else(Vec::new, |d| d.segments().to_vec()))
                 }
-                ImportPrefix::Core => None,
+                // Unreachable: only pkg/self/super map to a prefix above.
+                ImportPrefix::Core | ImportPrefix::Workspace => None,
             };
         }
 
         self.session_path
-            .resolve_relative(&prefix, &to_arcs(rest), false)
+            .resolve_relative(&prefix, &to_arcs(rest), false, &[])
             .ok()
             .map(|p| p.segments().to_vec())
     }
@@ -895,6 +896,9 @@ fn use_target(item: &Item) -> Option<(Arc<str>, Vec<String>)> {
         UsePrefix::Core => vec!["core".to_string()],
         UsePrefix::Self_ => vec!["self".to_string()],
         UsePrefix::Super(count) => vec!["super".to_string(); *count],
+        // An empty leading word renders the workspace root's bare `::`
+        // when the segments are joined (`::other_pkg::thing`).
+        UsePrefix::Workspace => vec![String::new()],
         UsePrefix::Local => Vec::new(),
     };
     target.extend(def.path.iter().map(|(seg, _)| seg.to_string()));

@@ -20,16 +20,17 @@
 //! Both render through [`ImportCycle::describe`], so `ambient run`,
 //! `ambient check`, and the editor produce byte-identical cycle text.
 //!
-//! Detection is deliberately scoped to a single package's modules: core and
-//! platform module groups are authored cycle-free and compiled by
+//! Detection is deliberately scoped to *user* modules: core and platform
+//! module groups are authored cycle-free and compiled by
 //! `compile_module_group`'s own topo sort, and no `core`/`platform` module
-//! can import a user module, so a user-package cycle can never route through
-//! them. [`import_cycle_containing`] restricts the graph to modules sharing
-//! the queried module's [`Scope`](crate::fqn::Scope) for exactly this reason.
+//! can import a user module, so a user cycle can never route through them.
+//! [`import_cycle_containing`] restricts the graph to workspace-scoped
+//! modules for exactly this reason — but it spans every *package* in a
+//! workspace, because `use ::other::…` edges make cross-package cycles
+//! possible (and just as fatal).
 
 use std::collections::BTreeMap;
 
-use crate::fqn::ModuleId;
 use crate::module_path::ModulePath;
 use crate::module_registry::ModuleRegistry;
 
@@ -38,9 +39,10 @@ use crate::module_registry::ModuleRegistry;
 pub struct ImportCycle {
     /// The modules forming the cycle, in traversal order and rotated to
     /// begin at the lexically-least module (`["a", "b"]` for `a -> b -> a`).
-    /// Keys are dotted module paths (`a`, `net::http`) — the same
-    /// [`ModuleId::module_path_string`] form both frontends key their graphs
-    /// on. Canonical regardless of the input map's iteration order.
+    /// Keys are dotted module paths (`a`, `net::http`) — the registry's
+    /// mount-aware [`ModuleRegistry::module_key`] form both frontends key
+    /// their graphs on. Canonical regardless of the input map's iteration
+    /// order.
     modules: Vec<String>,
 }
 
@@ -69,7 +71,7 @@ impl ImportCycle {
 
 /// Detect every import cycle in a module dependency graph.
 ///
-/// `deps` maps each package module (by [`ModuleId::module_path_string`]) to
+/// `deps` maps each package module (by [`ModuleRegistry::module_key`]) to
 /// the modules it depends on. Only edges whose target is itself a key
 /// participate — values naming `core`/`platform` (or any non-key) modules
 /// are ignored, since they can never close a cycle back into the package.
@@ -109,12 +111,17 @@ pub fn import_cycle_containing(
     let current_id = registry.module_id(module_path);
     let mut deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
+    // User-code cycles can span workspace packages (`use ::other::...`),
+    // so the graph covers every workspace-scoped module; only the builtin
+    // scope is skipped (no `core`/platform module can import user code, so
+    // re-resolving the whole standard library on every check is avoided).
+    let user_scoped = |scope: &crate::fqn::Scope| !matches!(scope, crate::fqn::Scope::Builtin);
+    if !user_scoped(&current_id.scope) {
+        return None;
+    }
     for info in registry.all_modules() {
         let module_id = registry.module_id(&info.path);
-        // A package cycle stays within one scope; skip core/platform and any
-        // other scope so re-resolving the whole standard library on every
-        // check is avoided.
-        if module_id.scope != current_id.scope {
+        if !user_scoped(&module_id.scope) {
             continue;
         }
         let mut ast = (*info.module).clone();
@@ -122,13 +129,13 @@ pub fn import_cycle_containing(
         let edges = outcome
             .deps
             .iter()
-            .filter(|dep| dep.scope == current_id.scope)
-            .map(ModuleId::module_path_string)
+            .filter(|dep| user_scoped(&dep.scope))
+            .map(|dep| registry.module_key(dep))
             .collect();
-        deps.insert(module_id.module_path_string(), edges);
+        deps.insert(registry.module_key(&module_id), edges);
     }
 
-    let current_key = current_id.module_path_string();
+    let current_key = registry.module_key(&current_id);
     detect_import_cycles(&deps)
         .into_iter()
         .find(|cycle| cycle.members().contains(&current_key))

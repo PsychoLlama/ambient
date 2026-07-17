@@ -187,3 +187,50 @@ fn test_parse_pub_use() {
     assert!(uses[0].is_public);
     assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Pkg);
 }
+
+#[test]
+fn test_parse_use_workspace_package() {
+    let uses = flatten_uses("use ::other_pkg::utils::helper;");
+    assert_eq!(uses.len(), 1);
+    assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Workspace);
+    // The package name is the path head; nothing is consumed by the root.
+    assert_eq!(path_names(&uses[0]), ["other_pkg", "utils", "helper"]);
+}
+
+#[test]
+fn test_parse_use_workspace_group_and_alias() {
+    let uses = flatten_uses("use ::other_pkg::{a, deep::b as c};");
+    assert_eq!(uses.len(), 2);
+    assert!(
+        uses.iter()
+            .all(|u| u.prefix == ambient_engine::ast::UsePrefix::Workspace)
+    );
+    assert_eq!(path_names(&uses[0]), ["other_pkg", "a"]);
+    assert_eq!(path_names(&uses[1]), ["other_pkg", "deep", "b"]);
+    assert_eq!(uses[1].alias.as_ref().unwrap().0.as_ref(), "c");
+}
+
+#[test]
+fn test_parse_pub_use_workspace() {
+    let uses = flatten_uses("pub use ::other_pkg::thing;");
+    assert_eq!(uses.len(), 1);
+    assert!(uses[0].is_public);
+    assert_eq!(uses[0].prefix, ambient_engine::ast::UsePrefix::Workspace);
+}
+
+#[test]
+fn test_parse_use_workspace_keyword_head_is_error() {
+    // Root keywords never follow the workspace `::` — `::pkg::x` is
+    // malformed, not a package named `pkg`.
+    let mut parser = Parser::new("use ::pkg::x;").unwrap();
+    let module = parser.parse_module().expect("parse error");
+    assert!(crate::lower::lower_module(&module).is_err());
+}
+
+#[test]
+fn test_parse_use_double_sep_mid_path_is_error() {
+    // A leading `::` on a group child that continues a path is malformed.
+    let mut parser = Parser::new("use pkg::{::other::x};").unwrap();
+    let module = parser.parse_module().expect("parse error");
+    assert!(crate::lower::lower_module(&module).is_err());
+}

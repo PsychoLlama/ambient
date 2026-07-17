@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::ast::{ItemKind, Span, UseDef, UsePrefix};
-use crate::fqn::{Fqn, ModuleId};
 use crate::module_path::ModulePath;
 
 use super::{ExportInfo, ExportKind, ImportError, ModuleRegistry, RegistryError};
@@ -28,18 +27,6 @@ pub struct ItemImport {
     pub owner: Option<Arc<str>>,
     /// The span of the `use` item that created this binding.
     pub span: Span,
-}
-
-impl ItemImport {
-    /// The canonical [`Fqn`] identity for this import, given the workspace
-    /// package name used to scope user modules.
-    #[must_use]
-    pub fn canonical(&self, workspace: &Arc<str>) -> Fqn {
-        Fqn::new(
-            ModuleId::from_module_path(&self.module, workspace),
-            vec![Arc::clone(&self.name)],
-        )
-    }
 }
 
 /// A module's import scope: every name its `use` items bind, interpreted

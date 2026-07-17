@@ -14,7 +14,7 @@ impl Parser<'_> {
     /// ```text
     /// use_def   = ["pub"] "use" use_tree ";"
     /// use_tree  = "{" tree_list "}"
-    ///           | segment ("::" segment)* tail
+    ///           | ["::"] segment ("::" segment)* tail
     /// tail      = "::" "{" tree_list "}"
     ///           | "as" ident
     ///           | ε
@@ -47,10 +47,18 @@ impl Parser<'_> {
             let group = self.parse_use_group()?;
             let end = self.current().span.start;
             return Ok(CstUseTree {
+                leading_sep: false,
                 segments: Vec::new(),
                 kind: CstUseTreeKind::Group(group),
                 span: Span::new(start, end),
             });
+        }
+
+        // A bare leading `::` roots the path at the workspace: the next
+        // segment names a sibling package (`use ::other_package::thing;`).
+        let leading_sep = self.consume(TokenKind::ColonColon).is_some();
+        if leading_sep {
+            self.skip_trivia();
         }
 
         let mut segments = vec![self.parse_use_segment()?];
@@ -63,6 +71,7 @@ impl Parser<'_> {
                 let group = self.parse_use_group()?;
                 let end = self.current().span.start;
                 return Ok(CstUseTree {
+                    leading_sep,
                     segments,
                     kind: CstUseTreeKind::Group(group),
                     span: Span::new(start, end),
@@ -82,6 +91,7 @@ impl Parser<'_> {
 
         let end = self.current().span.start;
         Ok(CstUseTree {
+            leading_sep,
             segments,
             kind: CstUseTreeKind::Leaf { alias },
             span: Span::new(start, end),

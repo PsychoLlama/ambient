@@ -514,6 +514,9 @@ impl UseDef {
 pub enum UsePrefix {
     /// `pkg::module` - Local package
     Pkg,
+    /// `::package::module` - Another workspace package. The path's first
+    /// segment is the target package's name.
+    Workspace,
     /// `core::module` - Standard library
     Core,
     /// `self::sibling` - Same directory as current module

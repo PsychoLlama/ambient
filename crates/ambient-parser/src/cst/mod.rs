@@ -521,6 +521,10 @@ pub struct CstUseDef {
 /// head of a full path.
 #[derive(Debug, Clone)]
 pub struct CstUseTree {
+    /// Whether the path starts with a bare `::` (a workspace-package root:
+    /// `use ::other_package::thing;`). Only valid where a path begins;
+    /// lowering rejects it mid-path.
+    pub leading_sep: bool,
     /// Leading path segments (empty for a root brace group).
     pub segments: Vec<CstIdent>,
     /// What follows the path.

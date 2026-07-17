@@ -526,37 +526,56 @@ fn lower_ability_def(
 /// `use a::b; use a::c;`.
 pub(super) fn lower_use(u: &CstUseDef) -> Result<Vec<UseDef>, ParseError> {
     let mut out = Vec::new();
-    flatten_use_tree(&u.tree, &[], u.is_public, &mut out)?;
+    flatten_use_tree(&u.tree, &[], false, u.is_public, &mut out)?;
     Ok(out)
 }
 
 fn flatten_use_tree(
     tree: &CstUseTree,
     base: &[crate::cst::CstIdent],
+    base_leading: bool,
     is_public: bool,
     out: &mut Vec<UseDef>,
 ) -> Result<(), ParseError> {
+    // A bare `::` roots a path at the workspace, so it is only meaningful
+    // where a path begins — not on a group child that continues a path.
+    if tree.leading_sep && !base.is_empty() {
+        return Err(ParseError::new(
+            ParseErrorKind::LoweringError("`::` may only begin a use path".into()),
+            tree.span,
+        ));
+    }
+    let leading = base_leading || tree.leading_sep;
     let mut full: Vec<crate::cst::CstIdent> = base.to_vec();
     full.extend(tree.segments.iter().cloned());
     match &tree.kind {
         CstUseTreeKind::Leaf { alias } => {
-            out.push(lower_use_leaf(&full, alias.as_ref(), is_public, tree.span)?);
+            out.push(lower_use_leaf(
+                &full,
+                leading,
+                alias.as_ref(),
+                is_public,
+                tree.span,
+            )?);
         }
         CstUseTreeKind::Group(children) => {
             for child in children {
-                flatten_use_tree(child, &full, is_public, out)?;
+                flatten_use_tree(child, &full, leading, is_public, out)?;
             }
         }
     }
     Ok(())
 }
 
-/// Lower one flattened use path. The head segment determines the root:
-/// a keyword (`pkg`, `core`, `self`, `super`) or a module alias from
-/// another `use` (`UsePrefix::Local`). Root keywords anywhere but the head
-/// are errors.
+/// Lower one flattened use path. A bare leading `::` (`leading`) roots the
+/// path at the workspace ([`UsePrefix::Workspace`]: the first segment names
+/// a sibling package). Otherwise the head segment determines the root: a
+/// keyword (`pkg`, `core`, `self`, `super`) or a module alias from another
+/// `use` (`UsePrefix::Local`). Root keywords anywhere but the head are
+/// errors.
 fn lower_use_leaf(
     full: &[crate::cst::CstIdent],
+    leading: bool,
     alias: Option<&crate::cst::CstIdent>,
     is_public: bool,
     span: Span,
@@ -568,18 +587,25 @@ fn lower_use_leaf(
         ));
     };
 
-    let (prefix, consumed) = match head.name.as_ref() {
-        "pkg" => (UsePrefix::Pkg, 1),
-        "core" => (UsePrefix::Core, 1),
-        "self" => (UsePrefix::Self_, 1),
-        "super" => {
-            let supers = full
-                .iter()
-                .take_while(|seg| seg.name.as_ref() == "super")
-                .count();
-            (UsePrefix::Super(supers), supers)
+    let (prefix, consumed) = if leading {
+        // The head is the target package's name — an ordinary identifier,
+        // never a root keyword (the keyword check below covers it, since
+        // nothing is consumed here).
+        (UsePrefix::Workspace, 0)
+    } else {
+        match head.name.as_ref() {
+            "pkg" => (UsePrefix::Pkg, 1),
+            "core" => (UsePrefix::Core, 1),
+            "self" => (UsePrefix::Self_, 1),
+            "super" => {
+                let supers = full
+                    .iter()
+                    .take_while(|seg| seg.name.as_ref() == "super")
+                    .count();
+                (UsePrefix::Super(supers), supers)
+            }
+            _ => (UsePrefix::Local, 0),
         }
-        _ => (UsePrefix::Local, 0),
     };
 
     for seg in &full[consumed..] {

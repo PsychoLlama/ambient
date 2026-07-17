@@ -587,6 +587,8 @@ fn write_use(sink: &mut Sink, u: &UseDef) {
         crate::ast::UsePrefix::Self_ => 2,
         crate::ast::UsePrefix::Super(_) => 3,
         crate::ast::UsePrefix::Local => 4,
+        // A fresh discriminant: existing programs' hashes are untouched.
+        crate::ast::UsePrefix::Workspace => 5,
     });
     if let crate::ast::UsePrefix::Super(n) = u.prefix {
         #[allow(clippy::cast_possible_truncation)]
