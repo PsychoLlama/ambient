@@ -157,6 +157,14 @@ impl ReplTest {
         )
     }
 
+    /// The session's completion snapshot, exactly as `cmd_repl` refreshes
+    /// it after each handled line — for driving the tab-completion pipeline
+    /// over a live session.
+    #[must_use]
+    pub fn completion_snapshot(&self) -> ambient_cli::repl::session::CompletionSnapshot {
+        self.session.completion_snapshot()
+    }
+
     /// The current buffer contents.
     #[must_use]
     pub fn output(&self) -> String {

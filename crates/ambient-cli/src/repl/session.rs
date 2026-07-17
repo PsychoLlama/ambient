@@ -37,22 +37,30 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow, bail};
 
-use ambient_analysis::Diagnostic;
 use ambient_analysis::package::AnalysisPackage;
 use ambient_engine::ast::{Item, ItemKind};
 use ambient_engine::build::{BuildOptions, compile_session_module};
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::fqn::NameKey;
 use ambient_engine::module_path::ModulePath;
-use ambient_engine::module_registry::{ExportKind, ModuleInfo, ModuleRegistry};
+use ambient_engine::module_registry::ModuleRegistry;
 use ambient_engine::types::Type;
-use ambient_engine::value::{ModuleExport, ModuleExportKind, ModuleMemberRef, ModuleValue, Value};
+use ambient_engine::value::{ModuleMemberRef, Value};
 use ambient_parser::ReplInput;
 use ambient_platform::{StdioSink, TaskEvent, TaskEventSink};
 
+use super::inspect::{
+    display_path, export_kind, inspect_signature, looks_like_path, module_listing,
+};
+use super::render::{
+    definitions_unsupported, format_repl_diagnostics, format_repl_parse_error,
+    mentions_project_roots, scrub_entry_names,
+};
 use crate::commands::core_context;
 use crate::commands::host::{HostDeployOutcome, RuntimeHost};
 use crate::diagnostic::report_build_error;
+
+pub use super::render::{ReplCommand, parse_repl_command, write_repl_help};
 
 /// The reserved leaf name of the virtual session module: the session checks
 /// and compiles as if a file `__repl.ab` sat in the launch directory.
@@ -60,7 +68,7 @@ const SESSION_MODULE: &str = "__repl";
 
 /// The prefix of every turn's synthetic entry function. Never shown to the
 /// user: [`scrub_entry_names`] rewrites it out of every rendered error.
-const ENTRY_PREFIX: &str = "__repl_entry_";
+pub(crate) const ENTRY_PREFIX: &str = "__repl_entry_";
 
 /// The message emitted to the control sink after a successful `:clear`.
 pub const STATE_CLEARED: &str = "State cleared.";
@@ -657,7 +665,7 @@ impl ReplSession {
 
         // Whole module: a file module, a directory namespace, or the
         // package root (`pkg`).
-        if let Some(value) = module_listing(&registry, &absolute, &self.session_path) {
+        if let Some(value) = module_listing(registry, &absolute, &self.session_path) {
             return Some(value);
         }
 
@@ -893,406 +901,64 @@ fn use_target(item: &Item) -> Option<(Arc<str>, Vec<String>)> {
     Some((name, target))
 }
 
-/// The error for a definition entered at the prompt: the REPL is an
-/// exploration surface, not an authoring one.
-fn definitions_unsupported(item: &Item) -> String {
-    let what = match &item.kind {
-        ItemKind::Function(_) => "a function",
-        ItemKind::Const(_) => "a constant",
-        ItemKind::Struct(_) => "a struct",
-        ItemKind::TypeAlias(_) => "a type alias",
-        ItemKind::Enum(_) => "an enum",
-        ItemKind::Ability(_) => "an ability",
-        ItemKind::Trait(_) => "a trait",
-        ItemKind::ExternFn(_) => "an extern fn",
-        ItemKind::Set(_) => "an ability set",
-        ItemKind::Impl(_) => "an impl",
-        ItemKind::Use(_) => "an import",
-    };
-    format!(
-        "the REPL doesn't host definitions: write {what} in a module file \
-         instead — the session picks up saved changes (`:reload` forces it).\n\
-         The REPL evaluates expressions, saves bindings (`x = expr`), and \
-         imports names (`use …`)."
-    )
-}
-
-/// Map a registry export kind to its value-level rendering kind.
-fn export_kind(kind: ExportKind) -> ModuleExportKind {
-    match kind {
-        ExportKind::Function => ModuleExportKind::Function,
-        ExportKind::Const => ModuleExportKind::Const,
-        ExportKind::Struct | ExportKind::TypeAlias => ModuleExportKind::Type,
-        ExportKind::Enum => ModuleExportKind::Enum,
-        ExportKind::EnumVariant => ModuleExportKind::Variant,
-        // Ability methods are never module-level exports; render one like
-        // its ability if it ever appears here.
-        ExportKind::Ability | ExportKind::Trait | ExportKind::AbilityMethod | ExportKind::Set => {
-            ModuleExportKind::Ability
-        }
-    }
-}
-
-/// Build a browsable module listing for `segments` (empty = the package
-/// root), or `None` if nothing lives there.
+/// Everything the interactive completer needs to answer completion queries
+/// for the current session state, snapshotted so the rustyline helper can
+/// own it across readline calls without borrowing the session.
 ///
-/// The listing is the module's *accessible surface*: its `pub` exports
-/// (functions with their signatures), its re-exports, and its child
-/// modules — a directory namespace has only children, the package root
-/// lists the package's top-level modules. The session module itself never
-/// lists.
-fn module_listing(
-    registry: &ModuleRegistry,
-    segments: &[Arc<str>],
-    session_path: &ModulePath,
-) -> Option<Value> {
-    let info = ModulePath::from_segments(segments.to_vec()).and_then(|p| registry.get(&p));
+/// The snapshot pre-renders the trial-source *prefix* — the committed `use`
+/// imports plus a synthetic entry-fn header whose parameters are the saved
+/// bindings — so the completer only appends the in-progress line and a
+/// closing brace to reconstruct the module shape a real turn checks, and
+/// maps cursor offsets by adding `prefix.len()`.
+pub struct CompletionSnapshot {
+    /// The trial source up to and including the newline that opens the
+    /// synthetic entry function's body.
+    pub prefix: String,
+    /// The registry the committed session module is registered in — the
+    /// same one a turn checks against ([`AnalysisPackage::build_registry`]).
+    pub registry: ModuleRegistry,
+    /// The virtual session module's identity in that registry.
+    pub session_path: ModulePath,
+}
 
-    // Child modules: every registered module directly under this path. The
-    // package root additionally filters to workspace modules (`core` and
-    // the platform declarations are not package members).
-    let mut children: Vec<Arc<str>> = registry
-        .all_modules()
-        .filter_map(|m| {
-            let segs = m.path.segments();
-            let is_child =
-                segs.len() == segments.len() + 1 && segs[..segments.len()] == segments[..];
-            let hidden =
-                m.path == *session_path || (segments.is_empty() && segs[0].as_ref() == "core");
-            (is_child && !hidden).then(|| Arc::clone(&segs[segs.len() - 1]))
-        })
-        .collect();
-    children.sort();
-    children.dedup();
-
-    if info.is_none() && children.is_empty() {
-        return None;
-    }
-
-    let mut exports: Vec<ModuleExport> = Vec::new();
-    let mut seen_modules: std::collections::HashSet<Arc<str>> = std::collections::HashSet::new();
-    if let Some(info) = info {
-        for e in info.exports.values().filter(|e| e.is_public) {
-            let mut export = ModuleExport::new(e.name.as_ref(), export_kind(e.kind));
-            export.signature = export_signature(info, &e.name);
-            exports.push(export);
-        }
-        // Re-exports show under their real kind: `pub use self::stdio::Stdio;`
-        // lists as an ability, not a module. Only a whole-module re-export
-        // (or one the lookup can't resolve) stays a module entry.
-        for re in &info.re_exports {
-            let Some(name) = re.exported_name() else {
-                continue;
-            };
-            match registry.lookup_symbol(&info.path, name) {
-                Ok((export, defining)) => {
-                    let mut entry = ModuleExport::new(name, export_kind(export.kind));
-                    entry.signature = registry
-                        .get(&defining)
-                        .and_then(|di| export_signature(di, &export.name));
-                    exports.push(entry);
-                }
-                Err(_) => {
-                    if seen_modules.insert(Arc::from(name)) {
-                        exports.push(ModuleExport::new(name, ModuleExportKind::Module));
-                    }
-                }
-            }
+impl ReplSession {
+    /// Snapshot the session's completion inputs (see [`CompletionSnapshot`]).
+    ///
+    /// Binding parameters are spelled with their recorded types, so the
+    /// checker — and with it dot-member completion on a binding — sees the
+    /// types a real turn pins through its session entry spec. Completion is
+    /// best-effort where evaluation is exact: a type whose display form
+    /// doesn't round-trip through the parser (or names something not in
+    /// scope here) degrades that one binding to an untyped parameter rather
+    /// than breaking the whole trial parse.
+    #[must_use]
+    pub fn completion_snapshot(&self) -> CompletionSnapshot {
+        let params: Vec<String> = self
+            .bindings
+            .iter()
+            .map(|b| annotated_param(&b.name, &b.ty))
+            .collect();
+        let prefix = format!(
+            "{}fn __repl_complete({}) {{\n",
+            self.uses_source(),
+            params.join(", ")
+        );
+        CompletionSnapshot {
+            prefix,
+            registry: self.package.build_registry(),
+            session_path: self.session_path.clone(),
         }
     }
-    for child in children {
-        if seen_modules.insert(Arc::clone(&child)) {
-            exports.push(ModuleExport::new(child.as_ref(), ModuleExportKind::Module));
-        }
+}
+
+/// Render a binding as an entry parameter: `name: Type` when the type's
+/// display form parses back as type syntax, else the bare name.
+fn annotated_param(name: &str, ty: &Type) -> String {
+    let rendered = ambient_analysis::queries::format_type(ty);
+    let probe = format!("fn __probe(x: {rendered}) {{ }}");
+    if ambient_parser::parse_recovering(&probe).errors.is_empty() {
+        format!("{name}: {rendered}")
+    } else {
+        name.to_string()
     }
-
-    Some(Value::Module(Arc::new(ModuleValue::new(
-        display_path(segments).as_str(),
-        exports,
-    ))))
-}
-
-/// The signature suffix a module listing shows for an export: the part of
-/// the item's declaration after its name (`(x: Number): Number with Log`
-/// for a function, the type for a const). `None` when there is nothing
-/// useful to show.
-fn export_signature(info: &ModuleInfo, name: &str) -> Option<Arc<str>> {
-    let item =
-        info.module.items.iter().find(|item| {
-            ambient_analysis::queries::item_name(item).is_some_and(|n| &**n == name)
-        })?;
-    let sig = ambient_analysis::queries::item_signature(item);
-    match &item.kind {
-        ItemKind::Function(_) | ItemKind::ExternFn(_) => {
-            sig.find('(').map(|i| Arc::from(&sig[i..]))
-        }
-        ItemKind::Const(_) => sig.find(": ").map(|i| Arc::from(&sig[i + ": ".len()..])),
-        _ => None,
-    }
-}
-
-/// The signature a member inspection shows. Starts from the shared
-/// [`item_signature`](ambient_analysis::queries::item_signature) (the same
-/// rendering LSP hover uses) and, for the kinds whose hover header stays
-/// deliberately compact, appends the body a REPL explorer wants: an enum's
-/// variants, an ability's or trait's method signatures.
-fn inspect_signature(item: &Item) -> String {
-    use ambient_analysis::queries::format_type;
-    let mut sig = ambient_analysis::queries::item_signature(item);
-    match &item.kind {
-        ItemKind::Enum(e) => {
-            sig.push_str(" {");
-            for v in &e.variants {
-                sig.push_str("\n  ");
-                sig.push_str(&v.name);
-                if let Some(payload) = &v.payload {
-                    sig.push('(');
-                    sig.push_str(&format_type(payload));
-                    sig.push(')');
-                }
-                sig.push(',');
-            }
-            sig.push_str("\n}");
-        }
-        ItemKind::Ability(a) => {
-            sig.push_str(" {");
-            for m in &a.methods {
-                sig.push_str("\n  fn ");
-                sig.push_str(&m.name);
-                sig.push('(');
-                for (i, param) in m.params.iter().enumerate() {
-                    if i > 0 {
-                        sig.push_str(", ");
-                    }
-                    sig.push_str(&param.name);
-                    if let Some(ty) = &param.ty {
-                        sig.push_str(": ");
-                        sig.push_str(&format_type(ty));
-                    }
-                }
-                sig.push_str("): ");
-                sig.push_str(&format_type(&m.ret_ty));
-                sig.push(';');
-            }
-            sig.push_str("\n}");
-        }
-        ItemKind::Trait(t) => {
-            if t.assoc_types.is_empty() {
-                // With associated types the shared header already rendered
-                // a `{ … }` block; only open one here when it didn't.
-                sig.push_str(" {");
-                for m in &t.methods {
-                    sig.push_str("\n  fn ");
-                    sig.push_str(&m.name);
-                    sig.push('(');
-                    if m.has_self {
-                        sig.push_str("self");
-                    }
-                    for (i, (name, ty)) in m.params.iter().enumerate() {
-                        if i > 0 || m.has_self {
-                            sig.push_str(", ");
-                        }
-                        sig.push_str(name);
-                        sig.push_str(": ");
-                        sig.push_str(&format_type(ty));
-                    }
-                    sig.push_str("): ");
-                    sig.push_str(&format_type(&m.ret_ty));
-                    sig.push(';');
-                }
-                sig.push_str("\n}");
-            }
-        }
-        _ => {}
-    }
-    sig
-}
-
-/// The friendly rendering of absolute registry segments: `core::…` shows
-/// as-is, package modules show under the `pkg` root (`pkg::net::client`),
-/// the empty path is the root itself.
-fn display_path(segments: &[Arc<str>]) -> String {
-    if segments.first().is_some_and(|s| s.as_ref() == "core") {
-        return segments.join("::");
-    }
-    let mut out = String::from("pkg");
-    for seg in segments {
-        out.push_str("::");
-        out.push_str(seg);
-    }
-    out
-}
-
-/// Whether `s` is shaped like a module/member path: one or more identifier
-/// segments joined by `::`, nothing else. Ordinary expressions (with
-/// operators, whitespace, calls, or a `.`) are not path-shaped and skip
-/// introspection so they never trigger a registry build.
-fn looks_like_path(s: &str) -> bool {
-    !s.is_empty()
-        && s.split("::").all(|seg| {
-            let mut chars = seg.chars();
-            chars
-                .next()
-                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-        })
-}
-
-/// Whether the input references any of the project-relative path roots.
-fn mentions_project_roots(line: &str) -> bool {
-    ["pkg", "self", "super"].iter().any(|root| {
-        line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-            .any(|word| word == *root)
-    })
-}
-
-/// Rewrite the synthetic entry name (`__repl_entry_7`) out of rendered
-/// errors: the wrapper is an implementation detail, and a note like
-/// ``in function `__repl_entry_7` `` should read as "in this input".
-fn scrub_entry_names(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut rest = s;
-    while let Some(pos) = rest.find(ENTRY_PREFIX) {
-        out.push_str(&rest[..pos]);
-        let after = &rest[pos + ENTRY_PREFIX.len()..];
-        let digits = after.chars().take_while(char::is_ascii_digit).count();
-        out.push_str("repl input");
-        rest = &after[digits..];
-    }
-    out.push_str(rest);
-    out
-}
-
-/// REPL command types.
-pub enum ReplCommand {
-    Help,
-    Quit,
-    Clear,
-    Reload,
-    /// `:sig <path>` — show a member's signature and doc.
-    Sig(String),
-    /// `:type <expr>` — show an expression's inferred type without running it.
-    Type(String),
-    Unknown(String),
-}
-
-/// Parse a REPL command line (leading `:` already present).
-#[must_use]
-pub fn parse_repl_command(line: &str) -> ReplCommand {
-    let line = line.trim_start_matches(':');
-    let (cmd, rest) = match line.split_once(char::is_whitespace) {
-        Some((cmd, rest)) => (cmd, rest.trim()),
-        None => (line, ""),
-    };
-    match cmd {
-        "help" | "h" | "?" => ReplCommand::Help,
-        "quit" | "q" | "exit" => ReplCommand::Quit,
-        "clear" | "reset" => ReplCommand::Clear,
-        "reload" | "r" => ReplCommand::Reload,
-        "sig" | "signature" | "s" => ReplCommand::Sig(rest.to_string()),
-        "type" | "t" => ReplCommand::Type(rest.to_string()),
-        other => ReplCommand::Unknown(other.to_string()),
-    }
-}
-
-/// Write the REPL help text line by line to `emit`. Shared by both frontends
-/// so the help content lives in exactly one place.
-pub fn write_repl_help(emit: &dyn Fn(&str)) {
-    emit("REPL Commands:");
-    emit("  :help, :h, :?    Show this help message");
-    emit("  :quit, :q, :exit Exit the REPL");
-    emit("  :clear, :reset   Clear imports, bindings, and the running program");
-    emit("  :reload, :r      Rebuild the project from disk and redeploy");
-    emit("");
-    emit("Key Bindings:");
-    emit("  Ctrl+E, Ctrl+O   Edit current line in $EDITOR");
-    emit("");
-    emit("The REPL is for exploring code, not authoring it:");
-    emit("  1 + 2 * 3            Evaluate an expression");
-    emit("  parse(\"[1, 2]\")      Call project and core functions");
-    emit("  xs = List::of(1, 2)  Save a value; later turns see `xs`");
-    emit("  use pkg::utils;      Import for the rest of the session");
-    emit("  core::option         Inspect a module");
-    emit("");
-    emit("Definitions (fn/struct/trait/ability/impl/…) live in module files.");
-    emit("Saved file changes flow into the session (`:reload` forces it);");
-    emit("tasks pick rebound names up on their next pass.");
-    emit("");
-    emit("The session's scope is the directory the REPL was started in:");
-    emit("`pkg`, `self`, and `super` resolve as they would in a file there.");
-}
-
-/// Format a parse error for REPL display (without file path).
-fn format_repl_parse_error(line: &str, error: &ambient_parser::ParseError) -> String {
-    let start = error.span.start as usize;
-    let end = error.span.end as usize;
-
-    // For single-line REPL input, we can show a caret pointing to the error.
-    let col = start.min(line.len());
-    let underline_len = (end - start).min(line.len().saturating_sub(col)).max(1);
-
-    let spaces = " ".repeat(col);
-    let carets = "^".repeat(underline_len);
-
-    let mut msg = format!("{}\n", error.kind);
-    msg.push_str(&format!("  {line}\n"));
-    msg.push_str(&format!("  {spaces}{carets}"));
-
-    if let Some(ctx) = &error.context {
-        msg.push_str(&format!("\n  note: {ctx}"));
-    }
-
-    msg
-}
-
-/// Render shared analysis diagnostics against the trial module source.
-///
-/// The trial source is `committed imports + this turn's input`, so a caret
-/// can point at the exact offending line even when the error is in the
-/// synthetic entry wrapper.
-fn format_repl_diagnostics(source: &str, diagnostics: &[Diagnostic]) -> String {
-    let mut out = String::new();
-    for (i, diag) in diagnostics.iter().enumerate() {
-        if i > 0 {
-            out.push('\n');
-        }
-        let (col, line_start, line_end) = line_info(source, diag.span.start as usize);
-        let line_content = &source[line_start..line_end];
-
-        out.push_str(&diag.message);
-        out.push('\n');
-        out.push_str(&format!("  {line_content}\n"));
-
-        let underline_start = col;
-        let underline_len = ((diag.span.end - diag.span.start) as usize)
-            .min(line_content.len().saturating_sub(underline_start))
-            .max(1);
-        out.push_str(&format!(
-            "  {}{}",
-            " ".repeat(underline_start),
-            "^".repeat(underline_len)
-        ));
-
-        if let Some(note) = &diag.note {
-            out.push_str(&format!("\n  note: {note}"));
-        }
-    }
-    out
-}
-
-/// Column offset within its line and the line's byte bounds for `offset`.
-fn line_info(source: &str, offset: usize) -> (usize, usize, usize) {
-    let mut line_start = 0;
-    for (i, ch) in source.char_indices() {
-        if i >= offset {
-            break;
-        }
-        if ch == '\n' {
-            line_start = i + 1;
-        }
-    }
-    let line_end = source[line_start..]
-        .find('\n')
-        .map_or(source.len(), |i| line_start + i);
-    (offset.saturating_sub(line_start), line_start, line_end)
 }

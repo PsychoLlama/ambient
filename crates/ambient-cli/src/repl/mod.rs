@@ -27,9 +27,11 @@
 //! being absent from it — tasks ensured three turns ago keep running until
 //! an explicit `Task::drain!` (or `:clear`, which winds the program down).
 
-mod completer;
+pub mod completer;
 mod editor;
 mod highlighter;
+mod inspect;
+mod render;
 pub mod session;
 
 use std::fs;
@@ -60,8 +62,12 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
 
     let mut session = ReplSession::new(&project_dir, ReplIo::terminal())?;
 
-    // Create the REPL helper (syntax highlighting).
-    let completer = completer::ReplHelper::new();
+    // Create the REPL helper (tab completion + syntax highlighting). It
+    // shares a completion snapshot with the loop below, which refreshes it
+    // after every handled line — imports, bindings, and (after a reload)
+    // the registry may all have changed.
+    let snapshot = std::sync::Arc::new(std::sync::Mutex::new(session.completion_snapshot()));
+    let completer = completer::ReplHelper::new(std::sync::Arc::clone(&snapshot));
 
     // Configure rustyline with our helper.
     let config = RustylineConfig::builder()
@@ -116,6 +122,15 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
         }
     });
 
+    // Refresh the shared completion snapshot from the session's current
+    // state (called after anything that may change imports, bindings, or
+    // the registry).
+    let refresh_completions = |session: &ReplSession| {
+        if let Ok(mut snap) = snapshot.lock() {
+            *snap = session.completion_snapshot();
+        }
+    };
+
     loop {
         // Flush stdout before reading (in case any output is buffered).
         let _ = io::stdout().flush();
@@ -136,8 +151,10 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
                     eprintln!("\x1b[1;31merror\x1b[0m: {e}");
                 }
 
-                // Skip empty lines.
+                // Skip empty lines (a dirty reload above may still have
+                // changed the session, so keep completion fresh).
                 if line.is_empty() {
+                    refresh_completions(&session);
                     continue;
                 }
 
@@ -151,6 +168,7 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
                             }
                         }
                     }
+                    refresh_completions(&session);
                     continue;
                 }
 
@@ -166,6 +184,7 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
                         eprintln!("\x1b[1;31merror\x1b[0m: {e}");
                     }
                 }
+                refresh_completions(&session);
             }
             Err(ReadlineError::Interrupted) => {
                 eprintln!("^C");
