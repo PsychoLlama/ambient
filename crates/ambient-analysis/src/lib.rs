@@ -269,7 +269,7 @@ pub fn analyze_with_registry(
 }
 
 /// Analyze with cross-module support and a custom ability resolver
-/// (respecting a package's `[host].abilities` configuration).
+/// (a frontend with a non-default platform ability set).
 #[must_use]
 pub fn analyze_with_registry_and_resolver(
     source: &str,

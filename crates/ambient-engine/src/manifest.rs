@@ -11,9 +11,6 @@
 //!
 //! [build]
 //! src = "src"
-//!
-//! [host]
-//! abilities = ["ambient:native"]
 //! ```
 //!
 //! An `ambient.toml` may instead be a **workspace root** — a virtual
@@ -70,9 +67,6 @@ pub enum ManifestError {
     PackageAndWorkspace,
 }
 
-/// The default host abilities if `[host]` section is missing.
-pub const DEFAULT_HOST_ABILITIES: &[&str] = &["ambient:native"];
-
 /// Package manifest from `ambient.toml`.
 #[derive(Debug, Clone)]
 pub struct Manifest {
@@ -82,10 +76,6 @@ pub struct Manifest {
     pub version: String,
     /// Source directory relative to manifest (default: "src").
     pub src_dir: PathBuf,
-    /// Host abilities available to this package (default: `["ambient:native"]`).
-    ///
-    /// Use `[]` for pure computation with no host abilities.
-    pub host_abilities: Vec<String>,
 }
 
 /// A workspace-root manifest: the member packages of a multi-package
@@ -111,7 +101,6 @@ pub enum ManifestFile {
 struct RawManifest {
     package: Option<PackageSection>,
     build: Option<BuildSection>,
-    host: Option<HostSection>,
     workspace: Option<WorkspaceSection>,
 }
 
@@ -124,11 +113,6 @@ struct PackageSection {
 #[derive(Debug, Deserialize)]
 struct BuildSection {
     src: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct HostSection {
-    abilities: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -218,19 +202,10 @@ impl Manifest {
             .and_then(|b| b.src)
             .map_or_else(|| PathBuf::from("src"), PathBuf::from);
 
-        // Host abilities: use specified list, or default to ["ambient:native"]
-        let host_abilities = raw.host.and_then(|h| h.abilities).unwrap_or_else(|| {
-            DEFAULT_HOST_ABILITIES
-                .iter()
-                .map(|s| (*s).to_string())
-                .collect()
-        });
-
         Ok(Self {
             name,
             version,
             src_dir,
-            host_abilities,
         })
     }
 
@@ -284,8 +259,6 @@ version = "0.1.0"
         assert_eq!(manifest.name, "test_pkg");
         assert_eq!(manifest.version, "0.1.0");
         assert_eq!(manifest.src_dir, PathBuf::from("src"));
-        // Default host abilities
-        assert_eq!(manifest.host_abilities, vec!["ambient:native"]);
     }
 
     #[test]
@@ -297,46 +270,27 @@ version = "1.2.3"
 
 [build]
 src = "lib"
-
-[host]
-abilities = ["ambient:native"]
 "#;
         let manifest = Manifest::parse(toml).expect("should parse");
         assert_eq!(manifest.name, "my_project");
         assert_eq!(manifest.version, "1.2.3");
         assert_eq!(manifest.src_dir, PathBuf::from("lib"));
-        assert_eq!(manifest.host_abilities, vec!["ambient:native"]);
     }
 
     #[test]
-    fn test_host_abilities_empty() {
+    fn test_unknown_sections_are_ignored() {
+        // Unknown sections (including the removed `[host]`) parse fine —
+        // the manifest reads only what it knows.
         let toml = r#"
 [package]
-name = "pure_pkg"
+name = "test_pkg"
 version = "0.1.0"
 
 [host]
-abilities = []
+abilities = ["ambient:native"]
 "#;
         let manifest = Manifest::parse(toml).expect("should parse");
-        assert!(manifest.host_abilities.is_empty());
-    }
-
-    #[test]
-    fn test_host_abilities_custom() {
-        let toml = r#"
-[package]
-name = "custom_pkg"
-version = "0.1.0"
-
-[host]
-abilities = ["ambient:native", "my-plugin:dom"]
-"#;
-        let manifest = Manifest::parse(toml).expect("should parse");
-        assert_eq!(
-            manifest.host_abilities,
-            vec!["ambient:native", "my-plugin:dom"]
-        );
+        assert_eq!(manifest.name, "test_pkg");
     }
 
     #[test]
