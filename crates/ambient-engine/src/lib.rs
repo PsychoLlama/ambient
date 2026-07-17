@@ -36,6 +36,7 @@ pub mod resolve;
 pub mod store;
 pub mod types;
 pub mod vm;
+pub mod workspace;
 
 // Re-export core types from ambient-ability for backward compatibility
 pub use ambient_ability::{SuspendedAbility, Value, VmError};

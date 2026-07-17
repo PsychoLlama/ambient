@@ -15,6 +15,19 @@
 //! [host]
 //! abilities = ["ambient:native"]
 //! ```
+//!
+//! An `ambient.toml` may instead be a **workspace root** — a virtual
+//! manifest declaring member packages and nothing else (see
+//! [`crate::workspace`]):
+//!
+//! ```toml
+//! [workspace]
+//! members = ["hello", "word_count"]
+//! ```
+//!
+//! The two forms are mutually exclusive: a manifest is either a package or
+//! a workspace root, never both. [`ManifestFile::parse`] is the single
+//! entry point that distinguishes them.
 
 use std::path::{Path, PathBuf};
 
@@ -42,6 +55,19 @@ pub enum ManifestError {
     /// No manifest was found in the directory or its parents.
     #[error("no {MANIFEST_FILENAME} found in {0} or any parent directory")]
     NotFound(PathBuf),
+
+    /// A package manifest was required, but the manifest is a workspace
+    /// root (`[workspace]` with no `[package]`).
+    #[error(
+        "this {MANIFEST_FILENAME} is a workspace root, not a package; \
+         name a member package (or run against one) instead"
+    )]
+    WorkspaceNotPackage,
+
+    /// A manifest declared both `[package]` and `[workspace]` — the two
+    /// forms are mutually exclusive.
+    #[error("a manifest is either a [package] or a [workspace] root, never both")]
+    PackageAndWorkspace,
 }
 
 /// The default host abilities if `[host]` section is missing.
@@ -62,12 +88,31 @@ pub struct Manifest {
     pub host_abilities: Vec<String>,
 }
 
+/// A workspace-root manifest: the member packages of a multi-package
+/// workspace, declared as directories relative to the workspace root.
+#[derive(Debug, Clone)]
+pub struct WorkspaceManifest {
+    /// Member package directories, relative to the workspace root.
+    pub members: Vec<String>,
+}
+
+/// Either form an `ambient.toml` can take: a package manifest or a
+/// workspace root. The forms are mutually exclusive.
+#[derive(Debug, Clone)]
+pub enum ManifestFile {
+    /// An ordinary package manifest (`[package]`).
+    Package(Manifest),
+    /// A workspace root (`[workspace]`).
+    Workspace(WorkspaceManifest),
+}
+
 /// Raw TOML structure for deserialization.
 #[derive(Debug, Deserialize)]
 struct RawManifest {
     package: Option<PackageSection>,
     build: Option<BuildSection>,
     host: Option<HostSection>,
+    workspace: Option<WorkspaceSection>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -86,6 +131,44 @@ struct HostSection {
     abilities: Option<Vec<String>>,
 }
 
+#[derive(Debug, Deserialize)]
+struct WorkspaceSection {
+    members: Option<Vec<String>>,
+}
+
+impl ManifestFile {
+    /// Load either manifest form from a file path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read or parsed, if required
+    /// fields are missing, or if the manifest declares both forms.
+    pub fn from_file(path: &Path) -> Result<Self, ManifestError> {
+        let contents = std::fs::read_to_string(path)?;
+        Self::parse(&contents)
+    }
+
+    /// Parse either manifest form from a TOML string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string cannot be parsed, if the manifest is
+    /// neither a package nor a workspace, or if it claims to be both.
+    pub fn parse(contents: &str) -> Result<Self, ManifestError> {
+        let raw: RawManifest = toml::from_str(contents)?;
+        if raw.workspace.is_some() && raw.package.is_some() {
+            return Err(ManifestError::PackageAndWorkspace);
+        }
+        if let Some(workspace) = raw.workspace {
+            let members = workspace
+                .members
+                .ok_or(ManifestError::MissingField("workspace.members"))?;
+            return Ok(Self::Workspace(WorkspaceManifest { members }));
+        }
+        Manifest::from_raw(raw).map(Self::Package)
+    }
+}
+
 impl Manifest {
     /// Load a manifest from a file path.
     ///
@@ -102,11 +185,24 @@ impl Manifest {
     ///
     /// # Errors
     ///
-    /// Returns an error if the string cannot be parsed or if required
-    /// fields are missing.
+    /// Returns an error if the string cannot be parsed, if required fields
+    /// are missing, or if the manifest is a workspace root rather than a
+    /// package.
     pub fn parse(contents: &str) -> Result<Self, ManifestError> {
         let raw: RawManifest = toml::from_str(contents)?;
+        if raw.workspace.is_some() {
+            return Err(if raw.package.is_some() {
+                ManifestError::PackageAndWorkspace
+            } else {
+                ManifestError::WorkspaceNotPackage
+            });
+        }
+        Self::from_raw(raw)
+    }
 
+    /// Build a package manifest from the raw TOML structure (the shared
+    /// tail of [`Self::parse`] and [`ManifestFile::parse`]).
+    fn from_raw(raw: RawManifest) -> Result<Self, ManifestError> {
         let package = raw.package.ok_or(ManifestError::MissingField("package"))?;
 
         let name = package
@@ -281,5 +377,70 @@ name = "test"
         let toml = "this is not valid toml {{{";
         let err = Manifest::parse(toml).unwrap_err();
         assert!(matches!(err, ManifestError::Parse(_)));
+    }
+
+    #[test]
+    fn test_parse_workspace_manifest() {
+        let toml = r#"
+[workspace]
+members = ["hello", "nested/word_count"]
+"#;
+        let ManifestFile::Workspace(ws) = ManifestFile::parse(toml).expect("should parse") else {
+            panic!("expected a workspace manifest");
+        };
+        assert_eq!(ws.members, vec!["hello", "nested/word_count"]);
+    }
+
+    #[test]
+    fn test_parse_package_through_manifest_file() {
+        let toml = r#"
+[package]
+name = "test_pkg"
+version = "0.1.0"
+"#;
+        let ManifestFile::Package(pkg) = ManifestFile::parse(toml).expect("should parse") else {
+            panic!("expected a package manifest");
+        };
+        assert_eq!(pkg.name, "test_pkg");
+    }
+
+    #[test]
+    fn test_workspace_manifest_is_not_a_package() {
+        let toml = r#"
+[workspace]
+members = ["hello"]
+"#;
+        let err = Manifest::parse(toml).unwrap_err();
+        assert!(matches!(err, ManifestError::WorkspaceNotPackage));
+    }
+
+    #[test]
+    fn test_package_and_workspace_rejected() {
+        let toml = r#"
+[package]
+name = "test_pkg"
+version = "0.1.0"
+
+[workspace]
+members = ["hello"]
+"#;
+        assert!(matches!(
+            Manifest::parse(toml).unwrap_err(),
+            ManifestError::PackageAndWorkspace
+        ));
+        assert!(matches!(
+            ManifestFile::parse(toml).unwrap_err(),
+            ManifestError::PackageAndWorkspace
+        ));
+    }
+
+    #[test]
+    fn test_workspace_missing_members() {
+        let toml = "[workspace]\n";
+        let err = ManifestFile::parse(toml).unwrap_err();
+        assert!(matches!(
+            err,
+            ManifestError::MissingField("workspace.members")
+        ));
     }
 }
