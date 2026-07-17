@@ -701,7 +701,9 @@ pub fn resolve_item_ref(
 /// [`Fqn`]: ambient_engine::fqn::Fqn
 fn item_ref_from_resolution(registry: &ModuleRegistry, qname: &QualifiedName) -> Option<ItemRef> {
     let fqn = qname.resolved.as_ref()?;
-    let module = fqn.module.to_module_path()?;
+    // Mount-aware inverse: a mounted package's module path re-attaches its
+    // package-name segment.
+    let module = registry.module_path_of(&fqn.module)?;
     registry.contains(&module).then(|| ItemRef {
         module,
         ident: fqn.ident.clone(),

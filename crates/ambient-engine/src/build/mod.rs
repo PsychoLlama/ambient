@@ -22,15 +22,16 @@ mod reachability;
 mod result;
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::compiler::CompiledModule;
 use crate::disk_store::DiskStore;
-use crate::fqn::{ModuleId, NameKey};
+use crate::fqn::NameKey;
 use crate::module_path::ModulePath;
 use crate::module_registry::ModuleRegistry;
-use crate::package::Package;
+use crate::package::{BuildSet, Package};
+use crate::workspace::{Discovered, Workspace};
 
 pub use cache::{CacheMode, module_cache_key};
 pub use dispatch_scope::per_module_dispatch_hashes;
@@ -72,16 +73,31 @@ pub fn build_package(
     parse: ParseFn,
     options: &BuildOptions<'_>,
 ) -> Result<BuildResult, BuildError> {
-    let mut pkg = Package::open(path).map_err(|e| BuildError::PackageOpen(e.to_string()))?;
-    let package_name = pkg.manifest().name.clone();
+    let (mut set, targets) = load_build_set(path, options.package)?;
+    let package_name = targets
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "workspace".to_string());
 
     // Loading everything (rather than chasing `use` from `main`) is what makes
     // directory namespaces and inline `pkg::a::b::f()` work: the module graph
-    // is the filesystem, the dependency graph the resolve pass below.
-    pipeline::load_all_modules(&mut pkg, parse)?;
+    // is the filesystem, the dependency graph the resolve pass below. In a
+    // workspace, *every member* loads and registers (so `::pkg` references
+    // resolve and coherence sees all impls); laziness lives in the compile
+    // walk's target filter, never in what is registered.
+    for pkg in set.packages_mut() {
+        pipeline::load_all_modules(pkg, parse)?;
+    }
 
     let mut registry = ModuleRegistry::new();
-    // Scope every user item's `Fqn` under the package name; core is `Builtin`.
+    // Mount every package: module paths carry their package name, and the
+    // registry scopes each mounted module's `Fqn` under it; core is
+    // `Builtin`. The bare-layout workspace-name fallback never applies to
+    // mounted modules, but seed it with the primary target anyway so any
+    // stray bare path stays deterministic.
+    for pkg in set.packages() {
+        registry.add_mount(Arc::clone(pkg.mount()));
+    }
     registry.set_workspace_name(package_name.clone());
 
     // Core registration only needs a string on failure (a parse error there is
@@ -174,8 +190,12 @@ pub fn build_package(
     crate::core_library::resolve_builtin_modules(&mut registry, &builtin_paths);
 
     // ── Package modules: register raw, resolve, re-register resolved. ──
-    for module in pkg.all_modules() {
-        registry.register(&module.path, Arc::new(module.ast.clone()));
+    for module in set.all_modules() {
+        registry.register_module(
+            &module.path,
+            Arc::new(module.ast.clone()),
+            module.is_dir_module,
+        );
         // Record the real on-disk path so the snapshot manifest resolves a
         // directory module to its `<dir>/main.ab` rather than reconstructing a
         // nonexistent `<dir>.ab`. `register` preserves it across the resolved
@@ -199,8 +219,9 @@ pub fn build_package(
     let mut dep_ids: BTreeMap<String, Vec<String>> = BTreeMap::new();
     // The raw resolve-pass dependency closures, keyed by module identity, for
     // narrowing each module's `ModuleEnv` to what it can actually reference.
-    let mut dep_closures: BTreeMap<String, std::collections::BTreeSet<ModuleId>> = BTreeMap::new();
-    for module in pkg.all_modules_mut() {
+    let mut dep_closures: BTreeMap<String, std::collections::BTreeSet<crate::fqn::ModuleId>> =
+        BTreeMap::new();
+    for module in set.all_modules_mut() {
         let outcome = crate::resolve::resolve_module(&mut module.ast, &module.path, &registry);
         deps.insert(
             module.path.to_string(),
@@ -225,8 +246,12 @@ pub fn build_package(
         dep_closures.insert(registry.module_id(&module.path).to_string(), outcome.deps);
         paths_by_key.insert(module.path.to_string(), module.path.clone());
     }
-    for module in pkg.all_modules() {
-        registry.register(&module.path, Arc::new(module.ast.clone()));
+    for module in set.all_modules() {
+        registry.register_module(
+            &module.path,
+            Arc::new(module.ast.clone()),
+            module.is_dir_module,
+        );
     }
 
     // The module dependency graph is a hard DAG: reject import cycles with a
@@ -289,15 +314,23 @@ pub fn build_package(
     // keeps the graph acyclic, so a genuinely cyclic dispatch dep drops its own
     // edge and fails to link exactly as before — correct — without poisoning
     // unrelated edges).
-    let ordering_modules: Vec<(String, &crate::ast::Module)> = pkg
+    let ordering_modules: Vec<(String, &crate::ast::Module)> = set
         .all_modules()
         .map(|m| (m.path.to_string(), &m.ast))
         .collect();
     let ordering_graph =
         reachability::dispatch_ordering_graph(&deps, &link_deps, &ordering_modules);
     let full_order = pipeline::compilation_order(&ordering_graph);
+
+    // Target filter: a lazy *package* build (`ambient build ./member`, or
+    // `--package`) compiles only the target packages' modules plus their
+    // transitive compile-order dependencies (which reach into sibling
+    // packages exactly as far as linking needs). Everything is registered
+    // and resolvable either way; this bounds what is checked and compiled.
+    let target_scope = target_module_scope(&set, &targets, &ordering_graph);
+
     let reachable = options.entry.and_then(|entry| {
-        let modules: Vec<reachability::PackageModule<'_>> = pkg
+        let modules: Vec<reachability::PackageModule<'_>> = set
             .all_modules()
             .map(|m| reachability::PackageModule {
                 id: registry.module_id(&m.path).to_string(),
@@ -306,17 +339,20 @@ pub fn build_package(
             .collect();
         reachability::reachable_module_ids(entry, &dep_ids, &modules)
     });
-    let module_order: Vec<String> = match &reachable {
-        Some(reachable) => full_order
-            .into_iter()
-            .filter(|key| {
-                paths_by_key
-                    .get(key)
-                    .is_some_and(|path| reachable.contains(&registry.module_id(path).to_string()))
-            })
-            .collect(),
-        None => full_order,
-    };
+    let module_order: Vec<String> = full_order
+        .into_iter()
+        .filter(|key| {
+            target_scope
+                .as_ref()
+                .is_none_or(|scope| scope.contains(key))
+        })
+        .filter(|key| match &reachable {
+            Some(reachable) => paths_by_key
+                .get(key)
+                .is_some_and(|path| reachable.contains(&registry.module_id(path).to_string())),
+            None => true,
+        })
+        .collect();
     let total_modules = module_order.len();
 
     // Every module's cache key, computed once up front (the key never depends
@@ -340,7 +376,7 @@ pub fn build_package(
     // the walk. Checking is globally order-independent, so this changes only
     // *when* checks run, never their outcome. See [`check_prepass`].
     let mut checked = check_prepass::run(
-        &pkg,
+        &set,
         &registry,
         &cache,
         &module_order,
@@ -404,7 +440,7 @@ pub fn build_package(
             // byte-identical to it. The oracle exists to catch drift, so its
             // recompile must be the *same* spine the ordinary fallback runs.
             let (compiled, output) = recompile_module(
-                &pkg,
+                &set,
                 &registry,
                 &module_path,
                 &module_id,
@@ -459,7 +495,7 @@ pub fn build_package(
             // failed): recompile through the shared spine. Its lazy check fires
             // only here, because a key match skipped the pre-pass.
             recompile_module(
-                &pkg,
+                &set,
                 &registry,
                 &module_path,
                 &module_id,
@@ -502,6 +538,7 @@ pub fn build_package(
         modules_compiled,
         modules_checked,
         package_name,
+        packages: targets,
         link_table: link.into_table(),
         interfaces,
         dispatch_surface_hash,
@@ -511,6 +548,104 @@ pub fn build_package(
         prelink_blobs,
         modules_relinked,
     })
+}
+
+/// Discover and open the set of packages a build at `path` covers, plus the
+/// **target** package names (the ones being built; the rest are along for
+/// resolution and linking):
+///
+/// - A standalone package: itself, target itself.
+/// - A workspace member: every member loads, the member is the target.
+/// - A workspace root: every member loads; all members are targets, unless
+///   `package` narrows to one.
+///
+/// `package` (the CLI's `--package`) selects a target by name anywhere a
+/// workspace is in scope.
+fn load_build_set(
+    path: &Path,
+    package: Option<&str>,
+) -> Result<(BuildSet, Vec<String>), BuildError> {
+    let discovered =
+        Workspace::discover(path).map_err(|e| BuildError::PackageOpen(e.to_string()))?;
+    let (members, mut targets): (Vec<Package>, Vec<String>) = match discovered {
+        Discovered::Package(manifest, root) => {
+            let name = manifest.name.clone();
+            (vec![Package::new(manifest, root)], vec![name])
+        }
+        Discovered::Member(workspace, index) => {
+            let target = workspace.members[index].name.clone();
+            (open_members(&workspace), vec![target])
+        }
+        Discovered::WorkspaceRoot(workspace) => {
+            let all = workspace.members.iter().map(|m| m.name.clone()).collect();
+            (open_members(&workspace), all)
+        }
+        Discovered::None => {
+            return Err(BuildError::PackageOpen(format!(
+                "no ambient.toml found in {} or any parent directory",
+                path.display()
+            )));
+        }
+    };
+    if let Some(selected) = package {
+        if !members.iter().any(|p| p.mount().as_ref() == selected) {
+            return Err(BuildError::PackageOpen(format!(
+                "no package named `{selected}` in this workspace"
+            )));
+        }
+        targets = vec![selected.to_string()];
+    }
+    Ok((BuildSet::new(members), targets))
+}
+
+/// Open every member of a workspace as a [`Package`].
+fn open_members(workspace: &Workspace) -> Vec<Package> {
+    workspace
+        .members
+        .iter()
+        .map(|m| Package::new(m.manifest.clone(), m.root.clone()))
+        .collect()
+}
+
+/// The compile-walk scope of a target-package build: every module of a
+/// target package plus the transitive compile-order dependencies those
+/// modules reach (following `ordering_graph` edges into sibling packages
+/// exactly as far as linking needs). `None` when every package is a target —
+/// then there is nothing to filter.
+fn target_module_scope(
+    set: &BuildSet,
+    targets: &[String],
+    ordering_graph: &BTreeMap<String, Vec<String>>,
+) -> Option<std::collections::BTreeSet<String>> {
+    if targets.len() == set.packages().len() {
+        return None;
+    }
+    let target_mounts: std::collections::BTreeSet<&str> =
+        targets.iter().map(String::as_str).collect();
+    let mut scope: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut stack: Vec<String> = set
+        .all_modules()
+        .filter(|m| {
+            m.path
+                .segments()
+                .first()
+                .is_some_and(|mount| target_mounts.contains(mount.as_ref()))
+        })
+        .map(|m| m.path.to_string())
+        .collect();
+    while let Some(key) = stack.pop() {
+        if !scope.insert(key.clone()) {
+            continue;
+        }
+        if let Some(edges) = ordering_graph.get(&key) {
+            for dep in edges {
+                if ordering_graph.contains_key(dep) && !scope.contains(dep) {
+                    stack.push(dep.clone());
+                }
+            }
+        }
+    }
+    Some(scope)
 }
 
 /// Compile one package module, capturing its pre-link symbolic form. The
@@ -523,17 +658,17 @@ pub fn build_package(
 /// (recompiles even on a key match) and the rare key-match-but-unlinkable
 /// fallback. A module is thus checked exactly once per build.
 fn compile_package_module(
-    pkg: &Package,
+    set: &BuildSet,
     registry: &ModuleRegistry,
     module_path: &ModulePath,
     imported: &HashMap<NameKey, blake3::Hash>,
-    deps: &std::collections::BTreeSet<ModuleId>,
+    deps: &std::collections::BTreeSet<crate::fqn::ModuleId>,
     checked: Option<crate::infer::CheckResult>,
 ) -> Result<(CompiledModule, crate::compiler::PrelinkModule), BuildError> {
-    let module = pkg
+    let module = set
         .get_module(module_path)
         .ok_or_else(|| BuildError::PackageOpen(format!("module not found: {module_path}")))?;
-    let file_path = pkg.module_diagnostic_path(module, module_path);
+    let file_path = set.module_diagnostic_path(module, module_path);
     let check_result = match checked {
         Some(cr) => cr,
         None => pipeline::check_loaded_module(module, &file_path, module_path, registry)?,
@@ -558,12 +693,12 @@ fn compile_package_module(
 /// it exists to validate. Returns the qualified module and its output.
 #[allow(clippy::too_many_arguments)]
 fn recompile_module(
-    pkg: &Package,
+    set: &BuildSet,
     registry: &ModuleRegistry,
     module_path: &ModulePath,
     module_id: &str,
     imported: &HashMap<NameKey, blake3::Hash>,
-    dep_closures: &BTreeMap<String, std::collections::BTreeSet<ModuleId>>,
+    dep_closures: &BTreeMap<String, std::collections::BTreeSet<crate::fqn::ModuleId>>,
     deps_list: Vec<String>,
     cache_key: [u8; 32],
     checked: &mut BTreeMap<String, crate::infer::CheckResult>,
@@ -579,7 +714,7 @@ fn recompile_module(
         *modules_checked += 1;
     }
     let (bare, prelink) = compile_package_module(
-        pkg,
+        set,
         registry,
         module_path,
         imported,
@@ -685,9 +820,22 @@ pub fn build_reachable<'a>(
     mut options: BuildOptions<'a>,
     entry: &'a str,
 ) -> Result<BuildResult, BuildError> {
-    options.store_path = Some(DiskStore::package_store_path(path));
+    options.store_path = Some(DiskStore::package_store_path(&store_root(path)));
     options.entry = Some(entry);
     build_package(path, parse, &options)
+}
+
+/// The directory whose `.ambient/store` a build at `path` reads and writes:
+/// the **workspace root** when `path` is inside one (members share a single
+/// store), else the package root, else `path` itself (the build will fail
+/// with its own, better error).
+#[must_use]
+pub fn store_root(path: &Path) -> PathBuf {
+    match Workspace::discover(path) {
+        Ok(Discovered::Member(ws, _) | Discovered::WorkspaceRoot(ws)) => ws.root,
+        Ok(Discovered::Package(_, root)) => root,
+        Ok(Discovered::None) | Err(_) => path.to_path_buf(),
+    }
 }
 
 // Tests are in ambient-cli since they require the parser.

@@ -80,8 +80,14 @@ fn assert_parity(files: &[(&str, &str)]) {
         .map(|(name, content)| {
             let uri = client.uri(name);
             client.open_document(uri.clone(), content);
-            // Module keys are dotted paths; the root module is "main".
-            let module_key = name.trim_end_matches(".ab").replace('/', ".");
+            // Module keys are mounted paths: the package name leads, and
+            // the root `main.ab` is the mount itself. Derive through the
+            // canonical file↔module mapping so the key can't drift.
+            let module_key = ambient_engine::module_path::ModulePath::from_relative_file_path(
+                &std::path::Path::new("parity").join(name),
+            )
+            .expect("module path")
+            .to_string();
             (module_key, uri)
         })
         .collect();

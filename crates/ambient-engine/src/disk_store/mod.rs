@@ -769,9 +769,9 @@ impl DiskStore {
         report.dangling_snapshot = self.snapshot_health()?;
         report.bad_tags = self.tag_health()?;
 
-        let current_manifest = self.current_snapshot()?;
+        let current_manifests = self.current_snapshots()?;
         // Pre-link blobs: decode and re-hash every one, then check that every
-        // blob a rooted manifest (the snapshot pointer or a tag) references is
+        // blob a rooted manifest (a snapshot pointer or a tag) references is
         // present. A blob is self-verifying, so a bad file is corruption; a
         // referenced-but-absent blob is a torn snapshot.
         let present_prelink: HashSet<blake3::Hash> =
@@ -788,7 +788,7 @@ impl DiskStore {
             }
         }
         let mut referenced_prelink: HashSet<blake3::Hash> = HashSet::new();
-        if let Some(manifest) = &current_manifest {
+        for manifest in &current_manifests {
             referenced_prelink.extend(manifest.referenced_prelink());
         }
         for tagged in self.tagged_manifest_hashes()? {
@@ -819,9 +819,9 @@ impl DiskStore {
         let mut pending: Vec<blake3::Hash> = extra_roots.to_vec();
         pending.extend(self.names()?.values().copied());
 
-        // The current snapshot and every tag are gc roots: every object a
-        // rooted manifest references must survive so the snapshot stays
-        // loadable. A broken snapshot/tag roots nothing (it protects no
+        // Every package's current snapshot and every tag are gc roots: every
+        // object a rooted manifest references must survive so the snapshot
+        // stays loadable. A broken snapshot/tag roots nothing (it protects no
         // objects, and its pointer is already treated as absent). Collect the
         // manifest hashes to keep alongside their objects.
         let mut keep_manifests: HashSet<blake3::Hash> = HashSet::new();
@@ -829,8 +829,7 @@ impl DiskStore {
         // relink must still find them. Collected separately because they live
         // in their own store area, not the object graph.
         let mut keep_prelink: HashSet<blake3::Hash> = HashSet::new();
-        let current_manifest = self.current_snapshot()?;
-        if let Some(manifest) = &current_manifest {
+        for manifest in self.current_snapshots()? {
             keep_manifests.insert(manifest.hash());
             pending.extend(manifest.referenced_objects());
             keep_prelink.extend(manifest.referenced_prelink());

@@ -92,8 +92,8 @@ fn lazy_run_skips_unreachable_modules_and_matches_full() {
     assert_eq!(
         lazy_mods,
         vec![
+            "workspace::lazy_pkg".to_string(),
             "workspace::lazy_pkg::lib".to_string(),
-            "workspace::lazy_pkg::main".to_string(),
         ],
         "the unreachable `unused` module must be pruned"
     );
@@ -530,8 +530,8 @@ fn lazy_run_is_not_poisoned_by_an_unreachable_spurious_cycle() {
     assert_eq!(
         package_modules(&lazy),
         vec![
+            "workspace::lazy_pkg".to_string(),
             "workspace::lazy_pkg::common".to_string(),
-            "workspace::lazy_pkg::main".to_string(),
             "workspace::lazy_pkg::zebra".to_string(),
         ],
         "only the orphan cluster is reached; the spurious-cycle cluster is pruned"
@@ -612,7 +612,7 @@ fn lazy_run_ignores_a_type_error_in_an_unreachable_module() {
     let lazy = build(files, Some("run")).expect("lazy build ignores the unreachable error");
     assert_eq!(
         package_modules(&lazy),
-        vec!["workspace::lazy_pkg::main".to_string()]
+        vec!["workspace::lazy_pkg".to_string()]
     );
 }
 

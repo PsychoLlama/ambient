@@ -523,7 +523,7 @@ impl AnalysisSession {
     /// The import-cycle diagnostic for a module this revision, if any —
     /// byte-identical to `analyze_with_registry`'s per-module rendering.
     fn cycle_for(&self, path: &ModulePath) -> Option<Diagnostic> {
-        let key = self.registry.module_id(path).module_path_string();
+        let key = self.registry.module_key(&self.registry.module_id(path));
         self.cycles
             .get(&key)
             .map(|cycle| Diagnostic::error(Span::new(0, 0), cycle.describe(), None))
@@ -617,7 +617,7 @@ impl AnalysisSession {
     /// Recompute the package's import-cycle set from the current dependency
     /// edges — one graph pass, no re-resolve.
     fn recompute_cycles(&mut self) {
-        self.cycles = cycles_for(&self.deps);
+        self.cycles = cycles_for(&self.registry, &self.deps);
     }
 
     /// The `AMBIENT_ANALYSIS_VERIFY` oracle for the occurrence index: after a
@@ -701,31 +701,36 @@ fn read_package_snapshot(
         .ok()?
 }
 
-/// The package's import cycles keyed by dotted module path
-/// (`ModuleId::module_path_string`), from resolve-pass dependency edges.
+/// The package's import cycles keyed by dotted module path (the registry's
+/// mount-aware [`ModuleRegistry::module_key`]), from resolve-pass dependency
+/// edges.
 ///
 /// One graph pass, no re-resolve — shared by the incremental session and the
 /// one-shot [`AnalysisPackage::analyze_all`](crate::package::AnalysisPackage::analyze_all)
 /// so both drop the per-module O(modules²) `import_cycle_containing` loop and
-/// render cycles identically. Each edge is restricted to its source module's
-/// own [`Scope`](ambient_engine::fqn::Scope), so core/platform can never enter
-/// a package cycle (they are separately guaranteed acyclic and cannot import
-/// user code).
+/// render cycles identically. Edges span every user (workspace-scoped)
+/// module — cross-package `::pkg` cycles are real cycles — while
+/// core/platform can never enter one (they are separately guaranteed acyclic
+/// and cannot import user code).
 #[must_use]
 pub(crate) fn cycles_for(
+    registry: &ModuleRegistry,
     deps: &BTreeMap<String, ModuleDeps>,
 ) -> BTreeMap<String, ambient_engine::module_cycles::ImportCycle> {
+    let user_scoped = |id: &ambient_engine::fqn::ModuleId| {
+        !matches!(id.scope, ambient_engine::fqn::Scope::Builtin)
+    };
     let graph: BTreeMap<String, Vec<String>> = deps
         .values()
+        .filter(|md| user_scoped(&md.module_id))
         .map(|md| {
-            let scope = &md.module_id.scope;
             let edges = md
                 .deps
                 .iter()
-                .filter(|d| &d.scope == scope)
-                .map(ambient_engine::fqn::ModuleId::module_path_string)
+                .filter(|d| user_scoped(d))
+                .map(|d| registry.module_key(d))
                 .collect();
-            (md.module_id.module_path_string(), edges)
+            (registry.module_key(&md.module_id), edges)
         })
         .collect();
     cycles_by_member(&graph)

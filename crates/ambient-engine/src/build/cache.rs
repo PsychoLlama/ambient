@@ -93,16 +93,21 @@ pub enum CacheMode {
 }
 
 /// The read-side cache for one build: the opened store and the previous
-/// build's manifest, plus the resolved escape-hatch flags.
+/// builds' manifests, plus the resolved escape-hatch flags.
+///
+/// A workspace store carries one snapshot pointer per package; the cache
+/// reads their **union** (deduplicated by manifest hash), searched in
+/// pointer order. Records for one module id agree across manifests when
+/// they hit — the key is content-derived — so first-match is sound.
 pub(super) struct BuildCache {
     store: Option<DiskStore>,
-    prev: Option<BuildManifest>,
+    prev: Vec<BuildManifest>,
     reads: bool,
     verify: bool,
 }
 
 impl BuildCache {
-    /// Open the cache for a build. `store_path` is `<pkg>/.ambient/store`;
+    /// Open the cache for a build. `store_path` is `<root>/.ambient/store`;
     /// `None` (or a store that won't open, or an absent/broken snapshot)
     /// yields a cache that never hits — a plain cold build. `AMBIENT_CACHE=off`
     /// and [`CacheMode::Off`] both disable reads; `AMBIENT_CACHE_VERIFY=1`
@@ -115,9 +120,10 @@ impl BuildCache {
         let prev = if reads {
             store
                 .as_ref()
-                .and_then(|s| s.current_snapshot().ok().flatten())
+                .and_then(|s| s.current_snapshots().ok())
+                .unwrap_or_default()
         } else {
-            None
+            Vec::new()
         };
         Self {
             store,
@@ -132,19 +138,17 @@ impl BuildCache {
         self.verify
     }
 
-    /// The previous manifest's record for a module, by canonical identity.
+    /// The first prior manifest's record for a module, by canonical identity.
     fn prev_module(&self, module_id: &str) -> Option<&ManifestModule> {
         self.prev
-            .as_ref()?
-            .modules
             .iter()
-            .find(|m| m.module == module_id)
+            .find_map(|manifest| manifest.modules.iter().find(|m| m.module == module_id))
     }
 
-    /// Whether the previous snapshot's core+platform unit key matches this
+    /// Whether some prior snapshot's core+platform unit key matches this
     /// build's, so every builtin module can be loaded rather than compiled.
     pub(super) fn core_key_matches(&self, key: [u8; 32]) -> bool {
-        self.reads && self.prev.as_ref().is_some_and(|m| m.core_cache_key == key)
+        self.reads && self.prev.iter().any(|m| m.core_cache_key == key)
     }
 
     /// Whether the previous snapshot holds a record for `module_id` whose cache

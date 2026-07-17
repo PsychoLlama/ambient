@@ -53,17 +53,20 @@ impl ImportCycle {
         &self.modules
     }
 
-    /// The human-readable cycle, e.g. `import cycle: pkg::a -> pkg::b ->
-    /// pkg::a`. The path is rooted with the literal `pkg` package-root
-    /// keyword (not the package name), so it is identical no matter which
-    /// package the cycle lives in — and the loop is closed by repeating the
-    /// first module at the end. This is the *single* rendering both the
-    /// build error and the analysis diagnostic use.
+    /// The human-readable cycle, e.g. `import cycle: cyc::a -> cyc::b ->
+    /// cyc::a`. Members render as their mounted module keys — the leading
+    /// segment names the owning package, so a cross-package cycle reads
+    /// unambiguously — and the loop is closed by repeating the first module
+    /// at the end. This is the *single* rendering both the build error and
+    /// the analysis diagnostic use.
     #[must_use]
     pub fn describe(&self) -> String {
-        let mut rendered: Vec<String> = self.modules.iter().map(|m| format!("pkg::{m}")).collect();
+        // Keys are already workspace-absolute mounted paths (`cyc::a`),
+        // which also names the owning package when a cycle crosses
+        // packages — render them as-is.
+        let mut rendered: Vec<String> = self.modules.clone();
         if let Some(first) = self.modules.first() {
-            rendered.push(format!("pkg::{first}"));
+            rendered.push(first.clone());
         }
         format!("import cycle: {}", rendered.join(" -> "))
     }
@@ -378,10 +381,7 @@ mod tests {
         assert_eq!(one.len(), 1);
         assert_eq!(one, two);
         assert_eq!(one[0].members(), &["a".to_string(), "b".to_string()]);
-        assert_eq!(
-            one[0].describe(),
-            "import cycle: pkg::a -> pkg::b -> pkg::a"
-        );
+        assert_eq!(one[0].describe(), "import cycle: a -> b -> a");
     }
 
     #[test]
@@ -394,10 +394,7 @@ mod tests {
             cycles[0].members(),
             &["a".to_string(), "b".to_string(), "c".to_string()]
         );
-        assert_eq!(
-            cycles[0].describe(),
-            "import cycle: pkg::a -> pkg::b -> pkg::c -> pkg::a"
-        );
+        assert_eq!(cycles[0].describe(), "import cycle: a -> b -> c -> a");
     }
 
     #[test]
@@ -405,7 +402,7 @@ mod tests {
         let deps = graph(&[("a", &["a"])]);
         let cycles = detect_import_cycles(&deps);
         assert_eq!(cycles.len(), 1);
-        assert_eq!(cycles[0].describe(), "import cycle: pkg::a -> pkg::a");
+        assert_eq!(cycles[0].describe(), "import cycle: a -> a");
     }
 
     #[test]

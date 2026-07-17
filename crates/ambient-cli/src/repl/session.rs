@@ -665,7 +665,12 @@ impl ReplSession {
 
         // Whole module: a file module, a directory namespace, or the
         // package root (`pkg`).
-        if let Some(value) = module_listing(registry, &absolute, &self.session_path) {
+        if let Some(value) = module_listing(
+            registry,
+            &absolute,
+            &self.session_path,
+            &self.package_root_segments(),
+        ) {
             return Some(value);
         }
 
@@ -688,7 +693,7 @@ impl ReplSession {
         });
         // Show where the item actually lives: a re-export chased through
         // `pub use` (or the prelude) renders its defining module.
-        let mut shown = display_path(defining.segments());
+        let mut shown = display_path(defining.segments(), &self.package_root_segments());
         shown.push_str("::");
         shown.push_str(&export.name);
         Some(Value::ModuleMember(Arc::new(ModuleMemberRef {
@@ -703,10 +708,22 @@ impl ReplSession {
     /// module: `pkg`/`self`/`super` anchor exactly as a `use` in a file at
     /// the launch directory would; anything else is already absolute.
     /// Returns the absolute registry segments (empty = the package root).
+    /// The session's package mount segments (`["probe"]` for a project
+    /// named `probe`): where `pkg` anchors and the floor `super` may not
+    /// step above. Empty for a project-less session (bare layout).
+    fn package_root_segments(&self) -> Vec<Arc<str>> {
+        if self.package.package_name.is_empty() {
+            Vec::new()
+        } else {
+            vec![Arc::from(self.package.package_name.as_str())]
+        }
+    }
+
     fn resolve_inspect_path(&self, segments: &[&str]) -> Option<Vec<Arc<str>>> {
         use ambient_engine::module_path::ImportPrefix;
         let to_arcs =
             |segs: &[&str]| -> Vec<Arc<str>> { segs.iter().map(|s| Arc::from(*s)).collect() };
+        let package_root = self.package_root_segments();
 
         let prefix = match *segments.first()? {
             "pkg" => ImportPrefix::Pkg,
@@ -724,17 +741,21 @@ impl ReplSession {
 
         if rest.is_empty() {
             // A bare root names the anchor itself: `pkg` is the package
-            // root, `self` the launch directory, `super` its parent.
+            // root (the mount), `self` the launch directory, `super` its
+            // parent — never above the mount.
             let dir = self.session_path.file_dir(false);
             return match prefix {
-                ImportPrefix::Pkg => Some(Vec::new()),
+                ImportPrefix::Pkg => Some(package_root),
                 ImportPrefix::Self_ => Some(dir.map_or_else(Vec::new, |d| d.segments().to_vec())),
                 ImportPrefix::Super(count) => {
-                    let mut dir = dir;
+                    let mut segs = dir.map_or_else(Vec::new, |d| d.segments().to_vec());
                     for _ in 0..count {
-                        dir = dir?.parent();
+                        if segs.len() <= package_root.len() {
+                            return None;
+                        }
+                        segs.pop();
                     }
-                    Some(dir.map_or_else(Vec::new, |d| d.segments().to_vec()))
+                    Some(segs)
                 }
                 // Unreachable: only pkg/self/super map to a prefix above.
                 ImportPrefix::Core | ImportPrefix::Workspace => None,
@@ -742,7 +763,7 @@ impl ReplSession {
         }
 
         self.session_path
-            .resolve_relative(&prefix, &to_arcs(rest), false, &[])
+            .resolve_relative(&prefix, &to_arcs(rest), false, &package_root)
             .ok()
             .map(|p| p.segments().to_vec())
     }
@@ -856,7 +877,17 @@ fn session_module_path(package: &AnalysisPackage, launch_dir: &Path) -> ModulePa
     );
     package
         .module_path_for(&virtual_file)
-        .or_else(|| ModulePath::from_str_segments(&[SESSION_MODULE]))
+        .or_else(|| {
+            // Outside the source tree (or with no project): anchor at the
+            // source root. Module paths are mounted under the package name,
+            // so the fallback must be too — a bare path in a mounted
+            // registry would resolve `pkg::`/`self` at the workspace root.
+            if package.package_name.is_empty() {
+                ModulePath::from_str_segments(&[SESSION_MODULE])
+            } else {
+                ModulePath::from_str_segments(&[package.package_name.as_str(), SESSION_MODULE])
+            }
+        })
         .expect("the reserved session module name is a valid module path")
 }
 

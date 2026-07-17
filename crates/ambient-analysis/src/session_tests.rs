@@ -28,7 +28,9 @@ fn open(dir: &TempDir) -> AnalysisSession {
 }
 
 fn module_path(name: &str) -> ModulePath {
-    ModulePath::from_relative_file_path(std::path::Path::new(&format!("{name}.ab")))
+    // Module paths are mounted under the package name (`test`); the root
+    // `main.ab` is the mount itself.
+    ModulePath::from_relative_file_path(std::path::Path::new(&format!("test/{name}.ab")))
         .expect("module path")
 }
 
@@ -347,7 +349,7 @@ fn trait_signature_change_rechecks_a_module_that_names_the_trait() {
         "`weighmod` (source) + `namer` (imports Weigh) re-check; `item`/`other` stay memoized"
     );
     assert!(
-        !diags(&warm["namer"]).is_empty(),
+        !diags(&warm["test::namer"]).is_empty(),
         "namer's impl no longer matches the trait: it must report an error"
     );
     assert_matches_cold(&session, &warm);
@@ -462,7 +464,7 @@ fn duplicate_impl_add_resurfaces_the_error_in_every_module() {
     let mut session = open(&dir);
     let cold = session.analyze_all();
     assert!(
-        diags(&cold["other"]).is_empty(),
+        diags(&cold["test::other"]).is_empty(),
         "before the duplicate, `other` is clean"
     );
 
@@ -475,11 +477,11 @@ fn duplicate_impl_add_resurfaces_the_error_in_every_module() {
     );
     let warm = session.analyze_all();
     assert!(
-        diags(&warm["other"])
+        diags(&warm["test::other"])
             .iter()
             .any(|(_, _, m)| m.contains("duplicate implementation")),
         "the coherence error must resurface in the non-holder `other`, got {:?}",
-        diags(&warm["other"])
+        diags(&warm["test::other"])
     );
     assert_matches_cold(&session, &warm);
 }
@@ -495,7 +497,7 @@ fn import_cycle_appears_and_clears_across_edits() {
     ]);
     let mut session = open(&dir);
     let clean = session.analyze_all();
-    assert!(clean["a"].import_cycle.is_none());
+    assert!(clean["test::a"].import_cycle.is_none());
     assert_matches_cold(&session, &clean);
 
     // `a` now imports `b`: a -> b -> a. `ay`'s signature is unchanged.
@@ -504,14 +506,17 @@ fn import_cycle_appears_and_clears_across_edits() {
         "use pkg::b::bee;\npub fn ay(): Number { bee() }\n".to_string(),
     );
     let cyclic = session.analyze_all();
-    assert!(cyclic["a"].import_cycle.is_some(), "cycle must surface");
-    assert!(cyclic["b"].import_cycle.is_some());
+    assert!(
+        cyclic["test::a"].import_cycle.is_some(),
+        "cycle must surface"
+    );
+    assert!(cyclic["test::b"].import_cycle.is_some());
     assert_matches_cold(&session, &cyclic);
 
     // Break the cycle again.
     session.edit_module(&module_path("a"), "pub fn ay(): Number { 1 }\n".to_string());
     let healed = session.analyze_all();
-    assert!(healed["a"].import_cycle.is_none(), "cycle must clear");
+    assert!(healed["test::a"].import_cycle.is_none(), "cycle must clear");
     assert_matches_cold(&session, &healed);
 }
 
@@ -534,13 +539,13 @@ fn broken_module_does_not_poison_siblings_and_recovers() {
     );
     let broken = session.analyze_all();
     assert!(
-        !broken["main"].diagnostics().is_empty(),
+        !broken["test"].diagnostics().is_empty(),
         "broken main reports"
     );
     assert!(
-        broken["utils"].diagnostics().is_empty(),
+        broken["test::utils"].diagnostics().is_empty(),
         "sibling not poisoned: {:?}",
-        diags(&broken["utils"])
+        diags(&broken["test::utils"])
     );
     assert_matches_cold(&session, &broken);
 
@@ -565,14 +570,14 @@ fn span_shifting_edit_is_never_served_stale() {
     let dir = write_package(&[("main.ab", "pub fn run(): String { 42 }\n")]);
     let mut session = open(&dir);
     let before = session.analyze_all();
-    let before_span = before["main"].diagnostics()[0].span.start;
+    let before_span = before["test"].diagnostics()[0].span.start;
 
     session.edit_module(
         &module_path("main"),
         "\n\npub fn run(): String { 42 }\n".to_string(),
     );
     let after = session.analyze_all();
-    let after_span = after["main"].diagnostics()[0].span.start;
+    let after_span = after["test"].diagnostics()[0].span.start;
 
     assert_eq!(
         after_span,
@@ -594,7 +599,7 @@ fn analyze_module_and_analyze_all_agree() {
     let mut session = open(&dir);
     let all = session.analyze_all();
     let one = session.analyze_module(&module_path("main")).expect("main");
-    assert_eq!(diags(&one), diags(&all["main"]));
+    assert_eq!(diags(&one), diags(&all["test"]));
 }
 
 #[test]
@@ -768,7 +773,7 @@ fn cross_module_references_survive_a_span_shifting_edit() {
     assert!(
         before
             .iter()
-            .any(|(m, _, _, is_def)| m == "main" && !is_def)
+            .any(|(m, _, _, is_def)| m == "test" && !is_def)
     );
 
     // Shift `helper`'s definition span with two leading newlines. The signature
@@ -788,13 +793,13 @@ fn cross_module_references_survive_a_span_shifting_edit() {
     // Still three sites, and `main`'s call is still among them — not stranded.
     assert_eq!(after.len(), 3, "references after the edit: {after:?}");
     assert!(
-        after.iter().any(|(m, _, _, is_def)| m == "main" && !is_def),
+        after.iter().any(|(m, _, _, is_def)| m == "test" && !is_def),
         "main's cross-module reference survived the span shift: {after:?}"
     );
     // The definition span in utils moved (proving the edit landed), yet the
     // reference set still resolves onto it.
-    let def_before = before.iter().find(|(m, ..)| m == "utils").unwrap();
-    let def_after = after.iter().find(|(m, ..)| m == "utils").unwrap();
+    let def_before = before.iter().find(|(m, ..)| m == "test::utils").unwrap();
+    let def_after = after.iter().find(|(m, ..)| m == "test::utils").unwrap();
     assert_ne!(
         (def_before.1, def_before.2),
         (def_after.1, def_after.2),
@@ -887,15 +892,16 @@ fn cross_module_variant_references_are_found() {
     assert_eq!(refs.len(), 3, "variant sites across the package: {refs:?}");
     assert!(
         refs.iter()
-            .any(|(m, _, _, is_def)| m == "shapes" && *is_def),
+            .any(|(m, _, _, is_def)| m == "test::shapes" && *is_def),
         "declaration in shapes: {refs:?}"
     );
     assert!(
-        refs.iter().any(|(m, _, _, is_def)| m == "main" && !is_def),
+        refs.iter().any(|(m, _, _, is_def)| m == "test" && !is_def),
         "constructor in main: {refs:?}"
     );
     assert!(
-        refs.iter().any(|(m, _, _, is_def)| m == "other" && !is_def),
+        refs.iter()
+            .any(|(m, _, _, is_def)| m == "test::other" && !is_def),
         "pattern in other: {refs:?}"
     );
     // The variant identity is distinct from the enum's — renaming one never
@@ -928,7 +934,7 @@ fn variant_occurrence_oracle_survives_a_body_edit() {
     let after = references_to(&session, "shapes", "Circle");
     assert_eq!(after.len(), 3, "references survived the edit: {after:?}");
     assert!(
-        after.iter().any(|(m, _, _, is_def)| m == "main" && !is_def),
+        after.iter().any(|(m, _, _, is_def)| m == "test" && !is_def),
         "main's constructor is not stranded: {after:?}"
     );
 }

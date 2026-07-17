@@ -88,14 +88,14 @@ fn two_module_import_cycle_is_rejected() {
     let (ok, run_out) = invoke("run", dir.path());
     assert!(!ok, "run unexpectedly succeeded:\n{run_out}");
     assert!(
-        run_out.contains("import cycle: pkg::a -> pkg::b -> pkg::a"),
+        run_out.contains("import cycle: cyc::a -> cyc::b -> cyc::a"),
         "run should name the cycle, not fail with a link error:\n{run_out}"
     );
 
     let (ok, check_out) = invoke("check", dir.path());
     assert!(!ok, "check unexpectedly succeeded:\n{check_out}");
     assert!(
-        check_out.contains("import cycle: pkg::a -> pkg::b -> pkg::a"),
+        check_out.contains("import cycle: cyc::a -> cyc::b -> cyc::a"),
         "check should name the cycle:\n{check_out}"
     );
 }
@@ -113,19 +113,20 @@ fn three_module_import_cycle_is_rejected() {
     let (ok, out) = invoke("check", dir.path());
     assert!(!ok, "check unexpectedly succeeded:\n{out}");
     assert!(
-        out.contains("import cycle: pkg::a -> pkg::b -> pkg::c -> pkg::a"),
+        out.contains("import cycle: cyc::a -> cyc::b -> cyc::c -> cyc::a"),
         "unexpected output:\n{out}"
     );
 }
 
-/// A module importing its own items (`use pkg::main::…` from `main`) is a
-/// same-module reference, not a cross-module edge — recursion stays within a
-/// module — so it is not an import cycle and the package runs.
+/// A module importing its own items (`use pkg::…` from the root module,
+/// which the path resolves right back into) is a same-module reference, not
+/// a cross-module edge — recursion stays within a module — so it is not an
+/// import cycle and the package runs.
 #[test]
 fn self_import_is_not_a_cycle() {
     let dir = package(&[(
         "main.ab",
-        "use pkg::main::helper;\n\
+        "use pkg::helper;\n\
          pub fn helper(): Number { 21 }\n\
          pub fn run(): Number { helper() + helper() }\n",
     )]);

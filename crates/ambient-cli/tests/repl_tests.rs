@@ -710,11 +710,13 @@ fn test_pkg_and_self_list_modules() {
         ("util.ab", "pub fn helper(): Number { 1 }\n"),
         ("net/client.ab", "pub fn port(): Number { 8080 }\n"),
     ]);
-    // `pkg` lists the package's top-level modules (and not `core`).
+    // `pkg` lists the package root's own surface plus its top-level
+    // modules (and not `core`). The root module is the package itself —
+    // there is no `mod main` entry.
     let repl = ReplTest::with_project(dir.path())
         .type_line("pkg")
         .expect_output("module pkg")
-        .expect_output("mod main")
+        .expect_output("fn run")
         .expect_output("mod net")
         .expect_output("mod util");
     assert!(

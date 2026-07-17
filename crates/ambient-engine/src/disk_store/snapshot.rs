@@ -66,8 +66,10 @@ const MANIFEST_MAGIC: [u8; 4] = *b"ABSM";
 /// unit) or one that produced no relinkable body carries `None`.
 pub const MANIFEST_VERSION: u8 = 4;
 
-/// The root-pointer file name under the store root.
-pub const SNAPSHOT_POINTER: &str = "snapshot";
+/// The root-pointer *directory* under the store root: one pointer file per
+/// package (`snapshots/<package>`), so workspace members sharing a store
+/// root their snapshots independently.
+pub const SNAPSHOT_POINTER: &str = "snapshots";
 
 /// Prefix (and version marker) of the root-pointer file's single line.
 const POINTER_PREFIX: &str = "ambient-snapshot-v1 ";
@@ -565,13 +567,15 @@ impl DiskStore {
             .join(&hex.as_str()[2..])
     }
 
-    /// Path of the root-pointer file.
+    /// Path of one package's root-pointer file. Pointers live per package
+    /// under `snapshots/` — workspace members share one store, and each
+    /// member's latest build roots its own snapshot independently.
     #[must_use]
-    fn pointer_path(&self) -> PathBuf {
-        self.root().join(SNAPSHOT_POINTER)
+    fn pointer_path(&self, package: &str) -> PathBuf {
+        self.root().join(SNAPSHOT_POINTER).join(package)
     }
 
-    /// Persist a build manifest and repoint the root pointer at it.
+    /// Persist a build manifest and repoint its package's root pointer at it.
     ///
     /// Crash-safety ordering: the caller must have already made every object
     /// the manifest references durable (via [`DiskStore::put_module`]). This
@@ -595,24 +599,73 @@ impl DiskStore {
         }
         // Only now — manifest bytes durable — swap the pointer.
         let content = format!("{POINTER_PREFIX}{}\n", hash.to_hex());
-        write_atomic(self.root(), &self.pointer_path(), content.as_bytes())?;
+        write_atomic(
+            self.root(),
+            &self.pointer_path(&manifest.package_name),
+            content.as_bytes(),
+        )?;
         Ok(hash)
     }
 
-    /// The manifest hash named by the root pointer, or `None` if the pointer
-    /// is absent or malformed (bad marker / bad hex). A malformed pointer is
-    /// a soft miss — the build rebuilds — not an error.
+    /// Every package's root pointer, sorted by package name. Malformed
+    /// pointer files are skipped (a soft miss, never an error).
+    ///
+    /// # Errors
+    ///
+    /// Fails only on unexpected I/O reading the pointer directory.
+    pub fn snapshot_pointers(&self) -> Result<Vec<(String, blake3::Hash)>, DiskStoreError> {
+        let dir = self.root().join(SNAPSHOT_POINTER);
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e.into()),
+        };
+        let mut pointers = Vec::new();
+        for entry in entries {
+            let entry = entry?;
+            let Some(package) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            let content = match std::fs::read_to_string(entry.path()) {
+                Ok(c) => c,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e.into()),
+            };
+            if let Some(hash) = parse_pointer(&content) {
+                pointers.push((package, hash));
+            }
+        }
+        pointers.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(pointers)
+    }
+
+    /// The manifest hash named by `package`'s root pointer, or `None` if the
+    /// pointer is absent or malformed (bad marker / bad hex). A malformed
+    /// pointer is a soft miss — the build rebuilds — not an error.
     ///
     /// # Errors
     ///
     /// Fails only on unexpected I/O reading the pointer file.
-    pub fn snapshot_pointer(&self) -> Result<Option<blake3::Hash>, DiskStoreError> {
-        let content = match std::fs::read_to_string(self.pointer_path()) {
+    pub fn snapshot_pointer_for(
+        &self,
+        package: &str,
+    ) -> Result<Option<blake3::Hash>, DiskStoreError> {
+        let content = match std::fs::read_to_string(self.pointer_path(package)) {
             Ok(c) => c,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e.into()),
         };
         Ok(parse_pointer(&content))
+    }
+
+    /// The sole (or first, by package name) root pointer — the single-package
+    /// store's view. Multi-package consumers use [`Self::snapshot_pointers`].
+    ///
+    /// # Errors
+    ///
+    /// Fails only on unexpected I/O reading the pointer directory.
+    pub fn snapshot_pointer(&self) -> Result<Option<blake3::Hash>, DiskStoreError> {
+        Ok(self.snapshot_pointers()?.into_iter().next().map(|(_, h)| h))
     }
 
     /// Load and hash-verify the manifest stored at `hash`.
@@ -643,10 +696,11 @@ impl DiskStore {
         Ok(Some(manifest))
     }
 
-    /// The current build snapshot, following the root pointer and verifying
-    /// the manifest. Every failure mode — no pointer, malformed pointer,
-    /// missing/corrupt/unknown-version manifest — collapses to `Ok(None)`:
-    /// the build path treats a broken snapshot as no snapshot and rebuilds.
+    /// The current build snapshot, following the sole (or first) root
+    /// pointer and verifying the manifest. Every failure mode — no pointer,
+    /// malformed pointer, missing/corrupt/unknown-version manifest —
+    /// collapses to `Ok(None)`: the build path treats a broken snapshot as
+    /// no snapshot and rebuilds.
     ///
     /// # Errors
     ///
@@ -656,6 +710,36 @@ impl DiskStore {
         let Some(hash) = self.snapshot_pointer()? else {
             return Ok(None);
         };
+        self.manifest_or_miss(hash)
+    }
+
+    /// Every package's current snapshot, deduplicated by manifest hash (a
+    /// workspace-root build points several packages at one manifest). Broken
+    /// pointers and manifests are skipped, exactly like
+    /// [`Self::current_snapshot`].
+    ///
+    /// # Errors
+    ///
+    /// Only genuinely unexpected I/O errors propagate.
+    pub fn current_snapshots(&self) -> Result<Vec<BuildManifest>, DiskStoreError> {
+        let mut seen: std::collections::HashSet<blake3::Hash> = std::collections::HashSet::new();
+        let mut manifests = Vec::new();
+        for (_, hash) in self.snapshot_pointers()? {
+            if !seen.insert(hash) {
+                continue;
+            }
+            if let Some(manifest) = self.manifest_or_miss(hash)? {
+                manifests.push(manifest);
+            }
+        }
+        Ok(manifests)
+    }
+
+    /// Load a manifest, collapsing corrupt/malformed to a soft miss.
+    fn manifest_or_miss(
+        &self,
+        hash: blake3::Hash,
+    ) -> Result<Option<BuildManifest>, DiskStoreError> {
         match self.load_manifest(&hash) {
             Ok(manifest) => Ok(manifest),
             // A present-but-corrupt manifest is a cache miss, not an error.
@@ -664,29 +748,50 @@ impl DiskStore {
         }
     }
 
-    /// Diagnose the snapshot for `verify`: `None` when there is no snapshot
-    /// or a healthy one, `Some(message)` when the root pointer is present but
-    /// broken (unparseable, or naming a missing/corrupt/unknown-version
-    /// manifest). This is the loud counterpart to [`Self::current_snapshot`]'s
-    /// silent fallback.
+    /// Diagnose the snapshots for `verify`: `None` when every pointer is
+    /// absent or healthy, `Some(message)` when some package's root pointer
+    /// is present but broken (unparseable, or naming a
+    /// missing/corrupt/unknown-version manifest). This is the loud
+    /// counterpart to [`Self::current_snapshot`]'s silent fallback.
     ///
     /// # Errors
     ///
-    /// Fails only on unexpected I/O reading the pointer file.
+    /// Fails only on unexpected I/O reading the pointer files.
     pub fn snapshot_health(&self) -> Result<Option<String>, DiskStoreError> {
-        let content = match std::fs::read_to_string(self.pointer_path()) {
-            Ok(c) => c,
+        let dir = self.root().join(SNAPSHOT_POINTER);
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e.into()),
         };
-        let Some(hash) = parse_pointer(&content) else {
-            return Ok(Some("root pointer is present but malformed".to_string()));
-        };
-        match self.load_manifest(&hash) {
-            Ok(Some(_)) => Ok(None),
-            Ok(None) => Ok(Some(format!("root pointer names missing manifest {hash}"))),
-            Err(e) => Ok(Some(format!("root pointer names bad manifest {hash}: {e}"))),
+        for entry in entries {
+            let entry = entry?;
+            let package = entry.file_name().to_string_lossy().to_string();
+            let content = match std::fs::read_to_string(entry.path()) {
+                Ok(c) => c,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e.into()),
+            };
+            let Some(hash) = parse_pointer(&content) else {
+                return Ok(Some(format!(
+                    "root pointer for `{package}` is present but malformed"
+                )));
+            };
+            match self.load_manifest(&hash) {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    return Ok(Some(format!(
+                        "root pointer for `{package}` names missing manifest {hash}"
+                    )));
+                }
+                Err(e) => {
+                    return Ok(Some(format!(
+                        "root pointer for `{package}` names bad manifest {hash}: {e}"
+                    )));
+                }
+            }
         }
+        Ok(None)
     }
 
     /// Every manifest hash with a file under `meta/`.

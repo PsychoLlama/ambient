@@ -27,7 +27,7 @@ use crate::infer::CheckResult;
 use crate::module_interface::ModuleInterfaceSummary;
 use crate::module_path::ModulePath;
 use crate::module_registry::ModuleRegistry;
-use crate::package::Package;
+use crate::package::BuildSet;
 
 use super::cache::BuildCache;
 use super::{BuildError, ModuleTypeErrors, cache, dep_interface_hashes, pipeline};
@@ -87,7 +87,7 @@ pub(super) fn compute_cache_keys(
 /// Returns [`BuildError::TypeCheck`] with every failing module's structured
 /// errors, or a non-check build error (e.g. a vanished module).
 pub(super) fn run(
-    pkg: &Package,
+    set: &BuildSet,
     registry: &ModuleRegistry,
     cache: &BuildCache,
     module_order: &[String],
@@ -113,10 +113,10 @@ pub(super) fn run(
             continue;
         }
 
-        let module = pkg
+        let module = set
             .get_module(module_path)
             .ok_or_else(|| BuildError::PackageOpen(format!("module not found: {module_path}")))?;
-        let file_path = pkg.module_diagnostic_path(module, module_path);
+        let file_path = set.module_diagnostic_path(module, module_path);
 
         match pipeline::check_loaded_module(module, &file_path, module_path, registry) {
             Ok(check_result) => {

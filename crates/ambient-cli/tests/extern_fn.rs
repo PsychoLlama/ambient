@@ -39,7 +39,10 @@ fn temp_package(source: &str) -> TempDir {
 }
 
 fn main_module() -> ModulePath {
-    ModulePath::from_str_segments(&["main"]).expect("main path")
+    // Module paths are mounted under the package name; the root `main.ab`
+    // is the mount itself. Host native bindings key on the same mounted
+    // path the declarations register under.
+    ModulePath::from_str_segments(&["externs"]).expect("root module path")
 }
 
 /// A registry binding `double` (×2) and `greet` (prepends "hello, ").
@@ -334,6 +337,7 @@ fn extern_fn_ships_through_a_pack() {
         modules_compiled: result.modules_compiled,
         modules_checked: result.modules_checked,
         package_name: result.package_name.clone(),
+        packages: result.packages.clone(),
         link_table: result.link_table.clone(),
         interfaces: result.interfaces.clone(),
         dispatch_surface_hash: result.dispatch_surface_hash,

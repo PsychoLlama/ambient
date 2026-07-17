@@ -43,7 +43,7 @@ fn main_ast_hash(source: &str) -> blake3::Hash {
     build(&[("main.ab", source)]).interfaces[MAIN].resolved_ast_hash
 }
 
-const MAIN: &str = "workspace::test_pkg::main";
+const MAIN: &str = "workspace::test_pkg";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Byte-stability

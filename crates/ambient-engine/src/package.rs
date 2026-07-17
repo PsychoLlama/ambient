@@ -3,11 +3,22 @@
 //! A package is a collection of modules rooted at an `ambient.toml` manifest.
 //! Modules are loaded lazily as they're imported.
 //!
+//! Module paths are **mounted**: every loaded module's [`ModulePath`] begins
+//! with the package name (`["foo", "utils"]` for foo's `src/utils.ab`; the
+//! package root `main.ab` collapses to the mount itself, `["foo"]`, as a
+//! directory module). Mounting is what lets several workspace packages share
+//! one registry — see [`crate::module_registry`] — and a standalone package
+//! mounts alone so the two layouts never diverge.
+//!
+//! [`BuildSet`] is the unit a build loads: every workspace member (or the
+//! single standalone package), routed by mount.
+//!
 //! Note: This module provides the package structure, but actual parsing
 //! is done by the CLI layer which has access to `ambient-parser`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use thiserror::Error;
 
@@ -37,10 +48,6 @@ pub enum LoadError {
         #[source]
         source: std::io::Error,
     },
-
-    /// Entry point main.ab not found.
-    #[error("entry point not found: {0}/main.ab")]
-    NoEntryPoint(PathBuf),
 }
 
 /// A parsed module with its source and AST.
@@ -48,6 +55,12 @@ pub enum LoadError {
 pub struct LoadedModule {
     /// The module path.
     pub path: ModulePath,
+    /// Whether the module is a *directory module* (backed by a `main.ab`),
+    /// which anchors `self`/`super` at its own path. A mounted package root
+    /// is one by construction (`foo/main.ab` → `["foo"]`). Registration
+    /// must pass this through, or `self::` in a directory module anchors a
+    /// level too high.
+    pub is_dir_module: bool,
     /// The source code.
     pub source: String,
     /// The parsed AST.
@@ -73,6 +86,9 @@ pub struct LoadedModule {
 pub struct Package {
     /// Package manifest.
     manifest: Manifest,
+    /// The package's mount: its name, interned once. Every loaded module's
+    /// path begins with this segment.
+    mount: Arc<str>,
     /// Root directory of the package (where ambient.toml is).
     root: PathBuf,
     /// Loaded modules, keyed by module path. A `BTreeMap` (not a `HashMap`) so
@@ -89,8 +105,10 @@ impl Package {
     /// Create a new package from a manifest and root directory.
     #[must_use]
     pub fn new(manifest: Manifest, root: PathBuf) -> Self {
+        let mount = Arc::from(manifest.name.as_str());
         Self {
             manifest,
+            mount,
             root,
             modules: BTreeMap::new(),
             loading: HashSet::new(),
@@ -99,30 +117,37 @@ impl Package {
 
     /// Open a package from a directory (finds manifest only, doesn't parse).
     ///
-    /// This verifies the manifest exists and the entry point file exists,
-    /// but does not parse any modules.
+    /// A package needs no `main.ab`: a workspace library member has only the
+    /// modules other packages import, and `run` reports a missing entry
+    /// function itself.
     ///
     /// # Errors
     ///
-    /// Returns an error if the manifest cannot be found or loaded,
-    /// or if main.ab doesn't exist.
+    /// Returns an error if the manifest cannot be found or loaded.
     pub fn open(path: &std::path::Path) -> Result<Self, LoadError> {
         let (manifest, root) = Manifest::find(path)?;
-        let pkg = Self::new(manifest, root);
-
-        // Verify entry point exists
-        let main_path = pkg.src_path().join("main.ab");
-        if !main_path.exists() {
-            return Err(LoadError::NoEntryPoint(pkg.src_path()));
-        }
-
-        Ok(pkg)
+        Ok(Self::new(manifest, root))
     }
 
     /// Get the package manifest.
     #[must_use]
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
+    }
+
+    /// The package's mount segment (its name): the leading segment every
+    /// loaded module's path carries.
+    #[must_use]
+    pub fn mount(&self) -> &Arc<str> {
+        &self.mount
+    }
+
+    /// The mounted [`ModulePath`] of the package's root module (`main.ab`):
+    /// the mount itself, as a directory module.
+    #[must_use]
+    pub fn root_module(&self) -> ModulePath {
+        // A one-segment path is never empty, so this can't be `None`.
+        ModulePath::from_segments(vec![Arc::clone(&self.mount)]).unwrap_or_else(ModulePath::root)
     }
 
     /// Get the package root directory.
@@ -213,9 +238,24 @@ impl Package {
     }
 
     /// Get the file path for a module.
+    ///
+    /// Strips the package mount from a mounted path (`["foo", "utils"]` →
+    /// `src/utils.ab`; the mount itself is the root `main.ab`). A path that
+    /// doesn't carry the mount maps as-is (package-relative).
     #[must_use]
     pub fn module_file_path(&self, path: &ModulePath) -> PathBuf {
-        self.src_path().join(path.to_file_path())
+        let segments = path.segments();
+        let relative = match segments.split_first() {
+            Some((first, rest)) if *first == self.mount => {
+                match ModulePath::from_segments(rest.to_vec()) {
+                    Some(inner) => inner.to_file_path(),
+                    // The mount itself: the package root module.
+                    None => PathBuf::from("main.ab"),
+                }
+            }
+            _ => path.to_file_path(),
+        };
+        self.src_path().join(relative)
     }
 
     /// The on-disk path to render `module`'s diagnostics against.
@@ -235,6 +275,77 @@ impl Package {
     #[must_use]
     pub fn module_exists(&self, path: &ModulePath) -> bool {
         self.module_file_path(path).exists()
+    }
+}
+
+/// The set of packages one build loads: every workspace member (or the
+/// single standalone package), each mounted under its package name.
+///
+/// Iteration order is deterministic: packages sort by mount, and since every
+/// module path begins with its package's mount, chaining the per-package
+/// (already sorted) module maps yields ascending [`ModulePath`] order
+/// globally — the same invariant [`Package::all_modules`] documents.
+#[derive(Debug)]
+pub struct BuildSet {
+    packages: Vec<Package>,
+}
+
+impl BuildSet {
+    /// Build a set from loaded packages, sorting by mount.
+    #[must_use]
+    pub fn new(mut packages: Vec<Package>) -> Self {
+        packages.sort_by(|a, b| a.mount().cmp(b.mount()));
+        Self { packages }
+    }
+
+    /// The member packages, ascending by mount.
+    #[must_use]
+    pub fn packages(&self) -> &[Package] {
+        &self.packages
+    }
+
+    /// Mutable access for the load phase.
+    pub fn packages_mut(&mut self) -> &mut [Package] {
+        &mut self.packages
+    }
+
+    /// The package mounted at `path`'s leading segment.
+    #[must_use]
+    pub fn package_of(&self, path: &ModulePath) -> Option<&Package> {
+        let first = path.segments().first()?;
+        self.packages.iter().find(|p| p.mount() == first)
+    }
+
+    /// The package named `name`.
+    #[must_use]
+    pub fn package_named(&self, name: &str) -> Option<&Package> {
+        self.packages.iter().find(|p| p.mount().as_ref() == name)
+    }
+
+    /// Every loaded module across the set, ascending by [`ModulePath`].
+    pub fn all_modules(&self) -> impl Iterator<Item = &LoadedModule> {
+        self.packages.iter().flat_map(Package::all_modules)
+    }
+
+    /// Mutable iteration (the resolve pass rewrites ASTs in place).
+    pub fn all_modules_mut(&mut self) -> impl Iterator<Item = &mut LoadedModule> {
+        self.packages.iter_mut().flat_map(Package::all_modules_mut)
+    }
+
+    /// A loaded module by its mounted path, routed to the owning package.
+    #[must_use]
+    pub fn get_module(&self, path: &ModulePath) -> Option<&LoadedModule> {
+        self.package_of(path)?.get_module(path)
+    }
+
+    /// The on-disk path to render `module`'s diagnostics against. Falls back
+    /// to the canonical reconstruction when the owning package is unknown.
+    #[must_use]
+    pub fn module_diagnostic_path(&self, module: &LoadedModule, path: &ModulePath) -> PathBuf {
+        self.package_of(path).map_or_else(
+            || path.to_file_path(),
+            |pkg| pkg.module_diagnostic_path(module, path),
+        )
     }
 }
 
@@ -328,8 +439,10 @@ src = "src"
         assert!(matches!(err, LoadError::ModuleNotFound(_)));
     }
 
+    /// A package needs no `main.ab`: a workspace library member has only
+    /// the modules other packages import.
     #[test]
-    fn test_no_entry_point() {
+    fn test_open_without_entry_point() {
         let dir = TempDir::new().expect("create temp dir");
         let root = dir.path().to_path_buf();
 
@@ -345,8 +458,27 @@ version = "0.1.0"
         fs::create_dir_all(root.join("src")).expect("create src dir");
         // No main.ab
 
-        let err = Package::open(&root).unwrap_err();
-        assert!(matches!(err, LoadError::NoEntryPoint(_)));
+        let pkg = Package::open(&root).expect("open package");
+        assert_eq!(pkg.manifest().name, "test");
+    }
+
+    /// Mounted module paths map back to package-relative files, and the
+    /// mount itself is the root `main.ab`.
+    #[test]
+    fn test_mounted_module_file_path() {
+        let (_dir, root) = create_test_package(&[("main.ab", "fn run(): number { 42 }")]);
+        let pkg = Package::open(&root).expect("open package");
+
+        assert_eq!(pkg.mount().as_ref(), "test_pkg");
+        let mounted = ModulePath::from_str_segments(&["test_pkg", "utils", "format"]).unwrap();
+        assert_eq!(
+            pkg.module_file_path(&mounted),
+            pkg.src_path().join("utils/format.ab")
+        );
+        assert_eq!(
+            pkg.module_file_path(&pkg.root_module()),
+            pkg.src_path().join("main.ab")
+        );
     }
 
     #[test]
@@ -377,6 +509,7 @@ version = "0.1.0"
         // Add a dummy module (in real usage, this would be parsed by ambient-parser)
         let loaded = LoadedModule {
             path: path.clone(),
+            is_dir_module: false,
             source: "fn run(): number { 42 }".to_string(),
             ast: Module {
                 name: "main".into(),

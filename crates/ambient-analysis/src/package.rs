@@ -55,6 +55,11 @@ pub struct AnalysisPackage {
 pub struct ParsedModule {
     /// The module path.
     pub path: ModulePath,
+    /// Whether the module is a directory module (backed by a `main.ab`),
+    /// which anchors `self`/`super` at its own path. A mounted package
+    /// root is one by construction. Derived from the source path at
+    /// insertion; registration must pass it through.
+    pub is_dir_module: bool,
     /// The source code.
     pub source: String,
     /// The parsed AST — partial when the file has syntax errors.
@@ -123,11 +128,29 @@ impl AnalysisPackage {
         Ok(package)
     }
 
+    /// The package's mount segment, when it has one: module paths carry the
+    /// package name exactly like the engine's build pipeline, so `ambient
+    /// check`/LSP and `ambient run` mint identical identities. An in-memory
+    /// session with no manifest (empty `package_name`) stays bare.
+    #[must_use]
+    fn mount(&self) -> Option<&str> {
+        (!self.package_name.is_empty()).then_some(self.package_name.as_str())
+    }
+
+    /// A `src`-relative file path with the mount prepended — the path the
+    /// canonical file↔module mapping runs on.
+    fn mounted_relative(&self, relative: &Path) -> PathBuf {
+        match self.mount() {
+            Some(mount) => Path::new(mount).join(relative),
+            None => relative.to_path_buf(),
+        }
+    }
+
     /// The module path for a source file inside this package.
     #[must_use]
     pub fn module_path_for(&self, file: &Path) -> Option<ModulePath> {
         let relative = file.strip_prefix(&self.src_dir).ok()?;
-        ModulePath::from_relative_file_path(relative)
+        ModulePath::from_relative_file_path(&self.mounted_relative(relative))
     }
 
     /// The source file for a module path inside this package.
@@ -144,7 +167,19 @@ impl AnalysisPackage {
         {
             return self.src_dir.join(source_path);
         }
-        self.src_dir.join(path.to_file_path())
+        // Strip the mount before reconstructing: `["foo", "utils"]` is
+        // `src/utils.ab`, and the mount itself is the root `main.ab`.
+        let segments = path.segments();
+        let relative = match (self.mount(), segments.split_first()) {
+            (Some(mount), Some((first, rest))) if first.as_ref() == mount => {
+                match ModulePath::from_segments(rest.to_vec()) {
+                    Some(inner) => inner.to_file_path(),
+                    None => PathBuf::from("main.ab"),
+                }
+            }
+            _ => path.to_file_path(),
+        };
+        self.src_dir.join(relative)
     }
 
     /// Discover and parse every `.ab` file under the source directory.
@@ -208,6 +243,15 @@ impl AnalysisPackage {
         source: String,
         source_path: Option<String>,
     ) {
+        // The directory-module flag falls out of the same file↔module
+        // mapping the path came from; a module with no backing file (the
+        // REPL's synthetic module) is file-like.
+        let is_dir_module = source_path
+            .as_deref()
+            .and_then(|sp| {
+                ModulePath::from_relative_file_path_with_kind(&self.mounted_relative(Path::new(sp)))
+            })
+            .is_some_and(|(_, is_dir)| is_dir);
         let recovered = ambient_parser::parse_recovering(&source);
         let parse_errors = recovered.errors;
         let mut ast = recovered.module;
@@ -220,6 +264,7 @@ impl AnalysisPackage {
             path.to_string(),
             ParsedModule {
                 path,
+                is_dir_module,
                 source,
                 ast,
                 parse_errors,
@@ -264,16 +309,22 @@ impl AnalysisPackage {
         std::collections::BTreeMap<String, ModuleDeps>,
     ) {
         let mut registry = crate::core_platform_registry();
-        // Mint user items' `Fqn`s under the package's workspace scope — the
-        // same scope `build_package` uses — so the resolve pass below stamps
-        // identities that match a compiled build. This keeps `ambient
-        // check`/LSP identity-consistent with `ambient run`, and lets the
-        // REPL link its session module against a `build_package` base.
+        // Mount the package — module paths carry the package name and the
+        // registry scopes them under it — exactly as `build_package` does,
+        // so the resolve pass below stamps identities that match a compiled
+        // build. This keeps `ambient check`/LSP identity-consistent with
+        // `ambient run`, and lets the REPL link its session module against
+        // a `build_package` base.
         if !self.package_name.is_empty() {
+            registry.add_mount(self.package_name.as_str());
             registry.set_workspace_name(self.package_name.as_str());
         }
         for module in self.modules.values() {
-            registry.register(&module.path, Arc::new(module.ast.clone()));
+            registry.register_module(
+                &module.path,
+                Arc::new(module.ast.clone()),
+                module.is_dir_module,
+            );
             if let Some(source_path) = &module.source_path {
                 registry.set_source_path(&module.path, source_path.clone());
             }
@@ -291,7 +342,7 @@ impl AnalysisPackage {
                     deps: outcome.deps,
                 },
             );
-            registry.register(&module.path, Arc::new(ast));
+            registry.register_module(&module.path, Arc::new(ast), module.is_dir_module);
         }
         (registry, deps)
     }
@@ -326,7 +377,7 @@ impl AnalysisPackage {
     #[must_use]
     pub fn analyze_all(&self) -> HashMap<String, AnalysisResult> {
         let (registry, deps) = self.build_registry_with_deps();
-        let cycles = crate::session::cycles_for(&deps);
+        let cycles = crate::session::cycles_for(&registry, &deps);
         self.modules
             .iter()
             .map(|(key, module)| {
@@ -336,7 +387,7 @@ impl AnalysisPackage {
                     Some(&registry),
                     None,
                 );
-                let cycle_key = registry.module_id(&module.path).module_path_string();
+                let cycle_key = registry.module_key(&registry.module_id(&module.path));
                 result.import_cycle = cycles.get(&cycle_key).map(|cycle| {
                     crate::Diagnostic::error(
                         ambient_engine::ast::Span::new(0, 0),
@@ -441,8 +492,11 @@ mod tests {
         let dir = create_test_package();
         let package = AnalysisPackage::open(dir.path()).expect("open package");
         assert_eq!(package.modules.len(), 2);
-        assert!(package.modules.contains_key("main"));
-        assert!(package.modules.contains_key("utils"));
+        assert!(
+            package.modules.contains_key("test"),
+            "root module keys as the mount"
+        );
+        assert!(package.modules.contains_key("test::utils"));
     }
 
     #[test]
@@ -473,10 +527,10 @@ mod tests {
         let package = AnalysisPackage::open(dir.path()).expect("open package");
         let results = package.analyze_all();
 
-        let utils = &results["utils"];
+        let utils = &results["test::utils"];
         assert!(!utils.parse_errors.is_empty());
 
-        let main = &results["main"];
+        let main = &results["test"];
         assert!(
             main.diagnostics().is_empty(),
             "main should resolve helper from the partial module: {:?}",
@@ -593,6 +647,6 @@ mod tests {
 
         let package = AnalysisPackage::open(dir.path()).expect("open package");
         let results = package.analyze_all();
-        assert!(!results["main"].diagnostics().is_empty());
+        assert!(!results["test"].diagnostics().is_empty());
     }
 }

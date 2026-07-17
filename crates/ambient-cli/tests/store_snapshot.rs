@@ -71,7 +71,7 @@ fn manifest_covers_core_platform_and_user_modules() {
     let dir = package();
     let manifest = manifest_of(&dir);
     let has = |m: &str| manifest.modules.iter().any(|x| x.module == m);
-    assert!(has("workspace::snap_pkg::main"), "user module present");
+    assert!(has("workspace::snap_pkg"), "user module present");
     assert!(
         manifest
             .modules
@@ -83,7 +83,7 @@ fn manifest_covers_core_platform_and_user_modules() {
     let main = manifest
         .modules
         .iter()
-        .find(|m| m.module == "workspace::snap_pkg::main")
+        .find(|m| m.module == "workspace::snap_pkg")
         .expect("main module");
     assert!(!main.objects.is_empty(), "main produced objects");
     assert!(
@@ -184,10 +184,7 @@ fn store_snapshot_command_summarizes_the_build() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("package:"), "output: {stdout}");
     assert!(stdout.contains("snap_pkg"), "output: {stdout}");
-    assert!(
-        stdout.contains("workspace::snap_pkg::main"),
-        "output: {stdout}"
-    );
+    assert!(stdout.contains("workspace::snap_pkg"), "output: {stdout}");
 }
 
 #[test]

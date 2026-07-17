@@ -40,6 +40,7 @@ pub(crate) fn module_listing(
     registry: &ModuleRegistry,
     segments: &[Arc<str>],
     session_path: &ModulePath,
+    package_root: &[Arc<str>],
 ) -> Option<Value> {
     let info = ModulePath::from_segments(segments.to_vec()).and_then(|p| registry.get(&p));
 
@@ -102,7 +103,7 @@ pub(crate) fn module_listing(
     }
 
     Some(Value::Module(Arc::new(ModuleValue::new(
-        display_path(segments).as_str(),
+        display_path(segments, package_root).as_str(),
         exports,
     ))))
 }
@@ -204,12 +205,21 @@ pub(crate) fn inspect_signature(item: &Item) -> String {
 /// The friendly rendering of absolute registry segments: `core::…` shows
 /// as-is, package modules show under the `pkg` root (`pkg::net::client`),
 /// the empty path is the root itself.
-pub(crate) fn display_path(segments: &[Arc<str>]) -> String {
+pub(crate) fn display_path(segments: &[Arc<str>], package_root: &[Arc<str>]) -> String {
     if segments.first().is_some_and(|s| s.as_ref() == "core") {
         return segments.join("::");
     }
+    // Render the session package's mount as the `pkg` root the user types
+    // (`["probe", "util"]` → `pkg::util`); anything else spells as-is.
+    let rest = if !package_root.is_empty() && segments.starts_with(package_root) {
+        &segments[package_root.len()..]
+    } else if package_root.is_empty() {
+        segments
+    } else {
+        return segments.join("::");
+    };
     let mut out = String::from("pkg");
-    for seg in segments {
+    for seg in rest {
         out.push_str("::");
         out.push_str(seg);
     }

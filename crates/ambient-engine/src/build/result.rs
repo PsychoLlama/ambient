@@ -75,6 +75,12 @@ pub struct BuildOptions<'a> {
     /// dev` want. Only `ambient run` sets this. If no package module declares a
     /// matching entry function, the build silently falls back to whole-package.
     pub entry: Option<&'a str>,
+    /// Narrow the build's **target** to one workspace package by name (the
+    /// CLI's `--package`). Every member still loads and registers — laziness
+    /// is only about what gets checked and compiled. `None` targets whatever
+    /// the build path implies (a member dir → that member; the workspace
+    /// root → all members).
+    pub package: Option<&'a str>,
 }
 
 /// The per-module compile products a build snapshot records: everything
@@ -136,8 +142,12 @@ pub struct BuildResult {
     /// count>` — every recompiled package module is checked exactly once
     /// (pre-pass hit or walk-time fallback), so the two move in lockstep.
     pub modules_checked: usize,
-    /// Package name.
+    /// Primary package name (the first build target) — display shorthand.
     pub package_name: String,
+    /// Every **target** package this build covers (one for a standalone or
+    /// member build; all members for a workspace-root build). The persist
+    /// layer writes one snapshot pointer per entry.
+    pub packages: Vec<String>,
     /// The canonical [`NameKey`] linking table for the whole build (core +
     /// package). Consumers that compile *additional* modules against this
     /// build — the REPL, notably — pass it as `imported_hashes`.

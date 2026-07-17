@@ -388,17 +388,27 @@ pub fn check_without_cycle(
     let mut parse_errors = recovered.errors;
     let module = recovered.module;
 
-    // A user module may not take a reserved root name: its canonical
-    // names would shadow the real `core`/`platform` namespaces. The build
-    // rejects such packages outright; analysis reports the same fact as a
-    // module diagnostic.
-    if let Some(path) = module_path
-        && path.collides_with_reserved_root()
-    {
+    // A user module may not take a reserved root name at the top of its
+    // package: `core` is a keyword, so the module could only ever be
+    // referenced confusingly. The rule is *package-relative* — under a
+    // mount the offending segment sits right after the package name. The
+    // build rejects such packages outright; analysis reports the same fact
+    // as a module diagnostic.
+    let reserved = module_path.and_then(|path| {
+        let package_relative: &[std::sync::Arc<str>] =
+            match registry.and_then(|reg| reg.mount_of(path)) {
+                Some(_) => &path.segments()[1..],
+                None => path.segments(),
+            };
+        match package_relative.first().map(AsRef::as_ref) {
+            Some("core") => Some(package_relative.join("::")),
+            _ => None,
+        }
+    });
+    if let Some(spelled) = reserved {
         parse_errors.push(ambient_parser::ParseError::new(
             ambient_parser::ParseErrorKind::LoweringError(format!(
-                "module `{path}` collides with the reserved `{}` namespace; rename the file",
-                path.segments()[0]
+                "module `{spelled}` collides with the reserved `core` namespace; rename the file",
             )),
             ambient_engine::ast::Span::new(0, 0),
         ));

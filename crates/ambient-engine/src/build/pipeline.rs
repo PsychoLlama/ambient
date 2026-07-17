@@ -19,22 +19,39 @@ use crate::package::{LoadedModule, Package};
 use super::cache::module_output;
 use super::{BuildError, ModuleBuildOutput, ModuleTypeErrors, ParseFn};
 
-/// Load and parse every `.ab` file under the package's `src/` directory.
+/// Load and parse every `.ab` file under the package's `src/` directory,
+/// mounting each module path under the package name (`src/utils.ab` in
+/// package `foo` loads as `["foo", "utils"]`; the root `main.ab` collapses
+/// to the mount itself).
 pub(super) fn load_all_modules(pkg: &mut Package, parse: ParseFn) -> Result<(), BuildError> {
     let mut paths = discover_module_paths(&pkg.src_path())
         .map_err(|e| BuildError::PackageOpen(format!("failed to scan src: {e}")))?;
     paths.sort_by_key(|(module_path, _)| module_path.to_string());
     for (module_path, relative) in paths {
+        // The reserved-root rule applies to the *package-relative* path:
+        // `src/core.ab` is forbidden regardless of mounting (the mounted
+        // path never collides, but `core` is a keyword, so the module could
+        // only ever be referenced confusingly).
         if module_path.collides_with_reserved_root() {
             return Err(BuildError::PackageOpen(format!(
                 "module `{module_path}` collides with the reserved `{}` namespace; rename the file",
                 module_path.segments()[0]
             )));
         }
+        // Mount: recompute the module path as if the package's sources
+        // lived under a `<mount>/` directory, so the root `main.ab`
+        // becomes the mount's directory module through the ordinary
+        // file↔module mapping.
+        let mounted = std::path::Path::new(pkg.mount().as_ref()).join(&relative);
+        let Some((module_path, is_dir_module)) =
+            ModulePath::from_relative_file_path_with_kind(&mounted)
+        else {
+            continue;
+        };
         if pkg.is_loaded(&module_path) {
             continue;
         }
-        let loaded = load_module(pkg, &module_path, &relative, parse)?;
+        let loaded = load_module(pkg, &module_path, is_dir_module, &relative, parse)?;
         pkg.add_module(loaded);
     }
     Ok(())
@@ -426,6 +443,7 @@ pub(super) fn compile_module_group(
 fn load_module(
     pkg: &Package,
     path: &ModulePath,
+    is_dir_module: bool,
     relative: &Path,
     parse: ParseFn,
 ) -> Result<LoadedModule, BuildError> {
@@ -448,6 +466,7 @@ fn load_module(
     let source_path = Some(relative.to_string_lossy().replace('\\', "/"));
     Ok(LoadedModule {
         path: path.clone(),
+        is_dir_module,
         source,
         ast,
         source_path,

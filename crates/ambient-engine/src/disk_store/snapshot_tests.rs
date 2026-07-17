@@ -192,8 +192,9 @@ fn corrupt_manifest_is_absent_in_build_path_but_loud_in_verify() {
 #[test]
 fn malformed_pointer_is_absent_but_loud() {
     let (_dir, store) = temp_store();
-    std::fs::write(store.root().join(snapshot::SNAPSHOT_POINTER), b"garbage\n")
-        .expect("write pointer");
+    let pointer_dir = store.root().join(snapshot::SNAPSHOT_POINTER);
+    std::fs::create_dir_all(&pointer_dir).expect("pointer dir");
+    std::fs::write(pointer_dir.join("demo"), b"garbage\n").expect("write pointer");
 
     assert_eq!(store.current_snapshot().expect("load"), None);
     let report = store.verify().expect("verify");
@@ -206,7 +207,9 @@ fn missing_manifest_behind_pointer_is_loud() {
     // A pointer naming a manifest that was never written.
     let phantom = blake3::hash(b"never written");
     let content = format!("ambient-snapshot-v1 {}\n", phantom.to_hex());
-    std::fs::write(store.root().join(snapshot::SNAPSHOT_POINTER), content).expect("write");
+    let pointer_dir = store.root().join(snapshot::SNAPSHOT_POINTER);
+    std::fs::create_dir_all(&pointer_dir).expect("pointer dir");
+    std::fs::write(pointer_dir.join("demo"), content).expect("write");
 
     assert_eq!(store.current_snapshot().expect("load"), None);
     let report = store.verify().expect("verify");
@@ -245,12 +248,14 @@ fn gc_prunes_superseded_manifests() {
 
     // First snapshot.
     let mut m1 = sample_manifest(&[a, b]);
-    m1.package_name = "first".to_string();
+    m1.natives_contract_hash = blake3::hash(b"first").into();
     let h1 = store.write_snapshot(&m1).expect("write 1");
 
-    // Second snapshot supersedes it.
+    // Second snapshot for the same package supersedes it (its pointer is
+    // per package, so only a same-package write repoints it; a different
+    // package's snapshot would root independently).
     let mut m2 = sample_manifest(&[a, b]);
-    m2.package_name = "second".to_string();
+    m2.natives_contract_hash = blake3::hash(b"second").into();
     let h2 = store.write_snapshot(&m2).expect("write 2");
     assert_ne!(h1, h2);
     assert_eq!(store.all_manifest_hashes().expect("list").len(), 2);
@@ -283,7 +288,9 @@ fn a_previous_version_manifest_reads_as_absent() {
     std::fs::create_dir_all(meta.parent().unwrap()).expect("mkdir meta");
     std::fs::write(&meta, &bytes).expect("write old manifest");
     let pointer = format!("ambient-snapshot-v1 {}\n", old_hash.to_hex());
-    std::fs::write(store.root().join(snapshot::SNAPSHOT_POINTER), pointer).expect("pointer");
+    let pointer_dir = store.root().join(snapshot::SNAPSHOT_POINTER);
+    std::fs::create_dir_all(&pointer_dir).expect("pointer dir");
+    std::fs::write(pointer_dir.join("demo"), pointer).expect("pointer");
 
     // Decoding rejects the old version outright.
     assert_eq!(

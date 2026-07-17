@@ -39,8 +39,15 @@ pub fn persist_build(disk: &DiskStore, result: &BuildResult) -> Result<(), DiskS
     for bytes in result.prelink_blobs.values() {
         disk.put_prelink(bytes)?;
     }
+    // One snapshot pointer per target package: a workspace-root build points
+    // every member at this build's manifest; a member build repoints only its
+    // own, leaving sibling packages' snapshots (and their gc roots) intact.
     let manifest = BuildManifest::from_build(result);
-    disk.write_snapshot(&manifest)?;
+    for package in &result.packages {
+        let mut per_package = manifest.clone();
+        per_package.package_name.clone_from(package);
+        disk.write_snapshot(&per_package)?;
+    }
     Ok(())
 }
 
@@ -62,9 +69,12 @@ pub fn build_and_persist(
     parse: ParseFn,
     mut options: BuildOptions<'_>,
 ) -> Result<PersistedBuild, BuildError> {
-    options.store_path = Some(DiskStore::package_store_path(path));
+    // The store lives at the workspace root when `path` is inside one —
+    // every member shares it — else at the package root.
+    let root = super::store_root(path);
+    options.store_path = Some(DiskStore::package_store_path(&root));
     let result = build_package(path, parse, &options)?;
-    let persisted = match DiskStore::open_package(path) {
+    let persisted = match DiskStore::open_package(&root) {
         Ok(disk) => persist_build(&disk, &result),
         Err(e) => Err(e),
     };

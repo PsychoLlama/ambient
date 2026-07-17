@@ -313,7 +313,11 @@ pub fn build_capturing(dir: &Path) -> (BuildResult, std::collections::HashMap<St
     let stubs = ambient_platform::stub_natives();
     let result = {
         let cb = |name: &str, _c: usize, _t: usize, from_cache: bool| {
-            seen.borrow_mut().insert(name.to_string(), from_cache);
+            // Progress keys are mounted module paths (`cache_pkg::utils`;
+            // the bare mount is the root module). Strip the mount so tests
+            // keep asserting on package-relative names.
+            let short = name.split_once("::").map_or("main", |(_, rest)| rest);
+            seen.borrow_mut().insert(short.to_string(), from_cache);
         };
         let built = ambient_engine::build::build_and_persist(
             dir,
