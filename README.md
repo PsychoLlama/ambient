@@ -2,24 +2,17 @@
 
 A content-addressed programming language with algebraic effects, heavily inspired by [Unison](https://www.unison-lang.org/) and [Rust](https://rust-lang.org/).
 
-## Disclaimer
-
-This is almost entirely vibe coded. Don't trust it with anything you love.
-
-I love [PLT](https://en.wikipedia.org/wiki/Programming_language_theory). The [lambda cube](https://en.wikipedia.org/wiki/Lambda_cube) is framed on my nightstand. I've written several toy languages by hand, but a language of this ambition isn't built over a weekend.
-
-Vibing the implementation explores the design and _feel_ of it before committing to ~~months~~ [a lifetime](https://www.youtube.com/watch?v=XZ3w_jec1v8) of work.
-
-I built this to explore the idea, not to use it in production.
+> [!WARNING]
+> This is almost entirely vibe coded. Don't trust it with anything you love.
 
 ## Features
 
-Two key ideas:
+Everything flows from two ideas:
 
 - **Hashing:** Every function is identified by the hash of its implementation and its dependencies. Change the implementation, get a new hash.
 - **Effects:** Functions are pure. Effects are provided by the host environment as algebraic effects ("abilities").
 
-Together, these properties unlock a unique set of features.
+Together, they unlock a unique set of features.
 
 ### Perfect Caching
 
