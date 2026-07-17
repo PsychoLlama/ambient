@@ -25,13 +25,27 @@ pub fn run() -> Result<()> {
 
     match args.command {
         Command::Init { path, name } => cmd_init(&path, name.as_deref())?,
-        Command::Build { file, output } => cmd_build(&file, output.as_deref())?,
-        Command::Run { path, entry, args } => cmd_run(&path, &entry, args)?,
+        Command::Build {
+            file,
+            output,
+            package,
+        } => cmd_build(&file, output.as_deref(), package.as_deref())?,
+        Command::Run {
+            path,
+            entry,
+            package,
+            args,
+        } => cmd_run(&path, &entry, args, package.as_deref())?,
         Command::Check { file } => cmd_check(&file)?,
         Command::Ast { file } => cmd_ast(&file)?,
         Command::Repl { project } => cmd_repl(project.as_deref())?,
         Command::Lsp => cmd_lsp()?,
-        Command::Dev { file, entry, watch } => cmd_dev(&file, &entry, watch.as_deref())?,
+        Command::Dev {
+            file,
+            entry,
+            package,
+            watch,
+        } => cmd_dev(&file, &entry, package.as_deref(), watch.as_deref())?,
         Command::Store { package, command } => cmd_store(&package, &command)?,
     }
 

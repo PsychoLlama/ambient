@@ -38,6 +38,11 @@ pub enum Command {
         /// Output file path. Defaults to <input>.ambient.
         #[arg(short, long, value_name = "OUTPUT")]
         output: Option<PathBuf>,
+
+        /// Build only this workspace package (plus what it needs). From a
+        /// workspace root the default is every member.
+        #[arg(short, long, value_name = "NAME")]
+        package: Option<String>,
     },
 
     /// Run an Ambient package.
@@ -49,6 +54,11 @@ pub enum Command {
         /// Function to execute (defaults to "run").
         #[arg(long, default_value = "run")]
         entry: String,
+
+        /// The workspace package to run. Required from a workspace root
+        /// with more than one member; implied inside a member directory.
+        #[arg(short, long, value_name = "NAME")]
+        package: Option<String>,
 
         /// Arguments passed to the program, available through
         /// `core::system::Env::args!()` after the program path at index 0.
@@ -122,6 +132,11 @@ pub enum Command {
         /// Function to execute (defaults to "run").
         #[arg(long, default_value = "run")]
         entry: String,
+
+        /// The workspace package to run. Required from a workspace root
+        /// with more than one member; implied inside a member directory.
+        #[arg(short, long, value_name = "NAME")]
+        package: Option<String>,
 
         /// Directories to watch for changes (defaults to the package
         /// directory or the file's directory).

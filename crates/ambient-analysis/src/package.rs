@@ -30,24 +30,42 @@ pub struct ModuleDeps {
     pub deps: std::collections::BTreeSet<ModuleId>,
 }
 
+/// A sibling workspace member loaded alongside the primary package, so
+/// `::pkg` references resolve and its files map to modules.
+#[derive(Debug, Clone)]
+pub struct SiblingMember {
+    /// The member's package name — its mount segment.
+    pub name: String,
+    /// The member's source directory.
+    pub src_dir: PathBuf,
+}
+
 /// A package opened for analysis: manifest info plus every parsed module.
+///
+/// When the package is a workspace member, every *other* member loads too
+/// (as [`Self::siblings`], mounted under their own names) — the same
+/// everything-registers shape `build_package` uses, so `ambient check` and
+/// the LSP resolve `::pkg` references identically to a build.
 #[derive(Debug)]
 pub struct AnalysisPackage {
-    /// The package root directory (where ambient.toml is).
+    /// The primary package root directory (where its ambient.toml is).
     pub root: PathBuf,
-    /// The source directory.
+    /// The primary package's source directory.
     pub src_dir: PathBuf,
-    /// The package name (`[package].name`). This is the workspace scope
-    /// every user item's `Fqn` is minted under, so it must match what
+    /// The primary package name (`[package].name`). This is the workspace
+    /// scope every user item's `Fqn` is minted under, so it must match what
     /// `ambient_engine::build::build_package` uses — otherwise a consumer
     /// that links analysis output against a build (the REPL) sees
     /// mismatched identities. Empty for an in-memory session with no
     /// manifest.
     pub package_name: String,
-    /// Parsed modules, keyed by module path string.
+    /// Parsed modules across every loaded member, keyed by (mounted)
+    /// module path string.
     pub modules: HashMap<String, ParsedModule>,
     /// Host abilities configured in `[host].abilities`.
     pub host_abilities: Vec<String>,
+    /// The other workspace members, when the primary is one.
+    pub siblings: Vec<SiblingMember>,
 }
 
 /// A parsed module with its source and (possibly partial) AST.
@@ -75,23 +93,67 @@ pub struct ParsedModule {
 }
 
 impl AnalysisPackage {
-    /// Discover the package containing `file`, walking up to ambient.toml.
+    /// Discover the package containing `file` — and, when it is a
+    /// workspace member, every sibling member — via the same
+    /// [`Workspace::discover`](ambient_engine::workspace::Workspace)
+    /// upward walk the build uses.
+    ///
+    /// A package under a workspace that does not list it (a build error)
+    /// falls back to standalone analysis here: the editor should still
+    /// analyze the file rather than go dark.
     #[must_use]
     pub fn discover(file: &Path) -> Option<Self> {
-        let mut current = file.parent()?;
-        loop {
-            let manifest_path = current.join("ambient.toml");
-            if manifest_path.exists() {
-                let manifest = Manifest::from_file(&manifest_path).ok()?;
-                return Some(Self {
-                    root: lexically_normalize(current),
-                    src_dir: lexically_normalize(&current.join(&manifest.src_dir)),
-                    package_name: manifest.name,
-                    modules: HashMap::new(),
-                    host_abilities: manifest.host_abilities,
-                });
+        use ambient_engine::workspace::{Discovered, Workspace};
+        match Workspace::discover(file) {
+            Ok(Discovered::Package(manifest, root)) => {
+                Some(Self::from_manifest(manifest, &root, Vec::new()))
             }
-            current = current.parent()?;
+            Ok(Discovered::Member(workspace, index)) => {
+                let member = &workspace.members[index];
+                let siblings = sibling_members(&workspace, Some(index));
+                Some(Self::from_manifest(
+                    member.manifest.clone(),
+                    &member.root,
+                    siblings,
+                ))
+            }
+            // A bare workspace root: analyze the whole workspace with the
+            // first member as primary (the choice only picks defaults; every
+            // member's modules load either way).
+            Ok(Discovered::WorkspaceRoot(workspace)) => Self::from_workspace_root(&workspace),
+            Ok(Discovered::None) => None,
+            // Discovery errors (unlisted member, malformed root manifest):
+            // fall back to the nearest single package so analysis degrades
+            // instead of disappearing.
+            Err(_) => {
+                let (manifest, root) = Manifest::find(file).ok()?;
+                Some(Self::from_manifest(manifest, &root, Vec::new()))
+            }
+        }
+    }
+
+    /// An analysis view over a whole workspace, primary'd on its first
+    /// member. `None` for an empty workspace.
+    #[must_use]
+    pub fn from_workspace_root(workspace: &ambient_engine::workspace::Workspace) -> Option<Self> {
+        let first = workspace.members.first()?;
+        let siblings = sibling_members(workspace, Some(0));
+        Some(Self::from_manifest(
+            first.manifest.clone(),
+            &first.root,
+            siblings,
+        ))
+    }
+
+    /// Assemble a package (plus siblings) without loading modules.
+    fn from_manifest(manifest: Manifest, root: &Path, siblings: Vec<SiblingMember>) -> Self {
+        Self {
+            root: lexically_normalize(root),
+            src_dir: lexically_normalize(&root.join(&manifest.src_dir)),
+            package_name: manifest.name,
+            modules: HashMap::new(),
+            host_abilities: manifest.host_abilities,
+            siblings,
         }
     }
 
@@ -109,99 +171,130 @@ impl AnalysisPackage {
             package_name: String::new(),
             modules: HashMap::new(),
             host_abilities: Vec::new(),
+            siblings: Vec::new(),
         }
     }
 
-    /// Open the package rooted at `root` (must contain ambient.toml).
+    /// Open the package (or whole workspace) rooted at `root` — its
+    /// ambient.toml may be a package manifest or a workspace root — loading
+    /// sibling workspace members when there are any.
     pub fn open(root: &Path) -> Result<Self, String> {
         let manifest_path = root.join("ambient.toml");
-        let manifest = Manifest::from_file(&manifest_path)
-            .map_err(|e| format!("failed to read {}: {e}", manifest_path.display()))?;
-        let mut package = Self {
-            root: lexically_normalize(root),
-            src_dir: lexically_normalize(&root.join(&manifest.src_dir)),
-            package_name: manifest.name,
-            modules: HashMap::new(),
-            host_abilities: manifest.host_abilities,
-        };
+        if !manifest_path.is_file() {
+            return Err(format!("no ambient.toml at {}", root.display()));
+        }
+        let mut package = Self::discover(&manifest_path)
+            .ok_or_else(|| format!("no package at {}", root.display()))?;
         package.load_modules();
         Ok(package)
     }
 
-    /// The package's mount segment, when it has one: module paths carry the
-    /// package name exactly like the engine's build pipeline, so `ambient
-    /// check`/LSP and `ambient run` mint identical identities. An in-memory
-    /// session with no manifest (empty `package_name`) stays bare.
+    /// The primary package's mount segment, when it has one: module paths
+    /// carry the package name exactly like the engine's build pipeline, so
+    /// `ambient check`/LSP and `ambient run` mint identical identities. An
+    /// in-memory session with no manifest (empty `package_name`) stays bare.
     #[must_use]
     fn mount(&self) -> Option<&str> {
         (!self.package_name.is_empty()).then_some(self.package_name.as_str())
     }
 
-    /// A `src`-relative file path with the mount prepended — the path the
-    /// canonical file↔module mapping runs on.
-    fn mounted_relative(&self, relative: &Path) -> PathBuf {
-        match self.mount() {
-            Some(mount) => Path::new(mount).join(relative),
-            None => relative.to_path_buf(),
-        }
+    /// Every loaded member as `(mount, src_dir)`, primary first.
+    fn members(&self) -> impl Iterator<Item = (&str, &Path)> {
+        self.mount()
+            .map(|mount| (mount, self.src_dir.as_path()))
+            .into_iter()
+            .chain(
+                self.siblings
+                    .iter()
+                    .map(|s| (s.name.as_str(), s.src_dir.as_path())),
+            )
     }
 
-    /// The module path for a source file inside this package.
+    /// The module path for a source file inside any loaded member.
     #[must_use]
     pub fn module_path_for(&self, file: &Path) -> Option<ModulePath> {
-        let relative = file.strip_prefix(&self.src_dir).ok()?;
-        ModulePath::from_relative_file_path(&self.mounted_relative(relative))
+        if self.mount().is_none() {
+            let relative = file.strip_prefix(&self.src_dir).ok()?;
+            return ModulePath::from_relative_file_path(relative);
+        }
+        for (mount, src_dir) in self.members() {
+            if let Ok(relative) = file.strip_prefix(src_dir) {
+                return ModulePath::from_relative_file_path(&Path::new(mount).join(relative));
+            }
+        }
+        None
     }
 
-    /// The source file for a module path inside this package.
+    /// The source file for a module path inside any loaded member.
     ///
     /// Prefers the module's recorded real on-disk path (so a directory module
     /// resolves to its actual `<dir>/main.ab`); falls back to the canonical
     /// file↔module reconstruction for a module never loaded from disk.
     #[must_use]
     pub fn file_for_module(&self, path: &ModulePath) -> PathBuf {
+        let owner_src = |path: &ModulePath| -> PathBuf {
+            let first = path.segments().first().map(AsRef::as_ref);
+            self.members()
+                .find(|(mount, _)| Some(*mount) == first)
+                .map_or_else(|| self.src_dir.clone(), |(_, src)| src.to_path_buf())
+        };
         if let Some(source_path) = self
             .modules
             .get(&path.to_string())
             .and_then(|m| m.source_path.as_ref())
         {
-            return self.src_dir.join(source_path);
+            return owner_src(path).join(source_path);
         }
         // Strip the mount before reconstructing: `["foo", "utils"]` is
         // `src/utils.ab`, and the mount itself is the root `main.ab`.
         let segments = path.segments();
-        let relative = match (self.mount(), segments.split_first()) {
-            (Some(mount), Some((first, rest))) if first.as_ref() == mount => {
-                match ModulePath::from_segments(rest.to_vec()) {
-                    Some(inner) => inner.to_file_path(),
-                    None => PathBuf::from("main.ab"),
-                }
-            }
-            _ => path.to_file_path(),
-        };
-        self.src_dir.join(relative)
+        let first = segments.first().map(AsRef::as_ref);
+        if let Some((_, src_dir)) = self.members().find(|(mount, _)| Some(*mount) == first) {
+            let relative = match ModulePath::from_segments(segments[1..].to_vec()) {
+                Some(inner) => inner.to_file_path(),
+                None => PathBuf::from("main.ab"),
+            };
+            return src_dir.join(relative);
+        }
+        self.src_dir.join(path.to_file_path())
     }
 
-    /// Discover and parse every `.ab` file under the source directory.
+    /// Discover and parse every `.ab` file under every loaded member's
+    /// source directory.
     ///
     /// Files with syntax errors still register with their parseable items,
     /// so the rest of the package resolves imports against them.
     pub fn load_modules(&mut self) {
-        for file in discover_ab_files(&self.src_dir) {
-            let Some(module_path) = self.module_path_for(&file) else {
-                continue;
-            };
-            let Ok(source) = std::fs::read_to_string(&file) else {
-                continue;
-            };
-            // The real on-disk path (relative to `src/`) is the authority on a
-            // directory module's `<dir>/main.ab` layout — record it so
-            // navigation never has to reconstruct one from the module path.
-            let source_path = file
-                .strip_prefix(&self.src_dir)
-                .ok()
-                .map(|rel| rel.to_string_lossy().replace('\\', "/"));
-            self.insert_module_with_path(module_path, source, source_path);
+        let members: Vec<(String, PathBuf)> = if self.mount().is_none() {
+            vec![(String::new(), self.src_dir.clone())]
+        } else {
+            self.members()
+                .map(|(mount, src)| (mount.to_string(), src.to_path_buf()))
+                .collect()
+        };
+        for (mount, src_dir) in members {
+            for file in discover_ab_files(&src_dir) {
+                let Ok(relative) = file.strip_prefix(&src_dir) else {
+                    continue;
+                };
+                let mounted = if mount.is_empty() {
+                    relative.to_path_buf()
+                } else {
+                    Path::new(&mount).join(relative)
+                };
+                let Some(module_path) = ModulePath::from_relative_file_path(&mounted) else {
+                    continue;
+                };
+                let Ok(source) = std::fs::read_to_string(&file) else {
+                    continue;
+                };
+                // The real on-disk path (relative to the owning member's
+                // `src/`) is the authority on a directory module's
+                // `<dir>/main.ab` layout — record it so navigation never
+                // has to reconstruct one from the module path.
+                let source_path = Some(relative.to_string_lossy().replace('\\', "/"));
+                self.insert_module_with_path(module_path, source, source_path);
+            }
         }
     }
 
@@ -245,11 +338,21 @@ impl AnalysisPackage {
     ) {
         // The directory-module flag falls out of the same file↔module
         // mapping the path came from; a module with no backing file (the
-        // REPL's synthetic module) is file-like.
+        // REPL's synthetic module) is file-like. The owning mount is the
+        // path's own leading segment (source paths are member-relative).
+        let owner_mount = path
+            .segments()
+            .first()
+            .filter(|first| self.members().any(|(mount, _)| mount == first.as_ref()))
+            .cloned();
         let is_dir_module = source_path
             .as_deref()
             .and_then(|sp| {
-                ModulePath::from_relative_file_path_with_kind(&self.mounted_relative(Path::new(sp)))
+                let mounted = match &owner_mount {
+                    Some(mount) => Path::new(mount.as_ref()).join(sp),
+                    None => PathBuf::from(sp),
+                };
+                ModulePath::from_relative_file_path_with_kind(&mounted)
             })
             .is_some_and(|(_, is_dir)| is_dir);
         let recovered = ambient_parser::parse_recovering(&source);
@@ -316,7 +419,9 @@ impl AnalysisPackage {
         // `ambient run`, and lets the REPL link its session module against
         // a `build_package` base.
         if !self.package_name.is_empty() {
-            registry.add_mount(self.package_name.as_str());
+            for (mount, _) in self.members() {
+                registry.add_mount(mount);
+            }
             registry.set_workspace_name(self.package_name.as_str());
         }
         for module in self.modules.values() {
@@ -399,6 +504,23 @@ impl AnalysisPackage {
             })
             .collect()
     }
+}
+
+/// Every member of `workspace` except `skip`, as loadable siblings.
+fn sibling_members(
+    workspace: &ambient_engine::workspace::Workspace,
+    skip: Option<usize>,
+) -> Vec<SiblingMember> {
+    workspace
+        .members
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| Some(*i) != skip)
+        .map(|(_, member)| SiblingMember {
+            name: member.name.clone(),
+            src_dir: lexically_normalize(&member.root.join(&member.manifest.src_dir)),
+        })
+        .collect()
 }
 
 /// Lexically normalize a path: drop `.` components and resolve `..` against the

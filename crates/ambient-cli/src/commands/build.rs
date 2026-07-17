@@ -13,9 +13,10 @@ use crate::diagnostic::report_build_error;
 
 /// Build an Ambient source file or package.
 ///
-/// If `file` is a directory with `ambient.toml`, compiles the package.
+/// If `file` is a directory with `ambient.toml`, compiles the package (a
+/// workspace root builds every member; `--package` narrows to one).
 /// Otherwise, compiles a single source file.
-pub fn cmd_build(file: &Path, output: Option<&Path>) -> Result<()> {
+pub fn cmd_build(file: &Path, output: Option<&Path>, package: Option<&str>) -> Result<()> {
     // Check if this is a package directory
     if file.is_dir() || file.join("ambient.toml").exists() {
         let pkg_path = if file.is_dir() {
@@ -23,7 +24,7 @@ pub fn cmd_build(file: &Path, output: Option<&Path>) -> Result<()> {
         } else {
             file.parent().unwrap_or(file).to_path_buf()
         };
-        build_package_cmd(&pkg_path, output)?;
+        build_package_cmd(&pkg_path, output, package)?;
         return Ok(());
     }
 
@@ -80,7 +81,7 @@ pub fn cmd_build(file: &Path, output: Option<&Path>) -> Result<()> {
 /// pack is byte-identical warm vs. cold — the cache only replaces
 /// recompilation with a store load, never the merged output. (Single-`.ab`-file
 /// compilation in [`cmd_build`] has no package store and is left cold.)
-fn build_package_cmd(path: &Path, output: Option<&Path>) -> Result<()> {
+fn build_package_cmd(path: &Path, output: Option<&Path>, package: Option<&str>) -> Result<()> {
     // A warm build loads unchanged modules from the store rather than
     // compiling them; the callback reports each honestly ("Cached" vs.
     // "Compiling") and tallies the hits for the summary line, so a fully warm
@@ -103,6 +104,7 @@ fn build_package_cmd(path: &Path, output: Option<&Path>) -> Result<()> {
             platform_modules: ambient_platform::platform_modules(),
             natives: Some(&stubs),
             progress: Some(&progress_cb),
+            package,
             ..Default::default()
         },
     )

@@ -27,7 +27,12 @@ use super::host::RuntimeHost;
 const TAG: &str = "\x1b[1;36m[dev]\x1b[0m";
 
 /// Run an Ambient program with live upgrade on file changes.
-pub fn cmd_dev(path: &Path, entry: &str, watch_dirs: Option<&[PathBuf]>) -> Result<()> {
+pub fn cmd_dev(
+    path: &Path,
+    entry: &str,
+    package: Option<&str>,
+    watch_dirs: Option<&[PathBuf]>,
+) -> Result<()> {
     use std::sync::mpsc::channel;
 
     let path = path.canonicalize().context("failed to resolve path")?;
@@ -79,7 +84,7 @@ pub fn cmd_dev(path: &Path, entry: &str, watch_dirs: Option<&[PathBuf]>) -> Resu
 
     // Initial deploy. Failures (including compile errors) leave the dev
     // loop watching, same as any later iteration.
-    deploy_iteration(&host, &path, entry);
+    deploy_iteration(&host, &path, entry, package);
 
     // Watch for changes. A change is *deferred* through the debounce —
     // never dropped: an edit is redeployed no matter when it lands
@@ -110,7 +115,7 @@ pub fn cmd_dev(path: &Path, entry: &str, watch_dirs: Option<&[PathBuf]>) -> Resu
                 }
                 eprintln!();
                 eprintln!("{TAG} Change detected, deploying...");
-                deploy_iteration(&host, &path, entry);
+                deploy_iteration(&host, &path, entry, package);
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 // Continue waiting.
@@ -124,16 +129,36 @@ pub fn cmd_dev(path: &Path, entry: &str, watch_dirs: Option<&[PathBuf]>) -> Resu
 
 use super::watch::is_ab_change;
 
+/// Resolve the dev target and build it whole, returning the compiled
+/// module with the canonical entry name to deploy.
+fn resolve_dev_build(
+    path: &Path,
+    entry: &str,
+    package: Option<&str>,
+) -> Result<(ambient_engine::compiler::CompiledModule, String)> {
+    if path.is_dir() || path.join("ambient.toml").exists() {
+        let target = super::resolve_target_package(path, package)?;
+        let compiled = super::run::compile_package_full(path, target.as_deref())?;
+        Ok((compiled, super::qualified_entry(target.as_deref(), entry)))
+    } else {
+        // A bare source file: no package, entry as spelled.
+        let (compiled, _) = super::run::load_compiled(path, None)?;
+        Ok((compiled, entry.to_string()))
+    }
+}
+
 /// Compile and deploy one generation. Errors are reported and leave the
 /// currently running generation untouched.
-fn deploy_iteration(host: &RuntimeHost, path: &Path, entry: &str) {
+fn deploy_iteration(host: &RuntimeHost, path: &Path, entry: &str, package: Option<&str>) {
     let start = Instant::now();
 
-    // `dev` builds the whole package and persists a snapshot (entry `None`):
-    // its deploy diff needs every module's bindings, and a partial build could
-    // look like retirements. Lazy compilation is `ambient run`-only.
-    let compiled = match super::run::load_compiled(path, None) {
-        Ok(compiled) => compiled,
+    // `dev` builds the whole target package and persists a snapshot: its
+    // deploy diff needs every module's bindings, and a partial build could
+    // look like retirements. Lazy compilation is `ambient run`-only. The
+    // entry deploys under its canonical workspace-qualified name so a
+    // dependency package's same-named function can never be picked.
+    let (compiled, entry) = match resolve_dev_build(path, entry, package) {
+        Ok(pair) => pair,
         Err(e) => {
             // Diagnostics were already printed for parse/type errors.
             eprintln!("\x1b[1;31merror\x1b[0m: {e}");
@@ -144,7 +169,7 @@ fn deploy_iteration(host: &RuntimeHost, path: &Path, entry: &str) {
     let compile_time = start.elapsed();
 
     let deploy_start = Instant::now();
-    match host.deploy(&compiled, entry) {
+    match host.deploy(&compiled, &entry) {
         Ok(outcome) => {
             let report = &outcome.report;
             let tasks = &outcome.tasks;

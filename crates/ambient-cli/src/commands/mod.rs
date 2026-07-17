@@ -94,6 +94,51 @@ pub fn core_context() -> Result<CoreContext> {
     })
 }
 
+/// Resolve which workspace package a run-style command (`run`, `dev`)
+/// targets at `path`, honoring an explicit `--package`.
+///
+/// - A standalone package or a member directory implies itself (an explicit
+///   `--package` must then name a member of the same workspace; the build
+///   validates it).
+/// - A workspace root requires `--package` unless it has exactly one
+///   member; otherwise the members are listed.
+/// - `None` when there is no package at all (the build reports that).
+pub(super) fn resolve_target_package(path: &Path, package: Option<&str>) -> Result<Option<String>> {
+    use ambient_engine::workspace::{Discovered, Workspace};
+    if let Some(name) = package {
+        return Ok(Some(name.to_string()));
+    }
+    match Workspace::discover(path) {
+        Ok(Discovered::Package(manifest, _)) => Ok(Some(manifest.name)),
+        Ok(Discovered::Member(workspace, index)) => Ok(Some(workspace.members[index].name.clone())),
+        Ok(Discovered::WorkspaceRoot(workspace)) => match workspace.members.as_slice() {
+            [sole] => Ok(Some(sole.name.clone())),
+            members => {
+                let names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
+                bail!(
+                    "this is a workspace root with {} members; pick one with \
+                     --package <NAME> (members: {})",
+                    members.len(),
+                    names.join(", ")
+                );
+            }
+        },
+        Ok(Discovered::None) => Ok(None),
+        Err(e) => Err(anyhow::anyhow!("{e}")),
+    }
+}
+
+/// The canonical entry-function name a target package's `entry` resolves
+/// to (`run` in package `foo` → `workspace::foo::run`), so a dependency
+/// package's same-named function can never be picked instead. Passes a
+/// bare entry through when there is no package (single files).
+pub(super) fn qualified_entry(target: Option<&str>, entry: &str) -> String {
+    match target {
+        Some(package) => format!("workspace::{package}::{entry}"),
+        None => entry.to_string(),
+    }
+}
+
 /// Read source code from a file.
 pub fn read_source(file: &Path) -> Result<String> {
     let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");

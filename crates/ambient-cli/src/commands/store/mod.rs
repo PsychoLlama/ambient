@@ -14,8 +14,9 @@ use crate::cli::StoreCommand;
 mod index;
 mod query;
 
-/// Locate a package's store directory from a path (package root or any
-/// directory containing `ambient.toml` upward).
+/// Locate a package's store directory from a path. Workspace members share
+/// one store at the workspace root; a standalone package owns its own —
+/// [`ambient_engine::build::store_root`] is the single authority.
 fn find_store_root(path: &Path) -> Result<PathBuf> {
     let start = if path.as_os_str().is_empty() {
         Path::new(".")
@@ -26,19 +27,14 @@ fn find_store_root(path: &Path) -> Result<PathBuf> {
         .canonicalize()
         .with_context(|| format!("no such path: {}", start.display()))?;
 
-    let mut dir: &Path = &canonical;
-    loop {
-        if dir.join("ambient.toml").exists() {
-            return Ok(DiskStore::package_store_path(dir));
-        }
-        match dir.parent() {
-            Some(parent) => dir = parent,
-            None => bail!(
-                "no ambient.toml found at or above {} — run inside a package, or `ambient run` first to create a store",
-                canonical.display()
-            ),
-        }
+    let root = ambient_engine::build::store_root(&canonical);
+    if !root.join("ambient.toml").exists() {
+        bail!(
+            "no ambient.toml found at or above {} — run inside a package, or `ambient run` first to create a store",
+            canonical.display()
+        );
     }
+    Ok(DiskStore::package_store_path(&root))
 }
 
 /// Resolve a user-supplied reference (name from the names index, or a hash
@@ -340,11 +336,22 @@ fn short_bytes(bytes: &[u8; 32]) -> String {
 }
 
 fn snapshot(store: &DiskStore) -> Result<()> {
-    let Some(hash) = store.snapshot_pointer()? else {
+    let pointers = store.snapshot_pointers()?;
+    let Some((package, hash)) = pointers.first().cloned() else {
         println!("(no snapshot — run `ambient run` to record one)");
         return Ok(());
     };
-    let Some(manifest) = store.current_snapshot()? else {
+    // A workspace store roots one snapshot per package; summarize the
+    // first and name the rest so nothing looks lost.
+    if pointers.len() > 1 {
+        let others: Vec<&str> = pointers[1..].iter().map(|(p, _)| p.as_str()).collect();
+        println!(
+            "(workspace store with {} snapshots; showing `{package}` — others: {})",
+            pointers.len(),
+            others.join(", ")
+        );
+    }
+    let Some(manifest) = store.load_manifest(&hash)? else {
         // Pointer present but the manifest is missing/corrupt: report it
         // rather than silently claim "no snapshot" (which `verify` also flags).
         bail!(

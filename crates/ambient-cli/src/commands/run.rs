@@ -23,32 +23,42 @@ use crate::diagnostic::report_build_error;
 /// They become `core::system::Env::args!()` with the program path — the
 /// `path` argument as typed — at index 0, mirroring Python's `sys.argv[0]`
 /// / Go's `os.Args[0]`.
-pub fn cmd_run(path: &Path, entry: &str, args: Vec<String>) -> Result<()> {
+pub fn cmd_run(path: &Path, entry: &str, args: Vec<String>, package: Option<&str>) -> Result<()> {
     let program_args = std::iter::once(path.to_string_lossy().into_owned())
         .chain(args)
         .collect::<Vec<_>>();
-    let compiled = load_compiled(path, Some(entry))?;
-    run_compiled(&compiled, entry, program_args)
+    let (compiled, entry) = load_compiled(path, Some((entry, package)))?;
+    run_compiled(&compiled, &entry, program_args)
 }
 
-/// Load a compiled module from a path.
+/// Load a compiled module from a path, returning it with the entry name to
+/// deploy (canonically qualified to the target package, so a workspace
+/// dependency's same-named function can never be picked instead).
 ///
 /// Handles packages (directories with `ambient.toml`), pre-compiled
 /// `.ambient` artifact packs, and bare `.ab` source files.
 ///
-/// `entry` selects the build strategy for a package directory: `Some(name)`
-/// (`ambient run`) builds **lazily** — only the modules reachable from that
-/// entry, reading but not writing the store. `None` (`ambient dev`) builds the
-/// whole package and persists a snapshot, since a deploy needs every module's
-/// bindings and the snapshot writers keep the store complete. It is ignored for
+/// `entry` selects the build strategy for a package directory:
+/// `Some((name, package))` (`ambient run`) builds **lazily** — only the
+/// modules reachable from that entry in the target package, reading but not
+/// writing the store. `None` (`ambient dev`) builds the whole target and
+/// persists a snapshot, since a deploy needs every module's bindings and
+/// the snapshot writers keep the store complete. It is ignored for
 /// `.ab`/`.ambient` inputs, which never lazily build a package.
-pub(super) fn load_compiled(path: &Path, entry: Option<&str>) -> Result<CompiledModule> {
+pub(super) fn load_compiled(
+    path: &Path,
+    entry: Option<(&str, Option<&str>)>,
+) -> Result<(CompiledModule, String)> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let spelled_entry = entry.map_or("run", |(name, _)| name);
 
     if ext == "ab" && path.is_file() {
         // Compile a bare source file against the core library.
         let source = super::read_source(path)?;
-        return super::compile_source(&source, path);
+        return Ok((
+            super::compile_source(&source, path)?,
+            spelled_entry.to_string(),
+        ));
     }
 
     if ext == "ambient" {
@@ -57,14 +67,19 @@ pub(super) fn load_compiled(path: &Path, entry: Option<&str>) -> Result<Compiled
         let bytes = fs::read(path).context("failed to read file")?;
         let pack = ambient_engine::store::Pack::decode(&bytes)
             .map_err(|e| anyhow::anyhow!("invalid artifact {}: {e}", path.display()))?;
-        CompiledModule::from_pack(&pack)
-            .map_err(|e| anyhow::anyhow!("invalid artifact {}: {e}", path.display()))
+        let compiled = CompiledModule::from_pack(&pack)
+            .map_err(|e| anyhow::anyhow!("invalid artifact {}: {e}", path.display()))?;
+        Ok((compiled, spelled_entry.to_string()))
     } else if path.is_dir() || path.join("ambient.toml").exists() {
         // Load package: lazily for `ambient run` (an entry is given), or
         // whole-package + persist for `ambient dev`.
         match entry {
-            Some(entry) => compile_package(path, entry),
-            None => compile_package_full(path),
+            Some((entry, package)) => compile_package(path, entry, package),
+            None => {
+                let target = super::resolve_target_package(path, None)?;
+                let compiled = compile_package_full(path, target.as_deref())?;
+                Ok((compiled, super::qualified_entry(target.as_deref(), "run")))
+            }
         }
     } else {
         bail!(
@@ -83,23 +98,30 @@ pub(super) fn load_compiled(path: &Path, entry: Option<&str>) -> Result<Compiled
 /// job — a lazy run must not persist a partial build (see `ref/modules.md`).
 /// Type errors in modules the entry can't reach are, by policy, not reported by
 /// `run`; `ambient check` reports them.
-pub(super) fn compile_package(path: &Path, entry: &str) -> Result<CompiledModule> {
+pub(super) fn compile_package(
+    path: &Path,
+    entry: &str,
+    package: Option<&str>,
+) -> Result<(CompiledModule, String)> {
     // Stub natives satisfy the extern contract at build time (real
     // implementations are registered per VM by the runtime host).
     let stubs = ambient_platform::stub_natives();
+    let target = super::resolve_target_package(path, package)?;
+    let entry = super::qualified_entry(target.as_deref(), entry);
     let result = ambient_engine::build::build_reachable(
         path,
         super::parse_source,
         BuildOptions {
             platform_modules: ambient_platform::platform_modules(),
             natives: Some(&stubs),
+            package: target.as_deref(),
             ..Default::default()
         },
-        entry,
+        &entry,
     )
     .map_err(report_build_error)?;
 
-    Ok(result.compiled)
+    Ok((result.compiled, entry))
 }
 
 /// Compile a package whole (every module) and persist a snapshot, for
@@ -112,7 +134,7 @@ pub(super) fn compile_package(path: &Path, entry: &str) -> Result<CompiledModule
 /// rebuildable cache. Unlike `ambient run`, `dev` stays whole-package: its
 /// deploy diff needs every module's bindings, and it is the command whose
 /// snapshot keeps the store complete for later lazy runs.
-pub(super) fn compile_package_full(path: &Path) -> Result<CompiledModule> {
+pub(super) fn compile_package_full(path: &Path, package: Option<&str>) -> Result<CompiledModule> {
     // Stub natives satisfy the extern contract at build time (real
     // implementations are registered per VM by the runtime host).
     let stubs = ambient_platform::stub_natives();
@@ -122,6 +144,7 @@ pub(super) fn compile_package_full(path: &Path) -> Result<CompiledModule> {
         BuildOptions {
             platform_modules: ambient_platform::platform_modules(),
             natives: Some(&stubs),
+            package,
             ..Default::default()
         },
     )

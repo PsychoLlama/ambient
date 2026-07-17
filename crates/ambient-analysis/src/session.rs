@@ -691,11 +691,13 @@ fn read_package_snapshot(
     root: &std::path::Path,
 ) -> Option<ambient_engine::disk_store::BuildManifest> {
     use ambient_engine::disk_store::DiskStore;
-    let store_path = DiskStore::package_store_path(root);
+    // Workspace members share one store at the workspace root.
+    let root = ambient_engine::build::store_root(root);
+    let store_path = DiskStore::package_store_path(&root);
     if !store_path.exists() {
         return None;
     }
-    DiskStore::open_package(root)
+    DiskStore::open_package(&root)
         .ok()?
         .current_snapshot()
         .ok()?
