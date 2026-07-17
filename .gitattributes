@@ -1,0 +1,3 @@
+# Ambient source is mostly Rust-compatible; highlight it as Rust on GitHub.
+# linguist-detectable=false keeps it out of the repo language breakdown.
+*.ab linguist-language=Rust linguist-detectable=false
