@@ -17,7 +17,9 @@ use super::session::SESSION_MODULE;
 use crate::commands::core_context;
 use crate::diagnostic::report_build_error;
 
-/// Build the base compiled module and its analysis package.
+/// Build the base compiled module and its analysis package. The optional
+/// fourth element is a control note the frontend should surface (a
+/// workspace base that degraded to member-only).
 ///
 /// With a project, the base is the full package build (core + project, names
 /// qualified) and the package is opened from disk. Without one, the base is
@@ -28,6 +30,7 @@ pub(super) fn build_base(
     AnalysisPackage,
     CompiledModule,
     HashMap<NameKey, blake3::Hash>,
+    Option<String>,
 )> {
     match project_root {
         Some(root) => {
@@ -45,37 +48,63 @@ pub(super) fn build_base(
                     ) => ws.root,
                     _ => root.to_path_buf(),
                 };
-            let stubs = ambient_platform::stub_natives();
-            let result = ambient_engine::build::build_package(
-                &build_root,
-                crate::commands::parse_source,
-                &BuildOptions {
-                    platform_modules: ambient_platform::platform_modules(),
-                    natives: Some(&stubs),
-                    progress: None,
-                    // Warm the base build off a prior `ambient run`/`build`
-                    // snapshot: REPL startup on a built project skips
-                    // recompiling unchanged modules. The REPL is a read-only
-                    // cache *consumer* — it never writes a snapshot. A REPL
-                    // session is not a canonical build (its per-turn trial
-                    // compiles are ephemeral), so persisting one would only
-                    // churn the store the real build owns.
-                    store_path: Some(ambient_engine::disk_store::DiskStore::package_store_path(
-                        &build_root,
-                    )),
-                    ..Default::default()
-                },
-            )
-            .map_err(report_build_error)?;
+            // A workspace build fails if *any* member fails, and the launch
+            // member may itself be fine — degrade to a member-only base
+            // (siblings stay typeable but not callable) instead of refusing
+            // to start.
+            let (result, note) = match build_at(&build_root) {
+                Ok(result) => (result, None),
+                Err(_) if build_root != root => {
+                    let result = build_at(root).map_err(report_build_error)?;
+                    (
+                        result,
+                        Some(
+                            "note: a sibling workspace package fails to build; \
+                             the base covers this package only, so `::pkg` \
+                             references are not callable this session"
+                                .to_string(),
+                        ),
+                    )
+                }
+                Err(err) => return Err(report_build_error(err)),
+            };
             let package = AnalysisPackage::open(root).map_err(|e| anyhow!(e))?;
-            Ok((package, result.compiled, result.link_table))
+            Ok((package, result.compiled, result.link_table, note))
         }
         None => {
             let core = core_context()?;
             let package = AnalysisPackage::empty(PathBuf::from("."), PathBuf::from("."), "");
-            Ok((package, core.compiled, core.hashes))
+            Ok((package, core.compiled, core.hashes, None))
         }
     }
+}
+
+/// One base build rooted at `root`, warming off (never writing) the store
+/// there.
+fn build_at(
+    root: &Path,
+) -> Result<ambient_engine::build::BuildResult, ambient_engine::build::BuildError> {
+    let stubs = ambient_platform::stub_natives();
+    ambient_engine::build::build_package(
+        root,
+        crate::commands::parse_source,
+        &BuildOptions {
+            platform_modules: ambient_platform::platform_modules(),
+            natives: Some(&stubs),
+            progress: None,
+            // Warm the base build off a prior `ambient run`/`build`
+            // snapshot: REPL startup on a built project skips recompiling
+            // unchanged modules. The REPL is a read-only cache *consumer* —
+            // it never writes a snapshot. A REPL session is not a canonical
+            // build (its per-turn trial compiles are ephemeral), so
+            // persisting one would only churn the store the real build
+            // owns.
+            store_path: Some(ambient_engine::disk_store::DiskStore::package_store_path(
+                root,
+            )),
+            ..Default::default()
+        },
+    )
 }
 
 /// The virtual session module's path: `<launch_dir>/__repl.ab` mapped

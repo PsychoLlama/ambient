@@ -915,3 +915,21 @@ fn test_workspace_sibling_inspects() {
     );
     repl.shutdown();
 }
+
+#[test]
+fn test_broken_sibling_degrades_to_member_only_base() {
+    // A type-broken sibling must not keep a member's REPL from starting:
+    // the base degrades to the member alone (with a note), and the
+    // member's own code still evaluates.
+    let ws = workspace_project();
+    std::fs::write(
+        ws.path().join("lib/src/main.ab"),
+        "pub fn greet(): Number { \"not a number\" }\n",
+    )
+    .unwrap();
+    ReplTest::with_project(&ws.path().join("app"))
+        .expect_output("sibling workspace package fails to build")
+        .type_line("pkg::run() + 1")
+        .expect_output("1")
+        .shutdown();
+}

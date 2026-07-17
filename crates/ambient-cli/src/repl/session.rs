@@ -164,7 +164,10 @@ impl ReplSession {
     /// host wired to `io`.
     pub fn new(launch_dir: &Path, io: ReplIo) -> Result<Self> {
         let project_root = find_project_root(launch_dir);
-        let (package, base, imported_hashes) = build_base(project_root.as_deref())?;
+        let (package, base, imported_hashes, base_note) = build_base(project_root.as_deref())?;
+        if let Some(note) = base_note {
+            (io.control)(&note);
+        }
         let session_path = session_module_path(&package, launch_dir);
         // The REPL has no program args; `Env::args!()` is empty.
         let host = RuntimeHost::new(
@@ -217,7 +220,10 @@ impl ReplSession {
     /// frontend to render.
     pub fn clear(&mut self) -> Result<()> {
         self.shutdown();
-        let (package, base, imported_hashes) = build_base(self.project_root.as_deref())?;
+        let (package, base, imported_hashes, base_note) = build_base(self.project_root.as_deref())?;
+        if let Some(note) = base_note {
+            self.control(&note);
+        }
         self.uses.clear();
         self.bindings.clear();
         self.package = package;
@@ -248,7 +254,10 @@ impl ReplSession {
             self.control("note: not in a project; nothing to reload");
             return Ok(());
         };
-        let (package, base, imported_hashes) = build_base(Some(&root))?;
+        let (package, base, imported_hashes, base_note) = build_base(Some(&root))?;
+        if let Some(note) = base_note {
+            self.control(&note);
+        }
         self.package = package;
         self.base = base;
         self.imported_hashes = imported_hashes;
