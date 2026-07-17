@@ -1,0 +1,22 @@
+# The examples directory is one workspace: every example is a member
+# package, they share the root `.ambient` store (so building one warms the
+# core cache for all), and `workspace_deps` demonstrates cross-package
+# `use ::package::…` imports.
+[workspace]
+members = [
+    "abilities",
+    "deploy_client",
+    "deploy_server",
+    "error_handling",
+    "greeting",
+    "hello",
+    "live_site",
+    "modules",
+    "network_client",
+    "network_server",
+    "remote_client",
+    "remote_server",
+    "traits",
+    "word_count",
+    "workspace_deps",
+]

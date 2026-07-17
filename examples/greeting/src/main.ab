@@ -1,0 +1,9 @@
+// A library package: no entry point, just items for sibling packages to
+// import (`use ::greeting::…`). Root items live here in main.ab; the
+// `casing` submodule shows that a package's whole module tree is
+// reachable across the workspace.
+pub use self::casing::shout;
+
+pub fn greet(name: String): String {
+  "Hello, " + name + "!"
+}

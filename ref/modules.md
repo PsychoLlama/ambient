@@ -7,7 +7,12 @@ whose members are its children, so `src/net/http/client.ab` is the module
 `pkg::net::http::client` with no `mod.rs`-style ceremony. Path roots:
 `pkg` (package root), `self` (same directory), `super` (parent directory,
 chainable), `core` (standard library — host bindings live under
-`core::system`).
+`core::system`), and a bare leading `::` (a sibling workspace package —
+see [Workspaces](#workspaces)).
+
+The package root `main.ab` **is** the package: it behaves as the package's
+directory module, so its items are `pkg::<item>` (and, cross-package,
+`::<package>::<item>`) — there is no addressable module named `main`.
 
 **Every item in a build has exactly one fully-qualified identity** — a
 first-class `Fqn` (`crates/ambient-engine/src/fqn.rs`), not a string.
@@ -114,15 +119,17 @@ block-scope like any other leaf; visibility is the ability's (`pub
 ability` exposes its methods, exactly as `pub enum` exposes variants).
 See [Using Abilities](abilities.md#using-abilities). `pub use` re-exports items (and whole modules), and imports through a
 re-export resolve (and link) to the module that defines the symbol.
-Re-export paths must be rooted (`pkg`/`core`/`self`/`super`),
+Re-export paths must be rooted (`pkg`/`core`/`self`/`super`/`::package`),
 not alias-relative, so downstream modules can resolve them without this
 module's scope.
 
 The module dependency graph is a hard DAG: an import cycle **between**
 modules is a compile error (Go's rule). If `pkg::a` references anything in
 `pkg::b` and `pkg::b` references anything back in `pkg::a`, the build
-rejects it with `import cycle: pkg::a -> pkg::b -> pkg::a` — a named path,
-rendered deterministically (rotated to start at the lexically-least module)
+rejects it with `import cycle: demo::a -> demo::b -> demo::a` — a named
+path over the modules' mounted keys (the leading segment names the owning
+package, so a cross-package cycle reads unambiguously), rendered
+deterministically (rotated to start at the lexically-least module)
 regardless of file order — rather than an arbitrary compile order that
 surfaces as confusing link failures. Recursion stays **within** a module:
 a function calling itself or a sibling, or a `use self::…` of the module's
@@ -132,9 +139,85 @@ always allowed. The decision lives once in the engine
 and the analysis pipeline, so `ambient run`, `ambient check`, and the LSP
 report the identical cycle at every module that participates in it. Core
 and platform module groups are authored cycle-free and compiled on their
-own ordering; cycle detection is scoped to a single package's modules,
-which is where a cross-module cycle can arise (no `core`/`platform` module
-can import user code).
+own ordering; cycle detection spans every _user_ module — cross-package
+`::pkg` edges make workspace-wide cycles possible, and they are just as
+fatal — while no `core`/`platform` module can import user code, so a user
+cycle can never route through them.
+
+## Workspaces
+
+A workspace groups several first-party packages under one root
+`ambient.toml` (`crates/ambient-engine/src/workspace.rs`):
+
+```toml
+[workspace]
+members = ["app", "greeting_lib", "tools/deploy"]
+```
+
+The root manifest is _virtual_ — `[workspace]` and `[package]` are
+mutually exclusive — and each member is an ordinary package listed by
+directory. Libraries (content-addressed third-party dependencies,
+`Scope::Library`) are explicitly out of scope: a workspace is first-party
+code only. Member package names must be unique across the workspace, a
+member may not take the reserved name `core`, workspaces do not nest, and
+a package sitting under a workspace root that does not list it is a hard
+error (never a silent standalone build with a split cache). Discovery is
+one upward walk (`Workspace::discover`), shared by the build, `check`, the
+LSP, and the store commands, so every frontend agrees on which packages
+participate.
+
+**Cross-package references** spell with a bare leading `::` — the first
+segment names the sibling package, the rest walks its module tree exactly
+like `pkg::…` walks your own:
+
+```ambient
+use ::greeting_lib::greet;            // an item of the package's root main.ab
+use ::greeting_lib::casing::shout;    // a submodule item
+use ::greeting_lib::casing;           // a whole-module alias
+pub use ::greeting_lib::greet;        // re-exports compose across packages
+```
+
+Ordinary visibility applies — only `pub` items cross the boundary — and
+imports are the only channel: there is no implicit sharing, and the
+`[workspace]` manifest carries no dependency list (the dependency graph is
+whatever `use ::…` says it is).
+
+**Identity and mounting.** Every package's modules register under a
+leading package-name segment (the package's _mount_): `foo`'s
+`src/utils.ab` is the registry module `foo::utils`, and its root `main.ab`
+collapses to the mount itself as a directory module — the same
+`<dir>/main.ab` rule the module system already has. `ModuleRegistry`
+strips a mount into `Scope::Workspace(<name>)` exactly like a leading
+`core` strips into `Builtin`, so mounted `ModulePath`s and `ModuleId`s
+convert totally in both directions and several packages share one
+registry with no key collisions and no second naming convention. A
+standalone package mounts alone, so the two layouts never diverge. The
+mount is also a hard resolution boundary: `pkg::` anchors at it and
+`super` may never step above it into a sibling package.
+
+**One build, lazy targets.** A build loads and registers _every_ member
+(so `::pkg` references resolve and trait coherence sees all impls), but
+only compiles its **targets**: `ambient build`/`check` at the workspace
+root covers every member; `ambient build <member>` (or `--package NAME`)
+checks and compiles only that package plus the sibling modules its
+compile order actually reaches. `ambient run` needs a target package
+(implied inside a member directory; `--package` at a multi-member root)
+and deploys the entry under its canonical `workspace::<pkg>::<entry>`
+name, so a dependency's same-named `run` can never be picked. One caveat
+of the everything-registers shape: every member must _parse_ for any
+member to build (type errors stay lazy; syntax errors are workspace-wide).
+
+**One store.** The `.ambient/store` lives at the workspace root and is
+shared by all members — content-addressed objects dedupe across packages,
+and one member's build warms the core cache for every other. Snapshot
+pointers are per package (`snapshots/<name>`): a member build repoints
+only its own snapshot, a workspace-root build points every member at the
+same manifest, gc roots the union, and the incremental cache reads all
+pointers' manifests. See `crates/ambient-engine/src/disk_store/`.
+
+The `examples/` directory is itself a workspace; `examples/workspace_deps`
+imports the library member `examples/greeting` and is the living
+demonstration.
 
 ## Lazy compilation (module-level reachability)
 

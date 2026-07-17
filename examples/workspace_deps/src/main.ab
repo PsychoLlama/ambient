@@ -1,0 +1,11 @@
+// Workspace packages import each other with a leading `::`: the first
+// segment names the sibling package, the rest walks its module tree.
+// `greeting` is a library member with no entry point of its own.
+use core::system::Stdio;
+use ::greeting::greet;
+use ::greeting::casing::shout;
+
+pub fn run(): () with Stdio {
+  Stdio::out!(greet("workspace"));
+  Stdio::out!(shout(greet("workspace")))
+}

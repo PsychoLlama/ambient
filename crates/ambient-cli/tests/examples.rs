@@ -33,6 +33,11 @@ const PAIRED_EXAMPLES: &[&str] = &[
     "live_site",
 ];
 
+/// Library workspace members with no entry point of their own: they exist
+/// to be imported by other examples (`workspace_deps` uses `greeting`), so
+/// there is nothing to run one-shot.
+const LIBRARY_EXAMPLES: &[&str] = &["greeting"];
+
 fn examples_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../examples")
@@ -134,7 +139,7 @@ fn examples_match_expected_output() {
             .and_then(|n| n.to_str())
             .unwrap_or_default()
             .to_string();
-        if PAIRED_EXAMPLES.contains(&name.as_str()) {
+        if PAIRED_EXAMPLES.contains(&name.as_str()) || LIBRARY_EXAMPLES.contains(&name.as_str()) {
             continue;
         }
 

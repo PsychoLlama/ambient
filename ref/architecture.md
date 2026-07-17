@@ -520,10 +520,16 @@ Roughly in priority order:
   REPL registers `core::system` and every project module, so both
   `use core::system::…` and `use pkg::b::SomeAbility;` work at the
   prompt (`crates/ambient-cli/tests/module_system.rs`, `repl_tests.rs`).
-- **Workspace mechanism (multi-package local development).** Resolve
-  sibling packages by name, share a build directory, and compile
-  independent packages in parallel. Lands before the package manager, and
-  the `Fqn` scope machinery (`Workspace(pkg)`) is already shaped for it.
+- **Workspaces are implemented**: see
+  [Workspaces in modules.md](modules.md#workspaces). A root
+  `ambient.toml` (`[workspace] members = [...]`) groups first-party
+  packages; members reference each other with `use ::package::…`, share
+  the root's `.ambient` store (per-package snapshot pointers), and build
+  lazily — a member build compiles only its own compile-order closure.
+  Every package's modules mount under its name in one registry, so the
+  `Fqn` scope machinery (`Workspace(pkg)`) is the identity end to end.
+  Parallel member compilation and content-addressed third-party
+  dependencies (`Scope::Library`) remain future work.
 - **Live upgrades are implemented**:
   **[live-upgrade.md](live-upgrade.md)** — upgrades as name rebindings
   applied through deployable generations, with author-placed late-bound
