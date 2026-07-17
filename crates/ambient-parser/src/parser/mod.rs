@@ -33,6 +33,8 @@ mod strings;
 #[cfg(test)]
 mod tests;
 mod types;
+#[cfg(test)]
+mod use_tests;
 mod use_tree;
 
 use ambient_engine::ast::Span;
