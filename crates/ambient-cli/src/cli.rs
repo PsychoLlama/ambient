@@ -107,11 +107,22 @@ pub enum Command {
     Lsp,
 
     /// Inspect and maintain a package's content-addressed store.
+    ///
+    /// Workspace members share one store at the workspace root, with one
+    /// snapshot pointer per package; snapshot-reading subcommands follow
+    /// the target package's pointer (see `--package`).
     Store {
-        /// Package directory (defaults to the current directory; searches
-        /// upward for ambient.toml).
-        #[arg(long, value_name = "DIR", default_value = ".")]
-        package: PathBuf,
+        /// Path to a package or workspace directory (defaults to the
+        /// current directory; searches upward for ambient.toml).
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
+
+        /// The workspace package whose snapshot to read. Required from a
+        /// workspace root with more than one member; implied inside a
+        /// member directory. Whole-store subcommands (stats, deps, verify,
+        /// gc) never need one.
+        #[arg(short, long, value_name = "NAME", global = true)]
+        package: Option<String>,
 
         #[command(subcommand)]
         command: StoreCommand,

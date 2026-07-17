@@ -9,12 +9,12 @@ use super::short;
 use crate::cli::DiffFormat;
 
 /// Resolve a snapshot reference to a manifest hash: the literal `current`
-/// (the snapshot pointer), a tag name, or a manifest-hash prefix (git-style).
-fn resolve_manifest_ref(store: &DiskStore, reference: &str) -> Result<blake3::Hash> {
+/// (the selected package's snapshot pointer), a tag name, or a
+/// manifest-hash prefix (git-style).
+fn resolve_manifest_ref(store: &DiskStore, package: &str, reference: &str) -> Result<blake3::Hash> {
     if reference == "current" {
-        return store
-            .snapshot_pointer()?
-            .context("no current snapshot — run `ambient run` first");
+        return super::pointer_for(store, package)?
+            .context("no current snapshot — run `ambient build` first");
     }
     if let Some(hash) = store.read_tag(reference)? {
         return Ok(hash);
@@ -36,24 +36,29 @@ fn resolve_manifest_ref(store: &DiskStore, reference: &str) -> Result<blake3::Ha
 }
 
 /// Load the manifest a reference resolves to.
-fn load_ref(store: &DiskStore, reference: &str) -> Result<BuildManifest> {
-    let hash = resolve_manifest_ref(store, reference)?;
+fn load_ref(store: &DiskStore, package: &str, reference: &str) -> Result<BuildManifest> {
+    let hash = resolve_manifest_ref(store, package, reference)?;
     store
         .load_manifest(&hash)?
         .with_context(|| format!("manifest {} is missing or corrupt", short(&hash)))
 }
 
 /// `ambient store tag [NAME [TARGET]]`.
-pub fn tag(store: &DiskStore, name: Option<&str>, target: Option<&str>) -> Result<()> {
+pub fn tag(
+    store: &DiskStore,
+    package: &str,
+    name: Option<&str>,
+    target: Option<&str>,
+) -> Result<()> {
     let Some(name) = name else {
         return list_tags(store);
     };
-    // Resolve the target manifest (explicit ref, or the current snapshot).
+    // Resolve the target manifest (explicit ref, or the selected package's
+    // current snapshot).
     let hash = match target {
-        Some(target) => resolve_manifest_ref(store, target)?,
-        None => store
-            .snapshot_pointer()?
-            .context("no current snapshot to tag — run `ambient run` first")?,
+        Some(target) => resolve_manifest_ref(store, package, target)?,
+        None => super::pointer_for(store, package)?
+            .context("no current snapshot to tag — run `ambient build` first")?,
     };
     // A tag must name a real manifest, or `verify` would later flag it.
     if store.load_manifest(&hash)?.is_none() {
@@ -81,15 +86,21 @@ fn list_tags(store: &DiskStore) -> Result<()> {
 }
 
 /// `ambient store diff [A B] [--format text|json]`.
-pub fn diff(store: &DiskStore, a: Option<&str>, b: Option<&str>, format: DiffFormat) -> Result<()> {
+pub fn diff(
+    store: &DiskStore,
+    package: &str,
+    a: Option<&str>,
+    b: Option<&str>,
+    format: DiffFormat,
+) -> Result<()> {
     let (Some(a), Some(b)) = (a, b) else {
         bail!(
             "`store diff` needs two refs (each a tag, manifest-hash prefix, or `current`); \
              there is no recorded previous snapshot to default to"
         );
     };
-    let from = load_ref(store, a)?;
-    let to = load_ref(store, b)?;
+    let from = load_ref(store, package, a)?;
+    let to = load_ref(store, package, b)?;
     let diff = store.snapshot_diff(&from, &to);
 
     match format {

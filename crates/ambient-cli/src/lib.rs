@@ -46,7 +46,11 @@ pub fn run() -> Result<()> {
             package,
             watch,
         } => cmd_dev(&file, &entry, package.as_deref(), watch.as_deref())?,
-        Command::Store { package, command } => cmd_store(&package, &command)?,
+        Command::Store {
+            path,
+            package,
+            command,
+        } => cmd_store(&path, package.as_deref(), &command)?,
     }
 
     Ok(())

@@ -43,7 +43,6 @@ fn build(dir: &Path) {
 fn store(dir: &Path, args: &[&str]) -> Output {
     Command::new(ambient_bin())
         .arg("store")
-        .arg("--package")
         .arg(dir)
         .args(args)
         .output()

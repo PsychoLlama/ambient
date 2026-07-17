@@ -1,8 +1,8 @@
 //! The structured-index views behind `ambient store list` and the type/trait/
-//! ability half of `ambient store show`. These read the current snapshot's
-//! per-module item records (kind, identity, span, source path) so items that
-//! are not objects — types, traits, abilities — are inspectable, and every
-//! listed name carries its namespace-tagged kind.
+//! ability half of `ambient store show`. These read the selected package's
+//! current snapshot: its per-module item records (kind, identity, span,
+//! source path) make items that are not objects — types, traits, abilities —
+//! inspectable, and every listed name carries its namespace-tagged kind.
 
 use anyhow::{Result, bail};
 
@@ -69,7 +69,7 @@ fn kind_matches(kind: ItemKindTag, filter: &[String]) -> bool {
 }
 
 /// `ambient store list [--kinds ...]`.
-pub fn list(store: &DiskStore, kinds: Option<&str>) -> Result<()> {
+pub fn list(store: &DiskStore, package: &str, kinds: Option<&str>) -> Result<()> {
     let filter: Vec<String> = kinds
         .map(|s| {
             s.split(',')
@@ -79,7 +79,7 @@ pub fn list(store: &DiskStore, kinds: Option<&str>) -> Result<()> {
         })
         .unwrap_or_default();
 
-    let Some(manifest) = store.current_snapshot()? else {
+    let Some(manifest) = super::snapshot_manifest(store, package)? else {
         return ls_flat_fallback(store, &filter);
     };
 
@@ -177,8 +177,8 @@ fn clone_entry<'a>(e: &IndexEntry<'a>) -> IndexEntry<'a> {
 /// Try to resolve `reference` to a non-object item (type/trait/ability/alias)
 /// and print it. Returns `true` if it handled the reference, `false` to fall
 /// through to the object-disassembly path (a value item, or no index match).
-pub fn try_show(store: &DiskStore, reference: &str) -> Result<bool> {
-    let Some(manifest) = store.current_snapshot()? else {
+pub fn try_show(store: &DiskStore, package: &str, reference: &str) -> Result<bool> {
+    let Some(manifest) = super::snapshot_manifest(store, package)? else {
         return Ok(false);
     };
     let matches = find(&manifest, reference);
@@ -195,11 +195,11 @@ pub fn try_show(store: &DiskStore, reference: &str) -> Result<bool> {
     }
 }
 
-/// The source location of a value item bound to `hash`, if the current
-/// snapshot's index knows it — the "defined at" line for `store show` of a
-/// function/const.
-pub fn value_location(store: &DiskStore, hash: &blake3::Hash) -> Option<String> {
-    let manifest = store.current_snapshot().ok().flatten()?;
+/// The source location of a value item bound to `hash`, if the selected
+/// package's snapshot index knows it — the "defined at" line for
+/// `store show` of a function/const.
+pub fn value_location(store: &DiskStore, package: &str, hash: &blake3::Hash) -> Option<String> {
+    let manifest = super::snapshot_manifest(store, package).ok().flatten()?;
     let bytes = hash.as_bytes();
     for module in &manifest.modules {
         for item in &module.items {

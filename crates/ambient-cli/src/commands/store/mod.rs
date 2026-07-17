@@ -1,4 +1,9 @@
 //! `ambient store` — inspect and maintain a package's content-addressed store.
+//!
+//! A workspace store roots one snapshot pointer per package. Whole-store
+//! subcommands (stats, deps, verify, gc) never care; snapshot-reading ones
+//! (snapshot, list, show, tag, diff) follow one package's pointer, selected
+//! by [`target_package`].
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -6,7 +11,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 
 use ambient_engine::bytecode::disassemble;
-use ambient_engine::disk_store::DiskStore;
+use ambient_engine::disk_store::{BuildManifest, DiskStore};
 use ambient_engine::object::StoredObject;
 
 use crate::cli::StoreCommand;
@@ -35,6 +40,65 @@ fn find_store_root(path: &Path) -> Result<PathBuf> {
         );
     }
     Ok(DiskStore::package_store_path(&root))
+}
+
+/// Resolve which package's snapshot pointer a snapshot-reading subcommand
+/// follows. Manifest context decides exactly as `run`/`build` do (explicit
+/// `--package`, else the discovered package/member, erroring at a
+/// multi-member root); without any manifest context the store's own
+/// pointers decide — a sole pointer is unambiguous, several need
+/// `--package`.
+fn target_package(store: &DiskStore, path: &Path, package: Option<&str>) -> Result<String> {
+    if let Some(name) = super::resolve_target_package(path, package)? {
+        return Ok(name);
+    }
+    let mut names: Vec<String> = store
+        .snapshot_pointers()?
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    match names.len() {
+        0 => bail!("this store has no snapshots — run `ambient build` to record one"),
+        1 => Ok(names.remove(0)),
+        n => bail!(
+            "this store holds snapshots for {n} packages; pick one with \
+             --package <NAME> (packages: {})",
+            names.join(", ")
+        ),
+    }
+}
+
+/// The manifest hash `package`'s snapshot pointer names. `Ok(None)` when
+/// the store has no snapshot pointers at all; an error naming the packages
+/// that do have one when `package` is not among them.
+fn pointer_for(store: &DiskStore, package: &str) -> Result<Option<blake3::Hash>> {
+    if let Some(hash) = store.snapshot_pointer_for(package)? {
+        return Ok(Some(hash));
+    }
+    let names: Vec<String> = store
+        .snapshot_pointers()?
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    if names.is_empty() {
+        return Ok(None);
+    }
+    bail!(
+        "no snapshot for package `{package}` in this store \
+         (packages with snapshots: {})",
+        names.join(", ")
+    )
+}
+
+/// The selected package's snapshot manifest. `Ok(None)` when the store has
+/// no snapshots, or this pointer's manifest is corrupt (a soft miss, like
+/// [`DiskStore::current_snapshot_for`]); an unknown package name is an
+/// error via [`pointer_for`].
+fn snapshot_manifest(store: &DiskStore, package: &str) -> Result<Option<BuildManifest>> {
+    if pointer_for(store, package)?.is_none() {
+        return Ok(None);
+    }
+    Ok(store.current_snapshot_for(package)?)
 }
 
 /// Resolve a user-supplied reference (name from the names index, or a hash
@@ -92,21 +156,35 @@ fn hash_to_names(names: &BTreeMap<String, blake3::Hash>) -> HashMap<blake3::Hash
 }
 
 /// Run an `ambient store` subcommand.
-pub fn cmd_store(path: &Path, command: &StoreCommand) -> Result<()> {
+pub fn cmd_store(path: &Path, package: Option<&str>, command: &StoreCommand) -> Result<()> {
     let store = DiskStore::open(find_store_root(path)?)?;
+    // Only snapshot-reading subcommands resolve a target package; the
+    // whole-store ones must keep working at a multi-member workspace root
+    // (where resolution would demand `--package`).
     match command {
         StoreCommand::Stats => stats(&store),
-        StoreCommand::List { kinds } => index::list(&store, kinds.as_deref()),
-        StoreCommand::Show { reference } => show(&store, reference),
         StoreCommand::Deps { reference } => deps(&store, reference),
         StoreCommand::Verify => verify(&store),
         StoreCommand::Gc => gc(&store),
-        StoreCommand::Snapshot => snapshot(&store),
+        StoreCommand::List { kinds } => {
+            let package = target_package(&store, path, package)?;
+            index::list(&store, &package, kinds.as_deref())
+        }
+        StoreCommand::Show { reference } => {
+            let package = target_package(&store, path, package)?;
+            show(&store, &package, reference)
+        }
+        StoreCommand::Snapshot => {
+            let package = target_package(&store, path, package)?;
+            snapshot(&store, &package)
+        }
         StoreCommand::Tag { name, target } => {
-            query::tag(&store, name.as_deref(), target.as_deref())
+            let package = target_package(&store, path, package)?;
+            query::tag(&store, &package, name.as_deref(), target.as_deref())
         }
         StoreCommand::Diff { a, b, format } => {
-            query::diff(&store, a.as_deref(), b.as_deref(), *format)
+            let package = target_package(&store, path, package)?;
+            query::diff(&store, &package, a.as_deref(), b.as_deref(), *format)
         }
     }
 }
@@ -150,10 +228,10 @@ fn stats(store: &DiskStore) -> Result<()> {
     Ok(())
 }
 
-fn show(store: &DiskStore, reference: &str) -> Result<()> {
+fn show(store: &DiskStore, package: &str, reference: &str) -> Result<()> {
     // A type/trait/ability is not an object: resolve it through the
     // structured index and print its kind, identity, span, and shape.
-    if index::try_show(store, reference)? {
+    if index::try_show(store, package, reference)? {
         return Ok(());
     }
 
@@ -163,7 +241,7 @@ fn show(store: &DiskStore, reference: &str) -> Result<()> {
 
     // Debug-symbol line: where this object is defined in source, if the
     // structured index knows.
-    if let Some(location) = index::value_location(store, &hash) {
+    if let Some(location) = index::value_location(store, package, &hash) {
         println!("defined in: {location}");
     }
 
@@ -335,16 +413,20 @@ fn short_bytes(bytes: &[u8; 32]) -> String {
     blake3::Hash::from_bytes(*bytes).to_hex().as_str()[..12].to_string()
 }
 
-fn snapshot(store: &DiskStore) -> Result<()> {
-    let pointers = store.snapshot_pointers()?;
-    let Some((package, hash)) = pointers.first().cloned() else {
-        println!("(no snapshot — run `ambient run` to record one)");
+fn snapshot(store: &DiskStore, package: &str) -> Result<()> {
+    let Some(hash) = pointer_for(store, package)? else {
+        println!("(no snapshot — run `ambient build` to record one)");
         return Ok(());
     };
-    // A workspace store roots one snapshot per package; summarize the
-    // first and name the rest so nothing looks lost.
+    // A workspace store roots one snapshot per package; name the others so
+    // nothing looks lost.
+    let pointers = store.snapshot_pointers()?;
     if pointers.len() > 1 {
-        let others: Vec<&str> = pointers[1..].iter().map(|(p, _)| p.as_str()).collect();
+        let others: Vec<&str> = pointers
+            .iter()
+            .filter(|(name, _)| name != package)
+            .map(|(name, _)| name.as_str())
+            .collect();
         println!(
             "(workspace store with {} snapshots; showing `{package}` — others: {})",
             pointers.len(),

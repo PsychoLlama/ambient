@@ -713,6 +713,24 @@ impl DiskStore {
         self.manifest_or_miss(hash)
     }
 
+    /// The named package's current build snapshot —
+    /// [`Self::current_snapshot`] for one pointer of a multi-package
+    /// (workspace) store. The same failure modes collapse to `Ok(None)`.
+    ///
+    /// # Errors
+    ///
+    /// Never fails for a missing or corrupt snapshot; only genuinely
+    /// unexpected I/O errors propagate.
+    pub fn current_snapshot_for(
+        &self,
+        package: &str,
+    ) -> Result<Option<BuildManifest>, DiskStoreError> {
+        let Some(hash) = self.snapshot_pointer_for(package)? else {
+            return Ok(None);
+        };
+        self.manifest_or_miss(hash)
+    }
+
     /// Every package's current snapshot, deduplicated by manifest hash (a
     /// workspace-root build points several packages at one manifest). Broken
     /// pointers and manifests are skipped, exactly like

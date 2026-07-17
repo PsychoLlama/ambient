@@ -171,7 +171,6 @@ fn store_snapshot_command_summarizes_the_build() {
 
     let out = Command::new(ambient_bin())
         .arg("store")
-        .arg("--package")
         .arg(dir.path())
         .arg("snapshot")
         .output()
@@ -195,7 +194,6 @@ fn store_snapshot_reports_absence_before_any_build() {
 
     let out = Command::new(ambient_bin())
         .arg("store")
-        .arg("--package")
         .arg(dir.path())
         .arg("snapshot")
         .output()
