@@ -199,6 +199,10 @@ pub enum TypeErrorKind {
     /// `resume` used outside a handler arm.
     ResumeOutsideHandler,
 
+    /// `return` used outside a function-like body (e.g. a const
+    /// initializer or a top-level REPL expression).
+    ReturnOutsideFunction,
+
     /// `resume` used in a handler arm for a method that returns `!` —
     /// there is no continuation to feed, the perform site unwinds.
     ResumeNeverMethod { ability: Arc<str>, method: Arc<str> },
@@ -558,6 +562,13 @@ impl std::fmt::Display for TypeErrorKind {
                     f,
                     "`resume` is only meaningful inside a handler arm, where it \
                      continues the suspended computation"
+                )
+            }
+            Self::ReturnOutsideFunction => {
+                write!(
+                    f,
+                    "`return` is only meaningful inside a function body, which \
+                     it exits early"
                 )
             }
             Self::ResumeNeverMethod { ability, method } => {

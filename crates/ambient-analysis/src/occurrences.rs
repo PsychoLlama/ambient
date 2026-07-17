@@ -631,6 +631,11 @@ impl Collector<'_> {
             ExprKind::TupleIndex(e, _) | ExprKind::Unary(_, e) | ExprKind::Resume(e) => {
                 self.expr(e);
             }
+            ExprKind::Return(value) => {
+                if let Some(value) = value {
+                    self.expr(value);
+                }
+            }
             ExprKind::If(c, t, e) => {
                 self.expr(c);
                 self.expr(t);

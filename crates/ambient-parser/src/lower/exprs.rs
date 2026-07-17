@@ -228,6 +228,14 @@ pub(super) fn lower_expression(
             ExprKind::Resume(Box::new(lowered_value))
         }
 
+        CstExprKind::Return(value) => {
+            let lowered_value = value
+                .as_ref()
+                .map(|value| lower_expression(ctx, value))
+                .transpose()?;
+            ExprKind::Return(lowered_value.map(Box::new))
+        }
+
         CstExprKind::HandlerLiteral(handler_lit) => {
             let methods = handler_lit
                 .methods

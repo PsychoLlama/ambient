@@ -161,6 +161,11 @@ fn collect_locals_in_scope(
         ExprKind::Sandbox(sandbox) => {
             collect_locals_in_scope(&sandbox.body, offset, prefix, items);
         }
+        ExprKind::Return(value) => {
+            if let Some(value) = value {
+                collect_locals_in_scope(value, offset, prefix, items);
+            }
+        }
         // Leaf nodes - nothing to recurse into.
         ExprKind::Unit
         | ExprKind::Bool(_)

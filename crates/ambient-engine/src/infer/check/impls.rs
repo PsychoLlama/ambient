@@ -447,7 +447,9 @@ fn check_impl_method_body(
                 }
 
                 let expected_ret = instantiate_expected(infer, &tm.ret);
-                match infer.infer_expr(&func_env, &mut method.body) {
+                match infer.with_return_type(expected_ret.clone(), |infer| {
+                    infer.infer_expr(&func_env, &mut method.body)
+                }) {
                     Ok(body_ty) => {
                         let method_span = (method.span.start, method.span.end);
                         if let Err(e) = infer.unify(&expected_ret, &body_ty, method_span) {
@@ -792,16 +794,19 @@ fn check_inherent_impl_bodies(
                         resolve_erroring(infer, &ty)
                     });
 
-                    match infer.infer_expr(&func_env, &mut method.body) {
+                    // The `return` target: the declared return type, or a
+                    // fresh variable the body's type is unified with below,
+                    // so early returns and the final expression must agree.
+                    let return_target = expected_ret.clone().unwrap_or_else(|| infer.fresh());
+                    match infer.with_return_type(return_target.clone(), |infer| {
+                        infer.infer_expr(&func_env, &mut method.body)
+                    }) {
                         Ok(body_ty) => {
-                            if let Some(expected) = &expected_ret {
-                                let method_span = (method.span.start, method.span.end);
-                                if let Err(e) = infer.unify(expected, &body_ty, method_span) {
-                                    errors.push(e.with_context(format!(
-                                        "in inherent method `{}`",
-                                        method.name
-                                    )));
-                                }
+                            let method_span = (method.span.start, method.span.end);
+                            if let Err(e) = infer.unify(&return_target, &body_ty, method_span) {
+                                errors.push(
+                                    e.with_context(format!("in inherent method `{}`", method.name)),
+                                );
                             }
                             deferred.push(DeferredAbilityCheck {
                                 context: format!("inherent method `{}`", method.name),

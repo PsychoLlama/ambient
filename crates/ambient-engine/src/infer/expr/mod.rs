@@ -549,11 +549,21 @@ impl Infer {
                 // The abilities performed by the lambda's body belong to the
                 // lambda's own function type — the enclosing function only
                 // requires them if it actually calls the lambda.
+                //
+                // A lambda is its own `return` scope: a `return` in the body
+                // exits the lambda, not the enclosing function. Early returns
+                // and the final body expression meet at one fresh variable.
                 let body_expected = expected_fn.as_ref().map(|f| f.ret.as_ref());
+                let return_target = self.fresh();
                 let (body_result, lambda_abilities) = self.with_isolated_effects(|infer| {
-                    infer.infer_expr_expecting(&lambda_env, &mut lambda.body, body_expected)
+                    infer.with_return_type(return_target.clone(), |infer| {
+                        infer.infer_expr_expecting(&lambda_env, &mut lambda.body, body_expected)
+                    })
                 });
                 let ret_ty = body_result?;
+                let body_span = (lambda.body.span.start, lambda.body.span.end);
+                self.unify(&return_target, &ret_ty, body_span)
+                    .map_err(|e| e.with_context("a `return` conflicts with the lambda's body"))?;
 
                 Type::function_with_abilities(
                     param_tys,
@@ -677,6 +687,25 @@ impl Infer {
                     Some(result) => result,
                     None => self.fresh(),
                 }
+            }
+
+            ExprKind::Return(value) => {
+                // `return` exits the innermost function-like body: its
+                // operand (unit when bare) unifies with that body's return
+                // type, pushed by every body-check site. The expression
+                // itself diverges — `!`, bottom-eliminated below like any
+                // other never-typed expression.
+                let Some(target) = self.return_types.last().cloned() else {
+                    return Err(type_error(TypeErrorKind::ReturnOutsideFunction, span));
+                };
+                let value_ty = match value {
+                    Some(value) => self.infer_expr_expecting(env, value, Some(&target))?,
+                    None => Type::Unit,
+                };
+                self.unify(&target, &value_ty, span).map_err(|e| {
+                    e.with_context("a `return` value must match the function's return type")
+                })?;
+                Type::Never
             }
 
             ExprKind::HandlerLiteral(handler_lit) => {

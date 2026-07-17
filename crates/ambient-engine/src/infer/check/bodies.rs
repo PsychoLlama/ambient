@@ -90,11 +90,17 @@ pub(super) fn check_function_body(
                 // The declared return type flows into the body as its expected
                 // type (seeding lambda parameters, list elements, match results
                 // along the way); the unify below stays the definitive check.
-                match infer.infer_expr_expecting(
-                    &func_env,
-                    &mut func.body,
-                    expected_ret_ty.as_ref(),
-                ) {
+                // The same type doubles as the body's `return` target — for an
+                // unannotated function that is the scheme's return variable,
+                // so early returns constrain the type call sites see.
+                let return_target = expected_ret_ty.clone().unwrap_or_else(|| {
+                    scheme_fn
+                        .as_ref()
+                        .map_or_else(|| infer.fresh(), |f| (*f.ret).clone())
+                });
+                match infer.with_return_type(return_target, |infer| {
+                    infer.infer_expr_expecting(&func_env, &mut func.body, expected_ret_ty.as_ref())
+                }) {
                     Ok(body_ty) => {
                         let span = (func.body.span.start, func.body.span.end);
                         if let Some(ref expected) = expected_ret_ty {
@@ -250,7 +256,9 @@ pub(super) fn check_ability_method_bodies(
                         method_env.insert_mono(param.id, Arc::clone(&param.name), param_ty);
                     }
 
-                    match infer.infer_expr_expecting(&method_env, body, Some(&expected_ret)) {
+                    match infer.with_return_type(expected_ret.clone(), |infer| {
+                        infer.infer_expr_expecting(&method_env, body, Some(&expected_ret))
+                    }) {
                         Ok(body_ty) => {
                             let span = (body.span.start, body.span.end);
                             if let Err(e) = infer.unify(&expected_ret, &body_ty, span) {

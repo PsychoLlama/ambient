@@ -130,6 +130,13 @@ pub struct Infer {
     pub(crate) pending_errors: Vec<error::BoxedTypeError>,
     /// Enclosing handler-arm contexts for typing `resume` (innermost last).
     pub(crate) resume_contexts: Vec<ResumeContext>,
+    /// Return types of the enclosing function-like bodies (innermost last):
+    /// what a `return` operand unifies with. Pushed by
+    /// [`with_return_type`](Self::with_return_type) around every body check —
+    /// fn items, ability method defaults, impl methods, lambdas, and handler
+    /// arms (a `return` in an arm completes the arm). Empty at the top level
+    /// (consts, REPL expressions), where `return` is an error.
+    pub(crate) return_types: Vec<Type>,
     /// Handle expressions whose body effects were still polymorphic when
     /// the handle was checked. Resolved (handled abilities subtracted) by
     /// [`Infer::resolve_pending_discharges`] once every body in the module
@@ -285,6 +292,7 @@ impl Infer {
             enum_registry: enums::EnumRegistry::default(),
             pending_errors: Vec::new(),
             resume_contexts: Vec::new(),
+            return_types: Vec::new(),
             pending_discharges: Vec::new(),
             pending_sandbox_checks: Vec::new(),
             workspace_name: Arc::from(""),
@@ -543,6 +551,17 @@ impl Infer {
         self.rigid_params.extend(params);
         let result = f(self);
         self.rigid_params = saved;
+        result
+    }
+
+    /// Run `f` with `ty` as the enclosing body's return type — what a
+    /// `return` operand inside the body unifies with. Every body-check site
+    /// wraps its body inference in this: fn items, ability method defaults,
+    /// impl methods, lambdas, and handler arms.
+    pub(crate) fn with_return_type<T>(&mut self, ty: Type, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.return_types.push(ty);
+        let result = f(self);
+        self.return_types.pop();
         result
     }
 

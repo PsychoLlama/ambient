@@ -345,6 +345,11 @@ impl Resolver<'_> {
                 self.resolve_expr(right);
             }
             ExprKind::Unary(_, inner) | ExprKind::Resume(inner) => self.resolve_expr(inner),
+            ExprKind::Return(value) => {
+                if let Some(value) = value {
+                    self.resolve_expr(value);
+                }
+            }
             ExprKind::If(cond, then, els) => {
                 self.resolve_expr(cond);
                 self.resolve_expr(then);

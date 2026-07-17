@@ -32,6 +32,7 @@ fn ident_strategy() -> impl Strategy<Value = String> {
                     | "with"
                     | "handle"
                     | "resume"
+                    | "return"
                     | "sandbox"
                     | "unique"
                     | "pkg"

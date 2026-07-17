@@ -336,7 +336,12 @@ impl Infer {
             result_ty: Some(result_ty.clone()),
             never_method,
         });
-        let handler_result = self.infer_expr(&handler_env, &mut handler.body);
+        // An arm is its own `return` scope: `return v` completes the arm
+        // (the arm runs in its own frame), so the operand unifies with the
+        // arm's result type — the handle expression's result.
+        let handler_result = self.with_return_type(result_ty.clone(), |infer| {
+            infer.infer_expr(&handler_env, &mut handler.body)
+        });
         self.resume_contexts.pop();
         let handler_ty = handler_result?;
         self.unify(result_ty, &handler_ty, span)?;

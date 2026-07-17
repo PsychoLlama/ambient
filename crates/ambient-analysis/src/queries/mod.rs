@@ -212,6 +212,10 @@ fn find_expr_in_tree(expr: &Expr, offset: u32) -> Option<&Expr> {
             .or_else(|| find_expr_in_tree(right, offset))
             .or(Some(expr)),
         ExprKind::Unary(_, operand) => find_expr_in_tree(operand, offset).or(Some(expr)),
+        ExprKind::Return(value) => value
+            .as_ref()
+            .and_then(|e| find_expr_in_tree(e, offset))
+            .or(Some(expr)),
         ExprKind::Call(callee, args) => find_expr_in_tree(callee, offset)
             .or_else(|| args.iter().find_map(|a| find_expr_in_tree(a, offset)))
             .or(Some(expr)),
@@ -422,6 +426,9 @@ fn variant_pattern_in_expr(expr: &Expr, offset: u32) -> Option<&QualifiedName> {
         | ExprKind::Resume(e)
         | ExprKind::TupleIndex(e, _)
         | ExprKind::RecordField(e, _) => variant_pattern_in_expr(e, offset),
+        ExprKind::Return(value) => value
+            .as_ref()
+            .and_then(|e| variant_pattern_in_expr(e, offset)),
         ExprKind::Sandbox(s) => variant_pattern_in_expr(&s.body, offset),
         ExprKind::Call(callee, args) => variant_pattern_in_expr(callee, offset)
             .or_else(|| args.iter().find_map(|a| variant_pattern_in_expr(a, offset))),

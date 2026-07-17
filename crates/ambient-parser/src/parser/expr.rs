@@ -278,6 +278,11 @@ impl Parser<'_> {
             return self.parse_resume_expr();
         }
 
+        // Return expression: `return expr` or bare `return`
+        if self.check(TokenKind::Return) {
+            return self.parse_return_expr();
+        }
+
         // Sandbox expression: sandbox with Ability { ... } or sandbox { ... }
         if self.check(TokenKind::Sandbox) {
             return self.parse_sandbox_expr();

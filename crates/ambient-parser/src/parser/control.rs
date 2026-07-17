@@ -285,6 +285,37 @@ impl Parser<'_> {
         })
     }
 
+    /// Parse a return expression: `return expr` or a bare `return`. The
+    /// operand is present unless the next token closes the surrounding
+    /// construct (so `{ return }`, `return;`, and `pat => return,` all
+    /// parse as a bare return).
+    pub(super) fn parse_return_expr(&mut self) -> Result<CstExpr, ParseError> {
+        let keyword = self.expect(TokenKind::Return)?;
+
+        self.skip_trivia();
+        let value = if matches!(
+            self.current_kind(),
+            TokenKind::RBrace
+                | TokenKind::RParen
+                | TokenKind::RBracket
+                | TokenKind::Semi
+                | TokenKind::Comma
+                | TokenKind::Eof
+        ) {
+            None
+        } else {
+            Some(Box::new(self.parse_expression()?))
+        };
+
+        let end = value
+            .as_ref()
+            .map_or(keyword.span.end, |value| value.span.end);
+        Ok(CstExpr {
+            kind: CstExprKind::Return(value),
+            span: Span::new(keyword.span.start, end),
+        })
+    }
+
     /// Parse a sandbox expression: `sandbox with Ability { body }` or `sandbox { body }`
     pub(super) fn parse_sandbox_expr(&mut self) -> Result<CstExpr, ParseError> {
         let start = self.current().span.start;

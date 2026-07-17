@@ -401,6 +401,11 @@ impl<'a> TokenCollector<'a> {
             ExprKind::Perform(call) => self.visit_ability_call(call),
             ExprKind::Handle(h) => self.visit_handle_expr(h),
             ExprKind::Resume(value) => self.visit_expr(value),
+            ExprKind::Return(value) => {
+                if let Some(value) = value {
+                    self.visit_expr(value);
+                }
+            }
             ExprKind::HandlerLiteral(h) => self.visit_handler_literal(h),
             ExprKind::Sandbox(s) => self.visit_sandbox(s),
             ExprKind::MethodCall {

@@ -40,6 +40,7 @@ fn test_keywords() {
     assert_eq!(lex("with"), vec![TokenKind::With, TokenKind::Eof]);
     assert_eq!(lex("handle"), vec![TokenKind::Handle, TokenKind::Eof]);
     assert_eq!(lex("resume"), vec![TokenKind::Resume, TokenKind::Eof]);
+    assert_eq!(lex("return"), vec![TokenKind::Return, TokenKind::Eof]);
     assert_eq!(lex("sandbox"), vec![TokenKind::Sandbox, TokenKind::Eof]);
     assert_eq!(lex("unique"), vec![TokenKind::Unique, TokenKind::Eof]);
 }

@@ -211,6 +211,11 @@ macro_rules! define_expr_walk {
                         $name(e, f);
                     }
                 }
+                ExprKind::Return(value) => {
+                    if let Some(e) = value {
+                        $name(e, f);
+                    }
+                }
                 ExprKind::Match(scrutinee, arms) => {
                     $name(scrutinee, f);
                     for arm in arms {

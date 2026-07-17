@@ -619,6 +619,23 @@ pub(super) fn compile_expr_tail(
             });
         }
 
+        ExprKind::Return(value) => {
+            // Early return: push the return value (unit when bare) and
+            // unwind the current frame. Every compiled body — fn, lambda,
+            // handler arm — is its own frame ending in an implicit `Return`,
+            // so a mid-chunk `Return` exits exactly the body the `return`
+            // belongs to. Anything emitted after this expression is
+            // unreachable, so no stack padding is owed to the (dead)
+            // continuation.
+            match value {
+                Some(value) => compile_expr(fc, value, ctx)?,
+                None => {
+                    fc.builder.emit_const(Value::Unit);
+                }
+            }
+            fc.builder.emit(Opcode::Return);
+        }
+
         ExprKind::HandlerLiteral(handler_lit) => {
             compile_handler_literal(fc, expr, handler_lit, ctx)?;
         }

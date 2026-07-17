@@ -213,6 +213,10 @@ pub enum ExprKind {
     /// Block expression: `{ stmt1; stmt2; expr }`.
     Block(Vec<Stmt>, Option<Box<Expr>>),
 
+    /// Early return from the enclosing function body: `return expr` or a
+    /// bare `return` (which returns unit). Types as `!`.
+    Return(Option<Box<Expr>>),
+
     // ─────────────────────────────────────────────────────────────────────────
     // Functions and calls
     // ─────────────────────────────────────────────────────────────────────────

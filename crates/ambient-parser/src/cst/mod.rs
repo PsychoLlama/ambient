@@ -694,6 +694,10 @@ pub enum CstExprKind {
     /// Resume a continuation with a value: `resume(value)`.
     Resume(Box<CstExpr>),
 
+    /// Early return from the enclosing function body: `return expr` or a
+    /// bare `return` (which returns unit).
+    Return(Option<Box<CstExpr>>),
+
     /// Handler literal: `{ read(path) => resume("content"), ... }`.
     /// Creates a first-class handler value.
     HandlerLiteral(Box<CstHandlerLiteralExpr>),

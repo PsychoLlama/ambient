@@ -794,6 +794,10 @@ fn write_expr(sink: &mut Sink, expr: &Expr) {
             write_qn_list(sink, allowed_abilities);
             write_expr(sink, body);
         }
+        ExprKind::Return(value) => {
+            sink.tag(25);
+            write_opt_expr(sink, value.as_deref());
+        }
     }
 }
 
