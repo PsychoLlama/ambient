@@ -22,6 +22,7 @@
   "sandbox"
   "unique"
   "extern"
+  "return"
 ] @keyword
 
 (visibility) @keyword

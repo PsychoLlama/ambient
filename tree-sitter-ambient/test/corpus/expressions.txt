@@ -487,3 +487,55 @@ fn f(): Number {
             name: (identifier))
           name: (identifier))
         (argument_list)))))
+
+================================================================================
+Return expression
+================================================================================
+
+fn f(x: Number): Number {
+  if x < 0 {
+    return 0 - x
+  } else {
+    x
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list
+      (parameter
+        name: (identifier)
+        type: (identifier)))
+    return_type: (identifier)
+    body: (block
+      (if_expression
+        condition: (binary_expression
+          (identifier)
+          (number))
+        then: (block
+          (return_expression
+            (binary_expression
+              (number)
+              (identifier))))
+        else: (block
+          (identifier))))))
+
+================================================================================
+Bare return
+================================================================================
+
+fn f() {
+  return
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    body: (block
+      (return_expression))))

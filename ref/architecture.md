@@ -48,6 +48,20 @@ fn add(x: Number, y: Number): Number {
 pub fn multiply(x: Number, y: Number): Number {
   x * y
 }
+
+// Early return. `return expr` (or a bare `return`, which returns unit) is
+// an expression of type `!` (never), so it fits any context — bottom
+// elimination, exactly like `Exception::throw!`. It exits the *innermost*
+// function-like body: a fn item, a lambda, or a handler arm (each runs in
+// its own frame; `return` in an arm completes the arm). The operand must
+// match that body's return type, and early returns pin an unannotated
+// return type just like the final expression does.
+fn clamp(x: Number): Number {
+  if x < 0 {
+    return 0
+  }
+  x
+}
 ```
 
 ### Modules

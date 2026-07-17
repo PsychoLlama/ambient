@@ -484,8 +484,11 @@ module.exports = grammar({
         $.with_handle_expression,
         $.sandbox_expression,
         $.handler_literal,
+        $.return_expression,
         $.parenthesized_expression
       ),
+
+    return_expression: ($) => prec.right(seq("return", optional($._expression))),
 
     parenthesized_expression: ($) => seq("(", $._expression, ")"),
 

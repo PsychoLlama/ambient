@@ -922,3 +922,54 @@ fn test_workspace_rooted_head_must_be_a_plain_identifier() {
         );
     }
 }
+
+#[test]
+fn test_parse_return_with_value() {
+    // The operand is parsed greedily, so the whole binary expression
+    // belongs to the return.
+    let mut parser = Parser::new("return x + 1").unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    match expr.kind {
+        CstExprKind::Return(Some(value)) => {
+            assert!(matches!(value.kind, CstExprKind::Binary { .. }));
+        }
+        _ => panic!("Expected return with a value, got {:?}", expr.kind),
+    }
+}
+
+#[test]
+fn test_parse_bare_return_before_close_brace() {
+    let mut parser = Parser::new("{ return }").unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    match expr.kind {
+        CstExprKind::Block {
+            stmts,
+            result: Some(result),
+        } => {
+            assert!(stmts.is_empty());
+            assert!(matches!(result.kind, CstExprKind::Return(None)));
+        }
+        _ => panic!("Expected block with bare return, got {:?}", expr.kind),
+    }
+}
+
+#[test]
+fn test_parse_bare_return_before_semicolon() {
+    let mut parser = Parser::new("{ return; 42 }").unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    match expr.kind {
+        CstExprKind::Block {
+            stmts,
+            result: Some(_),
+        } => {
+            assert_eq!(stmts.len(), 1);
+            match &stmts[0].kind {
+                CstStmtKind::Expr(e) => {
+                    assert!(matches!(e.kind, CstExprKind::Return(None)));
+                }
+                other => panic!("Expected expression statement, got {other:?}"),
+            }
+        }
+        _ => panic!("Expected block, got {:?}", expr.kind),
+    }
+}
