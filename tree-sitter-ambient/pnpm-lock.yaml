@@ -16,8 +16,8 @@ importers:
         specifier: ^24.10.1
         version: 24.10.1
       tree-sitter-cli:
-        specifier: ^0.24.0
-        version: 0.24.7
+        specifier: ^0.26.0
+        version: 0.26.11
       typescript:
         specifier: ^5.0.0
         version: 5.9.3
@@ -30,8 +30,8 @@ packages:
   nan@2.24.0:
     resolution: {integrity: sha512-Vpf9qnVW1RaDkoNKFUvfxqAbtI8ncb8OJlqZ9wwpXzWPEsvsB1nvdUi6oYrHIkQ1Y/tMDnr1h4nczS0VB9Xykg==}
 
-  tree-sitter-cli@0.24.7:
-    resolution: {integrity: sha512-o4gnE82pVmMMhJbWwD6+I9yr4lXii5Ci5qEQ2pFpUbVy1YiD8cizTJaqdcznA0qEbo7l2OneI1GocChPrI4YGQ==}
+  tree-sitter-cli@0.26.11:
+    resolution: {integrity: sha512-/hRCA0Ehkgk6B5WTYSiENk1R2Zv3LJcfvL3wjofzx+EYaKySZDu0agGRQcccay9Lg7wxJWsDa9cTRS92wsM5gQ==}
     engines: {node: '>=12.0.0'}
     hasBin: true
 
@@ -51,7 +51,7 @@ snapshots:
 
   nan@2.24.0: {}
 
-  tree-sitter-cli@0.24.7: {}
+  tree-sitter-cli@0.26.11: {}
 
   typescript@5.9.3: {}
 
