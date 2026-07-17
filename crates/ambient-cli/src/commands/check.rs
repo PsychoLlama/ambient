@@ -25,7 +25,7 @@ pub fn cmd_check(path: &Path) -> Result<()> {
     }
 
     if let Some(package) = AnalysisPackage::discover(path) {
-        return check_package_at(&package.root.clone());
+        return check_package_at(package.root());
     }
 
     check_single_file(path)
@@ -35,7 +35,7 @@ pub fn cmd_check(path: &Path) -> Result<()> {
 fn check_package_at(root: &Path) -> Result<()> {
     let package = AnalysisPackage::open(root).map_err(|e| anyhow::anyhow!(e))?;
     if package.modules.is_empty() {
-        bail!("no .ab files found under {}", package.src_dir.display());
+        bail!("no .ab files found under {}", package.src_dir().display());
     }
 
     let results = package.analyze_all();

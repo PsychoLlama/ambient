@@ -91,8 +91,7 @@ impl TestClient {
     pub fn with_package(name: &str, files: &[(&str, &str)]) -> Self {
         let root = PathBuf::from(VIRTUAL_ROOT);
         let src_dir = root.join("src");
-        let mut package = AnalysisPackage::empty(root, src_dir.clone());
-        package.package_name = name.to_string();
+        let mut package = AnalysisPackage::empty(root, src_dir.clone(), name);
         for (rel, content) in files {
             package.insert_module_at_path(rel, (*content).to_string());
         }

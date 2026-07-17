@@ -30,12 +30,16 @@ pub struct ModuleDeps {
     pub deps: std::collections::BTreeSet<ModuleId>,
 }
 
-/// A sibling workspace member loaded alongside the primary package, so
-/// `::pkg` references resolve and its files map to modules.
+/// One loaded workspace member: a mount name plus the directories it loads
+/// from. All members are the same shape; which one is *primary* is a
+/// position ([`AnalysisPackage::members`]`[0]`), not a different type.
 #[derive(Debug, Clone)]
-pub struct SiblingMember {
-    /// The member's package name — its mount segment.
+pub struct AnalysisMember {
+    /// The member's package name — its mount segment. Empty only for the
+    /// primary of an in-memory session with no manifest.
     pub name: String,
+    /// The member's root directory (where its ambient.toml is).
+    pub root: PathBuf,
     /// The member's source directory.
     pub src_dir: PathBuf,
 }
@@ -43,29 +47,23 @@ pub struct SiblingMember {
 /// A package opened for analysis: manifest info plus every parsed module.
 ///
 /// When the package is a workspace member, every *other* member loads too
-/// (as [`Self::siblings`], mounted under their own names) — the same
-/// everything-registers shape `build_package` uses, so `ambient check` and
-/// the LSP resolve `::pkg` references identically to a build.
+/// (mounted under their own names) — the same everything-registers shape
+/// `build_package` uses, so `ambient check` and the LSP resolve `::pkg`
+/// references identically to a build.
 #[derive(Debug)]
 pub struct AnalysisPackage {
-    /// The primary package root directory (where its ambient.toml is).
-    pub root: PathBuf,
-    /// The primary package's source directory.
-    pub src_dir: PathBuf,
-    /// The primary package name (`[package].name`). This is the workspace
-    /// scope every user item's `Fqn` is minted under, so it must match what
+    /// Every loaded member, primary first — never empty. Members are
+    /// uniform for loading and resolution; the primary is special only as
+    /// an anchor: its name is the workspace scope every user item's `Fqn`
+    /// is minted under (so it must match what
     /// `ambient_engine::build::build_package` uses — otherwise a consumer
     /// that links analysis output against a build (the REPL) sees
-    /// mismatched identities. Empty for an in-memory session with no
-    /// manifest.
-    pub package_name: String,
+    /// mismatched identities), and its root is where the session loads
+    /// snapshots from.
+    pub members: Vec<AnalysisMember>,
     /// Parsed modules across every loaded member, keyed by (mounted)
     /// module path string.
     pub modules: HashMap<String, ParsedModule>,
-    /// Host abilities configured in `[host].abilities`.
-    pub host_abilities: Vec<String>,
-    /// The other workspace members, when the primary is one.
-    pub siblings: Vec<SiblingMember>,
 }
 
 /// A parsed module with its source and (possibly partial) AST.
@@ -146,14 +144,17 @@ impl AnalysisPackage {
     }
 
     /// Assemble a package (plus siblings) without loading modules.
-    fn from_manifest(manifest: Manifest, root: &Path, siblings: Vec<SiblingMember>) -> Self {
-        Self {
+    fn from_manifest(manifest: Manifest, root: &Path, siblings: Vec<AnalysisMember>) -> Self {
+        let primary = AnalysisMember {
+            name: manifest.name,
             root: lexically_normalize(root),
             src_dir: lexically_normalize(&root.join(&manifest.src_dir)),
-            package_name: manifest.name,
+        };
+        let mut members = vec![primary];
+        members.extend(siblings);
+        Self {
+            members,
             modules: HashMap::new(),
-            host_abilities: manifest.host_abilities,
-            siblings,
         }
     }
 
@@ -162,17 +163,44 @@ impl AnalysisPackage {
     /// Used by the REPL, which accumulates a single synthetic `repl` module
     /// in memory and re-checks it each turn. `root`/`src_dir` are notional —
     /// nothing is read from them — but `insert_module` and `build_registry`
-    /// work exactly as they do for an on-disk package.
+    /// work exactly as they do for an on-disk package. `name` mounts the
+    /// package (empty stays unmounted); it is fixed at construction because
+    /// inserted modules key off the mount.
     #[must_use]
-    pub fn empty(root: PathBuf, src_dir: PathBuf) -> Self {
+    pub fn empty(root: PathBuf, src_dir: PathBuf, name: &str) -> Self {
         Self {
-            root,
-            src_dir,
-            package_name: String::new(),
+            members: vec![AnalysisMember {
+                name: name.to_string(),
+                root,
+                src_dir,
+            }],
             modules: HashMap::new(),
-            host_abilities: Vec::new(),
-            siblings: Vec::new(),
         }
+    }
+
+    /// The primary member — the package analysis was opened *at*.
+    #[must_use]
+    fn primary(&self) -> &AnalysisMember {
+        &self.members[0]
+    }
+
+    /// The primary package root directory (where its ambient.toml is).
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.primary().root
+    }
+
+    /// The primary package's source directory.
+    #[must_use]
+    pub fn src_dir(&self) -> &Path {
+        &self.primary().src_dir
+    }
+
+    /// The primary package name (`[package].name`) — the workspace scope.
+    /// Empty for an in-memory session with no manifest.
+    #[must_use]
+    pub fn package_name(&self) -> &str {
+        &self.primary().name
     }
 
     /// Open the package (or whole workspace) rooted at `root` — its
@@ -195,29 +223,27 @@ impl AnalysisPackage {
     /// in-memory session with no manifest (empty `package_name`) stays bare.
     #[must_use]
     fn mount(&self) -> Option<&str> {
-        (!self.package_name.is_empty()).then_some(self.package_name.as_str())
+        let name = self.package_name();
+        (!name.is_empty()).then_some(name)
     }
 
-    /// Every loaded member as `(mount, src_dir)`, primary first.
-    fn members(&self) -> impl Iterator<Item = (&str, &Path)> {
-        self.mount()
-            .map(|mount| (mount, self.src_dir.as_path()))
-            .into_iter()
-            .chain(
-                self.siblings
-                    .iter()
-                    .map(|s| (s.name.as_str(), s.src_dir.as_path())),
-            )
+    /// Every mounted member as `(mount, src_dir)`, primary first. An
+    /// unmounted in-memory package (empty primary name) yields nothing.
+    fn mounts(&self) -> impl Iterator<Item = (&str, &Path)> {
+        self.members
+            .iter()
+            .filter(|m| !m.name.is_empty())
+            .map(|m| (m.name.as_str(), m.src_dir.as_path()))
     }
 
     /// The module path for a source file inside any loaded member.
     #[must_use]
     pub fn module_path_for(&self, file: &Path) -> Option<ModulePath> {
         if self.mount().is_none() {
-            let relative = file.strip_prefix(&self.src_dir).ok()?;
+            let relative = file.strip_prefix(self.src_dir()).ok()?;
             return ModulePath::from_relative_file_path(relative);
         }
-        for (mount, src_dir) in self.members() {
+        for (mount, src_dir) in self.mounts() {
             if let Ok(relative) = file.strip_prefix(src_dir) {
                 return ModulePath::from_relative_file_path(&Path::new(mount).join(relative));
             }
@@ -234,9 +260,12 @@ impl AnalysisPackage {
     pub fn file_for_module(&self, path: &ModulePath) -> PathBuf {
         let owner_src = |path: &ModulePath| -> PathBuf {
             let first = path.segments().first().map(AsRef::as_ref);
-            self.members()
+            self.mounts()
                 .find(|(mount, _)| Some(*mount) == first)
-                .map_or_else(|| self.src_dir.clone(), |(_, src)| src.to_path_buf())
+                .map_or_else(
+                    || self.src_dir().to_path_buf(),
+                    |(_, src)| src.to_path_buf(),
+                )
         };
         if let Some(source_path) = self
             .modules
@@ -249,14 +278,14 @@ impl AnalysisPackage {
         // `src/utils.ab`, and the mount itself is the root `main.ab`.
         let segments = path.segments();
         let first = segments.first().map(AsRef::as_ref);
-        if let Some((_, src_dir)) = self.members().find(|(mount, _)| Some(*mount) == first) {
+        if let Some((_, src_dir)) = self.mounts().find(|(mount, _)| Some(*mount) == first) {
             let relative = match ModulePath::from_segments(segments[1..].to_vec()) {
                 Some(inner) => inner.to_file_path(),
                 None => PathBuf::from("main.ab"),
             };
             return src_dir.join(relative);
         }
-        self.src_dir.join(path.to_file_path())
+        self.src_dir().join(path.to_file_path())
     }
 
     /// Discover and parse every `.ab` file under every loaded member's
@@ -265,13 +294,13 @@ impl AnalysisPackage {
     /// Files with syntax errors still register with their parseable items,
     /// so the rest of the package resolves imports against them.
     pub fn load_modules(&mut self) {
-        let members: Vec<(String, PathBuf)> = if self.mount().is_none() {
-            vec![(String::new(), self.src_dir.clone())]
-        } else {
-            self.members()
-                .map(|(mount, src)| (mount.to_string(), src.to_path_buf()))
-                .collect()
-        };
+        // Members are uniform here: an unmounted primary is just the empty
+        // mount, which the join below leaves bare.
+        let members: Vec<(String, PathBuf)> = self
+            .members
+            .iter()
+            .map(|m| (m.name.clone(), m.src_dir.clone()))
+            .collect();
         for (mount, src_dir) in members {
             for file in discover_ab_files(&src_dir) {
                 let Ok(relative) = file.strip_prefix(&src_dir) else {
@@ -322,7 +351,7 @@ impl AnalysisPackage {
         src_relative_path: &str,
         source: String,
     ) -> Option<ModulePath> {
-        let file = self.src_dir.join(src_relative_path);
+        let file = self.src_dir().join(src_relative_path);
         let module_path = self.module_path_for(&file)?;
         let source_path = Some(src_relative_path.replace('\\', "/"));
         self.insert_module_with_path(module_path.clone(), source, source_path);
@@ -343,7 +372,7 @@ impl AnalysisPackage {
         let owner_mount = path
             .segments()
             .first()
-            .filter(|first| self.members().any(|(mount, _)| mount == first.as_ref()))
+            .filter(|first| self.mounts().any(|(mount, _)| mount == first.as_ref()))
             .cloned();
         let is_dir_module = source_path
             .as_deref()
@@ -418,11 +447,11 @@ impl AnalysisPackage {
         // build. This keeps `ambient check`/LSP identity-consistent with
         // `ambient run`, and lets the REPL link its session module against
         // a `build_package` base.
-        if !self.package_name.is_empty() {
-            for (mount, _) in self.members() {
+        if let Some(primary) = self.mount() {
+            for (mount, _) in self.mounts() {
                 registry.add_mount(mount);
             }
-            registry.set_workspace_name(self.package_name.as_str());
+            registry.set_workspace_name(primary);
         }
         for module in self.modules.values() {
             registry.register_module(
@@ -510,14 +539,15 @@ impl AnalysisPackage {
 fn sibling_members(
     workspace: &ambient_engine::workspace::Workspace,
     skip: Option<usize>,
-) -> Vec<SiblingMember> {
+) -> Vec<AnalysisMember> {
     workspace
         .members
         .iter()
         .enumerate()
         .filter(|(i, _)| Some(*i) != skip)
-        .map(|(_, member)| SiblingMember {
+        .map(|(_, member)| AnalysisMember {
             name: member.name.clone(),
+            root: lexically_normalize(&member.root),
             src_dir: lexically_normalize(&member.root.join(&member.manifest.src_dir)),
         })
         .collect()
@@ -717,13 +747,14 @@ mod tests {
         let mut package = AnalysisPackage::discover(&main).expect("discover package");
         let normalized_root = lexically_normalize(root);
         assert_eq!(
-            package.src_dir, normalized_root,
+            package.src_dir(),
+            normalized_root,
             "src = \"./\" should normalize src_dir to the package root"
         );
         assert!(
-            !package.src_dir.to_string_lossy().contains("/./"),
+            !package.src_dir().to_string_lossy().contains("/./"),
             "src_dir must not carry a `.` component: {:?}",
-            package.src_dir
+            package.src_dir()
         );
 
         // And the module→file reconstruction every minted URI flows through must

@@ -712,10 +712,10 @@ impl ReplSession {
     /// named `probe`): where `pkg` anchors and the floor `super` may not
     /// step above. Empty for a project-less session (bare layout).
     fn package_root_segments(&self) -> Vec<Arc<str>> {
-        if self.package.package_name.is_empty() {
+        if self.package.package_name().is_empty() {
             Vec::new()
         } else {
-            vec![Arc::from(self.package.package_name.as_str())]
+            vec![Arc::from(self.package.package_name())]
         }
     }
 
@@ -860,7 +860,7 @@ fn build_base(
         }
         None => {
             let core = core_context()?;
-            let package = AnalysisPackage::empty(PathBuf::from("."), PathBuf::from("."));
+            let package = AnalysisPackage::empty(PathBuf::from("."), PathBuf::from("."), "");
             Ok((package, core.compiled, core.hashes))
         }
     }
@@ -882,10 +882,10 @@ fn session_module_path(package: &AnalysisPackage, launch_dir: &Path) -> ModulePa
             // source root. Module paths are mounted under the package name,
             // so the fallback must be too — a bare path in a mounted
             // registry would resolve `pkg::`/`self` at the workspace root.
-            if package.package_name.is_empty() {
+            if package.package_name().is_empty() {
                 ModulePath::from_str_segments(&[SESSION_MODULE])
             } else {
-                ModulePath::from_str_segments(&[package.package_name.as_str(), SESSION_MODULE])
+                ModulePath::from_str_segments(&[package.package_name(), SESSION_MODULE])
             }
         })
         .expect("the reserved session module name is a valid module path")

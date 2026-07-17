@@ -75,8 +75,8 @@ impl Fixture {
         let mut package = AnalysisPackage::empty(
             PathBuf::from("/rename-test"),
             PathBuf::from("/rename-test/src"),
+            "test",
         );
-        package.package_name = "test".to_string();
         for (rel, content) in &self.sources {
             package.insert_module_at_path(rel, content.clone());
         }

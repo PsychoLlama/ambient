@@ -326,7 +326,7 @@ impl AnalysisSession {
     /// untouched. A missing store, absent pointer, or corrupt manifest all
     /// leave the index empty; the session is fully functional without it.
     pub fn load_snapshot(&mut self) {
-        self.snapshot = read_package_snapshot(&self.package.root);
+        self.snapshot = read_package_snapshot(self.package.root());
     }
 
     /// Every workspace symbol matching `query`, from the live interfaces and

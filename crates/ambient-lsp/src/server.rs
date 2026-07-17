@@ -783,7 +783,7 @@ fn handle_workspace_symbol(
     let mut symbols: Vec<SymbolInformation> = Vec::new();
 
     if let Some(session) = state.session.as_ref() {
-        let src_dir = &session.package().src_dir;
+        let src_dir = session.package().src_dir();
         for sym in session.workspace_symbols(&params.query) {
             let Some(uri) = path_to_uri(&src_dir.join(&sym.source_path)) else {
                 continue;
