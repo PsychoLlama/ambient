@@ -87,3 +87,13 @@ fn pattern_malformed_prefix_errors_cleanly() {
         assert!(!rec, "recovering should reject `{pat}`");
     }
 }
+
+#[test]
+fn pattern_accepts_workspace_rooted_variant() {
+    // A leading `::` roots the path at the workspace, carried as an empty
+    // head segment exactly like expression position.
+    assert_eq!(
+        variant_pat_segments("::other_pkg::shapes::Shape::Circle(r)"),
+        ["", "other_pkg", "shapes", "Shape", "Circle"]
+    );
+}

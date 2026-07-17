@@ -20,6 +20,7 @@
 
 mod control;
 mod expr;
+mod expr_operators;
 #[cfg(test)]
 mod function_type_tests;
 mod items;
@@ -357,14 +358,34 @@ impl<'src> Parser<'src> {
         })
     }
 
+    /// Consume a leading `::` (a workspace-rooted path, `::other_pkg::item`)
+    /// as an empty head segment spanning the separator — the spelling
+    /// `QualifiedName` carries a workspace root as. `None` when the path has
+    /// no leading separator.
+    pub(crate) fn parse_workspace_root(&mut self) -> Option<CstIdent> {
+        let token = self.consume(TokenKind::ColonColon)?;
+        let trailing_trivia = self.skip_trivia();
+        Some(CstIdent {
+            name: "".into(),
+            span: token.span,
+            trailing_trivia,
+        })
+    }
+
     fn parse_qualified_name(&mut self) -> Result<CstQualifiedName, ParseError> {
         let mut segments = Vec::new();
         let start = self.current().span.start;
 
-        // A path may be rooted at a keyword (`pkg::m::T`, `core::collections::list`,
+        // A path may be rooted at the workspace (`::other_pkg::T`, an empty
+        // head segment) or at a keyword (`pkg::m::T`, `core::collections::list`,
         // `self::m::T`, `super::m::T`); segments after the head are plain
-        // identifiers. `parse_use_segment` accepts exactly this set.
-        segments.push(self.parse_use_segment()?);
+        // identifiers. `parse_use_segment` accepts exactly the keyword set.
+        if let Some(root) = self.parse_workspace_root() {
+            segments.push(root);
+            segments.push(self.parse_ident()?);
+        } else {
+            segments.push(self.parse_use_segment()?);
+        }
 
         while self.consume(TokenKind::ColonColon).is_some() {
             if !self.check(TokenKind::Ident) && !self.check(TokenKind::Super) {

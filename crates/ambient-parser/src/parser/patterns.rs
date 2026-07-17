@@ -3,7 +3,9 @@
 use ambient_engine::ast::Span;
 
 use super::Parser;
-use crate::cst::{CstLiteral, CstPattern, CstPatternKind, CstQualifiedName, CstRecordPatternField};
+use crate::cst::{
+    CstIdent, CstLiteral, CstPattern, CstPatternKind, CstQualifiedName, CstRecordPatternField,
+};
 use crate::error::{ParseError, ParseErrorKind};
 use crate::lexer::TokenKind;
 
@@ -131,21 +133,29 @@ impl Parser<'_> {
         }
 
         // Identifier or path-prefix-keyword-headed variant. A pattern path may
-        // be rooted at the same prefix keywords expression position accepts
-        // (`pkg`, `core`, `super`, `self`), lexed as their own token kinds
-        // rather than `Ident`; `parse_path_segment` is the shared head reader.
+        // be rooted at the workspace (`::other_pkg::Shape::Circle`, an empty
+        // head segment) or at the same prefix keywords expression position
+        // accepts (`pkg`, `core`, `super`, `self`), lexed as their own token
+        // kinds rather than `Ident`; `parse_path_segment` is the shared head
+        // reader.
         let keyword_head = matches!(
             self.current_kind(),
             TokenKind::Pkg | TokenKind::Core | TokenKind::Super | TokenKind::Self_
         );
-        if self.check(TokenKind::Ident) || keyword_head {
-            let ident = self.parse_path_segment()?;
+        if self.check(TokenKind::Ident) || self.check(TokenKind::ColonColon) || keyword_head {
+            let workspace_root = self.parse_workspace_root();
+            let ident = if workspace_root.is_some() {
+                self.parse_ident()?
+            } else {
+                self.parse_path_segment()?
+            };
 
             // Check for qualified variant (`pkg::shapes::Shape::Circle`,
             // `shapes::Shape::Circle`). A keyword head must reach this branch:
             // a lone `pkg`/`core`/`super`/`self` is not a pattern.
-            if self.check(TokenKind::ColonColon) {
-                let mut segments = vec![ident];
+            if workspace_root.is_some() || self.check(TokenKind::ColonColon) {
+                let mut segments: Vec<CstIdent> = workspace_root.into_iter().collect();
+                segments.push(ident);
                 while self.consume(TokenKind::ColonColon).is_some() {
                     segments.push(self.parse_ident()?);
                 }

@@ -401,6 +401,10 @@ impl<'r> Resolver<'r> {
     fn resolve_module_prefix(&self, path: &[Arc<str>]) -> Option<ModulePath> {
         let head = path.first()?;
         let (mut cursor, rest): (Option<ModulePath>, &[Arc<str>]) = match head.as_ref() {
+            // A leading `::` (spelled as an empty head segment) roots at the
+            // workspace: the following segment names a package mount,
+            // exactly like `use ::pkg::…` resolution.
+            "" => (None, &path[1..]),
             // `pkg` anchors at the module's own package root: the mount in
             // a mounted build, the registry root (`None`) in the bare
             // layout.

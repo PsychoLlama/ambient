@@ -928,6 +928,9 @@ fn resolve_module_reference(
             ModulePath::from_segments(segments)
         }
         "pkg" => ModulePath::from_segments(rest.to_vec()),
+        // A workspace-rooted path (`::pkg::…`, spelled with an empty head
+        // segment) is already absolute in the mounted namespace.
+        "" => ModulePath::from_segments(rest.to_vec()),
         _ => None,
     };
     if let Some(path) = absolute {

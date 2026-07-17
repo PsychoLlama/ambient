@@ -1,11 +1,12 @@
-//! Expression parsing with precedence climbing.
+//! Expression parsing: primary and postfix expressions. The binary/unary
+//! operator precedence ladder lives in `expr_operators.rs`.
 
 use ambient_engine::ast::Span;
 
 use super::Parser;
 use crate::cst::{
-    CstBinaryOp, CstExpr, CstExprKind, CstHandlerLiteralExpr, CstHandlerLiteralMethod, CstIdent,
-    CstLambda, CstQualifiedName, CstUnaryOp,
+    CstExpr, CstExprKind, CstHandlerLiteralExpr, CstHandlerLiteralMethod, CstIdent, CstLambda,
+    CstQualifiedName,
 };
 use crate::error::{ParseError, ParseErrorKind};
 use crate::lexer::TokenKind;
@@ -18,188 +19,6 @@ impl Parser<'_> {
     /// Returns a `ParseError` if the source is not a valid expression.
     pub fn parse_expression(&mut self) -> Result<CstExpr, ParseError> {
         self.parse_or_expr()
-    }
-
-    pub(super) fn parse_or_expr(&mut self) -> Result<CstExpr, ParseError> {
-        let mut left = self.parse_and_expr()?;
-
-        while self.consume(TokenKind::OrOr).is_some() {
-            let right = self.parse_and_expr()?;
-            let span = Span::new(left.span.start, right.span.end);
-            left = CstExpr {
-                kind: CstExprKind::Binary {
-                    op: CstBinaryOp::Or,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                },
-                span,
-            };
-        }
-
-        Ok(left)
-    }
-
-    fn parse_and_expr(&mut self) -> Result<CstExpr, ParseError> {
-        let mut left = self.parse_equality_expr()?;
-
-        while self.consume(TokenKind::AndAnd).is_some() {
-            let right = self.parse_equality_expr()?;
-            let span = Span::new(left.span.start, right.span.end);
-            left = CstExpr {
-                kind: CstExprKind::Binary {
-                    op: CstBinaryOp::And,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                },
-                span,
-            };
-        }
-
-        Ok(left)
-    }
-
-    fn parse_equality_expr(&mut self) -> Result<CstExpr, ParseError> {
-        let mut left = self.parse_comparison_expr()?;
-
-        loop {
-            let op = if self.consume(TokenKind::EqEq).is_some() {
-                CstBinaryOp::Eq
-            } else if self.consume(TokenKind::Ne).is_some() {
-                CstBinaryOp::Ne
-            } else {
-                break;
-            };
-
-            let right = self.parse_comparison_expr()?;
-            let span = Span::new(left.span.start, right.span.end);
-            left = CstExpr {
-                kind: CstExprKind::Binary {
-                    op,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                },
-                span,
-            };
-        }
-
-        Ok(left)
-    }
-
-    fn parse_comparison_expr(&mut self) -> Result<CstExpr, ParseError> {
-        let mut left = self.parse_additive_expr()?;
-
-        loop {
-            let op = if self.consume(TokenKind::Lt).is_some() {
-                CstBinaryOp::Lt
-            } else if self.consume(TokenKind::Le).is_some() {
-                CstBinaryOp::Le
-            } else if self.consume(TokenKind::Gt).is_some() {
-                CstBinaryOp::Gt
-            } else if self.consume(TokenKind::Ge).is_some() {
-                CstBinaryOp::Ge
-            } else {
-                break;
-            };
-
-            let right = self.parse_additive_expr()?;
-            let span = Span::new(left.span.start, right.span.end);
-            left = CstExpr {
-                kind: CstExprKind::Binary {
-                    op,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                },
-                span,
-            };
-        }
-
-        Ok(left)
-    }
-
-    fn parse_additive_expr(&mut self) -> Result<CstExpr, ParseError> {
-        let mut left = self.parse_multiplicative_expr()?;
-
-        loop {
-            let op = if self.consume(TokenKind::Plus).is_some() {
-                CstBinaryOp::Add
-            } else if self.consume(TokenKind::Minus).is_some() {
-                CstBinaryOp::Sub
-            } else {
-                break;
-            };
-
-            let right = self.parse_multiplicative_expr()?;
-            let span = Span::new(left.span.start, right.span.end);
-            left = CstExpr {
-                kind: CstExprKind::Binary {
-                    op,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                },
-                span,
-            };
-        }
-
-        Ok(left)
-    }
-
-    fn parse_multiplicative_expr(&mut self) -> Result<CstExpr, ParseError> {
-        let mut left = self.parse_unary_expr()?;
-
-        loop {
-            let op = if self.consume(TokenKind::Star).is_some() {
-                CstBinaryOp::Mul
-            } else if self.consume(TokenKind::Slash).is_some() {
-                CstBinaryOp::Div
-            } else if self.consume(TokenKind::Percent).is_some() {
-                CstBinaryOp::Mod
-            } else {
-                break;
-            };
-
-            let right = self.parse_unary_expr()?;
-            let span = Span::new(left.span.start, right.span.end);
-            left = CstExpr {
-                kind: CstExprKind::Binary {
-                    op,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                },
-                span,
-            };
-        }
-
-        Ok(left)
-    }
-
-    fn parse_unary_expr(&mut self) -> Result<CstExpr, ParseError> {
-        let start = self.current().span.start;
-
-        if self.consume(TokenKind::Minus).is_some() {
-            let operand = self.parse_unary_expr()?;
-            let span = Span::new(start, operand.span.end);
-            return Ok(CstExpr {
-                kind: CstExprKind::Unary {
-                    op: CstUnaryOp::Neg,
-                    operand: Box::new(operand),
-                },
-                span,
-            });
-        }
-
-        if self.consume(TokenKind::Bang).is_some() {
-            let operand = self.parse_unary_expr()?;
-            let span = Span::new(start, operand.span.end);
-            return Ok(CstExpr {
-                kind: CstExprKind::Unary {
-                    op: CstUnaryOp::Not,
-                    operand: Box::new(operand),
-                },
-                span,
-            });
-        }
-
-        self.parse_postfix_expr()
     }
 
     #[allow(clippy::too_many_lines)]
@@ -464,11 +283,13 @@ impl Parser<'_> {
             return self.parse_sandbox_expr();
         }
 
-        // Identifier or qualified name (including pkg::module::function, core::module::function)
+        // Identifier or qualified name (including pkg::module::function, core::module::function,
+        // and workspace-rooted ::other_package::function)
         // Note: Self_ is NOT included here because in expressions `self` is an identifier
         // (the instance in a method), not a module prefix. Module prefix `self` is only
         // valid in import statements, which are parsed separately.
         if self.check(TokenKind::Ident)
+            || self.check(TokenKind::ColonColon)
             || matches!(
                 self.current_kind(),
                 TokenKind::Pkg | TokenKind::Core | TokenKind::Super | TokenKind::Self_
@@ -486,18 +307,29 @@ impl Parser<'_> {
     fn parse_ident_or_qualified(&mut self) -> Result<CstExpr, ParseError> {
         let start = self.current().span.start;
 
+        // A leading `::` roots the path at the workspace (`::other_pkg::item`),
+        // recorded as an empty head segment spanning the separator — the same
+        // spelling the AST's `QualifiedName` carries. The next segment names a
+        // package, so it must be a plain identifier, never a prefix keyword.
+        let workspace_root = self.parse_workspace_root();
+
         // Parse the head segment. Module-prefix keywords (`pkg`, `core`,
         // `super`) and `self` are lexed as their own token kinds rather than as
         // `Ident`, so accept them explicitly as the head of a path. In an
         // expression `self` is normally the instance reference, but it may also
         // head a qualified name, so it is handled uniformly here.
-        let ident = self.parse_path_segment()?;
+        let ident = if workspace_root.is_some() {
+            self.parse_ident()?
+        } else {
+            self.parse_path_segment()?
+        };
 
         // A `::` after the head starts a qualified name (`core::primitives::number::abs`,
         // `core::system::FileSystem`, `stats::mean`). A plain `.` is left to postfix
         // parsing, where it means field access, method call, or tuple index.
-        if self.check(TokenKind::ColonColon) {
-            let mut segments = vec![ident];
+        if workspace_root.is_some() || self.check(TokenKind::ColonColon) {
+            let mut segments: Vec<CstIdent> = workspace_root.into_iter().collect();
+            segments.push(ident);
             while self.consume(TokenKind::ColonColon).is_some() {
                 if !self.check(TokenKind::Ident) {
                     break;

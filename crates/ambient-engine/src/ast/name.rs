@@ -8,7 +8,11 @@ use crate::fqn::{Fqn, ModuleId, NameKey};
 /// A reference to a named item (function, type, ability).
 #[derive(Debug, Clone)]
 pub struct QualifiedName {
-    /// Module path segments (empty for local names).
+    /// Module path segments (empty for local names). A workspace-rooted
+    /// reference (`::other_pkg::item`) spells its leading `::` as an empty
+    /// head segment — the same convention `use ::` resolution keys on — so
+    /// spelled equality, [`Self::joined`] rendering, and hashing all
+    /// distinguish `::foo::x` from `foo::x` without a separate flag.
     pub path: Vec<Arc<str>>,
     /// Source spans for each path segment (for IDE features).
     /// Same length as `path`, or empty if spans are not available.

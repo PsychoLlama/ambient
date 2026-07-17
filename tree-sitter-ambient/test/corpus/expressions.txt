@@ -464,3 +464,26 @@ fn f(): String {
         (argument_list
           (identifier)
           (identifier))))))
+
+================================================================================
+Workspace-rooted path expression
+================================================================================
+
+fn f(): Number {
+  ::other_pkg::greet()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_definition
+    name: (identifier)
+    (parameter_list)
+    return_type: (identifier)
+    body: (block
+      (call_expression
+        (scoped_identifier
+          path: (scoped_identifier
+            name: (identifier))
+          name: (identifier))
+        (argument_list)))))

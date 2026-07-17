@@ -362,3 +362,63 @@ fn library_members_need_no_entry_point() {
     let (ok, out) = invoke("build", &path, &[]);
     assert!(ok, "building the library alone failed:\n{out}");
 }
+
+#[test]
+fn inline_workspace_paths_run_without_imports() {
+    // `::pkg::…` works directly in expression position — no `use` needed.
+    // Covers a root item, a submodule item, and a type + variant in type
+    // and pattern position.
+    let ws = workspace(
+        &["app", "lib"],
+        &[
+            (
+                "lib",
+                "main.ab",
+                "pub unique(A1B2C3D4-0000-0000-0000-00000000AB01) enum Shape { Dot, Circle(Number) }\n\
+                 pub fn greet(): Number { 40 }\n",
+            ),
+            ("lib", "util.ab", "pub fn helper(): Number { 1 }\n"),
+            (
+                "app",
+                "main.ab",
+                "fn area(shape: ::lib::Shape): Number {\n\
+                 \x20   match shape {\n\
+                 \x20       ::lib::Shape::Circle(r) => r,\n\
+                 \x20       ::lib::Shape::Dot => 0,\n\
+                 \x20   }\n\
+                 }\n\
+                 pub fn run(): Number {\n\
+                 \x20   ::lib::greet() + ::lib::util::helper() + area(::lib::Shape::Circle(1))\n\
+                 }\n",
+            ),
+        ],
+    );
+
+    let (ok, out) = invoke("run", &ws.path().join("app"), &[]);
+    assert!(ok, "run failed:\n{out}");
+    assert_eq!(out.trim(), "42");
+
+    let (ok, out) = invoke("check", ws.path(), &[]);
+    assert!(ok, "check failed:\n{out}");
+}
+
+#[test]
+fn inline_workspace_paths_respect_visibility() {
+    // A private item is no more reachable through an inline `::pkg` path
+    // than through `use ::pkg` — same boundary, same error.
+    let ws = workspace(
+        &["app", "lib"],
+        &[
+            ("lib", "main.ab", "fn hidden(): Number { 1 }\n"),
+            (
+                "app",
+                "main.ab",
+                "pub fn run(): Number { ::lib::hidden() }\n",
+            ),
+        ],
+    );
+
+    let (ok, out) = invoke("check", &ws.path().join("app"), &[]);
+    assert!(!ok, "private inline access should fail:\n{out}");
+    assert!(out.contains("hidden"), "error should name the item:\n{out}");
+}

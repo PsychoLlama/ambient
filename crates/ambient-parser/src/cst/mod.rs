@@ -292,7 +292,9 @@ pub struct CstParam {
 /// A qualified name (potentially with module path).
 #[derive(Debug, Clone)]
 pub struct CstQualifiedName {
-    /// Path segments.
+    /// Path segments. A workspace-rooted path (`::other_pkg::item`) carries
+    /// its leading `::` as an empty-named head segment spanning the
+    /// separator, mirroring the `QualifiedName` AST spelling.
     pub segments: Vec<CstIdent>,
     /// Source span covering the whole name.
     pub span: Span,

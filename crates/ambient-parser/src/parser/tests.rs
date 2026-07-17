@@ -861,3 +861,64 @@ fn test_repl_binding_to_lambda_and_struct_literal() {
         );
     }
 }
+
+/// Segment names of a qualified-name expression parsed from `src`.
+fn qualified_expr_segments(src: &str) -> Vec<String> {
+    let mut parser = Parser::new(src).unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    match expr.kind {
+        CstExprKind::QualifiedName(qn) => qn.segments.iter().map(|s| s.name.to_string()).collect(),
+        other => panic!("expected qualified name, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_workspace_rooted_expression_path() {
+    // A leading `::` roots the path at the workspace; it survives as an
+    // empty head segment so resolve can key on it.
+    assert_eq!(
+        qualified_expr_segments("::other_pkg::utils::helper"),
+        ["", "other_pkg", "utils", "helper"]
+    );
+    assert_eq!(
+        qualified_expr_segments("::other_pkg::item"),
+        ["", "other_pkg", "item"]
+    );
+}
+
+#[test]
+fn test_workspace_rooted_perform_carries_its_ability() {
+    let mut parser = Parser::new("::other_pkg::Logger::log!(1)").unwrap();
+    let expr = parser.parse_expression().expect("parse error");
+    let CstExprKind::Perform {
+        ability, method, ..
+    } = expr.kind
+    else {
+        panic!("expected perform, got {:?}", expr.kind);
+    };
+    let segments: Vec<String> = ability
+        .segments
+        .iter()
+        .map(|s| s.name.to_string())
+        .collect();
+    assert_eq!(segments, ["", "other_pkg", "Logger"]);
+    assert_eq!(method.name.as_ref(), "log");
+}
+
+#[test]
+fn test_workspace_rooted_head_must_be_a_plain_identifier() {
+    // The segment after a leading `::` names a package; prefix keywords
+    // (`pkg`, `core`, `super`, `self`) are not package names.
+    for src in [
+        "::pkg::item",
+        "::core::item",
+        "::super::item",
+        "::self::item",
+    ] {
+        let mut parser = Parser::new(src).unwrap();
+        assert!(
+            parser.parse_expression().is_err(),
+            "{src} should be rejected"
+        );
+    }
+}

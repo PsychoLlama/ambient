@@ -317,7 +317,9 @@ module.exports = grammar({
         )
       ),
 
-    use_path: ($) => seq($.identifier, repeat(seq("::", $.identifier))),
+    // A leading `::` roots the path at the workspace (`use ::other_pkg::x;`).
+    use_path: ($) =>
+      seq(optional("::"), $.identifier, repeat(seq("::", $.identifier))),
 
     use_group: ($) =>
       seq(
@@ -522,11 +524,13 @@ module.exports = grammar({
     perform_expression: ($) => prec(PREC.PERFORM, seq($._expression, "!")),
 
     // Namespace / path access uses `::` (`core::math::abs`, `platform::Fs`).
+    // A leading `::` with no path roots the name at the workspace
+    // (`::other_pkg::item`).
     scoped_identifier: ($) =>
       prec(
         PREC.MEMBER,
         seq(
-          field("path", choice($.identifier, $.scoped_identifier)),
+          optional(field("path", choice($.identifier, $.scoped_identifier))),
           "::",
           field("name", $.identifier)
         )

@@ -939,3 +939,19 @@ pub set IO = Stdio, Difference<System, Tcp>;
     body: (set_combinator
       (identifier)
       (identifier))))
+
+================================================================================
+Workspace-rooted use declaration
+================================================================================
+
+use ::other_pkg::util::helper;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (use_declaration
+    (use_tree
+      path: (use_path
+        (identifier)
+        (identifier)
+        (identifier)))))
