@@ -109,6 +109,12 @@ pub struct CompletionContext<'a> {
     /// Whether we're after a pkg module path (for pkg module member completion).
     /// Contains the module path (e.g., "utils" for `utils::` or `utils::format` for `utils::format::`).
     pub after_pkg_module_dot: Option<&'a str>,
+    /// Whether we're after a workspace-rooted path (`::` / `::lib::…::`).
+    /// Holds the path *relative to* the workspace root — empty for a bare
+    /// `::` (package-name completion), `"lib"` for `::lib::`,
+    /// `"lib::util"` for `::lib::util::` — which is also the absolute
+    /// module path in the mounted namespace.
+    pub workspace_scope: Option<&'a str>,
     /// Whether we're after a use statement prefix (pkg, core, self, super).
     pub in_use_statement: bool,
     /// Whether we're inside `unique(` for nominal type UUID completion.
@@ -168,10 +174,19 @@ impl<'a> CompletionContext<'a> {
             None => None,
         };
 
+        // Workspace-rooted completions, mirroring `core_scope`: a bare `::`
+        // offers package names, `::lib::…::` a module's members. The scope
+        // path is empty exactly when nothing but the separator was typed.
+        let workspace_scope = match scope_path {
+            Some("") => Some(""),
+            Some(path) => path.strip_prefix("::"),
+            None => None,
+        };
+
         // Ability method completion (`Stdio::`, `core::system::Stdio::`) and
         // pkg module member completion (`utils::`).
         let (after_ability_dot, after_pkg_module_dot) = match scope_path {
-            Some(path) if core_scope.is_none() => {
+            Some(path) if core_scope.is_none() && workspace_scope.is_none() => {
                 let last = path.rsplit("::").next().unwrap_or(path);
                 if resolver.name_to_id(last).is_some() {
                     (Some(last), None)
@@ -209,6 +224,7 @@ impl<'a> CompletionContext<'a> {
             after_ability_dot,
             core_scope,
             after_pkg_module_dot,
+            workspace_scope,
             in_use_statement,
             in_unique_paren,
         }
@@ -244,6 +260,24 @@ pub fn get_completions(
     // leaf), driven entirely by the registry.
     if let Some(core_scope) = ctx.core_scope {
         items.extend(get_core_path_completions(core_scope, ctx.word_prefix));
+        return items;
+    }
+
+    // Workspace-rooted path: a bare `::` offers the package mounts;
+    // `::lib::…::` offers that module's members (the scope minus its root
+    // is the absolute module path in the mounted namespace).
+    if let Some(workspace_scope) = ctx.workspace_scope {
+        if let Some(registry) = registry {
+            if workspace_scope.is_empty() {
+                items.extend(get_workspace_package_completions(registry, ctx.word_prefix));
+            } else {
+                items.extend(get_pkg_module_completions(
+                    registry,
+                    workspace_scope,
+                    ctx.word_prefix,
+                ));
+            }
+        }
         return items;
     }
 
@@ -497,13 +531,33 @@ fn get_pkg_module_completions(
         .collect()
 }
 
-/// Get use statement prefix completions (pkg, core, self, super).
+/// Package-name completions after a bare `::`: every mount in the
+/// registry — the workspace's packages, spelled exactly as `::<name>`
+/// paths address them.
+fn get_workspace_package_completions(
+    registry: &ambient_engine::module_registry::ModuleRegistry,
+    prefix: &str,
+) -> Vec<CompletionItem> {
+    registry
+        .mounts()
+        .filter(|mount| mount.starts_with(prefix))
+        .map(|mount| CompletionItem {
+            label: mount.to_string(),
+            kind: CompletionKind::Module,
+            detail: Some("workspace package".to_string()),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// Get use statement prefix completions (pkg, core, self, super, `::`).
 fn get_use_prefix_completions(prefix: &str) -> Vec<CompletionItem> {
     let prefixes = [
         ("pkg", "Package-relative import (from package root)"),
         ("core", "Core library import"),
         ("self", "Relative import (same directory)"),
         ("super", "Parent directory import"),
+        ("::", "Workspace package import (`::other_pkg::…`)"),
     ];
 
     prefixes
@@ -792,6 +846,6 @@ mod tests {
         assert_eq!(items[0].label, "core");
 
         let all_items = get_use_prefix_completions("");
-        assert_eq!(all_items.len(), 4); // pkg, core, self, super
+        assert_eq!(all_items.len(), 5); // pkg, core, self, super, ::
     }
 }

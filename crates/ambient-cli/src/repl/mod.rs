@@ -27,6 +27,7 @@
 //! being absent from it — tasks ensured three turns ago keep running until
 //! an explicit `Task::drain!` (or `:clear`, which winds the program down).
 
+mod base;
 pub mod completer;
 mod editor;
 mod highlighter;
@@ -158,8 +159,9 @@ pub fn cmd_repl(project_dir: Option<&Path>) -> Result<()> {
                     continue;
                 }
 
-                // Handle REPL commands.
-                if line.starts_with(':') {
+                // Handle REPL commands. A leading `::` is a workspace-rooted
+                // path (`::lib::greet()`), not a command.
+                if line.starts_with(':') && !line.starts_with("::") {
                     match parse_repl_command(line) {
                         ReplCommand::Quit => break,
                         other => {

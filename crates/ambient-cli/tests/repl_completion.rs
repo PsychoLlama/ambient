@@ -84,3 +84,44 @@ fn core_paths_complete_without_session_state() {
 
     test.shutdown();
 }
+
+#[test]
+fn workspace_sibling_packages_and_members_complete() {
+    // A bare `::` offers the workspace's package names; `::lib::` offers
+    // that package's exports — both from the same mounted registry the
+    // checker resolves against.
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join("ambient.toml"),
+        "[workspace]\nmembers = [\"app\", \"lib\"]\n",
+    )
+    .unwrap();
+    for (member, main) in [
+        ("app", "pub fn run(): Number { 0 }\n"),
+        ("lib", "pub fn greet(): Number { 40 }\n"),
+    ] {
+        let root = dir.path().join(member);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("ambient.toml"),
+            format!("[package]\nname = \"{member}\"\nversion = \"0.1.0\"\n"),
+        )
+        .unwrap();
+        std::fs::write(root.join("src/main.ab"), main).unwrap();
+    }
+
+    let test = ReplTest::with_project(&dir.path().join("app"));
+    let snapshot = test.completion_snapshot();
+
+    let (_, labels) = complete(&snapshot, "::");
+    assert!(labels.contains(&"lib".to_string()), "{labels:?}");
+    assert!(labels.contains(&"app".to_string()), "{labels:?}");
+
+    let (_, labels) = complete(&snapshot, "::lib::");
+    assert!(labels.contains(&"greet".to_string()), "{labels:?}");
+
+    let (_, labels) = complete(&snapshot, "use ::li");
+    assert!(labels.contains(&"lib".to_string()), "{labels:?}");
+
+    test.shutdown();
+}

@@ -107,7 +107,9 @@ impl ReplTest {
             return self;
         }
 
-        if line.starts_with(':') {
+        // A leading `::` is a workspace-rooted path, not a command —
+        // mirroring the interactive loop's dispatch.
+        if line.starts_with(':') && !line.starts_with("::") {
             match parse_repl_command(line) {
                 // `:quit` is a no-op here; tests wind down via `shutdown`.
                 ReplCommand::Quit => {}

@@ -210,13 +210,15 @@ pub(crate) fn display_path(segments: &[Arc<str>], package_root: &[Arc<str>]) -> 
         return segments.join("::");
     }
     // Render the session package's mount as the `pkg` root the user types
-    // (`["probe", "util"]` → `pkg::util`); anything else spells as-is.
+    // (`["probe", "util"]` → `pkg::util`). In a mounted session anything
+    // else is a sibling package's mount, which spells workspace-rooted
+    // (`::lib::util`) — the path the user can actually type.
     let rest = if !package_root.is_empty() && segments.starts_with(package_root) {
         &segments[package_root.len()..]
     } else if package_root.is_empty() {
         segments
     } else {
-        return segments.join("::");
+        return format!("::{}", segments.join("::"));
     };
     let mut out = String::from("pkg");
     for seg in rest {
@@ -227,10 +229,12 @@ pub(crate) fn display_path(segments: &[Arc<str>], package_root: &[Arc<str>]) -> 
 }
 
 /// Whether `s` is shaped like a module/member path: one or more identifier
-/// segments joined by `::`, nothing else. Ordinary expressions (with
-/// operators, whitespace, calls, or a `.`) are not path-shaped and skip
-/// introspection so they never trigger a registry build.
+/// segments joined by `::` — optionally workspace-rooted by a leading `::`
+/// (`::lib::util`) — nothing else. Ordinary expressions (with operators,
+/// whitespace, calls, or a `.`) are not path-shaped and skip introspection
+/// so they never trigger a registry build.
 pub(crate) fn looks_like_path(s: &str) -> bool {
+    let s = s.strip_prefix("::").unwrap_or(s);
     !s.is_empty()
         && s.split("::").all(|seg| {
             let mut chars = seg.chars();

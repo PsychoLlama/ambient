@@ -39,7 +39,7 @@ use anyhow::{Result, anyhow, bail};
 
 use ambient_analysis::package::AnalysisPackage;
 use ambient_engine::ast::{Item, ItemKind};
-use ambient_engine::build::{BuildOptions, compile_session_module};
+use ambient_engine::build::compile_session_module;
 use ambient_engine::compiler::CompiledModule;
 use ambient_engine::fqn::NameKey;
 use ambient_engine::module_path::ModulePath;
@@ -49,6 +49,7 @@ use ambient_engine::value::{ModuleMemberRef, Value};
 use ambient_parser::ReplInput;
 use ambient_platform::{StdioSink, TaskEvent, TaskEventSink};
 
+use super::base::{build_base, find_project_root, session_module_path};
 use super::inspect::{
     display_path, export_kind, inspect_signature, looks_like_path, module_listing,
 };
@@ -56,7 +57,6 @@ use super::render::{
     definitions_unsupported, format_repl_diagnostics, format_repl_parse_error,
     mentions_project_roots, scrub_entry_names,
 };
-use crate::commands::core_context;
 use crate::commands::host::{HostDeployOutcome, RuntimeHost};
 use crate::diagnostic::report_build_error;
 
@@ -64,7 +64,7 @@ pub use super::render::{ReplCommand, parse_repl_command, write_repl_help};
 
 /// The reserved leaf name of the virtual session module: the session checks
 /// and compiles as if a file `__repl.ab` sat in the launch directory.
-const SESSION_MODULE: &str = "__repl";
+pub(super) const SESSION_MODULE: &str = "__repl";
 
 /// The prefix of every turn's synthetic entry function. Never shown to the
 /// user: [`scrub_entry_names`] rewrites it out of every rendered error.
@@ -732,6 +732,9 @@ impl ReplSession {
                 let count = segments.iter().take_while(|s| **s == "super").count();
                 ImportPrefix::Super(count)
             }
+            // A workspace-rooted path (`::lib::util`, split into a leading
+            // empty segment — also how `use ::` aliases expand).
+            "" => ImportPrefix::Workspace,
             _ => return Some(to_arcs(segments)),
         };
         let rest = match &prefix {
@@ -757,7 +760,8 @@ impl ReplSession {
                     }
                     Some(segs)
                 }
-                // Unreachable: only pkg/self/super map to a prefix above.
+                // `core` never maps to a prefix above; a bare `::` names
+                // the workspace root, which is not itself a module.
                 ImportPrefix::Core | ImportPrefix::Workspace => None,
             };
         }
@@ -817,89 +821,6 @@ fn task_event_sink(control: ControlSink) -> TaskEventSink {
             }
         }
     })
-}
-
-/// Build the base compiled module and its analysis package.
-///
-/// With a project, the base is the full package build (core + project, names
-/// qualified) and the package is opened from disk. Without one, the base is
-/// just the core library and the package is an empty in-memory shell.
-fn build_base(
-    project_root: Option<&Path>,
-) -> Result<(
-    AnalysisPackage,
-    CompiledModule,
-    HashMap<NameKey, blake3::Hash>,
-)> {
-    match project_root {
-        Some(root) => {
-            let stubs = ambient_platform::stub_natives();
-            let result = ambient_engine::build::build_package(
-                root,
-                crate::commands::parse_source,
-                &BuildOptions {
-                    platform_modules: ambient_platform::platform_modules(),
-                    natives: Some(&stubs),
-                    progress: None,
-                    // Warm the base build off a prior `ambient run`/`build`
-                    // snapshot: REPL startup on a built project skips
-                    // recompiling unchanged modules. The REPL is a read-only
-                    // cache *consumer* — it never writes a snapshot. A REPL
-                    // session is not a canonical build (its per-turn trial
-                    // compiles are ephemeral), so persisting one would only
-                    // churn the store the real build owns.
-                    store_path: Some(ambient_engine::disk_store::DiskStore::package_store_path(
-                        root,
-                    )),
-                    ..Default::default()
-                },
-            )
-            .map_err(report_build_error)?;
-            let package = AnalysisPackage::open(root).map_err(|e| anyhow!(e))?;
-            Ok((package, result.compiled, result.link_table))
-        }
-        None => {
-            let core = core_context()?;
-            let package = AnalysisPackage::empty(PathBuf::from("."), PathBuf::from("."), "");
-            Ok((package, core.compiled, core.hashes))
-        }
-    }
-}
-
-/// The virtual session module's path: `<launch_dir>/__repl.ab` mapped
-/// through the package's file↔module convention, so `pkg`/`self`/`super`
-/// resolve exactly as they would in a file authored where the REPL was
-/// started. A launch directory outside the package's source tree (the
-/// project root, or no project at all) anchors at the source root.
-fn session_module_path(package: &AnalysisPackage, launch_dir: &Path) -> ModulePath {
-    let virtual_file = ambient_analysis::package::lexically_normalize(
-        &launch_dir.join(format!("{SESSION_MODULE}.ab")),
-    );
-    package
-        .module_path_for(&virtual_file)
-        .or_else(|| {
-            // Outside the source tree (or with no project): anchor at the
-            // source root. Module paths are mounted under the package name,
-            // so the fallback must be too — a bare path in a mounted
-            // registry would resolve `pkg::`/`self` at the workspace root.
-            if package.package_name().is_empty() {
-                ModulePath::from_str_segments(&[SESSION_MODULE])
-            } else {
-                ModulePath::from_str_segments(&[package.package_name(), SESSION_MODULE])
-            }
-        })
-        .expect("the reserved session module name is a valid module path")
-}
-
-/// Walk up from `dir` looking for an `ambient.toml` that marks a project root.
-fn find_project_root(dir: &Path) -> Option<PathBuf> {
-    let mut current = dir;
-    loop {
-        if current.join("ambient.toml").exists() {
-            return Some(current.to_path_buf());
-        }
-        current = current.parent()?;
-    }
 }
 
 /// The terminal name a `use` item binds, for last-wins replacement.

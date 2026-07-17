@@ -844,3 +844,74 @@ fn test_core_module_listing_has_no_duplicates() {
     assert_eq!(count, 1, "each child must list once:\n{output}");
     repl.shutdown();
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workspace Siblings
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Write a two-member workspace (`app`, `lib`) and return its root. `lib`
+/// exports `greet`/`helper`; `app` is where the REPL launches.
+fn workspace_project() -> tempfile::TempDir {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join("ambient.toml"),
+        "[workspace]\nmembers = [\"app\", \"lib\"]\n",
+    )
+    .unwrap();
+    for (member, files) in [
+        ("app", &[("main.ab", "pub fn run(): Number { 0 }\n")][..]),
+        (
+            "lib",
+            &[
+                ("main.ab", "pub fn greet(): Number { 40 }\n"),
+                ("util.ab", "pub fn helper(): Number { 2 }\n"),
+            ][..],
+        ),
+    ] {
+        let root = dir.path().join(member);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("ambient.toml"),
+            format!("[package]\nname = \"{member}\"\nversion = \"0.1.0\"\n"),
+        )
+        .unwrap();
+        for (rel, source) in files {
+            std::fs::write(root.join("src").join(rel), source).unwrap();
+        }
+    }
+    dir
+}
+
+#[test]
+fn test_workspace_sibling_evaluates_inline_and_via_use() {
+    // Launched in a member, sibling packages are part of the runtime base:
+    // an inline `::lib::…` call evaluates, and `use ::lib::…;` binds.
+    let ws = workspace_project();
+    ReplTest::with_project(&ws.path().join("app"))
+        .type_line("::lib::greet() + ::lib::util::helper()")
+        .expect_output("42")
+        .clear_output()
+        .type_line("use ::lib::util;")
+        .type_line("util::helper()")
+        .expect_output("2")
+        .shutdown();
+}
+
+#[test]
+fn test_workspace_sibling_inspects() {
+    // A sibling module lists its exports, and a member signature renders
+    // under the workspace-rooted path the user can type.
+    let ws = workspace_project();
+    let repl = ReplTest::with_project(&ws.path().join("app"))
+        .type_line("::lib")
+        .expect_output("greet")
+        .clear_output()
+        .type_line(":sig ::lib::greet")
+        .expect_output("greet");
+    assert!(
+        repl.output().contains("::lib::greet"),
+        "signature should render the workspace-rooted path:\n{}",
+        repl.output()
+    );
+    repl.shutdown();
+}
