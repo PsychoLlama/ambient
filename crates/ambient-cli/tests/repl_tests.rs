@@ -834,7 +834,9 @@ fn test_prelude_names_inspect_bare() {
 
 #[test]
 fn test_core_module_listing_has_no_duplicates() {
-    let repl = ReplTest::new().type_line("core").expect_output("module core");
+    let repl = ReplTest::new()
+        .type_line("core")
+        .expect_output("module core");
     let output = repl.output();
     let count = output.matches("mod option;").count();
     assert_eq!(count, 1, "each child must list once:\n{output}");

@@ -101,7 +101,10 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(10);
         while !watcher.take_dirty() {
-            assert!(Instant::now() < deadline, "watcher never flagged the .ab write");
+            assert!(
+                Instant::now() < deadline,
+                "watcher never flagged the .ab write"
+            );
             std::thread::sleep(Duration::from_millis(20));
         }
         assert_eq!(
