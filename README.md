@@ -101,11 +101,7 @@ fn run(): () with Random, Log {
 
 ## Usage
 
-There are no binaries published yet. It must be compiled from source:
-
-```bash
-cargo build --workspace
-```
+Precompiled binaries are available for macOS and Linux in [GitHub releases](https://github.com/PsychoLlama/ambient/releases/latest).
 
 ```bash
 ambient init my_project          # scaffold a package
@@ -116,9 +112,45 @@ ambient dev my_project           # live-upgrade loop (hot-swaps processes, keepi
 ambient lsp                      # language server (see ambient.nvim/)
 ```
 
-Every build lands in a per-package content-addressed store (`.ambient/store/`) laid out git-style. `ambient store` gives you `stats`, `list` (aliased `ls`), `show` (with disassembly), `deps`, `verify`, and `gc`. `ambient build` emits a single-file `.ambient` artifact (the same object format plus name bindings and an entry point) that `ambient run` executes after recomputing every hash from content.
-
 See the `examples/` directory for runnable programs.
+
+### Treesitter Grammar
+
+Syntax highlighting comes from treesitter. [Install the grammar](https://github.com/PsychoLlama/ambient/releases/latest) or compile it from source:
+
+```bash
+just build-grammar tree-sitter-ambient.so
+```
+
+### Neovim Plugin
+
+[ambient.nvim](https://github.com/PsychoLlama/ambient/blob/main/ambient.nvim) is bundled with the repo. It provides:
+
+- Syntax highlighting via treesitter
+- LSP (completion, go-to-definition, hover, etc)
+- Syntax-aware indentation
+- Text objects and navigation
+- Code folding
+
+Usage:
+
+```lua
+require('ambient').setup({
+  treesitter = {
+    parser_path = vim.fs.normalize('~/path/to/tree-sitter-ambient.so'),
+  },
+})
+```
+
+### Compiling from Source
+
+```bash
+# Enter a shell with toolchains installed.
+nix develop
+
+# Build the `ambient` CLI.
+cargo build --release --package ambient-cli
+```
 
 ## Why Not [Unison](https://www.unison-lang.org/)?
 
