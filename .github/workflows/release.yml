@@ -19,7 +19,7 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-linux
             lib-ext: so
-          - os: macos-14 # Apple Silicon runner
+          - os: macos-latest # Apple Silicon runner
             target: aarch64-macos
             lib-ext: dylib
 
