@@ -162,3 +162,35 @@ So why create a new language?
 - **Scratch Files:** Unison takes a radical stance by doing away with the file system. You edit the codebase by loading and unloading code from a scratch file. It's an expensive gamble. I wanted to prove it was possible to keep the features _and_ the file system.
 
 This is why `unique(...) struct` requires a literal UUID. Unison can create nominal types under the hood, but ambient files have to be self contained. It needs a way to uniquely identify the type across moves and remote functions.
+
+## Learnings & Regrets
+
+Ambient has reached a hacky-yet-plausible state. These are my reflections on the experiment.
+
+### Regret: Nominal Types
+
+Rust's paradigm requires a lot of nominal types (traits, enums, structs). Ambient requires signatures to be serializable for remote upgrades and execution, which means manually annotating `unique(...)` on most code.
+
+In the case of `State` and `Deploy`, nominal types need kludgy workarounds to hand off work. Theoretically solveable with a schema-like version history, but with **far** more overhead. The nominal paradigm is fighting core language goals.
+
+Abilities should be nominally typed (identical default signatures have semantically different overrides), but ambient should've adopted structural types and unions for the rest.
+
+> [!NOTE]
+> Smalltalk, Erlang, and Lisp dialects are the closest philosophical cousins. They are mostly duck-typed.
+
+### Regret: Language Expressiveness
+
+Traits require a lot of features before they reach an ergonomic baseline. A new `convert::Into` or modified `ops::Add` ripples across the codebase on several axes. Any of these dimensions can impact how a module is compiled.
+
+Module graphs with traits are difficult to track and cache. There are too many permutations to manage (at least on a team of one).
+
+I wish I'd designed the compilation graph around the same scheme as runtime: a content-addressed module graph with SCC groups on circular references. Abandon expressive magic like overloads and conversions. Keep dependencies clear and pull-based.
+
+> [!NOTE]
+> Referencing [this paradigm](https://www.sciencedirect.com/science/article/pii/016764239190036W) of expressivity.
+
+### Learning: Exhaustiveness Checking
+
+This is obvious in retrospect. Exhaustiveness checking on `impl` and `match` aren't verifiable without total knowledge, a broken invariant under remote upgrades and execution.
+
+If a match arm is exhaustive over `MyEnum` but a newer codebase adds a variant, either the identity of `MyEnum` must change or the code becomes unsound.
