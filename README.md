@@ -48,7 +48,7 @@ Examples:
 
 ## Taste of the language
 
-```ambient
+```rust
 use core::system::Log;
 
 // Effects are explicit capabilities ("abilities"), tracked in types.
@@ -62,7 +62,7 @@ fn greet(name: string) {
 }
 ```
 
-```ambient
+```rust
 // Nominal types + traits. Operator traits (Add, Eq, Ord, ...) are prelude.
 unique(B3C4D5E6-F7A8-9012-BCDE-F12345678902) struct Vec2 { x: number, y: number }
 
@@ -79,7 +79,7 @@ fn example(): bool {
 
 Effect handlers are delimited continuations. Mock any capability in tests, sandbox untrusted code, or intercept and transform operations:
 
-```ambient
+```rust
 use core::system::{Random, Log};
 
 fn roll_dice(): number {
