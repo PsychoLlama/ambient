@@ -11,7 +11,7 @@ ambient-parser.workspace = true
 ambient-platform.workspace = true
 
 # LSP dependencies
-lsp-server = "0.7"
+lsp-server = "0.10"
 lsp-types = "0.97"
 
 # Async runtime for the server
