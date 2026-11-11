@@ -16,7 +16,7 @@ An ability is an operation that code may perform but does not implement. Abiliti
 - A row is a set of abilities; it has no order and no duplicates.
 - A function's row is exactly what it takes from its caller.
 - A row alias names a row and expands wherever it is used; it has no identity of its own.
-- A definition with an empty row is pure.
+- A definition with an empty row reaches nothing but its arguments; see [determinism](cells.md).
 - A function value with an empty row may still act through handlers it captured.
 
 ## Performing

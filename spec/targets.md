@@ -10,6 +10,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - The entry's row must be covered by the target.
 - A root handler's own row is satisfied by the target's other bindings; a cycle among them is an error.
 - No ability has an implementation outside a provide; a target is only the outermost one.
+- A target also fixes how [tasks](tasks.md) are scheduled.
 
 ## Composition
 

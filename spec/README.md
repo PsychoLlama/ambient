@@ -15,7 +15,8 @@ Ambient is a content-addressed language with structural types and abilities, bui
 
 ## Language properties
 
-- Values are immutable.
+- Values are immutable; a [cell](cells.md) is the only mutable thing.
+- Any function may suspend; none is marked for it.
 - A call in tail position never grows the stack.
 - Modules contain only definitions; importing a module runs nothing.
 - There is no ad-hoc polymorphism: no traits, overloads, operator overloading, or implicit conversion.
@@ -28,6 +29,7 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - Inference across definitions. See [definitions](definitions.md).
 - Type-level computation. Derived types are computed by [comptime](comptime.md) calls.
 - Ability and row parameters. Capture replaces them; see [abilities](abilities.md).
+- Detached tasks, shared mutable memory, and finalizers. See [tasks](tasks.md), [cells](cells.md), and [cleanup](cleanup.md).
 
 ## Pages
 
@@ -37,6 +39,9 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - [values](values.md): runtime shapes, serialization, handles, faults.
 - [abilities](abilities.md): abilities, rows, performing, capture.
 - [handlers](handlers.md): provides, bundles, abort, sandboxing, recording.
+- [cleanup](cleanup.md): code that runs when a block exits.
+- [tasks](tasks.md): groups, tasks, suspension, scheduling, cancellation.
+- [cells](cells.md): the one mutable thing.
 - [comptime](comptime.md): compile-time calls and splices.
 - [memoization](memoization.md): trace-validated caching for comptime and tests.
 - [externs](externs.md): native functions and native handlers.
@@ -46,9 +51,4 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - [modules](modules.md): modules, visibility, preludes.
 - [packages](packages.md): package identity, publishers, dependencies, workspaces.
 - [exchange](exchange.md): moving definitions and values between programs.
-
-## Open
-
-- TODO: live upgrade (generations, runtime-owned state, late-bound names) is not yet restated on this design.
-- TODO: concurrency has no model; nothing here defines a task, and [externs](externs.md) and [handlers](handlers.md) both lean on one.
-- TODO: mutable state has no model; handlers that accumulate cannot be written without it.
+- [upgrade](upgrade.md): live upgrade as a pattern over abilities, cells, and exchange.

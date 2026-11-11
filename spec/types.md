@@ -13,6 +13,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - Unions and intersections.
 - `never`, a subtype of every type, and `unknown`, a supertype of every type.
 - Brands.
+- `Cell<T>`, `Task<T>`, and `Group`: the handle types the language itself defines.
 - Type parameters, each with an optional upper bound.
 
 ## Soundness
@@ -25,7 +26,8 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 
 - Subtyping is structural, and coinductive over recursive types.
 - A record is a subtype of any record with fewer keys or wider key types.
-- Collections are covariant; immutability makes that sound.
+- Collections and `Task<T>` are covariant; immutability makes that sound.
+- `Cell<T>` is invariant.
 - A function type is a subtype of one with narrower parameters, a wider return type, or a larger row.
 - A literal type is a subtype of its primitive.
 - A tuple is a subtype of a list of the union of its members.
@@ -53,7 +55,8 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - `unknown` supports no operations.
 - A cast tests a value against a type and yields either the value at that type or its alternative branch; it is the only way down from `unknown`.
 - A cast decides by the value's [shape](values.md), so any erased type can be a cast target.
-- A cast never yields a branded type.
+- A cast never adds a brand to a value.
+- A cast to a handle type is decidable, because a handle carries the tag it was minted under.
 - Values that enter from outside the program, [received values](exchange.md) included, enter as `unknown`.
 
 ## Narrowing

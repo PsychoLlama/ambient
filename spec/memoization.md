@@ -9,6 +9,7 @@ A memoized run caches a function's result together with everything the run obser
 - A stored run is reused only if every perform in its trace, repeated now, yields the same result.
 - A run with an empty trace is valid for as long as its hash exists.
 - Nothing is declared: no dependency lists, watch lists, or manual invalidation.
+- A run that uses tasks and cells is still reproducible, because its target [schedules deterministically](tasks.md).
 
 ## Verifiable and volatile
 
