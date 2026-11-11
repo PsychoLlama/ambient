@@ -1,0 +1,59 @@
+# Handlers
+
+A handler is an ordinary function value bound to an [ability](abilities.md) by a provide. There is no handler-specific definition, type, or control operator.
+
+## Handlers
+
+- Any function value whose type fits an ability's signature can handle it.
+- A function never becomes an ability; it is bound to one at a provide.
+- A handler for a returning ability returns its result to the perform site, exactly once.
+- There is no continuation to hold, drop, or resume twice.
+- Handlers are values: they are built at runtime, closed over data, passed, and returned.
+
+## Provide
+
+- A provide takes a bundle and a body, and binds the bundle's handlers for the dynamic extent of the body.
+- A provide extends the bindings in scope; in only-mode it replaces them, so the body sees exactly the bundle.
+- What the body's row needs beyond the bundle is required of the enclosing scope; in only-mode nothing may be left over.
+- A handler's own row is bound at the provide, outside the bundle, by the [capture](abilities.md) rule.
+- A handler that performs the ability it handles therefore reaches the binding it replaced.
+- What a handler needs is charged to the scope that provides it.
+
+## Bundles
+
+- A bundle is a record keyed by abilities; its type lists its keys statically.
+- A bundle is built, merged, passed, returned, and inspected with ordinary record operations.
+- Precedence between handlers is decided by how bundles are merged; a provide has no ordering.
+- A bundle binds each ability at most once.
+
+## Abort
+
+- A handler for an ability that returns `never` may return any type.
+- When such an ability is performed, the stack unwinds to the provide, the handler runs there, and its result is the value of the provide.
+- A provide's type is the union of its body's type and the return types of its abort handlers.
+- Abort is the only non-local control in the language.
+- A handler for a returning ability aborts by performing a `never` ability bound further out.
+- Any perform may fail to return, so cleanup is tied to scope exit, never to reaching a later statement.
+- Performing a captured abort handler after its provide has exited is a [fault](values.md).
+- TODO: the scope-exit cleanup construct is undefined, and every resource-holding handle depends on it.
+
+## Sandboxing
+
+- An only-mode provide with an empty bundle restricts its body to pure evaluation.
+- Isolation follows from [how performs work](abilities.md), not from a check, so it holds for code this compiler never typed.
+- A sandbox bounds abilities, not arguments: function values and handles passed into it carry their own authority.
+
+## Recording
+
+- A record expression takes an observer and a body.
+- For each ability in the body's row, the compiler derives a handler that forwards to the enclosing binding and reports the ability, arguments, and outcome to the observer.
+- Derived handlers cannot alter arguments or results.
+- Reported events are [self-describing values](values.md), so one observer serves every ability.
+- A recording sees performs made through the body's row; it does not see handlers captured before the recording began.
+- Replay is the same construct reversed: derived handlers answer from recorded events instead of forwarding.
+- Recording adds nothing to the type system, because the body's row is statically known where it is recorded.
+
+## Cost
+
+- A perform costs a call through a passed binding.
+- Where the provide is statically visible from the perform, the perform compiles to a direct call.
