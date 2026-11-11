@@ -18,7 +18,7 @@ A program is a set of trees constructed through builders, and its source text is
 
 ## Metadata
 
-- Names, doc comments, comments, whitespace, and source positions are metadata: attached to nodes, never tree content.
+- Names, doc comments, comments, whitespace, literal spellings, and source positions are metadata: attached to nodes, never tree content.
 - Every comment and every run of whitespace belongs to exactly one node.
 - A node is addressed by its position within its definition, which reformatting cannot change.
 
@@ -34,8 +34,27 @@ A program is a set of trees constructed through builders, and its source text is
 - Source files are authoritative; the [store](build.md) is derived from them.
 - A source file and its surface trees with metadata determine each other exactly.
 - Reading a file and writing it back unchanged reproduces it byte for byte.
-- A node built without metadata is written in a default format.
-- A grammar is specified only after the trees are stable, and must satisfy this section.
+- A node built without metadata is written in the canonical format.
+- A grammar is specified only after the trees are stable, and must satisfy this section and the next.
+
+## Text
+
+- A file parses on its own; parsing never depends on resolution, types, or another file.
+- Each surface node has exactly one spelling: two texts for the same tree differ only in whitespace, comments, and literal spellings.
+- There is no optional punctuation, alternative keyword, or interchangeable delimiter.
+- Where a shorthand exists it is its own node, so no tool chooses between a shorthand and its expansion.
+- Whitespace separates tokens and means nothing else; no newline or indentation is significant.
+- A sequence is any ordered run of items: definitions, statements, fields, parameters, arguments, arms, elements.
+- Every sequence uses one convention for delimiters and separators.
+- A comment leads or trails an item of a sequence, or ends a sequence; it can be written nowhere else.
+
+## Formatting
+
+- Formatting rewrites whitespace metadata and nothing else; it cannot change a tree, a comment, a literal spelling, or a hash.
+- The canonical format is a function of the tree, its comments, and whether a blank line precedes each sequence item; no other whitespace an author wrote survives it.
+- There is one canonical format and it has no options.
+- Formatting needs only a parse, so code that does not resolve or check still formats.
+- Formatting is idempotent.
 
 ## Edits
 
