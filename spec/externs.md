@@ -30,4 +30,4 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - A package carries its native bundles precompiled, per platform, beside the extern declarations.
 - Only externs the entry reaches are linked into a program.
 - That a package contains native code is disclosed at install, alongside its [build grants](comptime.md).
-- Hashes do not cover native code; a native bundle's integrity is the package's concern.
+- Definition hashes do not cover native code; a package's [snapshot](packages.md) does.

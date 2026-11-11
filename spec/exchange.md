@@ -11,11 +11,10 @@ Definitions and values move between running programs by hash. A receiver trusts 
 - An extern function in a pack resolves against the receiver's own native code by identity.
 - A pack that needs an extern the receiver lacks is rejected before any of it runs.
 
-## Sendable values
+## Values
 
-- A value is sendable if it contains no handle and no function value with captured handlers.
-- A sendable function's row is its complete requirement on the receiver.
-- A sendable value needs no schema to serialise and arrives as `unknown`.
+- Any [unanchored](values.md) value can be sent.
+- A sent function's row is its complete requirement on the receiver; handlers it captured travel with it as code.
 
 ## Running received code
 

@@ -5,15 +5,21 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 ## Forms
 
 - Primitives: `null`, `bool`, `int` (64-bit signed), `float` (64-bit), `string` (UTF-8), `bytes`.
-- Literal types: a single `bool`, `int`, or `string` value.
+- Literal types: a single `bool`, `int`, `float`, `string`, or `bytes` value.
 - Records: a set of keys, each with a type; a key is a field name or an [ability](handlers.md).
 - Tuples: a fixed sequence of types.
-- Collections: `List<T>`, `Map<K, V>`, `Set<T>`.
+- Collections: `List<T>`, `Set<T>`, and `Map<E>`, where `E` is the type of the map's entries.
 - Functions: parameter types, a return type, a [row](abilities.md), and optional type parameters; parameter names are not part of the type.
 - Unions and intersections.
 - `never`, a subtype of every type, and `unknown`, a supertype of every type.
 - Brands.
 - Type parameters, each with an optional upper bound.
+
+## Soundness
+
+- An expression of static type `T` evaluates only to values `T` describes.
+- No construct weakens that for convenience; where a sound rule and an ergonomic one conflict, the sound one wins.
+- An operation that can miss, such as a lookup or an index, includes the miss in its type.
 
 ## Subtyping
 
@@ -22,9 +28,25 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - Collections are covariant; immutability makes that sound.
 - A function type is a subtype of one with narrower parameters, a wider return type, or a larger row.
 - A literal type is a subtype of its primitive.
+- A tuple is a subtype of a list of the union of its members.
 - An intersection of records has the keys of both; an intersection with a brand adds the brand.
 - An intersection of two different shapes is `never`; there are no overloaded function types and no negation types.
 - `int` and `float` are unrelated.
+
+## Singleton types
+
+- A singleton type has exactly one value: a literal type, or a record or tuple whose members are all singletons.
+- Anything that can be authored as a literal has a singleton type.
+- A literal expression has its singleton type, and nothing but subtyping widens it; values are immutable, so there is no assignment to widen for.
+- A [comptime](comptime.md) argument is known because its type is a singleton.
+
+## Maps
+
+- A map's entry type is a union of pairs, each a key type with a value type.
+- A lookup by a key of type `K` yields the union of the value types of every pair whose key type overlaps `K`, or `null`.
+- An inserted entry is a subtype of the entry type.
+- Two types overlap unless they are provably disjoint.
+- The relation between a key's type and its value's type is therefore never flattened into two independent unions.
 
 ## Unknown and casts
 

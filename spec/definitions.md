@@ -22,8 +22,8 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 
 - A hash covers a definition's [core tree](trees.md) with every reference replaced by the hash of what it refers to.
 - Structure, literals, record field names, and tags are content.
-- Names of definitions, parameters, locals, and type parameters are not content; neither are doc comments, source positions, declaration order, or the module and package a definition lives in.
-- Renaming or moving a definition never changes any hash.
+- Names of definitions, parameters, locals, and type parameters are not content; neither are doc comments, source positions, declaration order, or the module a definition lives in.
+- Renaming a definition, or moving it within its package, never changes any hash.
 - Two definitions with the same content have the same hash, whatever their [symbols](symbols.md).
 - A function's hash covers its signature.
 - Hashes are independent of backend and platform; no compiled artifact feeds a hash.
@@ -49,5 +49,6 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 
 - A tag is a string literal that supplies identity where structure cannot: on [brands](types.md), [abilities](abilities.md), and [externs](externs.md).
 - Nothing else in the language is nominal.
-- A tag begins with the name of the package that declares it and is unique within that package.
-- A tag is content: editing it changes the hash; renaming or moving its definition does not.
+- A tag is unique within the package that declares it and is scoped by that package's [ID](packages.md), never by a name.
+- Equal strings in two packages are different tags; a fork keeps its origin's tags.
+- A tag is content: editing it, or moving its definition to another package, changes the hash.

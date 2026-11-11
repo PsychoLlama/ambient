@@ -1,6 +1,6 @@
 # Trees
 
-A program is a set of trees constructed through builders. Text syntax is deferred; a parser will be one more client of the builders.
+A program is a set of trees constructed through builders, and its source text is a lossless rendering of them. Text syntax is deferred; a parser will be one more client of the builders.
 
 ## Surface and core
 
@@ -18,11 +18,30 @@ A program is a set of trees constructed through builders. Text syntax is deferre
 
 ## Metadata
 
-- Names, doc comments, and source positions are attached to nodes and are not tree content.
+- Names, doc comments, comments, whitespace, and source positions are metadata: attached to nodes, never tree content.
+- Every comment and every run of whitespace belongs to exactly one node.
 - A node is addressed by its position within its definition, which reformatting cannot change.
-- Every definition, parameter, and binder may carry a doc comment.
 
-## Syntax
+## Doc comments
 
-- A grammar is specified only after the trees are stable.
-- The grammar maps surface trees to text and back without loss, so a tool can rewrite source by rewriting trees.
+- Anything that introduces a name may carry a doc comment: definitions, parameters, type parameters, local binders, record fields, and aliases.
+- A doc comment on a record field belongs to the site that wrote it, not to the type, since equal types share a hash.
+- Doc comments are written in one specified Markdown dialect.
+- Doc comments are available to tools through the [index](symbols.md) and to comptime functions as [metadata](comptime.md).
+
+## Source
+
+- Source files are authoritative; the [store](build.md) is derived from them.
+- A source file and its surface trees with metadata determine each other exactly.
+- Reading a file and writing it back unchanged reproduces it byte for byte.
+- A node built without metadata is written in a default format.
+- A grammar is specified only after the trees are stable, and must satisfy this section.
+
+## Edits
+
+- An edit reads a definition by symbol as a surface tree with metadata, transforms it as data, and writes it back to its source file.
+- An edit changes only the nodes it touched; every other comment and whitespace run survives byte for byte.
+- Comments and doc comments are data to an edit like any node, and can be added, changed, or removed.
+- An edit names the version of the definition it read and is rejected if the source has since changed.
+- An edit is addressed by symbol, never by file offset, so it can be issued by a tool that never sees the file.
+- Text editing and tree editing are two views of one program; neither loses what the other wrote.
