@@ -48,6 +48,9 @@ pub unsafe extern "C" fn amb_tag(pointer: *const u8, length: u64) -> Word {
 
 /// The one string with these bytes that stands for a field name. Two field
 /// names are the same name exactly when their words are equal.
+///
+/// TODO: an interned name is never given back, so a program that keeps
+/// loading code with new field names grows by them.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_intern(pointer: *const u8, length: u64) -> Word {
     static NAMES: Mutex<Vec<usize>> = Mutex::new(Vec::new());

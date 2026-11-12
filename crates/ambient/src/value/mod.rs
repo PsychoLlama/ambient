@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 use walk::{Step, build};
 
 /// Cloning, comparing, and dropping one never recurses: see [`walk`].
+///
+/// TODO: formatting one for debugging and its derived serialization do
+/// recurse, so a value nested deeper than the stack overflows them.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Value {
     Null,
