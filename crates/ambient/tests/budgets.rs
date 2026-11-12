@@ -9,7 +9,7 @@ use ambient::surface::{Definition, Expr};
 use ambient::value::Value;
 use ambient_runtime::{FAULT_PACKAGE, Fault};
 use support::tasks::{note, then};
-use support::{run, value, workspace};
+use support::{Recording, run, value, workspace};
 
 /// `fn count(n: int): int`, which calls itself `n` times and gives `n`.
 fn count() -> Definition {
@@ -261,4 +261,54 @@ fn a_function_made_outside_a_budget_is_metered_when_called_inside_it() {
     let body = b::let_("work", made, budgeted(3, 100, b::call(b::name("work"), [])));
 
     assert_eq!(evaluates(body), limit("steps"));
+}
+
+/// Whether `name` has a metered form in a program whose `main` is
+/// `body`.
+fn has_metered_form(name: &str, body: Expr) -> bool {
+    use ambient::engine::{Body, Engine};
+
+    let main = b::function("main").returns(ty::unknown()).body(body);
+    let module = [count(), build(), main]
+        .into_iter()
+        .fold(b::module(), b::ModuleBuilder::define);
+    let workspace = workspace([("app", "main", module)]);
+    let store = ambient::store::MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let parts = engine
+        .link(&value("main", "main"), &Recording::default())
+        .unwrap();
+    let hash = engine.hash(&value("main", name)).unwrap();
+    let part = parts.parts.iter().find(|part| part.hash == hash).unwrap();
+    matches!(
+        part.body,
+        Body::Function {
+            metered: Some(_),
+            ..
+        }
+    )
+}
+
+#[test]
+fn only_what_can_run_inside_a_budget_has_a_metered_form() {
+    let body = then(
+        b::call(b::name("build"), [b::int(1)]),
+        budgeted(10, 10, counts(1)),
+    );
+
+    assert!(has_metered_form("count", body.clone()));
+    assert!(!has_metered_form("build", body));
+    assert!(!has_metered_form("count", counts(1)));
+}
+
+#[test]
+fn a_function_used_as_a_value_has_a_metered_form_wherever_it_is_made() {
+    // `build` is never named inside the budget, but it gets there.
+    let body = b::let_(
+        "work",
+        b::name("build"),
+        budgeted(10, 10, b::call(b::name("work"), [b::int(1)])),
+    );
+
+    assert!(has_metered_form("build", body));
 }

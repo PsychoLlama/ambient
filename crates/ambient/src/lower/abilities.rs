@@ -2,7 +2,7 @@
 //! abort as unwinding to a provide. See `spec/backends.md`.
 
 use super::{Lowering, Scope, Unsupported};
-use crate::core::{self, Slot};
+use crate::core::{self, Primitive, Slot};
 use crate::lir::{Constant, Expr, Op, Value};
 
 impl Lowering {
@@ -61,7 +61,7 @@ impl Lowering {
     /// runs inside the budget it was bound inside, not the performer's:
     /// the perform cost the performer a step, whatever the handler does.
     fn answer(&mut self, ability: Slot, callee: Value, args: Vec<Value>, scope: &mut Scope) -> Op {
-        let call = self.call_value(callee, args);
+        let call = self.call_value(callee, args.clone());
         if !self.metered {
             return call;
         }
@@ -70,8 +70,20 @@ impl Lowering {
         let bound = self.bound(Op::Field { record, key }, scope);
         let saved = self.bound(Op::BudgetSwitch(bound), scope);
         let back = |unwinding| Expr::Op(Op::BudgetBack { saved, unwinding });
+        // A handler bound outside every budget is not metered at all:
+        // it runs the code that makes no charge.
+        let free = Op::Primitive {
+            operation: Primitive::Equal,
+            args: vec![bound, Value::Null],
+        };
+        let plain = Op::CallValue {
+            callee,
+            args,
+            metered: false,
+        };
+        let call = self.branch(Expr::Op(free), Expr::Op(plain), Expr::Op(call));
         let answered = Expr::Try {
-            body: Box::new(Expr::Op(call)),
+            body: Box::new(call),
             recover: Box::new(back(true)),
             recovering: (0, 0),
         };

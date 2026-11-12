@@ -59,7 +59,6 @@ pub fn lower(definition: &Open, metered: bool) -> Result<lir::Function, Unsuppor
         constants,
         bindings: Value::Local(0),
         groups: Vec::new(),
-        budgets: false,
         metered,
     };
     let entry = lowering.enter(function);
@@ -74,7 +73,6 @@ pub fn lower(definition: &Open, metered: bool) -> Result<lir::Function, Unsuppor
         locals: named + lowering.temporaries,
         slots: definition.slots.len(),
         constants: lowering.constants,
-        budgets: lowering.budgets,
         body,
     })
 }
@@ -100,7 +98,6 @@ fn native(arity: usize, slots: usize) -> lir::Function {
         locals: arity + 2,
         slots,
         constants: vec![Constant::Native, Constant::Own],
-        budgets: false,
         body: resume::resumable(Expr::Let {
             local: args,
             value: Box::new(Expr::Op(Op::Sequence {
@@ -170,8 +167,6 @@ struct Lowering {
     bindings: Value,
     /// The groups lowering is inside of, innermost last.
     groups: Vec<Value>,
-    /// Whether the function enters a budget.
-    budgets: bool,
     /// Whether what is being lowered runs inside a budget: the whole of
     /// a function in its metered form, and the body of a budget in any.
     metered: bool,

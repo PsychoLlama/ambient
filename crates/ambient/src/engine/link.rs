@@ -1,7 +1,7 @@
 //! Link: everything an entry reaches, as the parts of a program. See
 //! `spec/build.md` and `spec/targets.md`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -89,6 +89,37 @@ pub struct Parts {
 }
 
 impl Engine<'_> {
+    /// The definitions among `symbols`, a whole program, that can run
+    /// inside a budget, by hash: those get a metered form.
+    ///
+    /// What runs inside a budget is what its body names, and any
+    /// function value, since one may have been made anywhere and is
+    /// called wherever it arrives; and then whatever those name. If
+    /// nothing enters a budget, nothing does.
+    fn metered(&self, symbols: &[Symbol]) -> Result<HashSet<Hash>, Error> {
+        let mut pending = Vec::new();
+        let mut budgets = false;
+        for symbol in symbols {
+            let open = self.check(symbol)?;
+            let Tree::Function(function) = &open.tree else {
+                continue;
+            };
+            let named = |slot: &core::Slot| open.slots.get(slot.0).cloned();
+            pending.extend(function.body.values().iter().filter_map(named));
+            if let Some(inside) = function.body.budgeted() {
+                budgets = true;
+                pending.extend(inside.iter().filter_map(named));
+            }
+        }
+        let mut found = HashSet::new();
+        while let Some(symbol) = pending.pop().filter(|_| budgets) {
+            if found.insert(self.hash(&symbol)?) {
+                pending.extend(self.check(&symbol)?.slots.iter().cloned());
+            }
+        }
+        Ok(found)
+    }
+
     /// Compiles `entry` and everything it reaches.
     ///
     /// Definitions with equal hashes are one part, whatever their symbols.
@@ -117,14 +148,7 @@ impl Engine<'_> {
             symbols.push(symbol);
         }
 
-        // A function called inside a budget may have been made anywhere,
-        // so a program that enters one has a metered form of every
-        // function beside the plain one, and any other has none.
-        let mut metered = false;
-        for symbol in &symbols {
-            let open = self.check(symbol)?;
-            metered |= lower(&open, false).is_ok_and(|function| function.budgets);
-        }
+        let metered = self.metered(&symbols)?;
 
         let mut parts = Vec::new();
         let mut natives = Vec::new();
@@ -134,6 +158,7 @@ impl Engine<'_> {
             for slot in &open.slots {
                 slots.push(indices.get(&self.hash(slot)?).copied().unwrap_or(0));
             }
+            let metered = metered.contains(&self.hash(symbol)?);
             // The bindings a function is handed come first.
             let function = |arity: usize| -> Result<Body, Error> {
                 Ok(Body::Function {

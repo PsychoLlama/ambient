@@ -265,9 +265,5 @@ pub struct Function {
     /// How many slots its definition has. Its constants follow them.
     pub slots: usize,
     pub constants: Vec<Constant>,
-    /// Whether the function enters a budget: in a program with one that
-    /// does, every function is compiled a second time, metered, for what
-    /// runs inside a budget to call.
-    pub budgets: bool,
     pub body: Expr,
 }

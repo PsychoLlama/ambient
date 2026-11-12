@@ -54,7 +54,6 @@ impl Lowering {
         allocation: &core::Expr,
         body: &core::Expr,
     ) -> Result<Expr, Unsupported> {
-        self.budgets = true;
         let mut scope = Scope::default();
         let steps = self.operand(steps, &mut scope)?;
         let words = self.operand(allocation, &mut scope)?;
