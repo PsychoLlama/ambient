@@ -12,6 +12,7 @@ use super::Engine;
 use crate::core::Open;
 use crate::error::Error;
 use crate::hash::{Hash, Hasher};
+use crate::lower::deep;
 use crate::symbol::Symbol;
 
 struct Node {
@@ -33,7 +34,11 @@ impl Engine<'_> {
         if let Some(hash) = self.hash.borrow().get(symbol) {
             return Ok(*hash);
         }
+        deep(|| self.hashed(symbol))
+    }
 
+    /// The hash of a definition that has not been asked about.
+    fn hashed(&self, symbol: &Symbol) -> Result<Hash, Error> {
         // Explicit stacks: a dependency chain can be deeper than the native
         // stack allows. `path` is the chain being explored; `pending` holds
         // finished nodes whose group is not yet complete.

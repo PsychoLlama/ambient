@@ -13,6 +13,7 @@ use super::Engine;
 use crate::core::{Open, Tree};
 use crate::error::Error;
 use crate::hash::Hash;
+use crate::lower::deep;
 use crate::pack::{Closed, Pack, Refused, Target};
 use crate::symbol::{ModuleId, Namespace, Symbol};
 use crate::verify::verify;
@@ -44,6 +45,10 @@ impl Engine<'_> {
     ///
     /// Fails if anything reached does not check.
     pub fn pack(&self, entry: &Symbol, has: &dyn Fn(&Hash) -> bool) -> Result<Pack, Error> {
+        deep(|| self.packed(entry, has))
+    }
+
+    fn packed(&self, entry: &Symbol, has: &dyn Fn(&Hash) -> bool) -> Result<Pack, Error> {
         let mut positions: HashMap<Hash, usize> = HashMap::new();
         let mut symbols = Vec::new();
         let mut pending = vec![entry.clone()];
@@ -92,6 +97,10 @@ impl Engine<'_> {
     /// holds a tree checking could not have made. Nothing of it is kept
     /// then.
     pub fn receive(&self, pack: &Pack, known: &[Symbol]) -> Result<Symbol, Error> {
+        deep(|| self.taken(pack, known))
+    }
+
+    fn taken(&self, pack: &Pack, known: &[Symbol]) -> Result<Symbol, Error> {
         let known = self.by_hash(known)?;
         let batch = self.received.borrow().len();
         let module = ModuleId::new(RECEIVED, "");

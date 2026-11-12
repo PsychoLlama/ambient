@@ -130,6 +130,8 @@ pub enum Error {
     /// A cast or a pattern tests for a function type that mentions a
     /// type parameter, which no function says it is of.
     Untestable { symbol: Symbol, found: String },
+    /// A definition nests more deeply than any tree may.
+    Nesting(Symbol),
     /// Only functions compile to an artifact.
     NotCompilable(Symbol),
     /// A backend refused a definition.
@@ -230,6 +232,11 @@ impl fmt::Display for Error {
             Self::IrregularType(_) | Self::Untestable { .. } | Self::Uncontractive(_) => {
                 self.fmt_type(f)
             }
+            Self::Nesting(symbol) => write!(
+                f,
+                "{symbol}: nests more than {} levels deep",
+                crate::core::DEPTH
+            ),
             Self::NotCompilable(symbol) => write!(f, "{symbol}: not a function"),
             Self::Backend { symbol, message } => write!(f, "{symbol}: {message}"),
             Self::Invalid { symbol, problem } => write!(f, "{symbol}: {problem}"),

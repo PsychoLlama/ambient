@@ -4,6 +4,7 @@
 //! in the spec is the target.
 
 mod cost;
+mod depth;
 mod encode;
 mod visit;
 
@@ -13,6 +14,7 @@ use crate::literal::Literal;
 use crate::symbol::Symbol;
 
 pub use cost::Cost;
+pub use depth::DEPTH;
 pub use encode::Resolve;
 pub(crate) use encode::encode_signature;
 
@@ -29,6 +31,7 @@ pub enum Key {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "Self")]
 pub enum Type {
     Never,
     Unknown,
@@ -86,6 +89,7 @@ pub enum Primitive {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "Self")]
 pub enum Pattern {
     Wildcard,
     Literal(Literal),
@@ -98,6 +102,7 @@ pub enum Pattern {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "Self")]
 pub enum Expr {
     Null,
     Literal(Literal),

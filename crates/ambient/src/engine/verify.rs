@@ -3,6 +3,7 @@
 
 use super::Engine;
 use crate::error::Error;
+use crate::lower::deep;
 use crate::symbol::Symbol;
 use crate::verify::verify;
 
@@ -19,7 +20,8 @@ impl Engine<'_> {
     pub fn verify(&self, symbol: &Symbol) -> Result<(), Error> {
         let open = self.check(symbol)?;
         let root = self.root_of(&symbol.owner()).is_some();
-        verify(&open, root, &|slot| self.check(slot).ok()).map_err(|problem| Error::Invalid {
+        let verified = deep(|| verify(&open, root, &|slot| self.check(slot).ok()));
+        verified.map_err(|problem| Error::Invalid {
             symbol: symbol.clone(),
             problem,
         })

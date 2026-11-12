@@ -51,6 +51,12 @@ The core tree is the checked form of a definition and the only form that is hash
 - A primitive operation holds the operation and its arguments; primitives have no slots.
 - A [comptime](comptime.md) call does not appear; its result does.
 
+## Limits
+
+- A tree nests no deeper than a fixed limit, counted in expressions, types, and patterns.
+- A deeper tree is not a tree: a builder refuses to make it, checking refuses to produce it, and decoding refuses to read it.
+- A binding nests what follows it, so the limit also bounds how many bindings a function makes in a row.
+
 ## Encoding
 
 - A core tree has exactly one encoding, and equal trees encode to equal bytes.

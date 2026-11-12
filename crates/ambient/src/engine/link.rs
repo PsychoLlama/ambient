@@ -157,6 +157,10 @@ impl Engine<'_> {
     }
 
     fn parts(&self, entry: &Symbol, backend: &dyn Backend, loaded: bool) -> Result<Parts, Error> {
+        deep(|| self.reached(entry, backend, loaded))
+    }
+
+    fn reached(&self, entry: &Symbol, backend: &dyn Backend, loaded: bool) -> Result<Parts, Error> {
         let mut indices: HashMap<Hash, usize> = HashMap::new();
         let mut symbols: Vec<Symbol> = Vec::new();
         let mut pending = vec![entry.clone()];
@@ -208,8 +212,8 @@ impl Engine<'_> {
                     // metered form begin with those of the plain one.
                     constants: {
                         let form = self.form(symbol, metered)?;
-                        let constants = || lower(&open, &form).map(|function| function.constants);
-                        deep(constants).unwrap_or_default()
+                        let lowered = lower(&open, &form);
+                        lowered.map_or_else(|_| Vec::new(), |function| function.constants)
                     },
                 })
             };

@@ -25,7 +25,7 @@ Definitions and values move between running programs by hash. A receiver trusts 
 - The check reads only core trees: a tree determines the type of each of its nodes, so nothing is inferred and no source is needed.
 - A receiver accepts exactly the trees its own checker could have produced; a type written in any but its one form is refused.
 - A received definition never names a native handler; only a program's root does.
-- TODO: nothing bounds how deeply a received tree nests, and checking one recurses.
+- A received tree is held to the [depth limit](core.md) as it is decoded, before anything walks it.
 - An extern function in a pack resolves against the receiver's own native code by identity.
 - A pack that needs an extern the receiver lacks is rejected before any of it runs.
 

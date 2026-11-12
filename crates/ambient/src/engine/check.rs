@@ -16,6 +16,7 @@ use crate::checker;
 use crate::core::{self, Open, Tree};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, encode};
+use crate::lower::deep;
 use crate::surface::{DefinitionKind, ExternKind, Function, Param, Reference};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::{AbilityInfo, Env, Signature, Ty, TypeInfo, abilities};
@@ -223,6 +224,10 @@ impl Engine<'_> {
         if let Some(open) = self.received(symbol) {
             return Ok(open);
         }
+        deep(|| self.check_once(symbol))
+    }
+
+    fn check_once(&self, symbol: &Symbol) -> Query<Open> {
         memo(&self.check, symbol, || {
             if !symbol.lambda.is_empty() {
                 // A lambda is checked as part of the definition it is
@@ -244,7 +249,11 @@ impl Engine<'_> {
             self.checking.borrow_mut().push(symbol.clone());
             let result = self.check_named(symbol);
             self.checking.borrow_mut().pop();
-            result
+            // Whatever walks the tree from here on counts on this.
+            match result {
+                Ok(open) if !open.shallow() => Err(Error::Nesting(symbol.clone())),
+                result => result,
+            }
         })
     }
 

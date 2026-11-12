@@ -27,6 +27,8 @@ pub enum BuildError {
     DuplicateBinder(String),
     /// An import must name a package and at least one thing inside it.
     ImportTooShort(Path),
+    /// An expression nests more deeply than any tree may.
+    Nesting,
 }
 
 impl fmt::Display for BuildError {
@@ -47,6 +49,11 @@ impl fmt::Display for BuildError {
             Self::DuplicateHandler(path) => write!(f, "two handlers for `{path}`"),
             Self::DuplicateBinder(name) => write!(f, "a pattern binds `{name}` twice"),
             Self::ImportTooShort(path) => write!(f, "import `{path}` names only a package"),
+            Self::Nesting => write!(
+                f,
+                "an expression nests more than {} levels deep",
+                crate::core::DEPTH
+            ),
         }
     }
 }

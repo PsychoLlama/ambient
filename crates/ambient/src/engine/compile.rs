@@ -9,7 +9,7 @@ use super::{Engine, Query, Stage, memo};
 use crate::core::{Open, Tree};
 use crate::error::Error;
 use crate::hash::Hasher;
-use crate::lower::Form;
+use crate::lower::{Form, deep};
 use crate::symbol::Symbol;
 
 /// Turns one function into code.
@@ -54,7 +54,17 @@ impl Engine<'_> {
         metered: bool,
     ) -> Query<Artifact> {
         let memo_key = (symbol.clone(), backend.name().to_owned(), metered);
-        memo(&self.compile, &memo_key, || {
+        deep(|| self.compiled(symbol, backend, metered, &memo_key))
+    }
+
+    fn compiled(
+        &self,
+        symbol: &Symbol,
+        backend: &dyn Backend,
+        metered: bool,
+        memo_key: &(Symbol, String, bool),
+    ) -> Query<Artifact> {
+        memo(&self.compile, memo_key, || {
             let open = self.check(symbol)?;
             if !matches!(open.tree, Tree::Function(_) | Tree::Extern { .. }) {
                 return Err(Error::NotCompilable(symbol.clone()));
@@ -77,7 +87,8 @@ impl Engine<'_> {
             }
 
             let compile = || {
-                crate::lower::deep(|| backend.compile(&open, &form))
+                backend
+                    .compile(&open, &form)
                     .map(Artifact)
                     .map_err(|message| Error::Backend {
                         symbol: symbol.clone(),

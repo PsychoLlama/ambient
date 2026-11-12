@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::Tree;
 use crate::hash::Hash;
+use crate::lower::deep;
 
 /// What a slot of a packed definition refers to.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,7 +71,7 @@ impl Pack {
     /// The pack as bytes to send.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        crate::hash::encode(self)
+        deep(|| crate::hash::encode(self))
     }
 
     /// The pack `bytes` hold. Nothing about it is trusted yet: see
@@ -78,9 +79,10 @@ impl Pack {
     ///
     /// # Errors
     ///
-    /// Fails if the bytes are not a pack, or refer outside it.
+    /// Fails if the bytes are not a pack, or refer outside it. A pack
+    /// whose trees nest too deeply is not one: see [`crate::core::DEPTH`].
     pub fn decode(bytes: &[u8]) -> Result<Self, Malformed> {
-        let pack: Self = postcard::from_bytes(bytes).map_err(|_| Malformed)?;
+        let pack: Self = deep(|| postcard::from_bytes(bytes)).map_err(|_| Malformed)?;
         let inside = |target: &Target| match target {
             Target::Inside(position) => *position < pack.definitions.len(),
             Target::Outside(_) => true,

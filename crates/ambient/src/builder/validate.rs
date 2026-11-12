@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 
 use super::BuildError;
+use crate::core::DEPTH;
 use crate::surface::{Expr, Extern, ExternKind, Function, Key, Param, Path, Pattern, Target};
 
 pub(super) fn check_name(name: &str) -> Result<(), BuildError> {
@@ -171,15 +172,23 @@ pub(super) fn check_pattern<'a>(
     }
 }
 
+/// Checks an expression and everything inside it, in the order written.
+///
+/// This is the one walk that does not recurse: it is what holds a tree
+/// to the depth every other walk has room for.
 pub(super) fn check_expr(expr: &Expr) -> Result<(), BuildError> {
-    check_node(expr)?;
-    let mut inside = Ok(());
-    expr.children(&mut |child| {
-        if inside.is_ok() {
-            inside = check_expr(child);
+    let mut pending = vec![(expr, 1)];
+    while let Some((expr, depth)) = pending.pop() {
+        if depth > DEPTH {
+            return Err(BuildError::Nesting);
         }
-    });
-    inside
+        check_node(expr)?;
+        let from = pending.len();
+        expr.children(&mut |child| pending.push((child, depth + 1)));
+        // The first child is to be taken first.
+        pending[from..].reverse();
+    }
+    Ok(())
 }
 
 /// Checks what a node holds besides the expressions inside it.

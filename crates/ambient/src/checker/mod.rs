@@ -137,6 +137,8 @@ struct Checker<'a> {
     /// in the order they are written; this follows it explicitly so that
     /// expressions can be checked in another order.
     next: usize,
+    /// How many expressions the one being checked is inside.
+    nesting: usize,
 }
 
 impl<'a> Checker<'a> {
@@ -150,6 +152,7 @@ impl<'a> Checker<'a> {
             frames: vec![Frame::default()],
             types: BTreeMap::new(),
             next: 0,
+            nesting: 0,
         }
     }
 
@@ -286,6 +289,18 @@ impl<'a> Checker<'a> {
 
     /// The core form of `expr` and its type, normalized.
     fn infer(&mut self, expr: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {
+        // The stack has room for a tree as deep as one may be, and no
+        // deeper.
+        if self.nesting == core::DEPTH {
+            return Err(Error::Nesting(self.symbol.clone()));
+        }
+        self.nesting += 1;
+        let inferred = self.infer_node(expr);
+        self.nesting -= 1;
+        inferred
+    }
+
+    fn infer_node(&mut self, expr: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {
         Ok(match expr {
             Expr::Null => (core::Expr::Null, Ty::Null),
             Expr::Trace => self.capture(),
