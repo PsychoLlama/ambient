@@ -22,6 +22,8 @@
 - Whatever must happen on every way out of a block (cleanups, closing a group) is lowered as a `Try` whose recovery holds the unwinding, does the work, and rethrows (`lower/tasks.rs`).
 - Metering is a property of lowering (`lower/meter.rs`), chosen for a whole program at link time: a program that enters a budget anywhere is compiled metered throughout, under the same hashes.
 - Compiled code is position-independent: it reaches definitions through slots and the runtime through entry points, never by address.
+- A name reaches a definition through a module's members (`engine/scope.rs`): its own definitions and its re-exports, which keep the symbol of what they alias. Another package is reached only through its library module and the modules that lists.
+- A value has one encoding (`exchange.rs`); `decode` accepts only what `encode` produces.
 - `core::Tree::encode` defines every hash. Changing it or the node set means bumping `FORMAT`.
 
 ## Testing
