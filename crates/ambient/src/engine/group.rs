@@ -99,22 +99,30 @@ impl Engine<'_> {
     }
 
     /// Hashes one group, every dependency outside it being hashed already.
+    ///
+    /// A tree is hashed with each slot replaced by what it refers to, so
+    /// neither the numbering of slots nor the order of a union's members,
+    /// which names decide, is part of a hash.
     fn close(&self, members: &[Node]) {
         let mut known = self.hash.borrow_mut();
-        let encodings: Vec<Vec<u8>> = members.iter().map(|m| m.open.tree.encode()).collect();
         let position = |symbol: &Symbol| members.iter().position(|m| m.symbol == *symbol);
+        let outside = |symbol: &Symbol, out: &mut Vec<u8>| {
+            out.push(0);
+            if let Some(hash) = known.get(symbol) {
+                out.extend_from_slice(hash.as_bytes());
+            }
+        };
 
         if let [member] = members
             && !member.open.slots.contains(&member.symbol)
         {
-            let mut hasher = Hasher::new("definition");
-            hasher.bytes(&encodings[0]);
-            for slot in &member.open.slots {
-                if let Some(hash) = known.get(slot) {
-                    hasher.hash(hash);
-                }
-            }
-            known.insert(member.symbol.clone(), hasher.finish());
+            let slots = &member.open.slots;
+            let encoding = member
+                .open
+                .tree
+                .resolved(&|slot, out| outside(&slots[slot.0], out));
+            let hash = Hasher::new("definition").bytes(&encoding).finish();
+            known.insert(member.symbol.clone(), hash);
             return;
         }
 
@@ -124,26 +132,24 @@ impl Engine<'_> {
         // many rounds as there are members, two members share a colour only
         // if nothing reachable tells them apart, in which case they are the
         // same definition and get the same hash.
-        let colour = |member: usize, colours: Option<&[Hash]>| {
-            let mut hasher = Hasher::new("member");
-            hasher.bytes(&encodings[member]);
-            for slot in &members[member].open.slots {
-                match (position(slot), colours) {
-                    (Some(target), Some(colours)) => hasher.u64(1).hash(&colours[target]),
-                    (Some(_), None) => hasher.u64(1),
-                    (None, _) => match known.get(slot) {
-                        Some(hash) => hasher.u64(0).hash(hash),
-                        None => hasher.u64(0),
-                    },
-                };
-            }
-            hasher.finish()
+        let colour = |member: &Node, colours: Option<&[Hash]>| {
+            let encoding = member.open.tree.resolved(&|slot, out| {
+                let symbol = &member.open.slots[slot.0];
+                match position(symbol) {
+                    Some(target) => {
+                        out.push(1);
+                        if let Some(colours) = colours {
+                            out.extend_from_slice(colours[target].as_bytes());
+                        }
+                    }
+                    None => outside(symbol, out),
+                }
+            });
+            Hasher::new("member").bytes(&encoding).finish()
         };
-        let mut colours: Vec<Hash> = (0..members.len()).map(|m| colour(m, None)).collect();
+        let mut colours: Vec<Hash> = members.iter().map(|m| colour(m, None)).collect();
         for _ in 0..members.len() {
-            colours = (0..members.len())
-                .map(|m| colour(m, Some(&colours)))
-                .collect();
+            colours = members.iter().map(|m| colour(m, Some(&colours))).collect();
         }
 
         let order: Vec<Hash> = colours
@@ -157,12 +163,17 @@ impl Engine<'_> {
             group.hash(colour);
         }
         let group = group.finish();
-        for (member, colour) in members.iter().zip(&colours) {
-            let index = order.iter().position(|c| c == colour).unwrap_or(0);
-            let hash = Hasher::new("member-of")
-                .hash(&group)
-                .u64(index as u64)
-                .finish();
+        let hashes: Vec<Hash> = colours
+            .iter()
+            .map(|colour| {
+                let index = order.iter().position(|c| c == colour).unwrap_or(0);
+                Hasher::new("member-of")
+                    .hash(&group)
+                    .u64(index as u64)
+                    .finish()
+            })
+            .collect();
+        for (member, hash) in members.iter().zip(hashes) {
             known.insert(member.symbol.clone(), hash);
         }
     }

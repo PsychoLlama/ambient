@@ -10,7 +10,7 @@
 - Every stage result is stored under a key derived from the content of its inputs (`engine/mod.rs`). A stage's compute function reads nothing that is not in its key.
 - Checking is re-entrant: a comptime call compiles and runs its callee mid-check (`engine/run.rs`). The check key covers the callee's hash, which is what keeps the result a function of the key.
 - A result that observed the world is stored with what it observed and reused through `Engine::stage_if`, which looks again. Only native code is outside a key, so a trace is the native calls a run made.
-- Names, docs, and declaration order never reach a core tree or a hash.
+- Names, docs, and declaration order never reach a hash. In a core tree they decide one thing: the stored order of a union's members, and so slot numbering.
 - A backend only translates `lir`; anything about semantics belongs in `lower.rs` or the runtime, so both backends get it.
 - Layouts and the calling convention are defined once, in `ambient-runtime`; never restate an offset in a backend.
 - Every function's first parameter is its bindings: a record keyed by ability, or null. The checker tracks what is bound (`checker/abilities.rs`); lowering only threads the record (`lower/abilities.rs`).
@@ -24,7 +24,7 @@
 - Compiled code is position-independent: it reaches definitions through slots and the runtime through entry points, never by address.
 - A name reaches a definition through a module's members (`engine/scope.rs`): its own definitions and its re-exports, which keep the symbol of what they alias. Another package is reached only through its library module and the modules that lists.
 - A value has one encoding (`exchange.rs`); `decode` accepts only what `encode` produces.
-- `core::Tree::encode` defines every hash. Changing it or the node set means bumping `FORMAT`.
+- `core::Tree::resolved` defines every hash: the tree's encoding with slots replaced by hashes and unions ordered by that. `Tree::encode` is the stored form, which names can order; never hash it. Changing either or the node set means bumping `FORMAT`.
 
 ## Testing
 

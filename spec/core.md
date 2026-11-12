@@ -15,7 +15,8 @@ The core tree is the checked form of a definition and the only form that is hash
 
 - A core definition whose slots are symbols is open; one whose slots are hashes is closed.
 - Checking yields an open definition, and never learns a hash.
-- The [hash](definitions.md) of a definition covers its tree and the hashes of its slots, in slot order.
+- The [hash](definitions.md) of a definition covers its tree with each slot replaced by the hash it refers to.
+- A union's members are hashed in the order of those replaced forms; the order an open tree stores them in, and so its slot numbering, is not content.
 - Compiling reads the tree and the [interfaces](definitions.md) of its slots, never their hashes; compiled code reaches a slot through its closed table.
 - An edit to a dependency's body therefore changes a dependent's closed table and nothing else about it.
 - Only closed definitions leave a workspace.

@@ -270,3 +270,32 @@ fn recursive_types_hash() {
         engine.hash(&support::ty("main", "Forest")).unwrap(),
     );
 }
+
+/// Two recursive types, a list of ints named `ints` and one of strings
+/// named `strings`, and `fn pick(list: ints | strings): int`.
+fn lists(ints: &str, strings: &str) -> ModuleBuilder {
+    let list = |name: &str, head| {
+        let tail = ty::union([ty::named(name), ty::null()]);
+        b::type_(name, ty::record([("head", head), ("tail", tail)]))
+    };
+    b::module()
+        .define(list(ints, ty::int()))
+        .define(list(strings, ty::string()))
+        .define(
+            b::function("pick")
+                .param("list", ty::union([ty::named(ints), ty::named(strings)]))
+                .returns(ty::int())
+                .body(b::int(0)),
+        )
+}
+
+#[test]
+fn the_order_of_a_union_is_not_content_whatever_its_members_are_named() {
+    // Renaming one member moves it past the other in name order.
+    let pick = value("main", "pick");
+
+    assert_eq!(
+        hash_of(&pick, &[("main", lists("a", "m"))]),
+        hash_of(&pick, &[("main", lists("z", "m"))]),
+    );
+}
