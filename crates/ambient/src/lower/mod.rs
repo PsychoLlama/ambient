@@ -6,6 +6,7 @@
 
 mod abilities;
 mod patterns;
+mod resume;
 
 use ambient_runtime::{SMALL_MAX, SMALL_MIN};
 
@@ -43,6 +44,7 @@ pub fn lower(definition: &Open) -> Result<lir::Function, Unsupported> {
     // count was not known until now. They go after them.
     let named = lowering.binders + 1;
     renumber(&mut body, named);
+    let body = resume::resumable(body);
     Ok(lir::Function {
         params: function.params.len() + 1,
         locals: named + lowering.temporaries,
@@ -67,14 +69,14 @@ fn native(arity: usize, slots: usize) -> lir::Function {
         locals: arity + 2,
         slots,
         constants: vec![Constant::Native],
-        body: Expr::Let {
+        body: resume::resumable(Expr::Let {
             local: args,
             value: Box::new(Expr::Op(Op::Sequence {
                 list: false,
                 members,
             })),
             body: Box::new(Expr::Op(call)),
-        },
+        }),
     }
 }
 
@@ -98,7 +100,8 @@ fn renumber(expr: &mut Expr, base: usize) {
             Op::Copy(operand)
             | Op::IsRecord(operand)
             | Op::Expire(operand)
-            | Op::Caught(operand) => {
+            | Op::Caught(operand)
+            | Op::All(operand) => {
                 value(operand);
             }
             Op::Merge { base, overlay } => {
@@ -129,11 +132,12 @@ fn renumber(expr: &mut Expr, base: usize) {
                 value(subject);
             }
         },
-        Expr::Fault(_) => {}
-        Expr::Try { body, recover } => {
+        Expr::Try { body, recover, .. } => {
             renumber(body, base);
             renumber(recover, base);
         }
+        // The last two are made after temporaries are numbered.
+        Expr::Fault(_) | Expr::Point { .. } | Expr::Resumed { .. } => {}
         Expr::Let {
             local: bound,
             value: bound_value,

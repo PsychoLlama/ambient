@@ -67,6 +67,15 @@ pub enum Primitive {
     FloatLess,
     /// Structural equality, over every shape.
     Equal,
+    /// A cell that holds a value.
+    CellNew,
+    CellRead,
+    /// Puts a value in a cell if it holds the one given, and says whether
+    /// it did.
+    CellReplace,
+    /// Suspends the task until a cell holds something other than the
+    /// value given.
+    CellWait,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

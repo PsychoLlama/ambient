@@ -12,6 +12,10 @@
 //! checks after each [`Op`] that can, and leaves through the enclosing
 //! `Let`s so that each releases its local.
 //!
+//! A task suspends by unwinding and resumes by running its functions
+//! again (`spec/backends.md`). [`Expr::Point`] and [`Expr::Resumed`] are
+//! how a function takes part: see [`crate::lower`].
+//!
 //! Most operations are calls into the runtime. [`Op::steps`] spells those
 //! out, so a backend translates calls and never decides what an operation
 //! means.
@@ -101,6 +105,9 @@ pub enum Op {
     /// arguments if the unwinding was an abort to it, and goes on
     /// unwinding if not.
     Caught(Value),
+    /// Runs each of the closures in a tuple as a task, and is the tuple of
+    /// their results.
+    All(Value),
     /// Runs native code: the extern at `index`, a [`Constant::Native`],
     /// with the caller's bindings and `args`, a tuple.
     Native {
@@ -145,11 +152,26 @@ impl Op {
             | Self::CallValue { .. }
             | Self::Abort { .. }
             | Self::Caught(_)
-            | Self::Native { .. } => true,
+            | Self::Native { .. }
+            | Self::All(_) => true,
             Self::Primitive { operation, .. } => matches!(
                 operation,
-                Primitive::IntAdd | Primitive::IntSubtract | Primitive::IntMultiply
+                Primitive::IntAdd
+                    | Primitive::IntSubtract
+                    | Primitive::IntMultiply
+                    | Primitive::CellWait
             ),
+            _ => false,
+        }
+    }
+
+    /// Whether the task may suspend in the operation: it calls something
+    /// that may, or waits.
+    #[must_use]
+    pub fn suspends(&self) -> bool {
+        match self {
+            Self::Call { .. } | Self::CallValue { .. } | Self::Native { .. } | Self::All(_) => true,
+            Self::Primitive { operation, .. } => matches!(operation, Primitive::CellWait),
             _ => false,
         }
     }
@@ -219,6 +241,7 @@ impl Op {
                 vec![step(Entry::Abort, [value(token), value(args)])]
             }
             Self::Caught(token) => vec![step(Entry::Caught, [value(token)])],
+            Self::All(thunks) => vec![step(Entry::All, [value(thunks)])],
             Self::Native {
                 index,
                 bindings,
@@ -255,6 +278,10 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::FloatMultiply => Entry::FloatMultiply,
         Primitive::FloatLess => Entry::FloatLess,
         Primitive::Equal => Entry::Equal,
+        Primitive::CellNew => Entry::CellNew,
+        Primitive::CellRead => Entry::CellRead,
+        Primitive::CellReplace => Entry::CellReplace,
+        Primitive::CellWait => Entry::CellWait,
     }
 }
 
@@ -276,9 +303,31 @@ pub enum Expr {
     /// Unwinds.
     Fault(Fault),
     /// `body`, or, if it unwinds, `recover`, which may go on unwinding.
+    ///
+    /// `recovering` is the points in `recover`, first and one past last:
+    /// a function resuming to one of them goes straight to `recover`.
     Try {
         body: Box<Expr>,
         recover: Box<Expr>,
+        recovering: (usize, usize),
+    },
+    /// An operation its task may suspend in, numbered within its
+    /// function. If the operation unwinds because the task is
+    /// suspending, the function saves its locals and returns. A function
+    /// resuming to this point runs the operation again, which resumes
+    /// whatever it called.
+    Point {
+        point: usize,
+        op: Op,
+    },
+    /// The value a `Let` binds to `local`, in a function that may be
+    /// resuming. If it is, and the point it is going back to is not among
+    /// `points`, the value was computed before the task suspended and
+    /// `local` already holds it.
+    Resumed {
+        points: (usize, usize),
+        local: usize,
+        value: Box<Expr>,
     },
 }
 

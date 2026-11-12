@@ -179,6 +179,8 @@ impl Lowering {
             result = Expr::Try {
                 body: Box::new(result),
                 recover: Box::new(self.recover(*token, *handler, *arity, outer)),
+                // Filled in once the function's points are numbered.
+                recovering: (0, 0),
             };
         }
         if !aborts.is_empty() {
