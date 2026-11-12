@@ -70,8 +70,6 @@ pub enum Primitive {
     FloatLess,
     /// Structural equality, over every shape.
     Equal,
-    /// A cell that holds a value.
-    CellNew,
     CellRead,
     /// Puts a value in a cell if it holds the one given, and says whether
     /// it did.
@@ -150,6 +148,11 @@ pub enum Expr {
         type_args: Vec<Type>,
         captures: Vec<Expr>,
         bindings: Vec<Slot>,
+    },
+    /// A new cell that holds `value`, made to hold values of `ty`.
+    Cell {
+        ty: Type,
+        value: Box<Expr>,
     },
     /// Evaluates `body`, then calls `cleanup`, a closure that takes
     /// nothing, however `body` ended. Is what `body` gave.

@@ -158,8 +158,11 @@ impl Checker<'_> {
             self.well_formed(ty)?;
             let held = self.env.normalize(ty);
             let value = self.check(value, &held)?;
-            let cell = Ty::Cell(Box::new(held));
-            return Ok((primitive(Primitive::CellNew, vec![value]), cell));
+            let node = core::Expr::Cell {
+                ty: self.lower(&held),
+                value: Box::new(value),
+            };
+            return Ok((node, Ty::Cell(Box::new(held))));
         }
         // Every other operation takes a cell, and then values it could
         // hold.

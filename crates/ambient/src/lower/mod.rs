@@ -223,17 +223,11 @@ impl Lowering {
                     body: Box::new(self.expr(body)?),
                 });
             }
-            core::Expr::Call { callee, args } => {
-                // A callee is handed the bindings in scope, whole.
-                if let core::Expr::Reference(slot, _) = &**callee {
-                    let args = self.arguments(self.bindings, args, &mut scope)?;
-                    Op::Call { slot: slot.0, args }
-                } else {
-                    let callee = self.operand(callee, &mut scope)?;
-                    let args = self.arguments(self.bindings, args, &mut scope)?;
-                    Op::CallValue { callee, args }
-                }
-            }
+            core::Expr::Call { callee, args } => self.call(callee, args, &mut scope)?,
+            core::Expr::Cell { ty, value } => Op::Cell {
+                value: self.operand(value, &mut scope)?,
+                ty: self.made_at(ty),
+            },
             core::Expr::Primitive { operation, args } => Op::Primitive {
                 operation: *operation,
                 args: self.operands(args, &mut scope)?,
@@ -368,17 +362,34 @@ impl Lowering {
         })
     }
 
+    /// A call. The callee is handed the bindings in scope, whole.
+    fn call(
+        &mut self,
+        callee: &core::Expr,
+        args: &[core::Expr],
+        scope: &mut Scope,
+    ) -> Result<Op, Unsupported> {
+        if let core::Expr::Reference(slot, _) = callee {
+            let args = self.arguments(self.bindings, args, scope)?;
+            return Ok(Op::Call { slot: slot.0, args });
+        }
+        let callee = self.operand(callee, scope)?;
+        let args = self.arguments(self.bindings, args, scope)?;
+        Ok(Op::CallValue { callee, args })
+    }
+
+    /// The type a cell made at `ty` keeps, as a constant. Nothing at run
+    /// time knows a type parameter or a function's type, so a cell made
+    /// at one keeps none, and passes no cast to a cell type.
+    fn made_at(&mut self, ty: &core::Type) -> Option<usize> {
+        testable(ty)
+            .is_ok()
+            .then(|| self.constant(Constant::Type(ty.clone())))
+    }
+
     /// An expression that is true when `ty` describes `value`.
     pub(super) fn is(&mut self, value: Value, ty: &core::Type) -> Result<Expr, Unsupported> {
-        if mentions(ty, &|ty| matches!(ty, core::Type::Parameter(_))) {
-            return Err(Unsupported("tests against a type parameter"));
-        }
-        if mentions(ty, &|ty| matches!(ty, core::Type::Function { .. })) {
-            return Err(Unsupported("tests against a function type"));
-        }
-        if mentions(ty, &|ty| matches!(ty, core::Type::Cell(_))) {
-            return Err(Unsupported("tests against a cell type"));
-        }
+        testable(ty)?;
         let ty = self.constant(Constant::Type(ty.clone()));
         Ok(Expr::Op(Op::Is { value, ty }))
     }
@@ -402,6 +413,17 @@ impl Scope {
                 body: Box::new(body),
             })
     }
+}
+
+/// Whether a value can be tested against `ty` at run time.
+fn testable(ty: &core::Type) -> Result<(), Unsupported> {
+    if mentions(ty, &|ty| matches!(ty, core::Type::Parameter(_))) {
+        return Err(Unsupported("tests against a type parameter"));
+    }
+    if mentions(ty, &|ty| matches!(ty, core::Type::Function { .. })) {
+        return Err(Unsupported("tests against a function type"));
+    }
+    Ok(())
 }
 
 /// Whether `found` holds of `ty` or of any type inside it.

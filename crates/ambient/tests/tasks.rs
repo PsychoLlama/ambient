@@ -180,6 +180,58 @@ fn a_cell_holds_any_value_and_compares_it_by_what_it_is() {
     assert_eq!(evaluates(body), expected);
 }
 
+/// Whether a cell made to hold `made`, with `value` in it, passes a cast
+/// to a cell of `asked`, among `types`.
+fn casts(types: [Definition; 2], made: Type, value: Expr, asked: Type) -> bool {
+    // Widened, so that only the cell itself can say what it holds.
+    let widened = b::cast(b::cell(made, value), ty::unknown(), b::null());
+    let body = b::cast(widened, ty::cell(asked), b::null());
+    let main = b::function("main").returns(ty::unknown()).body(body);
+    let [first, second] = types;
+
+    run([first, second, main], &[]).unwrap() == Value::Cell
+}
+
+/// `name = null | {head: int, tail: name}`
+fn items(name: &str) -> Definition {
+    let node = ty::record([("head", ty::int()), ("tail", ty::named(name))]);
+    b::type_(name, ty::union([ty::null(), node]))
+}
+
+#[test]
+fn a_cast_to_a_cell_type_asks_what_the_cell_was_made_to_hold() {
+    let types = || [items("A"), items("B")];
+
+    assert!(casts(types(), ty::int(), b::int(0), ty::int()));
+    assert!(!casts(types(), ty::int(), b::int(0), ty::string()));
+}
+
+#[test]
+fn a_cell_is_only_a_cell_of_exactly_what_it_holds() {
+    let types = || [items("A"), items("B")];
+    let either = || ty::union([ty::int(), ty::null()]);
+
+    assert!(!casts(types(), ty::int(), b::int(0), either()));
+    assert!(!casts(types(), either(), b::int(0), ty::int()));
+    assert!(!casts(types(), ty::int(), b::int(0), ty::unknown()));
+}
+
+#[test]
+fn cell_types_are_compared_by_structure() {
+    let types = || [items("A"), items("B")];
+    let flipped = || ty::union([ty::string(), ty::named("B"), ty::int()]);
+    let written = || ty::union([ty::int(), ty::named("A"), ty::string()]);
+
+    assert!(casts(types(), ty::named("A"), b::null(), ty::named("B")));
+    assert!(casts(types(), written(), b::null(), flipped()));
+    assert!(!casts(
+        types(),
+        ty::named("A"),
+        b::null(),
+        ty::list(ty::int())
+    ));
+}
+
 // Suspension
 
 #[test]

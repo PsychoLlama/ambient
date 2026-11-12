@@ -119,6 +119,11 @@ pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
             out.push(13);
             unsigned(*index as u64, out);
         }
+        Expr::Cell { ty, value } => {
+            out.push(26);
+            encode_type(ty, out);
+            encode_expr(value, out);
+        }
         Expr::Closure { .. }
         | Expr::Perform { .. }
         | Expr::Provide { .. }

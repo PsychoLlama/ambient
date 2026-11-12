@@ -132,13 +132,11 @@ impl Op {
             Self::Member { tuple, index } => {
                 vec![step(Entry::SequenceGet, [value(tuple), count(*index)])]
             }
-            Self::HasField {
-                value: subject,
-                key: field,
-            } => {
-                vec![step(Entry::RecordHas, [value(subject), key(field)])]
-            }
-            Self::IsRecord(subject) => vec![step(Entry::RecordIs, [value(subject)])],
+            Self::HasField { .. }
+            | Self::IsRecord(_)
+            | Self::IsTuple { .. }
+            | Self::Is { .. }
+            | Self::Cell { .. } => self.type_steps(),
             Self::Merge { base, overlay } => {
                 vec![step(Entry::RecordMerge, [value(base), value(overlay)])]
             }
@@ -176,17 +174,39 @@ impl Op {
                     [key(index), value(bindings), value(args)],
                 )]
             }
-            Self::Is { value: subject, ty } => vec![step(Entry::Is, [value(subject), key(ty)])],
+        })
+    }
+}
+
+impl Op {
+    /// The steps of an operation that asks what a value is, or says what
+    /// a cell holds.
+    fn type_steps(&self) -> Vec<Step> {
+        use Arg::Raw;
+        let value = |value: &Value| Arg::Value(*value);
+        let key = |key: &usize| Arg::Value(Value::Constant(*key));
+        match self {
+            Self::HasField {
+                value: subject,
+                key: field,
+            } => {
+                vec![step(Entry::RecordHas, [value(subject), key(field)])]
+            }
+            Self::IsRecord(subject) => vec![step(Entry::RecordIs, [value(subject)])],
             Self::IsTuple {
                 value: subject,
                 length,
             } => {
-                vec![step(
-                    Entry::SequenceIs,
-                    [value(subject), Raw(0), count(*length)],
-                )]
+                let length = Raw(*length as u64);
+                vec![step(Entry::SequenceIs, [value(subject), Raw(0), length])]
             }
-        })
+            Self::Is { value: subject, ty } => vec![step(Entry::Is, [value(subject), key(ty)])],
+            Self::Cell { value: held, ty } => {
+                let ty = ty.as_ref().map_or(Raw(0), key);
+                vec![step(Entry::CellNew, [value(held), ty])]
+            }
+            _ => Vec::new(),
+        }
     }
 }
 
@@ -252,7 +272,6 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::FloatMultiply => Entry::FloatMultiply,
         Primitive::FloatLess => Entry::FloatLess,
         Primitive::Equal => Entry::Equal,
-        Primitive::CellNew => Entry::CellNew,
         Primitive::CellRead => Entry::CellRead,
         Primitive::CellReplace => Entry::CellReplace,
         Primitive::CellWait => Entry::CellWait,

@@ -53,7 +53,8 @@ impl Op {
             Self::Member { tuple, .. } => vec![tuple],
             Self::HasField { value: subject, .. }
             | Self::IsTuple { value: subject, .. }
-            | Self::Is { value: subject, .. } => vec![subject],
+            | Self::Is { value: subject, .. }
+            | Self::Cell { value: subject, .. } => vec![subject],
         }
     }
 }

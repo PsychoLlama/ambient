@@ -86,6 +86,9 @@ pub enum Op {
     },
     /// A closure over the lambda in a slot.
     Closure { slot: usize, captures: Vec<Value> },
+    /// A new cell that holds a value, made at a type, a
+    /// [`Constant::Type`], if the type is known here.
+    Cell { value: Value, ty: Option<usize> },
     /// A tuple, or a list.
     Sequence { list: bool, members: Vec<Value> },
     /// A record. Each field is a [`Constant::Field`] and its value.

@@ -5,15 +5,23 @@ use crate::object::{KIND_CELL, amb_release, amb_retain, boolean, fault, object, 
 use crate::task::{arriving, interrupted, suspend, wait_on, wake};
 use crate::{Context, Fault, NULL, Word};
 
-/// A cell that holds `value`.
+/// A cell that holds `value`, made at the type `ty` describes: a
+/// descriptor's address, or zero if the type is not known here. The cell
+/// keeps it, which is what lets a cast tell what the cell may hold.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_cell_new(value: Word) -> Word {
+pub unsafe extern "C" fn amb_cell_new(value: Word, ty: u64) -> Word {
     unsafe {
-        let word = object(KIND_CELL, 8);
+        let word = object(KIND_CELL, 16);
         amb_retain(value);
         words(word)[0] = value;
+        words(word)[1] = ty;
         word
     }
+}
+
+/// The descriptor of the type a cell was made at, or zero.
+pub(crate) unsafe fn made_at(cell: Word) -> u64 {
+    unsafe { words(cell)[1] }
 }
 
 /// The value a cell holds.

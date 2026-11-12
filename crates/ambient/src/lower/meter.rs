@@ -35,6 +35,7 @@ fn cost(op: &Op) -> Cost {
         Op::Closure { captures, .. } => words(captures.len() + 2),
         Op::Merge { base, overlay } => Cost::Sized(vec![*base, *overlay]),
         Op::Int(_) | Op::Float(_) | Op::Token | Op::Group => words(1),
+        Op::Cell { .. } => words(2),
         Op::Hold => words(3),
         // An error: its record, and its empty trace.
         Op::Contain => words(9),

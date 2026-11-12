@@ -168,12 +168,11 @@ fn node_size(ty: &Type) -> usize {
         | Type::Float
         | Type::String
         | Type::Tag
-        | Type::Function { .. }
-        | Type::Cell(_) => 1,
+        | Type::Function { .. } => 1,
         Type::Literal(_) => 3,
         Type::Record(fields) => 2 + fields.len() * 2,
         Type::Tuple(members) | Type::Union(members) => 2 + members.len(),
-        Type::List(_) | Type::Parameter(_) => 2,
+        Type::List(_) | Type::Cell(_) | Type::Parameter(_) => 2,
         Type::Reference(_, args) => 3 + args.len(),
     }
 }
@@ -233,7 +232,7 @@ impl Statics {
             Type::String => tag(self, d::STRING),
             Type::Tag => tag(self, d::TAG),
             // No value is known to be one of these: see the runtime.
-            Type::Function { .. } | Type::Cell(_) => tag(self, d::FUNCTION),
+            Type::Function { .. } => tag(self, d::FUNCTION),
             Type::Literal(literal) => {
                 tag(self, d::LITERAL);
                 let (kind, payload) = match literal {
@@ -277,6 +276,11 @@ impl Statics {
             }
             Type::List(member) => {
                 tag(self, d::LIST);
+                let child = self.describe(member, slots);
+                self.set(at + 1, Field::Address(child));
+            }
+            Type::Cell(member) => {
+                tag(self, d::CELL);
                 let child = self.describe(member, slots);
                 self.set(at + 1, Field::Address(child));
             }

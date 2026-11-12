@@ -181,7 +181,9 @@ pub unsafe extern "C" fn amb_release(word: Word) {
                 continue;
             }
             let held = match (*header).kind {
-                KIND_TUPLE | KIND_LIST | KIND_RECORD | KIND_CELL => words(word),
+                KIND_TUPLE | KIND_LIST | KIND_RECORD => words(word),
+                // After the value is the type the cell was made at.
+                KIND_CELL => &words(word)[..1],
                 // The first word is the definition, which is not a value.
                 KIND_CLOSURE => &words(word)[1..],
                 _ => &[],

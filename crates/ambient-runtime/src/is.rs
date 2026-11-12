@@ -1,10 +1,12 @@
 //! Type tests: whether a descriptor describes a value.
 
+use crate::cell::made_at;
 use crate::object::{
-    KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE, boolean,
-    bytes, int, kind, payload, words,
+    KIND_CELL, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE,
+    boolean, bytes, int, kind, payload, words,
 };
 use crate::record::find;
+use crate::same::Types;
 use crate::{FALSE, NULL, TRUE, Word};
 
 /// The layout of a type descriptor: what a cast tests a value against.
@@ -46,14 +48,17 @@ pub mod descriptor {
     /// Then the node this one stands for.
     pub const ALIAS: u64 = 15;
     pub const TAG: u64 = 16;
+    /// Then the node of what the cell holds.
+    pub const CELL: u64 = 17;
 }
 
 /// The arguments a generic type definition is being read at.
-struct Scope {
-    nodes: &'static [u64],
+#[derive(Clone, Copy)]
+pub(crate) struct Scope {
+    pub(crate) nodes: &'static [u64],
     /// What the arguments themselves are read at: another scope, by
     /// position among those entered.
-    outer: Option<usize>,
+    pub(crate) outer: Option<usize>,
 }
 
 /// The tests a descriptor makes of the values inside a value.
@@ -256,6 +261,13 @@ unsafe fn look(value: Word, ty: u64, scope: Option<usize>, scopes: &mut Vec<Scop
                 None => false,
             },
             d::ALIAS => return Look::Instead(node(1), scope),
+            // A cell holds exactly what it was made to hold, so the two
+            // types must be the same, not one within the other.
+            d::CELL => {
+                kind(value) == KIND_CELL
+                    && made_at(value) != 0
+                    && Types::new(scopes).same((made_at(value), None), (node(1), scope))
+            }
             // TODO: a function value carries no signature yet, so nothing
             // is known to be a function of a given type.
             _ => false,
