@@ -3,10 +3,10 @@
 use crate::{
     amb_abort, amb_caught, amb_closure_new, amb_closure_set, amb_equal, amb_fault, amb_float_add,
     amb_float_less, amb_float_multiply, amb_float_new, amb_float_subtract, amb_int_add,
-    amb_int_less, amb_int_multiply, amb_int_new, amb_int_subtract, amb_is, amb_record_get,
-    amb_record_has, amb_record_is, amb_record_merge, amb_record_new, amb_record_set, amb_release,
-    amb_retain, amb_sequence_get, amb_sequence_is, amb_sequence_new, amb_sequence_set,
-    amb_token_expire, amb_token_new,
+    amb_int_less, amb_int_multiply, amb_int_new, amb_int_subtract, amb_is, amb_native,
+    amb_record_get, amb_record_has, amb_record_is, amb_record_merge, amb_record_new,
+    amb_record_set, amb_release, amb_retain, amb_sequence_get, amb_sequence_is, amb_sequence_new,
+    amb_sequence_set, amb_token_expire, amb_token_new,
 };
 
 /// The entry points, in table order.
@@ -44,10 +44,11 @@ pub enum Entry {
     TokenExpire,
     Abort,
     Caught,
+    Native,
 }
 
 impl Entry {
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 32] = [
         Self::Retain,
         Self::Release,
         Self::IntAdd,
@@ -79,6 +80,7 @@ impl Entry {
         Self::TokenExpire,
         Self::Abort,
         Self::Caught,
+        Self::Native,
     ];
 
     /// The name the entry point is exported under.
@@ -116,6 +118,7 @@ impl Entry {
             Self::TokenExpire => "amb_token_expire",
             Self::Abort => "amb_abort",
             Self::Caught => "amb_caught",
+            Self::Native => "amb_native",
         }
     }
 
@@ -130,6 +133,7 @@ impl Entry {
                 | Self::Fault
                 | Self::Abort
                 | Self::Caught
+                | Self::Native
         )
     }
 
@@ -147,7 +151,11 @@ impl Entry {
             | Self::Fault
             | Self::RecordNew
             | Self::RecordIs => 1,
-            Self::SequenceSet | Self::SequenceIs | Self::RecordSet | Self::ClosureSet => 3,
+            Self::SequenceSet
+            | Self::SequenceIs
+            | Self::RecordSet
+            | Self::ClosureSet
+            | Self::Native => 3,
             _ => 2,
         }
     }
@@ -196,6 +204,7 @@ impl Entry {
             Self::TokenExpire => amb_token_expire as *const () as usize,
             Self::Abort => amb_abort as *const () as usize,
             Self::Caught => amb_caught as *const () as usize,
+            Self::Native => amb_native as *const () as usize,
         }
     }
 }

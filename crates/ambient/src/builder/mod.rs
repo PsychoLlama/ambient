@@ -10,11 +10,13 @@ mod error;
 pub mod pat;
 pub mod ty;
 mod validate;
+mod world;
 
 pub use definition::{
     AbilityBuilder, FunctionBuilder, ModuleBuilder, ability, function, generic_type, module, type_,
 };
 pub use error::BuildError;
+pub use world::{ExternBuilder, TargetBuilder, extern_function, native_handler, target};
 
 use crate::literal::Literal;
 use crate::surface::{Arm, Expr, Key, Operator, Path, Pattern};

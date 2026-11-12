@@ -24,6 +24,7 @@ mod check;
 mod compile;
 mod group;
 mod link;
+mod program;
 mod read;
 mod resolve;
 mod run;
@@ -45,7 +46,7 @@ use crate::workspace::Sources;
 
 pub use check::Interface;
 pub use compile::{Artifact, Backend};
-pub use link::{Body, Part, Parts};
+pub use link::{Body, Native, Part, Parts};
 pub use read::{Entry, Read, Scope, Table};
 pub use resolve::Resolved;
 
@@ -95,6 +96,8 @@ pub struct Engine<'a> {
     /// The definitions being checked, outermost first. A comptime call
     /// makes checking re-entrant; this is how a cycle through one is seen.
     checking: RefCell<Vec<Symbol>>,
+    /// The roots of the programs asked for, each with what it is made of.
+    roots: RefCell<HashMap<Symbol, program::Root>>,
     runner: run::Runner,
 }
 
@@ -114,6 +117,7 @@ impl<'a> Engine<'a> {
             hash: RefCell::default(),
             compile: RefCell::default(),
             checking: RefCell::default(),
+            roots: RefCell::default(),
             runner: run::Runner::default(),
         }
     }

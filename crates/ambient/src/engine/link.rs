@@ -19,6 +19,15 @@ pub struct Part {
     /// The part each slot refers to.
     pub slots: Vec<usize>,
     pub body: Body,
+    /// If the part is an extern: its position in [`Parts::natives`].
+    pub native: Option<usize>,
+}
+
+/// An extern a program reaches: what a host finds native code by.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Native {
+    pub package: String,
+    pub tag: String,
 }
 
 #[derive(Debug)]
@@ -32,8 +41,9 @@ pub enum Body {
     },
     /// A recursive type definition, which casts test values against.
     Type(core::Type),
-    /// An ability. Nothing is laid out for one: its hash is its key.
-    Ability,
+    /// An ability or a target. Nothing is laid out for one: an ability
+    /// is reached by a key made from its hash, and a target not at all.
+    Inert,
 }
 
 /// A program: exactly the definitions its entry reaches, each once.
@@ -42,6 +52,9 @@ pub struct Parts {
     pub parts: Vec<Part>,
     /// The entry's position in `parts`.
     pub entry: usize,
+    /// The externs among `parts`, which a host must supply before the
+    /// program runs.
+    pub natives: Vec<Native>,
 }
 
 impl Engine<'_> {
@@ -74,6 +87,7 @@ impl Engine<'_> {
         }
 
         let mut parts = Vec::new();
+        let mut natives = Vec::new();
         for symbol in &symbols {
             let open = self.check(symbol)?;
             let mut slots = Vec::new();
@@ -92,16 +106,38 @@ impl Engine<'_> {
                         .map(|function| function.constants)
                         .unwrap_or_default(),
                 },
+                Tree::Extern { params, .. } => Body::Function {
+                    arity: params.len() + 1,
+                    code: self.compile(symbol, backend)?,
+                    constants: lower(&open)
+                        .map(|function| function.constants)
+                        .unwrap_or_default(),
+                },
                 Tree::Type { ty, .. } => Body::Type(ty.clone()),
-                Tree::Ability { .. } => Body::Ability,
+                Tree::Ability { .. } | Tree::Target { .. } => Body::Inert,
+            };
+            let native = match &open.tree {
+                Tree::Extern { package, tag, .. } => {
+                    natives.push(Native {
+                        package: package.clone(),
+                        tag: tag.clone(),
+                    });
+                    Some(natives.len() - 1)
+                }
+                _ => None,
             };
             parts.push(Part {
                 hash: self.hash(symbol)?,
                 slots,
                 body,
+                native,
             });
         }
         let entry = indices.get(&self.hash(entry)?).copied().unwrap_or(0);
-        Ok(Parts { parts, entry })
+        Ok(Parts {
+            parts,
+            entry,
+            natives,
+        })
     }
 }

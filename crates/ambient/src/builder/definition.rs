@@ -3,7 +3,8 @@
 use std::collections::BTreeSet;
 
 use super::validate::{
-    check_function, check_name, check_params, check_path, check_type, check_type_params,
+    check_extern, check_function, check_name, check_params, check_path, check_target, check_type,
+    check_type_params,
 };
 use super::{BuildError, null, ty};
 use crate::surface::{
@@ -291,6 +292,14 @@ impl ModuleBuilder {
                     check_params(&definition.name, &ability.params)?;
                     check_type(&ability.ret)?;
                     Namespace::Ability
+                }
+                DefinitionKind::Extern(native) => {
+                    check_extern(&definition.name, native)?;
+                    Namespace::Value
+                }
+                DefinitionKind::Target(target) => {
+                    check_target(target)?;
+                    Namespace::Value
                 }
             };
             if !defined.insert((namespace, &definition.name)) {

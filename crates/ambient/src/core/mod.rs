@@ -198,6 +198,22 @@ pub enum Tree {
         params: Vec<Type>,
         ret: Type,
     },
+    /// A definition implemented in native code, found by its tag.
+    Extern {
+        package: String,
+        tag: String,
+        params: Vec<Type>,
+        ret: Type,
+        /// The ability it handles, if it is a native handler.
+        handles: Option<Slot>,
+        /// The abilities it performs, ordered by tag.
+        row: Vec<Slot>,
+    },
+    /// A handler for each ability a world offers, ordered by the
+    /// abilities' tags.
+    Target {
+        bindings: Vec<(Slot, Slot)>,
+    },
 }
 
 /// A core definition whose slots are still symbols: what checking yields.

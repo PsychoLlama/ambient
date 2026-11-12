@@ -46,6 +46,9 @@ pub enum Constant {
     Type(crate::core::Type),
     /// The ability in a slot, as the key bindings are indexed by.
     Ability(usize),
+    /// Where the definition, an extern, sits among the externs of the
+    /// program it is loaded into. Not a value.
+    Native,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,6 +101,13 @@ pub enum Op {
     /// arguments if the unwinding was an abort to it, and goes on
     /// unwinding if not.
     Caught(Value),
+    /// Runs native code: the extern at `index`, a [`Constant::Native`],
+    /// with the caller's bindings and `args`, a tuple.
+    Native {
+        index: usize,
+        bindings: Value,
+        args: Value,
+    },
 }
 
 /// One argument of a call into the runtime.
@@ -131,9 +141,11 @@ impl Op {
     #[must_use]
     pub fn unwinds(&self) -> bool {
         match self {
-            Self::Call { .. } | Self::CallValue { .. } | Self::Abort { .. } | Self::Caught(_) => {
-                true
-            }
+            Self::Call { .. }
+            | Self::CallValue { .. }
+            | Self::Abort { .. }
+            | Self::Caught(_)
+            | Self::Native { .. } => true,
             Self::Primitive { operation, .. } => matches!(
                 operation,
                 Primitive::IntAdd | Primitive::IntSubtract | Primitive::IntMultiply
@@ -207,6 +219,16 @@ impl Op {
                 vec![step(Entry::Abort, [value(token), value(args)])]
             }
             Self::Caught(token) => vec![step(Entry::Caught, [value(token)])],
+            Self::Native {
+                index,
+                bindings,
+                args,
+            } => {
+                vec![step(
+                    Entry::Native,
+                    [key(index), value(bindings), value(args)],
+                )]
+            }
             Self::Is { value: subject, ty } => vec![step(Entry::Is, [value(subject), key(ty)])],
             Self::IsTuple {
                 value: subject,

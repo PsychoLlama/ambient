@@ -87,6 +87,35 @@ pub enum DefinitionKind<N = Path> {
     Type(TypeDefinition<N>),
     Function(Function<N>),
     Ability(Ability<N>),
+    Extern(Extern<N>),
+    Target(Target<N>),
+}
+
+/// A definition implemented in native code. See `spec/externs.md`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Extern<N = Path> {
+    /// What native code is found by.
+    pub tag: String,
+    pub kind: ExternKind<N>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExternKind<N = Path> {
+    /// A pure function, called like any other.
+    Function { params: Vec<Param<N>>, ret: Type<N> },
+    /// An implementation of `ability`, which may perform the abilities in
+    /// `row`. It can only be bound by a target.
+    Handler { ability: N, row: Vec<N> },
+}
+
+/// The world a program runs in: a handler for each ability it offers.
+/// See `spec/targets.md`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Target<N = Path> {
+    /// Targets whose bindings this one starts from.
+    pub extends: Vec<N>,
+    /// An ability, and the function or native handler bound to it.
+    pub bindings: Vec<(N, N)>,
 }
 
 /// An operation with a signature and no body. See `spec/abilities.md`.

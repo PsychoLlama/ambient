@@ -14,6 +14,8 @@ pub unsafe extern "C" fn amb_context_new() -> *mut Context {
         fault: 0,
         abort_token: 0,
         abort_args: 0,
+        native: 0,
+        host: 0,
     }))
 }
 

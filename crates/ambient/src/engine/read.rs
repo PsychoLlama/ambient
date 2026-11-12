@@ -164,7 +164,9 @@ fn read(module: &Module) -> Read {
     for (index, definition) in module.definitions().iter().enumerate() {
         let namespace = match definition.kind {
             DefinitionKind::Type(_) => Namespace::Type,
-            DefinitionKind::Function(_) => Namespace::Value,
+            DefinitionKind::Function(_) | DefinitionKind::Extern(_) | DefinitionKind::Target(_) => {
+                Namespace::Value
+            }
             DefinitionKind::Ability(_) => Namespace::Ability,
         };
         table.0.insert(

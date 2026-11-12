@@ -39,7 +39,7 @@ impl Engine<'_> {
         let memo_key = (symbol.clone(), backend.name().to_owned());
         memo(&self.compile, &memo_key, || {
             let open = self.check(symbol)?;
-            if !matches!(open.tree, Tree::Function(_)) {
+            if !matches!(open.tree, Tree::Function(_) | Tree::Extern { .. }) {
                 return Err(Error::NotCompilable(symbol.clone()));
             }
 

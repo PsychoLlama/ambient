@@ -16,6 +16,7 @@ mod lambda;
 mod operators;
 mod patterns;
 mod records;
+mod world;
 
 use std::collections::BTreeMap;
 
@@ -29,6 +30,7 @@ use abilities::Layer;
 use generics::function_type;
 pub use header::{check_ability, check_type, encode_header};
 use header::{header, visit_types};
+pub use world::{check_extern, check_target};
 
 /// Checks a function against its own header.
 ///
@@ -40,10 +42,12 @@ pub fn check_function(
     function: &Function<Reference>,
     mut env: Env,
     evaluator: &dyn Evaluate,
+    root: bool,
 ) -> Result<Open, Error> {
     let header = header(symbol, function, &mut env)?;
     let mut checker = Checker::new(symbol, &env);
     checker.evaluator = Some(evaluator);
+    checker.root = root;
     let type_params = env.bounds.iter().map(|ty| checker.lower(ty)).collect();
     let params = header.params.iter().map(|ty| checker.lower(ty)).collect();
     let ret = checker.lower(&header.ret);
@@ -111,6 +115,9 @@ struct Checker<'a> {
     env: &'a Env,
     /// What runs comptime calls. A header has none to run.
     evaluator: Option<&'a dyn Evaluate>,
+    /// Whether this is a program's root, which alone may name a native
+    /// handler.
+    root: bool,
     /// The definition being checked, then each lambda being checked inside
     /// it, innermost last.
     frames: Vec<Frame>,
@@ -128,6 +135,7 @@ impl<'a> Checker<'a> {
             symbol,
             env,
             evaluator: None,
+            root: false,
             frames: vec![Frame::default()],
             types: BTreeMap::new(),
             next: 0,
@@ -324,8 +332,15 @@ impl<'a> Checker<'a> {
                     });
                 }
                 let ty = match self.env.functions.get(symbol) {
-                    Some(signature) => function_type(signature, &[]),
-                    None => Ty::Never,
+                    Some(signature) if self.root || !signature.native => {
+                        function_type(signature, &[])
+                    }
+                    _ => {
+                        return Err(Error::NotValue {
+                            symbol: self.symbol.clone(),
+                            name: symbol.clone(),
+                        });
+                    }
                 };
                 (self.reference(symbol, &[]), ty)
             }

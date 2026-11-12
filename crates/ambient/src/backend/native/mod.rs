@@ -2,7 +2,9 @@
 //! process.
 
 mod emit;
+mod host;
 mod load;
 
 pub use emit::Native;
-pub use load::{Host, Program, encode};
+pub use host::{Host, NativeFn, Natives, encode};
+pub use load::Program;

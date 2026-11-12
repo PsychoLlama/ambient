@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use super::BuildError;
-use crate::surface::{Expr, Function, Key, Param, Path, Pattern};
+use crate::surface::{Expr, Extern, ExternKind, Function, Key, Param, Path, Pattern, Target};
 
 pub(super) fn check_name(name: &str) -> Result<(), BuildError> {
     let mut chars = name.chars();
@@ -72,6 +72,32 @@ pub(super) fn check_function(name: &str, function: &Function) -> Result<(), Buil
     check_type(&function.ret)?;
     function.row.iter().try_for_each(check_path)?;
     check_expr(&function.body)
+}
+
+pub(super) fn check_extern(name: &str, native: &Extern) -> Result<(), BuildError> {
+    match &native.kind {
+        ExternKind::Function { params, ret } => {
+            check_params(name, params)?;
+            check_type(ret)
+        }
+        ExternKind::Handler { ability, row } => {
+            check_path(ability)?;
+            row.iter().try_for_each(check_path)
+        }
+    }
+}
+
+pub(super) fn check_target(target: &Target) -> Result<(), BuildError> {
+    target.extends.iter().try_for_each(check_path)?;
+    let mut bound = BTreeSet::new();
+    for (ability, handler) in &target.bindings {
+        check_path(ability)?;
+        check_path(handler)?;
+        if !bound.insert(ability) {
+            return Err(BuildError::DuplicateHandler(ability.clone()));
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn check_params(name: &str, params: &[Param]) -> Result<(), BuildError> {

@@ -26,8 +26,10 @@ pub struct Unsupported(pub &'static str);
 /// Fails if the definition is not a function, or uses a construct that is
 /// not lowered yet.
 pub fn lower(definition: &Open) -> Result<lir::Function, Unsupported> {
-    let Tree::Function(function) = &definition.tree else {
-        return Err(Unsupported("type definitions"));
+    let function = match &definition.tree {
+        Tree::Function(function) => function,
+        Tree::Extern { params, .. } => return Ok(native(params.len(), definition.slots.len())),
+        _ => return Err(Unsupported("definitions that are not functions")),
     };
     let mut lowering = Lowering {
         binders: function.params.len(),
@@ -48,6 +50,32 @@ pub fn lower(definition: &Open) -> Result<lir::Function, Unsupported> {
         constants: lowering.constants,
         body,
     })
+}
+
+/// What an extern compiles to: its arguments, as a tuple, handed to the
+/// host with the bindings it was called with.
+fn native(arity: usize, slots: usize) -> lir::Function {
+    let args = arity + 1;
+    let members = (1..=arity).map(Value::Local).collect();
+    let call = Op::Native {
+        index: 0,
+        bindings: Value::Local(0),
+        args: Value::Local(args),
+    };
+    lir::Function {
+        params: arity + 1,
+        locals: arity + 2,
+        slots,
+        constants: vec![Constant::Native],
+        body: Expr::Let {
+            local: args,
+            value: Box::new(Expr::Op(Op::Sequence {
+                list: false,
+                members,
+            })),
+            body: Box::new(Expr::Op(call)),
+        },
+    }
 }
 
 /// Where temporaries are numbered from while a function is being lowered.
@@ -79,6 +107,10 @@ fn renumber(expr: &mut Expr, base: usize) {
             }
             Op::Abort { token, args } => {
                 value(token);
+                value(args);
+            }
+            Op::Native { bindings, args, .. } => {
+                value(bindings);
                 value(args);
             }
             Op::Call { args, .. } | Op::Primitive { args, .. } => args.iter_mut().for_each(value),

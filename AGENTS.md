@@ -14,13 +14,15 @@
 - Layouts and the calling convention are defined once, in `ambient-runtime`; never restate an offset in a backend.
 - Every function's first parameter is its bindings: a record keyed by ability, or null. The checker tracks what is bound (`checker/abilities.rs`); lowering only threads the record (`lower/abilities.rs`).
 - A row is ordered by tag wherever it reaches a core tree, never by name or by the order it was written in.
+- A program is `Engine::program(entry, target)`: a root function the engine writes (`engine/program.rs`) and then checks, hashes, and compiles like any other.
+- Compiled code reaches native code only through `amb_native` and an index the loader fills in; a host supplies `Natives` by package and tag.
 - Compiled code is position-independent: it reaches definitions through slots and the runtime through entry points, never by address.
 - `core::Tree::encode` defines every hash. Changing it or the node set means bumping `FORMAT`.
 
 ## Testing
 
 - Tests build a `Workspace` in memory and run an `Engine` over a `MemoryStore`; nothing touches disk.
-- A program is run with `support::run`, which runs it natively and in wasmtime and fails if they disagree or if either leaks an object.
+- A program is run with `support::run` or `support::run_with`, which run it natively and in wasmtime and fail if they disagree or if either leaks an object.
 - An incremental test builds twice over one store and asserts on `Engine::ran` and `Engine::reused`.
 
 ## Committing

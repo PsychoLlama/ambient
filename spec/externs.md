@@ -22,8 +22,16 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - Native code can construct any [value shape](values.md), mint handles, and call function values it is given.
 - Native code performs the abilities in its declared row with the same bindings Ambient code would get.
 - Native code runs only when called; it has no initialisation and no background behaviour.
+- Native code is handed its arguments and the bindings of its caller, and gives back a value or raises a [fault](values.md).
+- TODO: native code cannot yet call a function value or perform an ability; it can only compute from its arguments.
 - A native handler may suspend the [task](tasks.md) that performed it while it waits on the host.
 - A handle's type is a [brand](types.md) declared alongside the extern that mints it.
+
+## Linking
+
+- A program lists the externs its entry reaches; whoever loads it supplies native code for each, found by package and tag, before it runs.
+- Compiled code names an extern by its position in that list, never by address, so an [artifact](build.md) is the same whatever native code it is loaded with.
+- A program that reaches an extern nobody supplied is not loaded.
 
 ## Distribution
 

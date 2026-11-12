@@ -4,7 +4,7 @@
 use std::cell::OnceCell;
 
 use super::{Engine, Stage};
-use crate::backend::native::{Host, Native, Program, encode};
+use crate::backend::native::{Host, Native, Natives, Program, encode};
 use crate::checker::Evaluate;
 use crate::error::Error;
 use crate::hash::{Hasher, encode as bytes};
@@ -43,7 +43,7 @@ impl Engine<'_> {
         // hash, so linking here reads nothing the key does not cover.
         let parts = self.link(function, native)?;
         let result = self.stage(Stage::Run, function, key.finish(), || {
-            let program = Program::load(&parts).map_err(failed)?;
+            let program = Program::load(&parts, Natives::new()).map_err(failed)?;
             let words: Vec<u64> = args.iter().map(encode).collect();
             let result = program.call(&words);
             for word in words {

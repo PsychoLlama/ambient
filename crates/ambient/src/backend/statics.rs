@@ -72,7 +72,7 @@ pub fn plan(parts: &Parts) -> Statics {
                 statics.words += root_size(ty);
             }
             // Never read: an ability is reached by its key, a constant.
-            Body::Ability => roots.push(0),
+            Body::Inert => roots.push(0),
         }
     }
     statics.entry = roots[parts.entry];
@@ -110,6 +110,7 @@ pub fn plan(parts: &Parts) -> Statics {
                         Constant::Ability(slot) => {
                             statics.text(Make::Field, &ability_key(&slots[*slot].hash))
                         }
+                        Constant::Native => Field::Word(part.native.unwrap_or(0) as u64),
                     };
                     statics.set(first + position, field);
                 }
@@ -119,7 +120,7 @@ pub fn plan(parts: &Parts) -> Statics {
                 statics.set(closure + 2, Field::Address(at));
             }
             Body::Type(ty) => statics.root(ty, &slots, at),
-            Body::Ability => {}
+            Body::Inert => {}
         }
     }
     statics

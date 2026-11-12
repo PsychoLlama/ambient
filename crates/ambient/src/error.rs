@@ -78,6 +78,20 @@ pub enum Error {
     NotBundle { symbol: Symbol, found: String },
     /// A record holds two handlers for one ability.
     DuplicateHandler { symbol: Symbol, ability: Symbol },
+    /// A name that is not a value is used as one: a target, or a native
+    /// handler, which only a target may name.
+    NotValue { symbol: Symbol, name: Symbol },
+    /// Something that is not a target is used as one.
+    NotTarget(Symbol),
+    /// A target binds an ability to something that cannot handle it.
+    NotHandler { symbol: Symbol, handler: Symbol },
+    /// A target extends itself, or one of its handlers needs itself.
+    TargetCycle(Symbol),
+    /// Two targets a target extends bind one ability differently, and it
+    /// does not say which it wants.
+    TargetConflict { symbol: Symbol, ability: Symbol },
+    /// A program's entry has type parameters.
+    GenericEntry(Symbol),
     /// An ability is used where nothing binds it.
     Unbound { symbol: Symbol, ability: Symbol },
     /// A comptime call names a function that takes abilities.
@@ -164,22 +178,17 @@ impl fmt::Display for Error {
             Self::ComptimeCycle(symbol) => {
                 write!(f, "{symbol}: depends on a comptime call that depends on it")
             }
-            Self::NotBundle { symbol, found } => {
-                write!(f, "{symbol}: `{found}` is not a record of handlers")
-            }
-            Self::DuplicateHandler { symbol, ability } => {
-                write!(f, "{symbol}: two handlers for `{ability}`")
-            }
-            Self::Unbound { symbol, ability } => {
-                write!(f, "{symbol}: `{ability}` is not bound here")
-            }
-            Self::ComptimeAbilities { symbol, function } => write!(
-                f,
-                "{symbol}: `{function}` takes abilities, which a comptime call cannot provide"
-            ),
-            Self::EntryAbilities(symbol) => {
-                write!(f, "{symbol}: an entry cannot take abilities yet")
-            }
+            Self::NotValue { .. }
+            | Self::NotTarget(_)
+            | Self::NotHandler { .. }
+            | Self::TargetCycle(_)
+            | Self::TargetConflict { .. }
+            | Self::GenericEntry(_) => self.fmt_world(f),
+            Self::NotBundle { .. }
+            | Self::DuplicateHandler { .. }
+            | Self::Unbound { .. }
+            | Self::ComptimeAbilities { .. }
+            | Self::EntryAbilities(_) => self.fmt_ability(f),
             Self::UntypedParameter { symbol, name } => {
                 write!(f, "{symbol}: parameter `{name}` needs a type")
             }
@@ -221,6 +230,53 @@ impl Error {
                 write!(f, "{symbol}: `{path}` names nothing")
             }
             Self::PrivateName { symbol, path } => write!(f, "{symbol}: `{path}` is private"),
+            _ => Ok(()),
+        }
+    }
+}
+
+impl Error {
+    /// The errors about abilities and what binds them.
+    fn fmt_ability(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotBundle { symbol, found } => {
+                write!(f, "{symbol}: `{found}` is not a record of handlers")
+            }
+            Self::DuplicateHandler { symbol, ability } => {
+                write!(f, "{symbol}: two handlers for `{ability}`")
+            }
+            Self::Unbound { symbol, ability } => {
+                write!(f, "{symbol}: `{ability}` is not bound here")
+            }
+            Self::ComptimeAbilities { symbol, function } => write!(
+                f,
+                "{symbol}: `{function}` takes abilities, which a comptime call cannot provide"
+            ),
+            Self::EntryAbilities(symbol) => {
+                write!(f, "{symbol}: an entry cannot take abilities yet")
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// The errors about targets, externs, and entries.
+    fn fmt_world(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotValue { symbol, name } => write!(f, "{symbol}: `{name}` is not a value"),
+            Self::NotTarget(symbol) => write!(f, "{symbol}: not a target"),
+            Self::NotHandler { symbol, handler } => {
+                write!(f, "{symbol}: `{handler}` cannot be bound as a handler")
+            }
+            Self::TargetCycle(symbol) => {
+                write!(f, "{symbol}: a target or one of its handlers needs itself")
+            }
+            Self::TargetConflict { symbol, ability } => write!(
+                f,
+                "{symbol}: the targets it extends bind `{ability}` differently"
+            ),
+            Self::GenericEntry(symbol) => {
+                write!(f, "{symbol}: an entry cannot have type parameters")
+            }
             _ => Ok(()),
         }
     }

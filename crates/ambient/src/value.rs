@@ -69,3 +69,52 @@ pub fn decode(word: Word, inspect: &mut impl Inspect) -> Value {
         _ => Value::Int(inspect.int(word)),
     }
 }
+
+/// Makes words. Each backend has its own way to reach the runtime.
+pub trait Construct {
+    fn int(&mut self, value: i64) -> Word;
+    fn float(&mut self, bits: u64) -> Word;
+    fn string(&mut self, bytes: &[u8]) -> Word;
+    /// The key a record holds the field `name` under.
+    fn key(&mut self, name: &[u8]) -> Word;
+    /// A tuple, or a list, of `length` nulls.
+    fn sequence(&mut self, list: bool, length: u64) -> Word;
+    fn sequence_set(&mut self, sequence: Word, index: u64, value: Word);
+    /// A record with room for `length` fields.
+    fn record(&mut self, length: u64) -> Word;
+    fn record_set(&mut self, record: Word, key: Word, value: Word);
+    fn release(&mut self, word: Word);
+}
+
+/// A value as a word the caller owns. A function has no word to be made
+/// from, and becomes null.
+pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
+    match value {
+        Value::Null | Value::Function => ambient_runtime::NULL,
+        Value::Bool(true) => ambient_runtime::TRUE,
+        Value::Bool(false) => ambient_runtime::FALSE,
+        Value::Int(value) => make.int(*value),
+        Value::Float(value) => make.float(value.to_bits()),
+        Value::String(text) => make.string(text.as_bytes()),
+        Value::Tuple(members) | Value::List(members) => {
+            let list = matches!(value, Value::List(_));
+            let word = make.sequence(list, members.len() as u64);
+            for (index, member) in members.iter().enumerate() {
+                let member = encode(member, make);
+                make.sequence_set(word, index as u64, member);
+                make.release(member);
+            }
+            word
+        }
+        Value::Record(fields) => {
+            let word = make.record(fields.len() as u64);
+            for (name, member) in fields {
+                let key = make.key(name.as_bytes());
+                let member = encode(member, make);
+                make.record_set(word, key, member);
+                make.release(member);
+            }
+            word
+        }
+    }
+}

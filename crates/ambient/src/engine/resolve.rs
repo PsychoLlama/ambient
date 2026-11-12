@@ -8,8 +8,8 @@ use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest};
 use crate::surface::{
-    Ability, Arm, Definition, DefinitionKind, Expr, Function, Key, Param, Path, Pattern, Reference,
-    Type, TypeDefinition, TypeParam,
+    Ability, Arm, Definition, DefinitionKind, Expr, Extern, ExternKind, Function, Key, Param, Path,
+    Pattern, Reference, Target, Type, TypeDefinition, TypeParam,
 };
 use crate::symbol::{Namespace, Symbol};
 
@@ -86,6 +86,33 @@ impl Resolver<'_> {
                 params: self.params(&ability.params)?,
                 ret: self.ty(&ability.ret)?,
             }),
+            DefinitionKind::Extern(native) => DefinitionKind::Extern(Extern {
+                tag: native.tag.clone(),
+                kind: match &native.kind {
+                    ExternKind::Function { params, ret } => ExternKind::Function {
+                        params: self.params(params)?,
+                        ret: self.ty(ret)?,
+                    },
+                    ExternKind::Handler { ability, row } => ExternKind::Handler {
+                        ability: self.ability(ability)?,
+                        row: self.row(row)?,
+                    },
+                },
+            }),
+            DefinitionKind::Target(target) => {
+                let value = |path| {
+                    self.lookup(Namespace::Value, path)
+                        .map(Reference::Definition)
+                };
+                let mut bindings = Vec::new();
+                for (ability, handler) in &target.bindings {
+                    bindings.push((self.ability(ability)?, value(handler)?));
+                }
+                DefinitionKind::Target(Target {
+                    extends: target.extends.iter().map(value).collect::<Result<_, _>>()?,
+                    bindings,
+                })
+            }
         };
         Ok(Definition {
             name: definition.name.clone(),

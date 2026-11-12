@@ -32,6 +32,8 @@ pub struct Signature {
     pub ret: Ty,
     /// The abilities it takes from its caller.
     pub row: Vec<Symbol>,
+    /// Whether this is a native handler, which only a target may name.
+    pub native: bool,
 }
 
 /// An ability, as a perform or a handler sees it.
@@ -379,6 +381,43 @@ fn ability_name(ability: &Reference) -> &str {
         Reference::Definition(symbol) => &symbol.name,
         Reference::Local(_) | Reference::Parameter(_) => "?",
     }
+}
+
+/// How far each ability's handler is from needing nothing: `0` if its row
+/// is empty, and otherwise one more than the furthest ability in its row.
+/// `rows` holds the row of the handler bound to each ability; an ability
+/// in a row but not in `rows` counts for nothing. `None` if a handler
+/// needs itself, however indirectly.
+#[must_use]
+pub fn layers(rows: &BTreeMap<Symbol, Vec<Symbol>>) -> Option<BTreeMap<Symbol, usize>> {
+    fn layer(
+        ability: &Symbol,
+        rows: &BTreeMap<Symbol, Vec<Symbol>>,
+        done: &mut BTreeMap<Symbol, usize>,
+        visiting: &mut Vec<Symbol>,
+    ) -> Option<usize> {
+        if let Some(known) = done.get(ability) {
+            return Some(*known);
+        }
+        if visiting.contains(ability) {
+            return None;
+        }
+        visiting.push(ability.clone());
+        let mut depth = 0;
+        for needed in rows.get(ability).into_iter().flatten() {
+            if rows.contains_key(needed) {
+                depth = depth.max(layer(needed, rows, done, visiting)? + 1);
+            }
+        }
+        visiting.pop();
+        done.insert(ability.clone(), depth);
+        Some(depth)
+    }
+    let mut done = BTreeMap::new();
+    for ability in rows.keys() {
+        layer(ability, rows, &mut done, &mut Vec::new())?;
+    }
+    Some(done)
 }
 
 /// The abilities a normalized row names.

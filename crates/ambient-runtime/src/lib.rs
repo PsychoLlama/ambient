@@ -33,6 +33,7 @@ mod closure;
 mod entry;
 mod host;
 mod is;
+mod native;
 mod number;
 mod object;
 mod record;
@@ -44,6 +45,7 @@ pub use closure::*;
 pub use entry::Entry;
 pub use host::*;
 pub use is::{amb_is, descriptor};
+pub use native::*;
 pub use number::*;
 pub use object::{amb_release, amb_retain, layout, pinned_closure};
 pub use record::*;
@@ -75,6 +77,8 @@ pub enum Fault {
     Expired = 3,
     /// Not a fault: an abort is on its way to the provide that handles it.
     Abort = 4,
+    /// Native code reported that it failed.
+    Native = 5,
 }
 
 impl Fault {
@@ -85,6 +89,7 @@ impl Fault {
             2 => Self::NoMatch,
             3 => Self::Expired,
             4 => Self::Abort,
+            5 => Self::Native,
             _ => Self::None,
         }
     }
@@ -121,6 +126,12 @@ pub struct Context {
     /// the arguments it was performed with, as a tuple this context owns.
     pub abort_token: u64,
     pub abort_args: u64,
+    /// Natively, the address of the function that runs native code for
+    /// this execution: it takes what [`amb_native`] takes. Unused in
+    /// WebAssembly, where that function is an import.
+    pub native: u64,
+    /// Whatever the host wants to find again when native code is called.
+    pub host: u64,
 }
 
 impl Context {
