@@ -3,6 +3,7 @@
 //! TODO: only the fragment the checker handles so far is here. The node set
 //! in the spec is the target.
 
+mod cost;
 mod encode;
 mod visit;
 
@@ -11,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::literal::Literal;
 use crate::symbol::Symbol;
 
+pub use cost::Cost;
 pub use encode::Resolve;
 pub(crate) use encode::encode_signature;
 

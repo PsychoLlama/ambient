@@ -63,9 +63,6 @@ pub fn lower(definition: &Open, metered: bool) -> Result<lir::Function, Unsuppor
     };
     let entry = lowering.enter(function);
     let mut body = entry.wrap(lowering.expr(&function.body)?);
-    if metered {
-        body = lowering.meter(body);
-    }
     // Temporaries were numbered apart from the core tree's locals, whose
     // count was not known until now. They go after them.
     let named = lowering.binders + 1;
@@ -224,6 +221,13 @@ impl Lowering {
     }
 
     pub(super) fn expr(&mut self, expr: &core::Expr) -> Result<Expr, Unsupported> {
+        // A node is paid for before any of it happens.
+        let mut scope = Scope::default();
+        self.charge(expr, &mut scope);
+        Ok(scope.wrap(self.node(expr)?))
+    }
+
+    fn node(&mut self, expr: &core::Expr) -> Result<Expr, Unsupported> {
         let mut scope = Scope::default();
         let op = match expr {
             core::Expr::Null => Op::Copy(Value::Null),

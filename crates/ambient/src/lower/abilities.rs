@@ -33,7 +33,7 @@ impl Lowering {
     }
 
     /// `op` evaluated into a temporary that `scope` will own.
-    fn bound(&mut self, op: Op, scope: &mut Scope) -> Value {
+    pub(super) fn bound(&mut self, op: Op, scope: &mut Scope) -> Value {
         let local = self.temporary();
         scope.bindings.push((local, Expr::Op(op)));
         Value::Local(local)
@@ -59,7 +59,7 @@ impl Lowering {
 
     /// Calls `handler`, which answers a perform. In metered code a handler
     /// runs inside the budget it was bound inside, not the performer's:
-    /// the perform costs the performer a step, whatever the handler does.
+    /// the perform cost the performer a step, whatever the handler does.
     fn answer(&mut self, ability: Slot, callee: Value, args: Vec<Value>, scope: &mut Scope) -> Op {
         let call = self.call_value(callee, args);
         if !self.metered {
@@ -68,8 +68,6 @@ impl Lowering {
         let record = self.bindings;
         let key = self.constant(Constant::AbilityBudget(ability.0));
         let bound = self.bound(Op::Field { record, key }, scope);
-        let (steps, words) = (1, 0);
-        self.bound(Op::Charge { steps, words }, scope);
         let saved = self.bound(Op::BudgetSwitch(bound), scope);
         let back = |unwinding| Expr::Op(Op::BudgetBack { saved, unwinding });
         let answered = Expr::Try {
@@ -135,6 +133,7 @@ impl Lowering {
             let keys: Vec<usize> = keys.iter().map(|key| self.key(key)).collect();
             overlay = self.select(overlay, &keys, scope);
         }
+        self.charge_copies(&[base, overlay], scope);
         Ok(Op::Merge { base, overlay })
     }
 

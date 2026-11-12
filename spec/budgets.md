@@ -16,8 +16,10 @@ A budget bounds how much work and allocation a body may do, and enforces the bou
 ## Charges
 
 - A step is charged for each call; loops are calls, so no computation is free.
+- Performing an ability, starting a task, and running a cleanup are calls.
 - Allocation is charged for each value constructed, by its size.
 - Charges are defined on the [core tree](trees.md), never on compiled code, so a run costs the same on every backend and machine.
+- A node is charged for before any of it is evaluated, by what the node is alone; what a backend or the runtime allocates to carry it out is not charged.
 - The allocation charge is cumulative and ignores sharing and in-place update; it bounds peak memory from above.
 - Tasks started inside a budget draw from it together.
 

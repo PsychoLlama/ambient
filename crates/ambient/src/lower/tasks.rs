@@ -63,11 +63,9 @@ impl Lowering {
         let result = self.temporary();
         // The body is metered, whatever is around it.
         let outside = std::mem::replace(&mut self.metered, true);
-        let mut body = self.expr(body)?;
-        if !outside {
-            body = self.meter(body);
-        }
+        let body = self.expr(body);
         self.metered = outside;
+        let body = body?;
         let body = Self::attempt(body, Expr::Op(Op::BudgetCaught(held)));
         let leave = self.then(
             Expr::Op(Op::BudgetLeave(held)),
