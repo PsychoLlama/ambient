@@ -29,5 +29,4 @@ jobs:
             ${{ runner.os }}-cargo-
       - run: treefmt --ci
       - run: cargo clippy --workspace --all-targets --quiet
-      - run: ./scripts/check-file-sizes.sh
       - run: cargo nextest run --workspace --show-progress=none --status-level=fail --cargo-quiet

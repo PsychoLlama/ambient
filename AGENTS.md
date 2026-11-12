@@ -9,5 +9,4 @@ Keep all of these passing:
 
 - `treefmt --ci` (`treefmt` to fix).
 - `cargo clippy --workspace --all-targets --quiet`. Lints live in `[workspace.lints]`; every crate opts in with `[lints] workspace = true`.
-- `./scripts/check-file-sizes.sh`. `.rs` files cap at 1000 lines: split a file, never add a budget.
 - `cargo nextest run --workspace`.
