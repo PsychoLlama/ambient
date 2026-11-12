@@ -77,8 +77,7 @@ impl Engine<'_> {
             }
 
             let compile = || {
-                backend
-                    .compile(&open, &form)
+                crate::lower::deep(|| backend.compile(&open, &form))
                     .map(Artifact)
                     .map_err(|message| Error::Backend {
                         symbol: symbol.clone(),

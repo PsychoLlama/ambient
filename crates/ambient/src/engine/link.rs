@@ -11,7 +11,7 @@ use crate::core::{self, Tree};
 use crate::error::Error;
 use crate::hash::Hash;
 use crate::lir::Constant;
-use crate::lower::lower;
+use crate::lower::{deep, lower};
 use crate::symbol::Symbol;
 
 /// One definition of a program.
@@ -206,9 +206,11 @@ impl Engine<'_> {
                     // `compile`, so its constants are read from it again
                     // rather than kept beside the code. Those of the
                     // metered form begin with those of the plain one.
-                    constants: lower(&open, &self.form(symbol, metered)?)
-                        .map(|function| function.constants)
-                        .unwrap_or_default(),
+                    constants: {
+                        let form = self.form(symbol, metered)?;
+                        let constants = || lower(&open, &form).map(|function| function.constants);
+                        deep(constants).unwrap_or_default()
+                    },
                 })
             };
             let body = match &open.tree {

@@ -49,3 +49,21 @@ fn code_grows_in_proportion_to_its_source() {
         );
     }
 }
+
+#[test]
+fn a_function_far_longer_than_the_stack_is_deep_compiles() {
+    // Each member is bound before the list is made, so lowered code
+    // nests once for each: what translates it must not run out of stack.
+    let members = (0..4000).map(|member| b::tuple([b::int(member)]));
+    let main = b::function("main")
+        .returns(ty::unknown())
+        .body(b::list(members));
+    let workspace = support::workspace([("app", "main", b::module().define(main))]);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let backends: [&dyn Backend; 2] = [&Native::new().unwrap(), &Wasm];
+
+    for backend in backends {
+        assert!(engine.link(&value("main", "main"), backend).is_ok());
+    }
+}
