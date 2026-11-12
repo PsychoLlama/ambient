@@ -32,10 +32,32 @@ pub enum Error {
     /// A call passes the wrong number of arguments.
     Arity {
         symbol: Symbol,
-        callee: Box<Symbol>,
+        callee: Symbol,
         expected: usize,
         found: usize,
     },
+    /// An expression's type is not a subtype of the type required of it.
+    Mismatch {
+        symbol: Symbol,
+        expected: String,
+        found: String,
+    },
+    /// Something that is not a function is called.
+    NotCallable { symbol: Symbol, found: String },
+    /// A field is read from a type that may lack it.
+    NoField {
+        symbol: Symbol,
+        ty: String,
+        name: String,
+    },
+    /// An operator is applied to types it is not defined for.
+    Operands { symbol: Symbol, found: String },
+    /// A match leaves some values of its subject unhandled.
+    NotExhaustive { symbol: Symbol, remaining: String },
+    /// A match arm can never be taken.
+    UnreachableArm { symbol: Symbol, arm: usize },
+    /// A recursive type that never reaches a constructor.
+    Uncontractive(Symbol),
     /// Only functions compile to an artifact.
     NotCompilable(Symbol),
     /// A backend refused a definition.
@@ -72,6 +94,32 @@ impl fmt::Display for Error {
                 f,
                 "{symbol}: `{callee}` takes {expected} arguments, found {found}"
             ),
+            Self::Mismatch {
+                symbol,
+                expected,
+                found,
+            } => write!(f, "{symbol}: expected `{expected}`, found `{found}`"),
+            Self::NotCallable { symbol, found } => {
+                write!(f, "{symbol}: `{found}` is not a function")
+            }
+            Self::NoField { symbol, ty, name } => {
+                write!(f, "{symbol}: `{ty}` may have no field `{name}`")
+            }
+            Self::Operands { symbol, found } => {
+                write!(f, "{symbol}: no operator for `{found}`")
+            }
+            Self::NotExhaustive { symbol, remaining } => {
+                write!(f, "{symbol}: match does not handle `{remaining}`")
+            }
+            Self::UnreachableArm { symbol, arm } => {
+                write!(f, "{symbol}: match arm {arm} can never be taken")
+            }
+            Self::Uncontractive(symbol) => {
+                write!(
+                    f,
+                    "{symbol}: a recursive type must pass through a constructor"
+                )
+            }
             Self::NotCompilable(symbol) => write!(f, "{symbol}: not a function"),
             Self::Backend { symbol, message } => write!(f, "{symbol}: {message}"),
         }

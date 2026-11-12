@@ -52,8 +52,12 @@ fn names_are_not_content() {
 
 #[test]
 fn docs_and_visibility_are_not_content() {
-    let plain = b::function("f").body(b::int(1));
-    let documented = b::function("f").public().doc("One.").body(b::int(1));
+    let plain = b::function("f").returns(ty::int()).body(b::int(1));
+    let documented = b::function("f")
+        .public()
+        .doc("One.")
+        .returns(ty::int())
+        .body(b::int(1));
 
     assert_eq!(
         hash_of(&value("main", "f"), &[("main", b::module().define(plain))]),
@@ -68,7 +72,7 @@ fn docs_and_visibility_are_not_content() {
 fn literals_and_structure_are_content() {
     let one = b::module().define(b::function("f").returns(ty::int()).body(b::int(1)));
     let two = b::module().define(b::function("f").returns(ty::int()).body(b::int(2)));
-    let float = b::module().define(b::function("f").returns(ty::int()).body(b::float(1.0)));
+    let float = b::module().define(b::function("f").returns(ty::float()).body(b::float(1.0)));
 
     let one = hash_of(&value("main", "f"), &[("main", one)]);
     assert_ne!(one, hash_of(&value("main", "f"), &[("main", two)]));
@@ -105,7 +109,13 @@ fn record_type_field_order_is_not_content() {
 
 #[test]
 fn record_construction_order_is_content() {
-    let record = |fields| b::module().define(b::function("f").body(b::record(fields)));
+    let record = |fields| {
+        b::module().define(
+            b::function("f")
+                .returns(ty::unknown())
+                .body(b::record(fields)),
+        )
+    };
     let xy = record([("x", b::int(1)), ("y", b::int(2))]);
     let yx = record([("y", b::int(2)), ("x", b::int(1))]);
 

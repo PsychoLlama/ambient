@@ -148,8 +148,10 @@ fn one_import_brings_in_a_name_from_every_namespace() {
         .check(&value("main", "main"))
         .unwrap();
 
+    // The type resolved too: it is transparent, so it leaves no slot, but
+    // the body would not check against anything else.
     let shapes = ModuleId::new("app", "shapes");
-    assert_eq!(open.slots, [shapes.ty("point"), shapes.value("point")]);
+    assert_eq!(open.slots, [shapes.value("point")]);
 }
 
 #[test]

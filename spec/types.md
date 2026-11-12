@@ -64,7 +64,14 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 ## Narrowing
 
 - Match is the only narrowing construct: its arms test literals, shapes, and types.
-- A match is exhaustive over the static type of its subject.
+- A pattern is a wildcard, a literal, a record of patterns, a tuple of patterns, a type test, or a binder around another pattern.
+- A record pattern matches any record that has at least its fields; a tuple pattern matches a tuple of exactly its length.
+- A field a record pattern names that the subject's type does not mention is tested as `unknown`.
+- A binder has the type of the values its pattern matches, not the type of the subject.
+- Each arm sees the subject's type less what earlier arms always match.
+- A match is exhaustive over the static type of its subject: after the last arm nothing is left.
+- An arm that can match nothing is an error.
+- What is left after an arm may be over-approximated, never under-approximated; a match the checker cannot prove exhaustive needs a final wildcard.
 - Exhaustiveness stays sound under [exchange](exchange.md): a union with another member is a different type with a different hash, and foreign values arrive as `unknown`.
 
 ## Brands

@@ -7,7 +7,9 @@ use super::read::Scope;
 use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest};
-use crate::surface::{Definition, DefinitionKind, Expr, Function, Param, Path, Reference, Type};
+use crate::surface::{
+    Arm, Definition, DefinitionKind, Expr, Function, Param, Path, Pattern, Reference, Type,
+};
 use crate::symbol::{Namespace, Symbol};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -99,46 +101,77 @@ impl Resolver<'_> {
         self.next += 1;
     }
 
+    fn types(&self, types: &[Type]) -> Result<Vec<Type<Reference>>, Error> {
+        types.iter().map(|ty| self.ty(ty)).collect()
+    }
+
     fn ty(&self, ty: &Type) -> Result<Type<Reference>, Error> {
         Ok(match ty {
+            Type::Never => Type::Never,
+            Type::Unknown => Type::Unknown,
             Type::Null => Type::Null,
             Type::Bool => Type::Bool,
             Type::Int => Type::Int,
             Type::Float => Type::Float,
             Type::String => Type::String,
+            Type::Literal(literal) => Type::Literal(literal.clone()),
             Type::Record(fields) => Type::Record(
                 fields
                     .iter()
                     .map(|(name, ty)| Ok((name.clone(), self.ty(ty)?)))
                     .collect::<Result<_, Error>>()?,
             ),
+            Type::Tuple(members) => Type::Tuple(self.types(members)?),
+            Type::List(member) => Type::List(Box::new(self.ty(member)?)),
             Type::Function { params, ret } => Type::Function {
-                params: params
-                    .iter()
-                    .map(|ty| self.ty(ty))
-                    .collect::<Result<_, Error>>()?,
+                params: self.types(params)?,
                 ret: Box::new(self.ty(ret)?),
             },
+            Type::Union(members) => Type::Union(self.types(members)?),
             Type::Named(path) => {
                 Type::Named(Reference::Definition(self.lookup(Namespace::Type, path)?))
             }
         })
     }
 
+    /// Resolves a pattern and brings its binders into scope. A binder is
+    /// numbered before any that its inner pattern binds.
+    fn pattern(&mut self, pattern: &Pattern) -> Result<Pattern<Reference>, Error> {
+        Ok(match pattern {
+            Pattern::Wildcard => Pattern::Wildcard,
+            Pattern::Literal(literal) => Pattern::Literal(literal.clone()),
+            Pattern::Record(fields) => Pattern::Record(
+                fields
+                    .iter()
+                    .map(|(name, pattern)| Ok((name.clone(), self.pattern(pattern)?)))
+                    .collect::<Result<_, Error>>()?,
+            ),
+            Pattern::Tuple(members) => Pattern::Tuple(
+                members
+                    .iter()
+                    .map(|member| self.pattern(member))
+                    .collect::<Result<_, Error>>()?,
+            ),
+            Pattern::Is(ty) => Pattern::Is(self.ty(ty)?),
+            Pattern::Bind(name, inner) => {
+                self.bind(name);
+                Pattern::Bind(name.clone(), Box::new(self.pattern(inner)?))
+            }
+        })
+    }
+
+    fn exprs(&mut self, exprs: &[Expr]) -> Result<Vec<Expr<Reference>>, Error> {
+        exprs.iter().map(|expr| self.expr(expr)).collect()
+    }
+
     fn expr(&mut self, expr: &Expr) -> Result<Expr<Reference>, Error> {
         Ok(match expr {
             Expr::Null => Expr::Null,
-            Expr::Bool(value) => Expr::Bool(*value),
-            Expr::Int(value) => Expr::Int(*value),
-            Expr::Float(value) => Expr::Float(*value),
-            Expr::String(value) => Expr::String(value.clone()),
+            Expr::Literal(literal) => Expr::Literal(literal.clone()),
             Expr::Name(path) => Expr::Name(self.name(path)?),
             Expr::Call { callee, args } => Expr::Call {
                 callee: Box::new(self.expr(callee)?),
-                args: args
-                    .iter()
-                    .map(|arg| self.expr(arg))
-                    .collect::<Result<_, Error>>()?,
+                args: self.exprs(args)?,
             },
             Expr::Record(fields) => Expr::Record(
                 fields
@@ -146,21 +179,57 @@ impl Resolver<'_> {
                     .map(|(name, value)| Ok((name.clone(), self.expr(value)?)))
                     .collect::<Result<_, Error>>()?,
             ),
+            Expr::Tuple(members) => Expr::Tuple(self.exprs(members)?),
+            Expr::List(members) => Expr::List(self.exprs(members)?),
             Expr::Field { target, name } => Expr::Field {
                 target: Box::new(self.expr(target)?),
                 name: name.clone(),
             },
             Expr::Let { name, value, body } => {
                 let value = Box::new(self.expr(value)?);
+                let scope = self.locals.len();
                 self.bind(name);
                 let body = Box::new(self.expr(body)?);
-                self.locals.pop();
+                self.locals.truncate(scope);
                 Expr::Let {
                     name: name.clone(),
                     value,
                     body,
                 }
             }
+            Expr::Binary {
+                operator,
+                left,
+                right,
+            } => Expr::Binary {
+                operator: *operator,
+                left: Box::new(self.expr(left)?),
+                right: Box::new(self.expr(right)?),
+            },
+            Expr::Match { subject, arms } => {
+                let subject = Box::new(self.expr(subject)?);
+                let mut resolved = Vec::new();
+                for arm in arms {
+                    let scope = self.locals.len();
+                    let pattern = self.pattern(&arm.pattern)?;
+                    let body = self.expr(&arm.body)?;
+                    self.locals.truncate(scope);
+                    resolved.push(Arm { pattern, body });
+                }
+                Expr::Match {
+                    subject,
+                    arms: resolved,
+                }
+            }
+            Expr::Cast {
+                value,
+                ty,
+                otherwise,
+            } => Expr::Cast {
+                value: Box::new(self.expr(value)?),
+                ty: self.ty(ty)?,
+                otherwise: Box::new(self.expr(otherwise)?),
+            },
         })
     }
 

@@ -8,11 +8,14 @@
 //! keeping every stage result in a [`store`].
 
 pub mod builder;
+pub mod checker;
 pub mod core;
 pub mod engine;
 pub mod error;
 pub mod hash;
+pub mod literal;
 pub mod store;
 pub mod surface;
 pub mod symbol;
+pub mod types;
 pub mod workspace;

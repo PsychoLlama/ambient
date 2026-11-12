@@ -11,6 +11,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::literal::Literal;
 use crate::symbol::Symbol;
 
 /// A dotted name as written: `x`, `math.add`, `pkg.util.math`.
@@ -32,7 +33,7 @@ impl fmt::Display for Path {
 }
 
 /// What a name means once resolved.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Reference {
     /// A parameter or local binder, numbered in binding order within its
     /// function.
@@ -41,7 +42,7 @@ pub enum Reference {
 }
 
 /// A file of definitions.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Module {
     pub(crate) imports: Vec<Import>,
     pub(crate) definitions: Vec<Definition>,
@@ -69,7 +70,7 @@ pub struct Import {
     pub alias: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Definition<N = Path> {
     pub name: String,
     pub public: bool,
@@ -77,53 +78,89 @@ pub struct Definition<N = Path> {
     pub kind: DefinitionKind<N>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DefinitionKind<N = Path> {
     Type(Type<N>),
     Function(Function<N>),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Function<N = Path> {
     pub params: Vec<Param<N>>,
     pub ret: Type<N>,
     pub body: Expr<N>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Param<N = Path> {
     pub name: String,
     pub ty: Type<N>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Type<N = Path> {
+    Never,
+    Unknown,
     Null,
     Bool,
     Int,
     Float,
     String,
+    Literal(Literal),
     Record(Vec<(String, Type<N>)>),
+    Tuple(Vec<Type<N>>),
+    List(Box<Type<N>>),
     Function {
         params: Vec<Type<N>>,
         ret: Box<Type<N>>,
     },
+    Union(Vec<Type<N>>),
     Named(N),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// An operator. Which primitive operation it means depends on its operands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Operator {
+    Add,
+    Subtract,
+    Multiply,
+    Less,
+    Equal,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Pattern<N = Path> {
+    /// Matches anything.
+    Wildcard,
+    Literal(Literal),
+    /// Matches a record that has at least these fields, each matching.
+    Record(Vec<(String, Pattern<N>)>),
+    /// Matches a tuple of exactly this length, each member matching.
+    Tuple(Vec<Pattern<N>>),
+    /// Matches a value the type describes.
+    Is(Type<N>),
+    /// Matches what the inner pattern matches, and binds it to a name.
+    Bind(String, Box<Pattern<N>>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Arm<N = Path> {
+    pub pattern: Pattern<N>,
+    pub body: Expr<N>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Expr<N = Path> {
     Null,
-    Bool(bool),
-    Int(i64),
-    Float(f64),
-    String(String),
+    Literal(Literal),
     Name(N),
     Call {
         callee: Box<Expr<N>>,
         args: Vec<Expr<N>>,
     },
     Record(Vec<(String, Expr<N>)>),
+    Tuple(Vec<Expr<N>>),
+    List(Vec<Expr<N>>),
     Field {
         target: Box<Expr<N>>,
         name: String,
@@ -134,4 +171,131 @@ pub enum Expr<N = Path> {
         value: Box<Expr<N>>,
         body: Box<Expr<N>>,
     },
+    Binary {
+        operator: Operator,
+        left: Box<Expr<N>>,
+        right: Box<Expr<N>>,
+    },
+    /// Takes the first arm whose pattern matches the subject.
+    Match {
+        subject: Box<Expr<N>>,
+        arms: Vec<Arm<N>>,
+    },
+    /// `value` at type `ty` if the type describes it, and `otherwise` if not.
+    Cast {
+        value: Box<Expr<N>>,
+        ty: Type<N>,
+        otherwise: Box<Expr<N>>,
+    },
+}
+
+impl<N> Type<N> {
+    /// Calls `visit` with every name in the type, in order.
+    pub fn names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
+        match self {
+            Self::Never
+            | Self::Unknown
+            | Self::Null
+            | Self::Bool
+            | Self::Int
+            | Self::Float
+            | Self::String
+            | Self::Literal(_) => {}
+            Self::Record(fields) => fields.iter().for_each(|(_, ty)| ty.names(visit)),
+            Self::Tuple(members) | Self::Union(members) => {
+                for ty in members {
+                    ty.names(visit);
+                }
+            }
+            Self::List(member) => member.names(visit),
+            Self::Function { params, ret } => {
+                for ty in params {
+                    ty.names(visit);
+                }
+                ret.names(visit);
+            }
+            Self::Named(name) => visit(name),
+        }
+    }
+}
+
+impl<N> Pattern<N> {
+    /// Calls `visit` with every name in the pattern's types, in order.
+    pub fn names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
+        match self {
+            Self::Wildcard | Self::Literal(_) => {}
+            Self::Record(fields) => fields.iter().for_each(|(_, p)| p.names(visit)),
+            Self::Tuple(members) => members.iter().for_each(|p| p.names(visit)),
+            Self::Is(ty) => ty.names(visit),
+            Self::Bind(_, inner) => inner.names(visit),
+        }
+    }
+}
+
+impl<N> Expr<N> {
+    /// Calls `visit` with every name in the expression, in order.
+    pub fn names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
+        match self {
+            Self::Null | Self::Literal(_) => {}
+            Self::Name(name) => visit(name),
+            Self::Call { callee, args } => {
+                callee.names(visit);
+                for arg in args {
+                    arg.names(visit);
+                }
+            }
+            Self::Record(fields) => fields.iter().for_each(|(_, value)| value.names(visit)),
+            Self::Tuple(members) | Self::List(members) => {
+                for member in members {
+                    member.names(visit);
+                }
+            }
+            Self::Field { target, .. } => target.names(visit),
+            Self::Let { value, body, .. } => {
+                value.names(visit);
+                body.names(visit);
+            }
+            Self::Binary { left, right, .. } => {
+                left.names(visit);
+                right.names(visit);
+            }
+            Self::Match { subject, arms } => {
+                subject.names(visit);
+                for arm in arms {
+                    arm.pattern.names(visit);
+                    arm.body.names(visit);
+                }
+            }
+            Self::Cast {
+                value,
+                ty,
+                otherwise,
+            } => {
+                value.names(visit);
+                ty.names(visit);
+                otherwise.names(visit);
+            }
+        }
+    }
+}
+
+impl<N> Function<N> {
+    /// Calls `visit` with every name in the header, in order.
+    pub fn header_names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
+        self.params.iter().for_each(|param| param.ty.names(visit));
+        self.ret.names(visit);
+    }
+}
+
+impl<N> Definition<N> {
+    /// Calls `visit` with every name in the definition, in order.
+    pub fn names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
+        match &self.kind {
+            DefinitionKind::Type(ty) => ty.names(visit),
+            DefinitionKind::Function(function) => {
+                function.header_names(visit);
+                function.body.names(visit);
+            }
+        }
+    }
 }

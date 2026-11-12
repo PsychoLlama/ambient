@@ -8,7 +8,10 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use crate::surface::{Definition, DefinitionKind, Expr, Function, Import, Module, Param, Path};
+use crate::literal::Literal;
+use crate::surface::{
+    Arm, Definition, DefinitionKind, Expr, Function, Import, Module, Operator, Param, Path, Pattern,
+};
 use crate::symbol::Namespace;
 
 /// The first segment of a path into the module's own package.
@@ -28,6 +31,8 @@ pub enum BuildError {
         name: String,
     },
     DuplicateField(String),
+    /// One pattern binds a name twice.
+    DuplicateBinder(String),
     /// An import must name a package and at least one thing inside it.
     ImportTooShort(Path),
 }
@@ -41,6 +46,7 @@ impl fmt::Display for BuildError {
                 write!(f, "`{function}` has two parameters named `{name}`")
             }
             Self::DuplicateField(name) => write!(f, "a record has two fields named `{name}`"),
+            Self::DuplicateBinder(name) => write!(f, "a pattern binds `{name}` twice"),
             Self::ImportTooShort(path) => write!(f, "import `{path}` names only a package"),
         }
     }
@@ -50,7 +56,49 @@ impl std::error::Error for BuildError {}
 
 /// Type constructors.
 pub mod ty {
+    use crate::literal::Literal;
     use crate::surface::{Path, Type};
+
+    #[must_use]
+    pub fn never() -> Type {
+        Type::Never
+    }
+
+    #[must_use]
+    pub fn unknown() -> Type {
+        Type::Unknown
+    }
+
+    /// The type of one boolean.
+    #[must_use]
+    pub fn boolean(value: bool) -> Type {
+        Type::Literal(Literal::Bool(value))
+    }
+
+    /// The type of one integer.
+    #[must_use]
+    pub fn integer(value: i64) -> Type {
+        Type::Literal(Literal::Int(value))
+    }
+
+    /// The type of one string.
+    #[must_use]
+    pub fn text(value: &str) -> Type {
+        Type::Literal(Literal::String(value.to_owned()))
+    }
+
+    pub fn tuple(members: impl IntoIterator<Item = Type>) -> Type {
+        Type::Tuple(members.into_iter().collect())
+    }
+
+    #[must_use]
+    pub fn list(member: Type) -> Type {
+        Type::List(Box::new(member))
+    }
+
+    pub fn union(members: impl IntoIterator<Item = Type>) -> Type {
+        Type::Union(members.into_iter().collect())
+    }
 
     #[must_use]
     pub fn null() -> Type {
@@ -107,22 +155,144 @@ pub fn null() -> Expr {
 
 #[must_use]
 pub fn boolean(value: bool) -> Expr {
-    Expr::Bool(value)
+    Expr::Literal(Literal::Bool(value))
 }
 
 #[must_use]
 pub fn int(value: i64) -> Expr {
-    Expr::Int(value)
+    Expr::Literal(Literal::Int(value))
 }
 
 #[must_use]
 pub fn float(value: f64) -> Expr {
-    Expr::Float(value)
+    Expr::Literal(Literal::float(value))
 }
 
 #[must_use]
 pub fn string(value: &str) -> Expr {
-    Expr::String(value.to_owned())
+    Expr::Literal(Literal::String(value.to_owned()))
+}
+
+pub fn tuple(members: impl IntoIterator<Item = Expr>) -> Expr {
+    Expr::Tuple(members.into_iter().collect())
+}
+
+pub fn list(members: impl IntoIterator<Item = Expr>) -> Expr {
+    Expr::List(members.into_iter().collect())
+}
+
+fn binary(operator: Operator, left: Expr, right: Expr) -> Expr {
+    Expr::Binary {
+        operator,
+        left: Box::new(left),
+        right: Box::new(right),
+    }
+}
+
+#[must_use]
+pub fn add(left: Expr, right: Expr) -> Expr {
+    binary(Operator::Add, left, right)
+}
+
+#[must_use]
+pub fn subtract(left: Expr, right: Expr) -> Expr {
+    binary(Operator::Subtract, left, right)
+}
+
+#[must_use]
+pub fn multiply(left: Expr, right: Expr) -> Expr {
+    binary(Operator::Multiply, left, right)
+}
+
+#[must_use]
+pub fn less(left: Expr, right: Expr) -> Expr {
+    binary(Operator::Less, left, right)
+}
+
+#[must_use]
+pub fn equal(left: Expr, right: Expr) -> Expr {
+    binary(Operator::Equal, left, right)
+}
+
+/// Takes the first arm whose pattern matches `subject`.
+pub fn match_(subject: Expr, arms: impl IntoIterator<Item = (Pattern, Expr)>) -> Expr {
+    Expr::Match {
+        subject: Box::new(subject),
+        arms: arms
+            .into_iter()
+            .map(|(pattern, body)| Arm { pattern, body })
+            .collect(),
+    }
+}
+
+/// `value` at type `ty` if the type describes it, and `otherwise` if not.
+#[must_use]
+pub fn cast(value: Expr, ty: crate::surface::Type, otherwise: Expr) -> Expr {
+    Expr::Cast {
+        value: Box::new(value),
+        ty,
+        otherwise: Box::new(otherwise),
+    }
+}
+
+/// Pattern constructors.
+pub mod pat {
+    use crate::literal::Literal;
+    use crate::surface::{Pattern, Type};
+
+    /// Matches anything.
+    #[must_use]
+    pub fn any() -> Pattern {
+        Pattern::Wildcard
+    }
+
+    /// Matches anything and binds it.
+    #[must_use]
+    pub fn bind(name: &str) -> Pattern {
+        Pattern::Bind(name.to_owned(), Box::new(Pattern::Wildcard))
+    }
+
+    /// Matches what `pattern` matches and binds it.
+    #[must_use]
+    pub fn bind_as(name: &str, pattern: Pattern) -> Pattern {
+        Pattern::Bind(name.to_owned(), Box::new(pattern))
+    }
+
+    #[must_use]
+    pub fn boolean(value: bool) -> Pattern {
+        Pattern::Literal(Literal::Bool(value))
+    }
+
+    #[must_use]
+    pub fn int(value: i64) -> Pattern {
+        Pattern::Literal(Literal::Int(value))
+    }
+
+    #[must_use]
+    pub fn string(value: &str) -> Pattern {
+        Pattern::Literal(Literal::String(value.to_owned()))
+    }
+
+    /// Matches a value the type describes.
+    #[must_use]
+    pub fn is(ty: Type) -> Pattern {
+        Pattern::Is(ty)
+    }
+
+    /// Matches a record with at least these fields.
+    pub fn record<'a>(fields: impl IntoIterator<Item = (&'a str, Pattern)>) -> Pattern {
+        Pattern::Record(
+            fields
+                .into_iter()
+                .map(|(name, pattern)| (name.to_owned(), pattern))
+                .collect(),
+        )
+    }
+
+    /// Matches a tuple of exactly this length.
+    pub fn tuple(members: impl IntoIterator<Item = Pattern>) -> Pattern {
+        Pattern::Tuple(members.into_iter().collect())
+    }
 }
 
 /// A local or a definition named by a dotted path, such as `"x"` or
@@ -381,11 +551,20 @@ fn check_function(name: &str, function: &Function) -> Result<(), BuildError> {
 fn check_type(ty: &crate::surface::Type) -> Result<(), BuildError> {
     use crate::surface::Type;
     match ty {
-        Type::Null | Type::Bool | Type::Int | Type::Float | Type::String => Ok(()),
+        Type::Never
+        | Type::Unknown
+        | Type::Null
+        | Type::Bool
+        | Type::Int
+        | Type::Float
+        | Type::String
+        | Type::Literal(_) => Ok(()),
         Type::Record(fields) => {
             check_fields(fields.iter().map(|(name, _)| name))?;
             fields.iter().try_for_each(|(_, ty)| check_type(ty))
         }
+        Type::Tuple(members) | Type::Union(members) => members.iter().try_for_each(check_type),
+        Type::List(member) => check_type(member),
         Type::Function { params, ret } => {
             params.iter().try_for_each(check_type)?;
             check_type(ret)
@@ -394,9 +573,35 @@ fn check_type(ty: &crate::surface::Type) -> Result<(), BuildError> {
     }
 }
 
+fn check_pattern<'a>(
+    pattern: &'a Pattern,
+    bound: &mut BTreeSet<&'a String>,
+) -> Result<(), BuildError> {
+    match pattern {
+        Pattern::Wildcard | Pattern::Literal(_) => Ok(()),
+        Pattern::Record(fields) => {
+            check_fields(fields.iter().map(|(name, _)| name))?;
+            fields
+                .iter()
+                .try_for_each(|(_, pattern)| check_pattern(pattern, bound))
+        }
+        Pattern::Tuple(members) => members
+            .iter()
+            .try_for_each(|member| check_pattern(member, bound)),
+        Pattern::Is(ty) => check_type(ty),
+        Pattern::Bind(name, inner) => {
+            check_name(name)?;
+            if !bound.insert(name) {
+                return Err(BuildError::DuplicateBinder(name.clone()));
+            }
+            check_pattern(inner, bound)
+        }
+    }
+}
+
 fn check_expr(expr: &Expr) -> Result<(), BuildError> {
     match expr {
-        Expr::Null | Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::String(_) => Ok(()),
+        Expr::Null | Expr::Literal(_) => Ok(()),
         Expr::Name(path) => check_path(path),
         Expr::Call { callee, args } => {
             check_expr(callee)?;
@@ -406,6 +611,7 @@ fn check_expr(expr: &Expr) -> Result<(), BuildError> {
             check_fields(fields.iter().map(|(name, _)| name))?;
             fields.iter().try_for_each(|(_, value)| check_expr(value))
         }
+        Expr::Tuple(members) | Expr::List(members) => members.iter().try_for_each(check_expr),
         Expr::Field { target, name } => {
             check_name(name)?;
             check_expr(target)
@@ -414,6 +620,26 @@ fn check_expr(expr: &Expr) -> Result<(), BuildError> {
             check_name(name)?;
             check_expr(value)?;
             check_expr(body)
+        }
+        Expr::Binary { left, right, .. } => {
+            check_expr(left)?;
+            check_expr(right)
+        }
+        Expr::Match { subject, arms } => {
+            check_expr(subject)?;
+            arms.iter().try_for_each(|arm| {
+                check_pattern(&arm.pattern, &mut BTreeSet::new())?;
+                check_expr(&arm.body)
+            })
+        }
+        Expr::Cast {
+            value,
+            ty,
+            otherwise,
+        } => {
+            check_expr(value)?;
+            check_type(ty)?;
+            check_expr(otherwise)
         }
     }
 }

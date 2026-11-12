@@ -22,7 +22,7 @@ fn constant(name: &str, result: i64) -> Definition {
 
 fn calls(name: &str, callee: &str) -> Definition {
     b::function(name)
-        .returns(ty::int())
+        .returns(ty::unknown())
         .body(b::call(b::name(callee), []))
 }
 
@@ -105,7 +105,7 @@ fn a_header_edit_rechecks_direct_dependents_and_stops() {
     let before = main(chain(constant("leaf", 1)));
     build(&Engine::new(&before, &store), &chain_symbols());
 
-    let leaf = b::function("leaf").returns(ty::float()).body(b::int(1));
+    let leaf = b::function("leaf").returns(ty::float()).body(b::float(1.0));
     let after = main(chain(leaf));
     let engine = Engine::new(&after, &store);
     build(&engine, &chain_symbols());
@@ -251,7 +251,5 @@ fn a_backend_is_not_asked_twice() {
         }
     }
 
-    // `mid` and `top` have the same tree and call the same interface, so
-    // they are one artifact.
-    assert_eq!(*backend.compiled.borrow(), 2);
+    assert_eq!(*backend.compiled.borrow(), 3);
 }

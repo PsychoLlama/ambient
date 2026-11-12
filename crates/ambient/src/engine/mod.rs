@@ -41,7 +41,7 @@ use crate::store::Store;
 use crate::symbol::{ModuleId, Symbol};
 use crate::workspace::Sources;
 
-pub use check::{Interface, InterfaceKind};
+pub use check::Interface;
 pub use compile::{Artifact, Backend};
 pub use read::{Entry, Read, Scope, Table};
 pub use resolve::Resolved;
@@ -83,6 +83,7 @@ pub struct Engine<'a> {
     scope: Memo<ModuleId, read::Scoped>,
     resolve: Memo<Symbol, Resolved>,
     interface: Memo<Symbol, Interface>,
+    type_info: Memo<Symbol, crate::types::TypeInfo>,
     check: Memo<Symbol, crate::core::Open>,
     hash: RefCell<HashMap<Symbol, Hash>>,
     compile: Memo<(Symbol, String), Artifact>,
@@ -99,6 +100,7 @@ impl<'a> Engine<'a> {
             scope: RefCell::default(),
             resolve: RefCell::default(),
             interface: RefCell::default(),
+            type_info: RefCell::default(),
             check: RefCell::default(),
             hash: RefCell::default(),
             compile: RefCell::default(),

@@ -1,6 +1,8 @@
 //! Symbols: the canonical names of definitions. See `spec/symbols.md`.
 
 use std::fmt;
+use std::ops::Deref;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -34,11 +36,11 @@ impl ModuleId {
 
     #[must_use]
     pub fn symbol(&self, namespace: Namespace, name: &str) -> Symbol {
-        Symbol {
+        Symbol(Arc::new(SymbolData {
             module: self.clone(),
             namespace,
             name: name.to_owned(),
-        }
+        }))
     }
 
     /// The symbol of a function defined in this module.
@@ -70,12 +72,25 @@ pub enum Namespace {
 
 /// The one canonical name of a definition within a workspace.
 ///
+/// A symbol is a shared handle: cloning one is cheap.
+///
 /// TODO: `name` becomes a path once nested named functions exist.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct Symbol {
+pub struct Symbol(Arc<SymbolData>);
+
+#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct SymbolData {
     pub module: ModuleId,
     pub namespace: Namespace,
     pub name: String,
+}
+
+impl Deref for Symbol {
+    type Target = SymbolData;
+
+    fn deref(&self) -> &SymbolData {
+        &self.0
+    }
 }
 
 impl fmt::Display for Symbol {
