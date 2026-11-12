@@ -54,8 +54,8 @@ pub use object::{amb_release, amb_retain, layout, pinned_closure};
 pub use record::*;
 pub use sequence::*;
 pub use task::{
-    RESUMING, RUNNING, SUSPENDING, amb_all, amb_frame_drop, amb_frame_load, amb_frame_point,
-    amb_frame_push, amb_frame_save, amb_schedule,
+    RESUMING, RUNNING, SUSPENDING, amb_all, amb_first, amb_frame_drop, amb_frame_load,
+    amb_frame_point, amb_frame_push, amb_frame_save, amb_schedule,
 };
 pub use text::*;
 

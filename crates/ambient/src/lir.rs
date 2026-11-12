@@ -108,6 +108,9 @@ pub enum Op {
     /// Runs each of the closures in a tuple as a task, and is the tuple of
     /// their results.
     All(Value),
+    /// Runs each closure of a tuple as a task, and is the result of the
+    /// first that is over.
+    First(Value),
     /// Runs native code: the extern at `index`, a [`Constant::Native`],
     /// with the caller's bindings and `args`, a tuple.
     Native {
@@ -153,7 +156,8 @@ impl Op {
             | Self::Abort { .. }
             | Self::Caught(_)
             | Self::Native { .. }
-            | Self::All(_) => true,
+            | Self::All(_)
+            | Self::First(_) => true,
             Self::Primitive { operation, .. } => matches!(
                 operation,
                 Primitive::IntAdd
@@ -170,7 +174,11 @@ impl Op {
     #[must_use]
     pub fn suspends(&self) -> bool {
         match self {
-            Self::Call { .. } | Self::CallValue { .. } | Self::Native { .. } | Self::All(_) => true,
+            Self::Call { .. }
+            | Self::CallValue { .. }
+            | Self::Native { .. }
+            | Self::All(_)
+            | Self::First(_) => true,
             Self::Primitive { operation, .. } => matches!(operation, Primitive::CellWait),
             _ => false,
         }
@@ -242,6 +250,7 @@ impl Op {
             }
             Self::Caught(token) => vec![step(Entry::Caught, [value(token)])],
             Self::All(thunks) => vec![step(Entry::All, [value(thunks)])],
+            Self::First(thunks) => vec![step(Entry::First, [value(thunks)])],
             Self::Native {
                 index,
                 bindings,

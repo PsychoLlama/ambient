@@ -101,7 +101,8 @@ fn renumber(expr: &mut Expr, base: usize) {
             | Op::IsRecord(operand)
             | Op::Expire(operand)
             | Op::Caught(operand)
-            | Op::All(operand) => {
+            | Op::All(operand)
+            | Op::First(operand) => {
                 value(operand);
             }
             Op::Merge { base, overlay } => {
@@ -205,6 +206,16 @@ impl Lowering {
         }
     }
 
+    /// The closures an all or a first runs as tasks, as one tuple.
+    fn thunks(&mut self, thunks: &[core::Expr], scope: &mut Scope) -> Result<Value, Unsupported> {
+        let members = self.operands(thunks, scope)?;
+        let tuple = self.temporary();
+        let list = false;
+        let made = Expr::Op(Op::Sequence { list, members });
+        scope.bindings.push((tuple, made));
+        Ok(Value::Local(tuple))
+    }
+
     pub(super) fn expr(&mut self, expr: &core::Expr) -> Result<Expr, Unsupported> {
         let mut scope = Scope::default();
         let op = match expr {
@@ -254,14 +265,8 @@ impl Lowering {
                 args,
                 returns,
             } => self.perform(*ability, args, *returns, &mut scope)?,
-            core::Expr::All(thunks) => {
-                let members = self.operands(thunks, &mut scope)?;
-                let tuple = self.temporary();
-                let list = false;
-                let made = Expr::Op(Op::Sequence { list, members });
-                scope.bindings.push((tuple, made));
-                Op::All(Value::Local(tuple))
-            }
+            core::Expr::All(thunks) => Op::All(self.thunks(thunks, &mut scope)?),
+            core::Expr::First(thunks) => Op::First(self.thunks(thunks, &mut scope)?),
             core::Expr::Provide {
                 handlers,
                 only,

@@ -220,7 +220,7 @@ pub(super) fn check_expr(expr: &Expr) -> Result<(), BuildError> {
             check_expr(body)
         }
         Expr::AbilityId(ability) => check_path(ability),
-        Expr::All(branches) => branches.iter().try_for_each(check_expr),
+        Expr::All(branches) | Expr::First(branches) => branches.iter().try_for_each(check_expr),
         Expr::Cell { ty, args, .. } => {
             ty.iter().try_for_each(check_type)?;
             args.iter().try_for_each(check_expr)

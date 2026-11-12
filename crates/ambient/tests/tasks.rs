@@ -136,6 +136,54 @@ fn tasks_start_tasks_of_their_own() {
     );
 }
 
+// First
+
+#[test]
+fn first_is_what_the_first_task_to_be_over_gives() {
+    // The first branch waits for the second, which is over at once.
+    let body = with_cell(b::first([waits_for(1), b::string("quick")]));
+
+    assert_eq!(evaluates(body), Value::String("quick".to_owned()));
+}
+
+#[test]
+fn first_cancels_a_task_where_it_waits() {
+    // The second branch would wait forever, under fifty calls.
+    let waiting = b::call(b::name("deep"), [b::name("c"), b::int(50)]);
+    let body = with_cell(b::first([then(waits_for(2), b::int(7)), waiting, sets(2)]));
+
+    assert_eq!(evaluates(body), Value::Null);
+}
+
+#[test]
+fn a_task_that_wakes_before_the_first_is_over_wins() {
+    // The branch that sets the cell then waits, so the one it woke is over
+    // before it.
+    let body = with_cell(b::first([waits_for(1), then(sets(1), waits_for(2))]));
+
+    assert_eq!(evaluates(body), Value::Int(1));
+}
+
+#[test]
+fn an_abort_in_a_first_cancels_the_rest_and_reaches_its_provide() {
+    let tasks = b::first([waits_for(1), b::perform("fail", [b::string("stop")])]);
+    let body = b::provide(
+        [("fail", b::lambda([("reason", None)], b::name("reason")))],
+        with_cell(tasks),
+    );
+
+    assert_eq!(evaluates(body), Value::String("stop".to_owned()));
+}
+
+#[test]
+fn a_first_of_nothing_waits_until_it_is_cancelled() {
+    assert_eq!(outcome(ty::unknown(), b::first([])), Err(Fault::Cancelled));
+    assert_eq!(
+        evaluates(b::first([b::first([]), b::int(1)])),
+        Value::Int(1)
+    );
+}
+
 // Cells
 
 #[test]

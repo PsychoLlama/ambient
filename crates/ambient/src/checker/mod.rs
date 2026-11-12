@@ -387,7 +387,14 @@ impl<'a> Checker<'a> {
             Expr::Perform { ability, args } => self.perform(ability, args)?,
             Expr::Provide { bundle, only, body } => self.provide(bundle, *only, body)?,
             Expr::Observe { observer, body } => self.observe(observer, body)?,
-            Expr::All(branches) => self.all(branches)?,
+            Expr::All(branches) => {
+                let (thunks, results) = self.tasks(branches)?;
+                (core::Expr::All(thunks), Ty::Tuple(results))
+            }
+            Expr::First(branches) => {
+                let (thunks, results) = self.tasks(branches)?;
+                (core::Expr::First(thunks), self.env.union(results))
+            }
             Expr::Cell {
                 operation,
                 ty,

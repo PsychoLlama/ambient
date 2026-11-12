@@ -7,10 +7,14 @@ use crate::surface::{CellOp, Expr, Reference};
 use crate::types::Ty;
 
 impl Checker<'_> {
-    /// Each branch runs as a task. A branch is a function that takes
+    /// The branches of an all or a first, and what each gives. A branch
+    /// runs as a task, and is a function that takes
     /// nothing, so it captures what it uses, bindings included, where the
     /// expression is written.
-    pub(super) fn all(&mut self, branches: &[Expr<Reference>]) -> Result<(core::Expr, Ty), Error> {
+    pub(super) fn tasks(
+        &mut self,
+        branches: &[Expr<Reference>],
+    ) -> Result<(Vec<core::Expr>, Vec<Ty>), Error> {
         let mut thunks = Vec::new();
         let mut results = Vec::new();
         for branch in branches {
@@ -21,7 +25,7 @@ impl Checker<'_> {
                 _ => Ty::Never,
             });
         }
-        Ok((core::Expr::All(thunks), Ty::Tuple(results)))
+        Ok((thunks, results))
     }
 
     pub(super) fn cell(

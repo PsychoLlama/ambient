@@ -152,6 +152,9 @@ pub enum Expr {
     /// Runs each of these, closures that take nothing, as a task, and is
     /// the tuple of their results once every one is over.
     All(Vec<Expr>),
+    /// Runs each of these as [`Self::All`] does, is the result of the
+    /// first that is over, and cancels the rest.
+    First(Vec<Expr>),
     /// What an observer is told an ability is: a string made from the
     /// ability's hash.
     AbilityId(Slot),

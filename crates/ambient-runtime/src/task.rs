@@ -61,6 +61,10 @@ struct Join {
     results: Vec<Word>,
     remaining: usize,
     failure: Option<Failure>,
+    /// Whether the first to be over cancels the rest.
+    first: bool,
+    /// The place of the first to be over with a result.
+    winner: Option<usize>,
 }
 
 /// How a task ended, if not with a value: what the context held.
@@ -126,7 +130,20 @@ impl Scheduler {
         join.results[place] = result.unwrap_or(NULL);
         join.remaining -= 1;
         let parent = join.parent;
-        if join.remaining == 0 {
+        let remaining = join.remaining;
+        let won = join.first && result.is_some() && join.winner.is_none() && join.failure.is_none();
+        let losers = if won {
+            join.winner = Some(place);
+            join.children.clone()
+        } else {
+            Vec::new()
+        };
+        for loser in losers {
+            if self.tasks[loser].is_some() {
+                self.cancel(loser);
+            }
+        }
+        if remaining == 0 {
             self.queue(parent);
         }
     }
@@ -229,6 +246,21 @@ pub(crate) unsafe fn wake(context: *mut Context, cell: Word) {
 /// unwinding goes on from here.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_all(context: *mut Context, thunks: Word) -> Word {
+    unsafe { join(context, thunks, false) }
+}
+
+/// Runs each of `thunks` as [`amb_all`] does, and gives the result of the
+/// first that is over once every one is: the rest are cancelled.
+///
+/// With no thunks there is never a first, so the task waits until it is
+/// cancelled.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_first(context: *mut Context, thunks: Word) -> Word {
+    unsafe { join(context, thunks, true) }
+}
+
+/// Starts a task for each of `thunks` and waits for them all.
+unsafe fn join(context: *mut Context, thunks: Word, first: bool) -> Word {
     unsafe {
         if arriving(context) {
             return joined(context);
@@ -255,9 +287,11 @@ pub unsafe extern "C" fn amb_all(context: *mut Context, thunks: Word) -> Word {
             results: vec![NULL; thunks.len()],
             remaining: thunks.len(),
             failure: None,
+            first,
+            winner: None,
         }));
         scheduler.current().join = Some(join);
-        if thunks.is_empty() {
+        if thunks.is_empty() && !first {
             scheduler.queue(parent);
         }
         suspend(context)
@@ -305,6 +339,15 @@ unsafe fn joined(context: *mut Context) -> Word {
             join.results.iter().for_each(|result| amb_release(*result));
             (*context).fault = code;
             return UNWIND;
+        }
+        if join.first {
+            let winner = join.winner.unwrap_or_default();
+            for (place, result) in join.results.iter().enumerate() {
+                if place != winner {
+                    amb_release(*result);
+                }
+            }
+            return join.results.get(winner).copied().unwrap_or(NULL);
         }
         let tuple = amb_sequence_new(0, join.results.len() as u64);
         for (index, result) in join.results.iter().enumerate() {

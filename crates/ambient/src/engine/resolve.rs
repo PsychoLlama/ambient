@@ -324,6 +324,7 @@ impl Resolver<'_> {
             }
             Expr::AbilityId(ability) => Expr::AbilityId(self.ability(ability)?),
             Expr::All(branches) => Expr::All(self.exprs(branches)?),
+            Expr::First(branches) => Expr::First(self.exprs(branches)?),
             Expr::Cell {
                 operation,
                 ty,

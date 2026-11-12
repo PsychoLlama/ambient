@@ -304,6 +304,9 @@ pub enum Expr<N = Path> {
     /// Evaluates each expression as a task, and is the tuple of their
     /// results once every one is over.
     All(Vec<Expr<N>>),
+    /// Evaluates each expression as a task, is the result of the first
+    /// that is over, and cancels the rest.
+    First(Vec<Expr<N>>),
     /// An operation on a cell. `ty` is the cell's type, for
     /// [`CellOp::New`].
     Cell {

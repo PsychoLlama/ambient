@@ -103,6 +103,7 @@ entries! {
     FrameLoad = amb_frame_load, context, 1, word;
     FrameDrop = amb_frame_drop, context, 0, nothing;
     All = amb_all, context, 1, word;
+    First = amb_first, context, 1, word;
     CellNew = amb_cell_new, plain, 1, word;
     CellRead = amb_cell_read, plain, 1, word;
     CellReplace = amb_cell_replace, context, 3, word;

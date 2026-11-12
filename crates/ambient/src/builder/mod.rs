@@ -192,6 +192,12 @@ pub fn all(branches: impl IntoIterator<Item = Expr>) -> Expr {
     Expr::All(branches.into_iter().collect())
 }
 
+/// Evaluates each expression as a task, is the result of the first that
+/// is over, and cancels the rest.
+pub fn first(branches: impl IntoIterator<Item = Expr>) -> Expr {
+    Expr::First(branches.into_iter().collect())
+}
+
 fn cell_op(operation: CellOp, ty: Option<crate::surface::Type>, args: Vec<Expr>) -> Expr {
     Expr::Cell {
         operation,

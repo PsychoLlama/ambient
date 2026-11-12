@@ -519,6 +519,18 @@ fn all_has_the_type_of_a_tuple_of_its_branches() {
     )));
 }
 
+#[test]
+fn first_has_the_type_of_any_of_its_branches() {
+    let branches = || b::first([b::int(1), b::string("a")]);
+
+    assert!(accepts(returning(
+        ty::union([ty::int(), ty::string()]),
+        branches()
+    )));
+    assert!(!accepts(returning(ty::int(), branches())));
+    assert!(accepts(returning(ty::never(), b::first([]))));
+}
+
 // Hashing
 
 #[test]

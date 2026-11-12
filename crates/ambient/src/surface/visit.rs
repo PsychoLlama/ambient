@@ -134,7 +134,7 @@ impl<N> Expr<N> {
                 body.names(visit);
             }
             Self::AbilityId(ability) => visit(ability),
-            Self::All(branches) => {
+            Self::All(branches) | Self::First(branches) => {
                 for branch in branches {
                     branch.names(visit);
                 }
@@ -205,7 +205,7 @@ impl<N> Expr<N> {
             Self::Perform { args, .. } => all(args),
             Self::Provide { bundle, body, .. } => bundle.binders() + 1 + body.binders(),
             Self::Observe { observer, body } => observer.binders() + 1 + body.binders(),
-            Self::All(exprs) | Self::Cell { args: exprs, .. } => all(exprs),
+            Self::All(exprs) | Self::First(exprs) | Self::Cell { args: exprs, .. } => all(exprs),
             Self::Comptime(call) => call.binders(),
             Self::Cast {
                 value, otherwise, ..
@@ -266,7 +266,9 @@ impl<N> Expr<N> {
                 visit(observer);
                 visit(body);
             }
-            Self::All(exprs) | Self::Cell { args: exprs, .. } => exprs.iter().for_each(visit),
+            Self::All(exprs) | Self::First(exprs) | Self::Cell { args: exprs, .. } => {
+                exprs.iter().for_each(visit);
+            }
             Self::Comptime(call) => visit(call),
             Self::Cast {
                 value, otherwise, ..
