@@ -15,14 +15,15 @@ Compilation is a set of demand-driven queries over content-addressed inputs. Not
 - Each stage is a pure function of its inputs, keyed by their content.
 - Read: a module's source yields its definition table and [surface trees](trees.md).
 - Resolve: a surface tree and the definition tables it imports from yield [symbols](symbols.md).
-- Check: a resolved tree and the interfaces it refers to yield a core tree.
-- Hash: a core tree and the hashes it refers to yield a hash.
-- Compile: a core tree and a backend yield an artifact.
+- Check: a resolved tree and the interfaces it refers to yield an [open core definition](core.md).
+- Hash: an open definition and the hashes of its slots yield a hash and a closed definition.
+- Compile: a core tree, the interfaces of its slots, and a backend yield an artifact.
 - What each edit invalidates is stated in [definitions](definitions.md).
 
 ## Store
 
 - One store per workspace holds definitions by hash, stage results, the index, [memoized runs](memoization.md), and artifacts.
+- A stage result is kept under a key derived from the content of that stage's inputs, so an unchanged input is never recomputed.
 - Every entry is either content-addressed or derived from entries that are; deleting the store loses only time.
 - An entry is valid on any branch, checkout, or machine, because no key contains a path or a time.
 - The compiler and every tool read and write the same store.
@@ -32,4 +33,4 @@ Compilation is a set of demand-driven queries over content-addressed inputs. Not
 
 - The core tree is the only input to code generation.
 - The backends are native code and WebAssembly.
-- Artifacts are keyed by hash and backend and never feed a hash.
+- An artifact is keyed by what compiling read, never by its definition's hash, and never feeds a hash.

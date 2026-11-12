@@ -50,6 +50,7 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - [targets](targets.md): root bindings, platforms, embedding.
 - [build](build.md): demand-driven stages, the store, backends.
 - [trees](trees.md): surface and core trees, builders, metadata, text, formatting, edits.
+- [core](core.md): what a core tree contains, open and closed definitions, encoding.
 - [modules](modules.md): modules, visibility, preludes.
 - [packages](packages.md): package identity, publishers, dependencies, workspaces.
 - [exchange](exchange.md): moving definitions and values between programs.

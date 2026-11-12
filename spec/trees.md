@@ -5,7 +5,7 @@ A program is a set of trees constructed through builders, and its source text is
 ## Surface and core
 
 - A surface tree is what an author writes: names are unresolved, comptime calls unexpanded, captures implicit.
-- A core tree is what checking produces: references are hashes, captures and bindings are explicit, comptime results are spliced, lambdas are separate definitions.
+- A [core tree](core.md) is what checking produces: references are slots, captures and bindings are explicit, comptime results are spliced, lambdas are separate definitions.
 - The core tree is the canonical form: it is what is hashed, stored, exchanged, and compiled.
 - Every language construct is a tree node; nothing exists only as syntax.
 
