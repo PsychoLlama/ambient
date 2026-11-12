@@ -6,10 +6,11 @@ use std::cell::RefCell;
 
 use memmap2::{Mmap, MmapMut};
 
-use super::host::{Natives, Observation, Offered, dispatch};
+use super::host::{Host, Natives, Observation, Offered, dispatch};
 use crate::backend::statics::{self, Field, Make};
 use crate::engine::Native;
 use crate::engine::{Body, Parts};
+use crate::value::{self, Value};
 
 /// A program loaded into this process, ready to call.
 pub struct Program {
@@ -29,6 +30,8 @@ pub struct Program {
     pub(super) trace: RefCell<Option<Vec<Observation>>>,
     /// What native code last said went wrong.
     pub(super) failure: RefCell<Option<String>>,
+    /// The fault that ended the last call, as an error.
+    error: RefCell<Option<Value>>,
 }
 
 impl Program {
@@ -102,6 +105,7 @@ impl Program {
             externs: parts.natives.clone(),
             trace: RefCell::default(),
             failure: RefCell::default(),
+            error: RefCell::default(),
             _statics: block,
             _code: code,
         })
@@ -112,6 +116,13 @@ impl Program {
     #[must_use]
     pub fn failure(&self) -> Option<String> {
         self.failure.borrow().clone()
+    }
+
+    /// The fault that ended the last call, as the error a boundary
+    /// would have made of it: its kind, and the trace of where it was.
+    #[must_use]
+    pub fn error(&self) -> Option<Value> {
+        self.error.borrow().clone()
     }
 
     /// Keeps every call of native code from now on, for
@@ -187,6 +198,17 @@ impl Program {
                 result = invoke();
             }
             let fault = Fault::from_code((*context).fault);
+            // The root is a boundary: a fault that reached it is an
+            // error, for whoever called.
+            let error = (result == ambient_runtime::UNWIND)
+                .then(|| ambient_runtime::amb_context_error(context))
+                .filter(|error| *error != NULL)
+                .map(|word| {
+                    let error = value::decode(word, &mut Host);
+                    ambient_runtime::amb_release(word);
+                    error
+                });
+            *self.error.borrow_mut() = error;
             ambient_runtime::amb_context_free(context);
             if result == ambient_runtime::UNWIND {
                 Err(fault)

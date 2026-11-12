@@ -124,6 +124,17 @@ pub fn run_entry(
     args: &[i64],
     natives: impl Fn() -> Natives,
 ) -> Outcome {
+    run_for_error(engine, entry, args, natives).0
+}
+
+/// [`run_entry`], with the error a fault that ended the program reached
+/// its host as.
+pub fn run_for_error(
+    engine: &ambient::engine::Engine,
+    entry: &Symbol,
+    args: &[i64],
+    natives: impl Fn() -> Natives,
+) -> (Outcome, Option<ambient::value::Value>) {
     use ambient::backend::native::Native;
     use ambient::backend::wasm::Wasm;
 
@@ -151,7 +162,10 @@ pub fn verify_all(engine: &ambient::engine::Engine, entry: &Symbol) {
     }
 }
 
-fn run_native(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -> Outcome {
+/// An outcome, and the error a fault that ended the program was.
+type Ended = (Outcome, Option<ambient::value::Value>);
+
+fn run_native(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -> Ended {
     use ambient::backend::native::{Host, Program};
 
     let program = Program::load(parts, natives).unwrap();
@@ -172,7 +186,7 @@ fn run_native(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -
         unsafe { ambient_runtime::amb_release(word) };
     }
     assert_eq!(ambient_runtime::amb_live(), live, "the program leaked");
-    result
+    (result, program.error())
 }
 
 /// What a WebAssembly host keeps: the runtime, once it is instantiated,
@@ -335,7 +349,7 @@ fn native(
     result.cast_signed()
 }
 
-fn run_wasm(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -> Outcome {
+fn run_wasm(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -> Ended {
     use ambient::backend::wasm::{RUNTIME, RUNTIME_MODULE, module};
 
     let engine = wasmtime::Engine::default();
@@ -380,8 +394,17 @@ fn run_wasm(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -> 
     }
     let returned = result[0].unwrap_i64().cast_unsigned();
 
+    let mut error = None;
     let outcome = if returned == ambient_runtime::UNWIND {
         let code = guest.runtime("amb_context_fault", &[context]).unwrap();
+        let word = guest.runtime("amb_context_error", &[context]).unwrap();
+        if word.unwrap_i64().cast_unsigned() != ambient_runtime::NULL {
+            error = Some(ambient::value::decode(
+                word.unwrap_i64().cast_unsigned(),
+                &mut guest,
+            ));
+            guest.runtime("amb_release", &[word]);
+        }
         Err(ambient_runtime::Fault::from_code(
             code.unwrap_i64().cast_unsigned(),
         ))
@@ -395,5 +418,5 @@ fn run_wasm(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -> 
     }
     guest.runtime("amb_context_free", &[context]);
     assert_eq!(guest.words("amb_live", &[]), live, "the program leaked");
-    outcome
+    (outcome, error)
 }

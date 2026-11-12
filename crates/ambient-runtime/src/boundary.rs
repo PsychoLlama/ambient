@@ -44,10 +44,25 @@ pub(crate) unsafe fn set(record: Word, name: &str, value: Word) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_contain(context: *mut Context) -> Word {
     unsafe {
-        let Some((kind, message)) = Fault::from_code((*context).fault).describe() else {
+        let error = amb_context_error(context);
+        if error == NULL {
             return UNWIND;
-        };
+        }
         (*context).fault = Fault::None as u64;
+        error
+    }
+}
+
+/// For a host whose program unwound: the error that describes the
+/// fault, which the caller owns, or null if the unwinding is not a
+/// fault. A program's root is a boundary, and this is what it gives.
+/// The fault's trace goes into the error, so this is asked once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_context_error(context: *mut Context) -> Word {
+    unsafe {
+        let Some((kind, message)) = Fault::from_code((*context).fault).describe() else {
+            return NULL;
+        };
         let kind = format!("{FAULT_PACKAGE}\0{kind}");
         let error = amb_record_new(4);
         set(error, "kind", amb_tag(kind.as_ptr(), kind.len() as u64));

@@ -12,7 +12,7 @@ use ambient::engine::Engine;
 use ambient::store::MemoryStore;
 use ambient::surface::{Definition, Expr};
 use ambient::value::Value;
-use support::{run_entry, value, verify_all, workspace};
+use support::{Outcome, run_for_error, value, verify_all, workspace};
 
 /// `fn main(): unknown`
 fn main(body: Expr) -> Definition {
@@ -24,10 +24,14 @@ fn here() -> Definition {
     b::function("here").returns(ty::unknown()).body(b::trace())
 }
 
-/// Runs `main` among `definitions`, and names the definition of each
-/// frame of the trace it gives: a definition written here by its name,
-/// and any other, a lambda, as `"?"`.
-fn traced(definitions: impl IntoIterator<Item = Definition>) -> Vec<String> {
+/// Runs `main` among `definitions`, and gives `trace_of` the outcome
+/// and the error a fault that ended it was. Each frame of the trace it
+/// picks is named by its definition: one written here by its name, and
+/// any other, a lambda, as `"?"`.
+fn frames(
+    definitions: impl IntoIterator<Item = Definition>,
+    trace_of: impl Fn(Outcome, Option<Value>) -> Value,
+) -> Vec<String> {
     let definitions: Vec<Definition> = definitions.into_iter().collect();
     let names: Vec<String> = definitions.iter().map(|d| d.name.clone()).collect();
     let module = definitions
@@ -49,7 +53,8 @@ fn traced(definitions: impl IntoIterator<Item = Definition>) -> Vec<String> {
             .map_or("?", |name| name)
             .to_owned()
     };
-    match run_entry(&engine, &entry, &[], Natives::new).unwrap() {
+    let (outcome, error) = run_for_error(&engine, &entry, &[], Natives::new);
+    match trace_of(outcome, error) {
         Value::List(ref frames) => frames.iter().map(|frame| match frame {
             Value::Record(fields) => name(&fields["definition"]),
             other => panic!("expected a frame, got {other:?}"),
@@ -57,6 +62,11 @@ fn traced(definitions: impl IntoIterator<Item = Definition>) -> Vec<String> {
         ref other => panic!("expected a trace, got {other:?}"),
     }
     .collect()
+}
+
+/// The frames of the trace `main` gives.
+fn traced(definitions: impl IntoIterator<Item = Definition>) -> Vec<String> {
+    frames(definitions, |outcome, _| outcome.unwrap())
 }
 
 #[test]
@@ -111,4 +121,20 @@ fn a_trace_keeps_the_frames_nearest_where_it_was_captured() {
     let frames = traced([down, main(b::call(b::name("down"), [b::int(100)]))]);
     assert_eq!(frames.len(), ambient_runtime::TRACE_LIMIT);
     assert!(frames.iter().all(|frame| frame == "down"));
+}
+
+#[test]
+fn a_fault_that_ends_a_program_reaches_its_host_with_its_trace() {
+    let overflows = b::function("overflows")
+        .returns(ty::int())
+        .body(b::add(b::int(i64::MAX), b::int(1)));
+    let outer = main(b::call(b::name("overflows"), []));
+    let trace = |outcome: Outcome, error: Option<Value>| {
+        assert_eq!(outcome, Err(ambient_runtime::Fault::Overflow));
+        match error {
+            Some(Value::Record(ref fields)) => fields["trace"].clone(),
+            other => panic!("expected an error, got {other:?}"),
+        }
+    };
+    assert_eq!(frames([overflows, outer], trace), ["overflows", "main"]);
 }
