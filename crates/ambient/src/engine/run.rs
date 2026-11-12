@@ -7,7 +7,7 @@ use std::cell::OnceCell;
 use serde::{Deserialize, Serialize};
 
 use super::{Engine, Stage};
-use crate::backend::native::{Host, Native, Natives, Observation, Program, encode};
+use crate::backend::native::{Host, Native, Natives, Nowhere, Observation, Program, encode};
 use crate::checker::Evaluate;
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest, encode as bytes};
@@ -49,7 +49,7 @@ fn holds(trace: &[Observation], natives: &Natives) -> bool {
     trace.iter().all(|seen| {
         seen.verifiable
             && natives.get(&seen.native).is_some_and(|offered| {
-                offered.verifiable && (offered.run)(&seen.args) == seen.result
+                offered.verifiable && (offered.run)(&mut Nowhere, &seen.args) == seen.result
             })
     })
 }

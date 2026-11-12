@@ -17,6 +17,7 @@
 - A row is ordered by tag wherever it reaches a core tree, never by name or by the order it was written in.
 - A program is `Engine::program(entry, target)`: a root function the engine writes (`engine/program.rs`) and then checks, hashes, and compiles like any other.
 - Compiled code reaches native code only through `amb_native` and an index the loader fills in; a host supplies `Natives` by package and tag.
+- Native code reaches its program only through `native::Running`, which each backend's dispatch implements. What it loads is held until its result is encoded, so nothing of the program is borrowed while it runs.
 - A task suspends by unwinding with the context's mode set, and resumes by its functions being called again (`lower/resume.rs`, `ambient-runtime/src/task.rs`). A host that sees the entry unwind while suspending calls `amb_schedule` and the entry again.
 - A task's body is a closure that takes nothing; the checker makes one for each branch, spawn, and cleanup (`checker/tasks.rs`), so they capture locals and bindings as any closure does.
 - Whatever must happen on every way out of a block (cleanups, closing a group) is lowered as a `Try` whose recovery holds the unwinding, does the work, and rethrows (`lower/tasks.rs`).
@@ -34,7 +35,7 @@
 - A received definition (`engine/pack.rs`) is an `Open` under a made-up symbol: it is verified, then hashed, compiled, and linked like any other. It has no surface tree and never reaches the store.
 - A definition holds its own hash (`DEFINITION_HASH`), so a host reads a function value as a hash and captures (`value.rs`), and makes one of a definition the program has (`native::Inside`); what it captures is trusted.
 - A native `Program` is units: each `Program::add` lays out a block (`statics::plan` with a `Base`) that refers to what the program already has by address. `Engine::link_to_load` makes the parts, every function with a metered form.
-- Wasm loads a `wasm::unit` module over a `wasm::open_module` program (`backend/wasm/host.rs`, wasmtime). The unit imports each definition's address by hash (`known`), zero meaning it lays out its own; modules describe themselves through exported globals (`root:`, `definition:`, `metered:`, `native:`).
+- Wasm loads a `wasm::unit` module over a `wasm::open_module` program (`backend/wasm/units.rs`, wasmtime), with what loading keeps in the store's `State` so a host call can load too. The unit imports each definition's address by hash (`known`), zero meaning it lays out its own; modules describe themselves through exported globals (`root:`, `definition:`, `metered:`, `native:`).
 - `statics::plan` names a part's root or definition (`Field::Root`, `Field::Definition`) and an extern (`Field::Native`) without saying where; each loader resolves them.
 - A loaded block is a unit (`ambient-runtime/src/unit.rs`): it starts with a count, and a word naming the unit precedes each definition, fixed object, and constant descriptor in it. Closures, cells, type arguments, and dependent units hold the count; `Program::reclaim` drops units at zero.
 - `Op::Copy` of a local, capture, or constant takes a reference (`lir::Value::counted`); a loaded unit's strings are counted, not pinned.

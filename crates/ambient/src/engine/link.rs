@@ -13,6 +13,7 @@ use crate::hash::Hash;
 use crate::lir::Constant;
 use crate::lower::{deep, lower};
 use crate::symbol::Symbol;
+use crate::value::{Function, Value};
 
 /// One definition of a program.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,6 +56,23 @@ pub enum Body {
 }
 
 impl Parts {
+    /// The entry as a value: what a host makes of a function it has
+    /// loaded.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the parts have no entry.
+    pub fn function(&self) -> Result<Value, String> {
+        let entry = self
+            .parts
+            .get(self.entry)
+            .ok_or("the parts have no entry")?;
+        Ok(Value::Function(Function {
+            definition: Some(entry.hash),
+            captures: Vec::new(),
+        }))
+    }
+
     /// The code of the program: for each part, its code, and then its
     /// metered code. A part that has neither, or no metered code, has
     /// `None` there. With each is how many parameters it takes.

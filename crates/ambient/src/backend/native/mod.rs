@@ -7,5 +7,5 @@ mod load;
 mod unit;
 
 pub use emit::Native;
-pub use host::{Host, Inside, NativeFn, Natives, Observation, Offered, encode};
+pub use host::{Host, Inside, NativeFn, Natives, Nowhere, Observation, Offered, Running, encode};
 pub use load::Program;

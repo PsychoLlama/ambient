@@ -17,6 +17,7 @@ mod host;
 mod layout;
 mod module;
 mod resume;
+mod units;
 
 use ambient_runtime::Entry;
 pub use emit::Wasm;

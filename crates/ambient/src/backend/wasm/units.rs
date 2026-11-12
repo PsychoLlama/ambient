@@ -1,0 +1,222 @@
+//! Loading code into a WebAssembly program that is running, and
+//! dropping it again. See "Loading" in `spec/backends.md`.
+//!
+//! All of it works through a [`Guest`], so that it is the same whether
+//! the host loads between calls or native code loads in the middle of
+//! one.
+
+use std::collections::HashMap;
+
+use wasmtime::{AsContextMut, Global, GlobalType, Instance, Module, Mutability, Val};
+
+use super::guest::{Guest, State, must, word};
+use super::{HOST_MODULE, KNOWN_MODULE};
+use crate::backend::native::Natives;
+use crate::engine::Native;
+use crate::hash::Hash;
+
+/// Where the program has a definition.
+#[derive(Clone, Copy)]
+pub(super) struct Known {
+    root: u64,
+    pub(super) definition: u64,
+    /// The unit it is in, or zero for the program's own.
+    unit: u64,
+    metered: bool,
+}
+
+/// What one load brought.
+pub(super) struct Unit {
+    instance: Instance,
+    /// The units it refers into, each a reference this holds.
+    holds: Vec<u64>,
+    /// The definitions it brought.
+    hashes: Vec<Hash>,
+}
+
+/// What a module exports under names that begin `prefix`: the rest of
+/// each name, and the value of the global.
+fn exported(
+    module: &Module,
+    instance: Instance,
+    mut store: impl AsContextMut,
+    prefix: &str,
+) -> Vec<(String, u64)> {
+    let names = module.exports().filter_map(|export| {
+        let name = export.name().strip_prefix(prefix)?;
+        Some(name.to_owned())
+    });
+    names
+        .collect::<Vec<_>>()
+        .into_iter()
+        .filter_map(|name| {
+            let global = instance.get_global(&mut store, &format!("{prefix}{name}"))?;
+            match global.get(&mut store) {
+                Val::I64(value) => Some((name, value.cast_unsigned())),
+                Val::I32(value) => Some((name, u64::from(value.cast_unsigned()))),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// The externs a module reaches, in the order compiled code numbers
+/// them.
+pub(super) fn externs(
+    module: &Module,
+    instance: Instance,
+    store: impl AsContextMut,
+) -> Vec<Native> {
+    let mut found = exported(module, instance, store, "native:");
+    found.sort_by_key(|(_, position)| *position);
+    let native = |(name, _): (String, u64)| {
+        let (package, tag) = name.split_once('\t')?;
+        Some(Native {
+            package: package.to_owned(),
+            tag: tag.to_owned(),
+        })
+    };
+    found.into_iter().filter_map(native).collect()
+}
+
+impl<S: AsContextMut<Data = State>> Guest<S> {
+    /// Runs a module's `init`, and notes where it put each definition
+    /// that is not among `had`: those its host said the program has.
+    /// Returns the entry, and the address of the module's block, or
+    /// zero for a module that does not say.
+    pub(super) fn init(
+        &mut self,
+        module: &Module,
+        instance: Instance,
+        loaded: bool,
+        had: &[Hash],
+    ) -> Result<(u64, u64), String> {
+        let store = &mut self.store;
+        let init = instance
+            .get_func(&mut *store, "init")
+            .ok_or("the module has no `init`")?;
+        let mut entry = [Val::I64(0)];
+        init.call(&mut *store, &[], &mut entry)
+            .map_err(|error| error.to_string())?;
+        let entry = entry[0].unwrap_i64().cast_unsigned();
+        // Nothing can be loaded into a program that does not say where
+        // it is.
+        let Some(base) = instance.get_global(&mut *store, "base") else {
+            return Ok((entry, 0));
+        };
+        let base = u64::from(base.get(&mut *store).unwrap_i32().cast_unsigned());
+        let metered = exported(module, instance, &mut *store, "metered:");
+        let definitions: HashMap<String, u64> =
+            exported(module, instance, &mut *store, "definition:")
+                .into_iter()
+                .collect();
+        for (name, root) in exported(module, instance, &mut *store, "root:") {
+            let Some(hash) = Hash::parse(&name).filter(|hash| !had.contains(hash)) else {
+                continue;
+            };
+            let definition = definitions.get(&name).copied().filter(|at| *at != 0);
+            let known = Known {
+                root: base + root,
+                definition: definition.map_or(0, |at| base + at),
+                unit: if loaded { base } else { 0 },
+                metered: metered.iter().any(|(other, _)| *other == name),
+            };
+            self.state(|state| state.known.insert(hash, known));
+        }
+        Ok((entry, base))
+    }
+
+    /// Loads a module put together by [`super::unit`]: see
+    /// [`super::Program::add`].
+    pub(super) fn add(&mut self, module: &[u8], natives: &Natives) -> Result<u64, String> {
+        self.reclaim();
+        let text = |error: wasmtime::Error| error.to_string();
+        let engine = self.store.as_context().engine().clone();
+        let module = Module::new(&engine, module).map_err(text)?;
+        let wanted: Vec<&str> = module.exports().map(|export| export.name()).collect();
+        let wants_metered = |hash: &Hash| wanted.contains(&format!("metered:{hash}").as_str());
+
+        let linker = self.state(|state| state.linker.clone());
+        let mut linker = linker.ok_or("the program is not loaded yet")?;
+        let constant = GlobalType::new(wasmtime::ValType::I64, Mutability::Const);
+        let mut define = |store: &mut S, module: &str, name: &str, value: u64| {
+            let global = Global::new(&mut *store, constant.clone(), word(value)).map_err(text)?;
+            linker
+                .define(&mut *store, module, name, global)
+                .map_err(text)?;
+            Ok::<(), String>(())
+        };
+        let (unused, had) = self.state(|state| (state.unused, state.natives.len() as u64));
+        define(&mut self.store, HOST_MODULE, "unused", unused)?;
+        define(&mut self.store, HOST_MODULE, "natives", had)?;
+        let (mut holds, mut hashes) = (Vec::new(), Vec::new());
+        for import in module
+            .imports()
+            .filter(|import| import.module() == KNOWN_MODULE)
+        {
+            let Some((what, hash)) = import.name().split_once(':') else {
+                continue;
+            };
+            let hash = Hash::parse(hash).ok_or("a unit imports what is not a hash")?;
+            // A function that is here without the metered form the unit
+            // calls it by is brought again, with one.
+            let known = self.state(|state| state.known.get(&hash).copied());
+            let known = known.filter(|known| known.metered || !wants_metered(&hash));
+            let address = known.map_or(0, |known| match what {
+                "root" => known.root,
+                _ => known.definition,
+            });
+            define(&mut self.store, KNOWN_MODULE, import.name(), address)?;
+            if let Some(known) = known {
+                hashes.push(hash);
+                if known.unit != 0 && !holds.contains(&known.unit) {
+                    holds.push(known.unit);
+                }
+            }
+        }
+
+        let instance = linker.instantiate(&mut self.store, &module).map_err(text)?;
+        let supplied = natives.resolve(&externs(&module, instance, &mut self.store))?;
+        self.state(|state| state.natives.extend(supplied));
+        for unit in &holds {
+            self.words("amb_unit_retain", &[*unit]);
+        }
+        let (entry, base) = self.init(&module, instance, true, &hashes)?;
+        self.state(|state| {
+            let brought = state.known.iter().filter(|(_, known)| known.unit == base);
+            let unit = Unit {
+                instance,
+                holds,
+                hashes: brought.map(|(hash, _)| *hash).collect(),
+            };
+            state.units.insert(base, unit);
+        });
+        Ok(entry)
+    }
+
+    /// Drops what was loaded and nothing refers to any more: see
+    /// [`super::Program::reclaim`].
+    pub(super) fn reclaim(&mut self) {
+        loop {
+            let unused = self.state(|state| state.unused);
+            let unit = self.at("amb_unit_take", unused, &[]);
+            let Some(gone) = self.state(|state| state.units.remove(&unit)) else {
+                break;
+            };
+            self.state(|state| {
+                // A later unit may have brought a definition again.
+                let known = &mut state.known;
+                let here = |hash: &&Hash| known.get(*hash).is_some_and(|known| known.unit == unit);
+                for hash in gone.hashes.iter().filter(here).collect::<Vec<_>>() {
+                    known.remove(hash);
+                }
+            });
+            if let Some(drop) = gone.instance.get_func(&mut self.store, "drop") {
+                must(drop.call(&mut self.store, &[], &mut []), "drop");
+            }
+            for held in gone.holds {
+                self.words("amb_unit_release", &[held]);
+            }
+        }
+    }
+}

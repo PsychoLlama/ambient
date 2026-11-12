@@ -5,16 +5,17 @@
 
 mod support;
 
-use std::cell::OnceCell;
 use std::rc::Rc;
 
 use ambient::backend::native::{Host, Native, Natives, Program};
+use ambient::backend::wasm;
 use ambient::builder::{self as b, pat, ty};
-use ambient::engine::Engine;
+use ambient::engine::{Backend, Engine, Parts};
+use ambient::hash::Hash;
 use ambient::store::MemoryStore;
 use ambient::surface::{Definition, Expr, Type};
 use ambient::symbol::Symbol;
-use ambient::value::{Function, Value, decode};
+use ambient::value::{Construct, Value, decode};
 use ambient_runtime::{FAULT_PACKAGE, Fault, amb_int_new, amb_release};
 use support::value;
 
@@ -54,12 +55,24 @@ fn fetched(ty: Type, arg: i64) -> Expr {
     b::match_(cast, arms)
 }
 
-/// A program whose `main` is `body`, and the function its host hands it
-/// when it calls `fetch`: one `find` names, loaded then and not before.
+/// A program whose `main` is `body`, on each backend, and the function
+/// its host hands it when it calls `fetch`: one `find` names, loaded
+/// then and not before.
 struct Loading {
-    program: Rc<OnceCell<Program>>,
-    /// The parts of the function to load, and its hash.
-    plugin: Rc<(ambient::engine::Parts, ambient::hash::Hash)>,
+    native: Program,
+    wasm: wasm::Program,
+    /// The function to load, as the native backend compiled it.
+    parts: Rc<Parts>,
+    /// The hash of the function to load.
+    plugin: Hash,
+}
+
+/// Native code for `fetch` that loads `parts` into whatever calls it.
+fn fetching(parts: &Rc<Parts>) -> Natives {
+    let parts = Rc::clone(parts);
+    Natives::new().reaching("app", "fetch", move |program, _| {
+        program.load(&parts, &Natives::new())
+    })
 }
 
 impl Loading {
@@ -72,30 +85,22 @@ impl Loading {
         ]);
         let store = MemoryStore::new();
         let engine = Engine::new(&workspace, &store);
-        let native = Native::new().unwrap();
-        let found = find(&engine);
-        let parts = engine.link_to_load(&found, &native).unwrap();
-        let plugin = Rc::new((parts, engine.hash(&found).unwrap()));
+        let (found, main) = (find(&engine), value("main", "main"));
+        let compiled = |backend: &dyn Backend| {
+            let plugin = Rc::new(engine.link_to_load(&found, backend).unwrap());
+            (engine.link(&main, backend).unwrap(), plugin)
+        };
 
-        let program = Rc::new(OnceCell::new());
-        let (running, loaded) = (Rc::downgrade(&program), Rc::clone(&plugin));
-        let natives = Natives::new().with("app", "fetch", move |_| {
-            let running: Rc<OnceCell<Program>> = running.upgrade().ok_or("no program")?;
-            let program = running.get().ok_or("no program")?;
-            let function = program.add(&loaded.0, &Natives::new())?;
-            // SAFETY: the function is owned here. What was loaded stays
-            // until the next load, and by then the value returned is a
-            // closure that holds it.
-            unsafe { amb_release(function) };
-            Ok(Value::Function(Function {
-                definition: Some(loaded.1),
-                captures: Vec::new(),
-            }))
-        });
-        let parts = engine.link(&value("main", "main"), &native).unwrap();
-        let loaded = Program::load(&parts, &natives).unwrap();
-        assert!(program.set(loaded).is_ok());
-        Self { program, plugin }
+        let (program, parts) = compiled(&Native::new().unwrap());
+        let native = Program::load(&program, &fetching(&parts)).unwrap();
+        let (program, unit) = compiled(&wasm::Wasm);
+        let program = wasm::open_module(&program).unwrap();
+        Self {
+            native,
+            wasm: wasm::Program::load(&program, &fetching(&unit)).unwrap(),
+            parts,
+            plugin: engine.hash(&found).unwrap(),
+        }
     }
 
     /// With the function in the program's own workspace, in a module
@@ -104,27 +109,37 @@ impl Loading {
         Self::new(plugin, body, |_| value("plugin", "plugin"))
     }
 
-    fn program(&self) -> &Program {
-        self.program.get().unwrap()
+    /// Whether either program has the function.
+    fn has(&self) -> bool {
+        self.native.has(&self.plugin) || self.wasm.has(&self.plugin)
     }
 
-    fn run(&self) -> Result<Value, Fault> {
-        let word = self.program().call(&[])?;
-        let value = decode(word, &mut Host);
-        // SAFETY: the word is owned here and not used again.
-        unsafe { amb_release(word) };
-        Ok(value)
+    /// Runs `main` on each backend, and gives what they agree on.
+    fn run(&mut self) -> Result<Value, Fault> {
+        let native = self.native.call(&[]).map(|word| {
+            let value = decode(word, &mut Host);
+            // SAFETY: the word is owned here and not used again.
+            unsafe { amb_release(word) };
+            value
+        });
+        let wasm = self.wasm.call(&[]).map(|word| {
+            let value = decode(word, self.wasm.guest());
+            self.wasm.guest().release(word);
+            value
+        });
+        assert_eq!(native, wasm);
+        native
     }
 }
 
 #[test]
 fn a_function_loaded_while_a_program_runs_is_called() {
-    let loading = Loading::local(double(), fetched(int_to_int(), 21));
+    let mut loading = Loading::local(double(), fetched(int_to_int(), 21));
 
-    assert!(!loading.program().has(&loading.plugin.1));
+    assert!(!loading.has());
     assert_eq!(loading.run(), Ok(Value::Int(42)));
     // Nothing the call left refers to it.
-    assert!(!loading.program().has(&loading.plugin.1));
+    assert!(!loading.has());
 }
 
 #[test]
@@ -155,7 +170,7 @@ fn a_loaded_function_is_metered_inside_a_budget() {
 #[test]
 fn what_is_loaded_twice_is_there_once() {
     let fetch = || b::call(b::name("fetch"), []);
-    let loading = Loading::local(double(), b::equal(fetch(), fetch()));
+    let mut loading = Loading::local(double(), b::equal(fetch(), fetch()));
 
     assert_eq!(loading.run(), Ok(Value::Bool(true)));
 }
@@ -163,8 +178,8 @@ fn what_is_loaded_twice_is_there_once() {
 #[test]
 fn a_host_calls_a_function_it_loaded() {
     let loading = Loading::local(double(), b::null());
-    let program = loading.program();
-    let function = program.add(&loading.plugin.0, &Natives::new()).unwrap();
+    let program = &loading.native;
+    let function = program.add(&loading.parts, &Natives::new()).unwrap();
 
     // SAFETY: making an integer has no preconditions.
     let result = program.call_value(function, &[unsafe { amb_int_new(4) }]);
@@ -181,7 +196,7 @@ fn a_function_that_arrived_in_a_pack_is_loaded_and_called() {
 
     // The receiver's own `plugin` is another function; what it loads is
     // the one the pack brought.
-    let loading = Loading::new(count(), fetched(int_to_int(), 21), |engine| {
+    let mut loading = Loading::new(count(), fetched(int_to_int(), 21), |engine| {
         engine.receive(&pack, &[]).unwrap()
     });
 

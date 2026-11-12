@@ -9,13 +9,52 @@ use ambient_runtime::{Context, Fault, Word};
 use serde::{Deserialize, Serialize};
 
 use super::load::Program;
-use crate::engine::Native;
+use crate::engine::{Native, Parts};
 use crate::hash::Hash;
 use crate::value::{self, Construct, Inspect, Value};
 
-/// Native code for one extern: arguments in, a result or what went wrong
-/// out.
-pub type NativeFn = Rc<dyn Fn(&[Value]) -> Result<Value, String>>;
+/// The program that called native code, as far as native code reaches
+/// it. See "Native side" in `spec/externs.md`.
+pub trait Running {
+    /// Loads a function into the program and gives it as a value: one
+    /// [`crate::engine::Engine::link_to_load`] made for the program's
+    /// backend, with the native code for its externs. Its code stays
+    /// while a value refers to it.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the function cannot be loaded, or no program is
+    /// running.
+    fn load(&mut self, parts: &Parts, natives: &Natives) -> Result<Value, String>;
+}
+
+/// No program: what native code is handed when it is called again only
+/// to see whether what it returned still holds.
+pub struct Nowhere;
+
+impl Running for Nowhere {
+    fn load(&mut self, _: &Parts, _: &Natives) -> Result<Value, String> {
+        Err("no program is running".to_owned())
+    }
+}
+
+/// One call of native code: the program it was made from, and the
+/// functions it loaded, each held until what it returns is made.
+struct Call<'a> {
+    program: &'a Program,
+    held: Vec<Word>,
+}
+
+impl Running for Call<'_> {
+    fn load(&mut self, parts: &Parts, natives: &Natives) -> Result<Value, String> {
+        self.held.push(self.program.add(parts, natives)?);
+        parts.function()
+    }
+}
+
+/// Native code for one extern: the program that called it and its
+/// arguments in, a result or what went wrong out.
+pub type NativeFn = Rc<dyn Fn(&mut dyn Running, &[Value]) -> Result<Value, String>>;
 
 /// Native code as a host offers it.
 #[derive(Clone)]
@@ -43,7 +82,7 @@ impl Natives {
         package: &str,
         tag: &str,
         verifiable: bool,
-        native: impl Fn(&[Value]) -> Result<Value, String> + 'static,
+        native: impl Fn(&mut dyn Running, &[Value]) -> Result<Value, String> + 'static,
     ) -> Self {
         let run: NativeFn = Rc::new(native);
         let key = (package.to_owned(), tag.to_owned());
@@ -60,6 +99,18 @@ impl Natives {
         tag: &str,
         native: impl Fn(&[Value]) -> Result<Value, String> + 'static,
     ) -> Self {
+        self.offer(package, tag, false, move |_, args| native(args))
+    }
+
+    /// Adds native code that is handed the program that called it, as
+    /// well as its arguments. It is volatile, as [`Natives::with`] is.
+    #[must_use]
+    pub fn reaching(
+        self,
+        package: &str,
+        tag: &str,
+        native: impl Fn(&mut dyn Running, &[Value]) -> Result<Value, String> + 'static,
+    ) -> Self {
         self.offer(package, tag, false, native)
     }
 
@@ -72,7 +123,7 @@ impl Natives {
         tag: &str,
         native: impl Fn(&[Value]) -> Result<Value, String> + 'static,
     ) -> Self {
-        self.offer(package, tag, true, native)
+        self.offer(package, tag, true, move |_, args| native(args))
     }
 
     /// The native code offered for one extern.
@@ -133,8 +184,12 @@ pub(super) unsafe extern "C" fn dispatch(
     // program is borrowed while it runs.
     let offered = program.natives.borrow().get(index).cloned();
     // Native code is not to unwind through compiled code.
+    let mut call = Call {
+        program,
+        held: Vec::new(),
+    };
     let outcome = match &offered {
-        Some(offered) => catch_unwind(AssertUnwindSafe(|| (offered.run)(&args)))
+        Some(offered) => catch_unwind(AssertUnwindSafe(|| (offered.run)(&mut call, &args)))
             .unwrap_or_else(|_| Err("native code panicked".to_owned())),
         None => Err("no such extern".to_owned()),
     };
@@ -149,14 +204,21 @@ pub(super) unsafe extern "C" fn dispatch(
             verifiable: offered.verifiable,
         });
     }
-    match outcome {
+    let result = match outcome {
         Ok(value) => value::encode(&value, &mut Inside(program)),
         Err(message) => {
             *program.failure.borrow_mut() = Some(message);
             // SAFETY: the context is the one this call was handed.
             unsafe { ambient_runtime::amb_fault(context, Fault::Native as u64) }
         }
+    };
+    // What was loaded is held from here on by whatever of it the result
+    // refers to.
+    for function in call.held {
+        // SAFETY: each is a word `Program::add` gave this call.
+        unsafe { ambient_runtime::amb_release(function) };
     }
+    result
 }
 
 /// Makes words for one program, which is what it takes to make a

@@ -1,18 +1,30 @@
 //! The runtime instantiated in a WebAssembly engine, and how a host
 //! reads and makes values in it.
 
-use wasmtime::{AsContextMut, Caller, Instance, Val};
+use std::collections::HashMap;
 
-use crate::backend::native::Offered;
+use wasmtime::{AsContextMut, Caller, Instance, Linker, Val};
+
+use super::units::{Known, Unit};
+use crate::backend::native::{Natives, Offered, Running};
+use crate::engine::Parts;
+use crate::hash::Hash;
 use crate::value::{self, Construct, Inspect, Value};
 
 /// What a WebAssembly host keeps where native code can reach it: the
-/// runtime, once it is instantiated, and the native code for each
-/// extern of the program.
+/// runtime, once it is instantiated, the native code for each extern of
+/// the program, and what loading into the program takes.
 #[derive(Default)]
 pub struct State {
     pub(super) runtime: Option<Instance>,
     pub(super) natives: Vec<Offered>,
+    /// What every module of the program is linked against.
+    pub(super) linker: Option<Linker<State>>,
+    pub(super) known: HashMap<Hash, Known>,
+    pub(super) units: HashMap<u64, Unit>,
+    /// The address of the word the runtime keeps the units nothing
+    /// refers to under.
+    pub(super) unused: u64,
 }
 
 /// The runtime, reached through a store or through the caller of a
@@ -43,7 +55,12 @@ fn as_word(value: Option<Val>) -> u64 {
     }
 }
 
-impl<S: AsContextMut> Guest<S> {
+impl<S: AsContextMut<Data = State>> Guest<S> {
+    /// Reads or changes what the host keeps.
+    pub(super) fn state<R>(&mut self, work: impl FnOnce(&mut State) -> R) -> R {
+        work(self.store.as_context_mut().data_mut())
+    }
+
     /// Calls a runtime export.
     pub(super) fn runtime(&mut self, name: &str, args: &[Val]) -> Option<Val> {
         let Some(function) = self.runtime.get_func(&mut self.store, name) else {
@@ -105,7 +122,7 @@ impl<S: AsContextMut> Guest<S> {
     }
 }
 
-impl<S: AsContextMut> Inspect for Guest<S> {
+impl<S: AsContextMut<Data = State>> Inspect for Guest<S> {
     fn kind(&mut self, word: u64) -> u64 {
         self.words("amb_kind", &[word])
     }
@@ -138,7 +155,7 @@ impl<S: AsContextMut> Inspect for Guest<S> {
     }
 }
 
-impl<S: AsContextMut> Construct for Guest<S> {
+impl<S: AsContextMut<Data = State>> Construct for Guest<S> {
     fn int(&mut self, value: i64) -> u64 {
         self.words("amb_int_new", &[value.cast_unsigned()])
     }
@@ -178,6 +195,31 @@ impl<S: AsContextMut> Construct for Guest<S> {
     fn release(&mut self, word: u64) {
         self.words("amb_release", &[word]);
     }
+
+    fn function(&mut self, definition: &Hash, captures: u64) -> Option<u64> {
+        let known = self.state(|state| state.known.get(definition).copied())?;
+        let definition = Some(known.definition).filter(|at| *at != 0)?;
+        Some(self.words("amb_closure_new", &[definition, captures]))
+    }
+
+    fn capture(&mut self, function: u64, index: u64, value: u64) {
+        self.words("amb_closure_set", &[function, index, value]);
+    }
+}
+
+/// One call of native code: the program it was made from, and the
+/// functions it loaded, each held until what it returns is made.
+struct Call<'a, 'b> {
+    guest: Guest<&'a mut Caller<'b, State>>,
+    held: Vec<u64>,
+}
+
+impl Running for Call<'_, '_> {
+    fn load(&mut self, parts: &Parts, natives: &Natives) -> Result<Value, String> {
+        let function = self.guest.add(&super::unit(parts)?, natives)?;
+        self.held.push(function);
+        parts.function()
+    }
 }
 
 /// The host's side of `amb_native`: runs the native code for the extern
@@ -192,26 +234,35 @@ pub(super) fn native(
     let Some(runtime) = caller.data().runtime else {
         panic!("native code ran before the runtime was there");
     };
-    let natives = std::mem::take(&mut caller.data_mut().natives);
-    let mut guest = Guest {
+    // Native code may load more into the program, so nothing of the
+    // program is borrowed while it runs.
+    let offered = usize::try_from(index)
+        .ok()
+        .and_then(|index| caller.data().natives.get(index).cloned());
+    let guest = Guest {
         store: &mut caller,
         runtime,
     };
-    let decoded = value::decode(args.cast_unsigned(), &mut guest);
+    let mut call = Call {
+        guest,
+        held: Vec::new(),
+    };
+    let decoded = value::decode(args.cast_unsigned(), &mut call.guest);
     let args: &[Value] = match &decoded {
         Value::Tuple(args) => args,
         _ => &[],
     };
-    let offered = usize::try_from(index)
-        .ok()
-        .and_then(|index| natives.get(index));
-    let result = if let Some(Ok(value)) = offered.map(|offered| (offered.run)(args)) {
+    let outcome = offered.map(|offered| (offered.run)(&mut call, args));
+    let Call { mut guest, held } = call;
+    let result = if let Some(Ok(value)) = outcome {
         value::encode(&value, &mut guest)
     } else {
         let code = word(ambient_runtime::Fault::Native as u64);
         guest.runtime("amb_fault", &[Val::I32(context), code]);
         ambient_runtime::UNWIND
     };
-    caller.data_mut().natives = natives;
+    for function in held {
+        guest.words("amb_release", &[function]);
+    }
     result.cast_signed()
 }
