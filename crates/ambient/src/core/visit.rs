@@ -1,7 +1,7 @@
 //! Walking core trees: what is inside an expression, and where each
 //! expression is.
 
-use super::{Expr, Slot};
+use super::{Expr, Slot, Type};
 
 impl Expr {
     /// Calls `visit` with each expression directly inside this one, in
@@ -133,5 +133,25 @@ impl Expr {
             found.get_or_insert_with(Vec::new).extend(named);
         }
         found
+    }
+}
+
+impl Type {
+    /// Whether the type mentions a type parameter of the definition it
+    /// is written in: whether what it describes depends on that
+    /// definition's type arguments.
+    #[must_use]
+    pub fn mentions_parameter(&self) -> bool {
+        let any = |types: &[Self]| types.iter().any(Self::mentions_parameter);
+        match self {
+            Self::Parameter(_) => true,
+            Self::Record(fields) => fields.iter().any(|(_, ty)| ty.mentions_parameter()),
+            Self::Tuple(members) | Self::Union(members) | Self::Reference(_, members) => {
+                any(members)
+            }
+            Self::List(member) | Self::Cell(member) => member.mentions_parameter(),
+            Self::Function { params, ret, .. } => any(params) || ret.mentions_parameter(),
+            _ => false,
+        }
     }
 }

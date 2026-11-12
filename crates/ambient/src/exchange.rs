@@ -23,6 +23,9 @@ pub enum Unsendable {
     /// It contains a function whose definition has no hash to name it
     /// by.
     Function,
+    /// It contains a generic function, whose type arguments have no
+    /// encoding yet.
+    Types,
 }
 
 impl fmt::Display for Unsendable {
@@ -31,6 +34,7 @@ impl fmt::Display for Unsendable {
             Self::Cell => write!(f, "a cell never leaves its program"),
             Self::Abort => write!(f, "an abort handler never leaves its program"),
             Self::Function => write!(f, "a function has no definition to name"),
+            Self::Types => write!(f, "a generic function's type arguments have no encoding"),
         }
     }
 }
@@ -138,6 +142,7 @@ pub fn encode(value: &Value) -> Result<Vec<u8>, Unsendable> {
             }
             Value::Cell => return Err(Unsendable::Cell),
             Value::Token => return Err(Unsendable::Abort),
+            Value::Types => return Err(Unsendable::Types),
         }
     }
     Ok(out)

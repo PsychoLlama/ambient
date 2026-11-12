@@ -63,8 +63,8 @@ fn a_type_follows_a_deep_value_without_recursion() {
     let (fits, differs) = (nested(NULL), nested(TRUE));
 
     unsafe {
-        assert_eq!(amb_is(fits, nesting()), TRUE);
-        assert_eq!(amb_is(differs, nesting()), FALSE);
+        assert_eq!(amb_is(fits, nesting(), NULL), TRUE);
+        assert_eq!(amb_is(differs, nesting(), NULL), FALSE);
         for value in [fits, differs] {
             amb_release(value);
         }

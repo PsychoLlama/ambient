@@ -7,11 +7,9 @@
 //! checking does (`spec/types.md`): a name stands for its definition, and
 //! a union is its members in any order.
 
-use crate::is::{Scope, descriptor as d};
+use crate::is::descriptor as d;
 use crate::object::bytes;
-
-/// A node, and the scope it is read in.
-pub(crate) type At = (u64, Option<usize>);
+use crate::scope::{At, Env, Scope, argument};
 
 /// The most scopes one comparison enters. A regular type never comes
 /// near it; it is what makes an irregular one fail rather than run
@@ -56,7 +54,7 @@ impl Types {
     /// The scope a generic definition is read in at these arguments. One
     /// entered before is found again, or a recursive generic type would
     /// never be met twice.
-    fn enter(&mut self, nodes: &'static [u64], outer: Option<usize>) -> usize {
+    fn enter(&mut self, nodes: &'static [u64], outer: Env) -> usize {
         let same = |scope: &Scope| std::ptr::eq(scope.nodes, nodes) && scope.outer == outer;
         self.scopes.iter().position(same).unwrap_or_else(|| {
             self.scopes.push(Scope { nodes, outer });
@@ -72,15 +70,15 @@ impl Types {
                     d::ALIAS => ty = word(ty, 1),
                     d::APPLY => {
                         let nodes = span(ty, 3, word(ty, 2));
-                        scope = Some(self.enter(nodes, scope));
+                        scope = Env::Entered(self.enter(nodes, scope));
                         ty = word(ty, 1);
                     }
                     d::PARAMETER => {
-                        let Some(inner) = scope else {
+                        let position = word(ty, 1) as usize;
+                        let Some(found) = argument(&self.scopes, scope, position) else {
                             return (ty, scope);
                         };
-                        let Scope { nodes, outer } = self.scopes[inner];
-                        (ty, scope) = (nodes[word(ty, 1) as usize], outer);
+                        (ty, scope) = found;
                     }
                     _ => return (ty, scope),
                 }
@@ -116,11 +114,7 @@ impl Types {
 
     /// Whether each of `lower`, read in a scope, is within the one of
     /// `upper` beside it.
-    unsafe fn each(
-        &mut self,
-        lower: (&[u64], Option<usize>),
-        upper: (&[u64], Option<usize>),
-    ) -> bool {
+    unsafe fn each(&mut self, lower: (&[u64], Env), upper: (&[u64], Env)) -> bool {
         let ((lower, from), (upper, to)) = (lower, upper);
         lower.len() == upper.len()
             && lower
@@ -145,9 +139,9 @@ impl Types {
             if above == d::UNION {
                 // A boolean is true or false, which a union may hold apart.
                 if below == d::BOOL {
-                    return BOOLEANS
-                        .iter()
-                        .all(|literal| self.within((literal.as_ptr() as u64, None), (sup, to)));
+                    return BOOLEANS.iter().all(|literal| {
+                        self.within((literal.as_ptr() as u64, Env::None), (sup, to))
+                    });
                 }
                 return members(sup)
                     .iter()

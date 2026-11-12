@@ -2,26 +2,29 @@
 
 use crate::number::equal;
 use crate::object::{KIND_CELL, amb_release, amb_retain, boolean, fault, object, words};
+use crate::scope::{At, Env};
 use crate::task::{arriving, interrupted, suspend, wait_on, wake};
 use crate::{Context, Fault, NULL, Word};
 
-/// A cell that holds `value`, made at the type `ty` describes: a
-/// descriptor's address, or zero if the type is not known here. The cell
-/// keeps it, which is what lets a cast tell what the cell may hold.
+/// A cell that holds `value`, made at the type `ty` describes, a
+/// descriptor's address, read in `scope`: the type arguments of the
+/// function that makes it, or null. The cell keeps both, which is what
+/// lets a cast tell what the cell may hold.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_cell_new(value: Word, ty: u64) -> Word {
+pub unsafe extern "C" fn amb_cell_new(value: Word, ty: u64, scope: Word) -> Word {
     unsafe {
-        let word = object(KIND_CELL, 16);
+        let word = object(KIND_CELL, 24);
         amb_retain(value);
-        words(word)[0] = value;
-        words(word)[1] = ty;
+        amb_retain(scope);
+        let fields = words(word);
+        (fields[0], fields[1], fields[2]) = (value, scope, ty);
         word
     }
 }
 
-/// The descriptor of the type a cell was made at, or zero.
-pub(crate) unsafe fn made_at(cell: Word) -> u64 {
-    unsafe { words(cell)[1] }
+/// The type a cell was made at.
+pub(crate) unsafe fn made_at(cell: Word) -> At {
+    unsafe { (words(cell)[2], Env::given(words(cell)[1])) }
 }
 
 /// The value a cell holds.

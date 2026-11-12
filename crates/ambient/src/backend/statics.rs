@@ -122,6 +122,7 @@ pub fn plan(parts: &Parts) -> Statics {
                         Constant::Tag(text) => statics.text(Make::Tag, text),
                         Constant::Field(name) => statics.text(Make::Field, name),
                         Constant::Type(ty) => Field::Address(statics.describe(ty, &slots)),
+                        Constant::Types(types) => Field::Address(statics.types(types, &slots)),
                         Constant::Ability(slot) => {
                             statics.text(Make::Field, &ability_key(&slots[*slot].hash))
                         }
@@ -317,6 +318,23 @@ impl Statics {
                 self.children(args, slots, at + 2);
             }
         }
+    }
+
+    /// The address of type arguments that are never reclaimed: an
+    /// object that holds a descriptor for each, read in nothing.
+    fn types(&mut self, types: &[Type], slots: &[Target]) -> usize {
+        let mut header = [0u64; 2];
+        ambient_runtime::pinned_scope(&mut header, types.len());
+        let at = self.words;
+        self.words += header.len() + types.len() * 2;
+        self.set(at, Field::Word(header[0]));
+        self.set(at + 1, Field::Word(header[1]));
+        for (position, ty) in types.iter().enumerate() {
+            let node = self.describe(ty, slots);
+            self.set(at + 2 + position * 2, Field::Address(node));
+            self.set(at + 3 + position * 2, Field::Word(ambient_runtime::NULL));
+        }
+        at
     }
 
     /// Writes a count at `at` and then the address of a descriptor for

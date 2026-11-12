@@ -6,7 +6,7 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 
 - The shapes are null, bool, int, float, string, bytes, list, map, set, tag, record, tuple, function, cell, and handle.
 - No shape is user-defined; every [type](types.md) describes a subset of these.
-- A function value is a definition hash, captured values, and [captured handlers](abilities.md).
+- A function value is a definition hash, the type arguments it was made at, captured values, and [captured handlers](abilities.md).
 - A function value carries its signature, so a cast to a function type is decidable.
 - A handle is an opaque reference minted by [native code](externs.md).
 - A handle carries the tag it was minted under and has no structure to inspect.
@@ -24,6 +24,7 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 - Equal values encode identically, so the encoding gives every value a hash.
 - A function value encodes as its definition hash and its captures; the definition itself travels as a [pack](exchange.md).
 - The bindings a function captured are among its captures, so a captured abort handler anchors it.
+- TODO: type arguments have no encoding yet, so a function value over a generic function cannot be sent.
 - A decoded value is `unknown`.
 - A value is anchored if it contains a handle, a [cell](cells.md), a [native handler](externs.md), or an [abort](handlers.md) handler.
 - An anchored value is tied to the program and scope that hold it and has no encoding.
@@ -33,7 +34,7 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 ## Structural operations
 
 - Equality, ordering, and hashing are defined by the language over every shape and cannot be extended.
-- Function values compare by hash and captures; handles compare by identity.
+- Function values compare by hash, type arguments, and captures; handles compare by identity.
 - Operators are defined per primitive and cannot be overloaded.
 
 ## Numbers

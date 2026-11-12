@@ -41,6 +41,7 @@ mod number;
 mod object;
 mod record;
 mod relate;
+mod scope;
 mod sequence;
 mod task;
 mod text;
@@ -58,6 +59,7 @@ pub use native::*;
 pub use number::*;
 pub use object::{amb_release, amb_retain, layout, pinned_closure};
 pub use record::*;
+pub use scope::{amb_scope_new, amb_scope_set, pinned_scope};
 pub use sequence::*;
 pub use task::{
     LIMITS, RESUMING, RUNNING, SUSPENDING, amb_all, amb_budget_back, amb_budget_caught,
@@ -154,6 +156,9 @@ pub enum Kind {
     /// Not a value a program can name: what an abort handler is bound
     /// to.
     Token = 11,
+    /// Not a value a program can name: the type arguments a generic
+    /// function was made at, which follow what it captured.
+    Types = 12,
 }
 
 /// The state of one execution. Compiled code receives a pointer to it as

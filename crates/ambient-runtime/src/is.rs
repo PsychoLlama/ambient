@@ -8,6 +8,7 @@ use crate::object::{
 };
 use crate::record::find;
 use crate::relate::Types;
+use crate::scope::{self, Env, Scope, argument};
 use crate::{FALSE, NULL, TRUE, Word};
 
 /// The layout of a type descriptor: what a cast tests a value against.
@@ -55,15 +56,6 @@ pub mod descriptor {
     pub const CELL: u64 = 17;
 }
 
-/// The arguments a generic type definition is being read at.
-#[derive(Clone, Copy)]
-pub(crate) struct Scope {
-    pub(crate) nodes: &'static [u64],
-    /// What the arguments themselves are read at: another scope, by
-    /// position among those entered.
-    pub(crate) outer: Option<usize>,
-}
-
 /// The tests a descriptor makes of the values inside a value.
 enum Inside {
     /// A record's fields: pairs of a key and a node.
@@ -86,8 +78,8 @@ enum Inside {
 struct Frame {
     inside: Inside,
     next: usize,
-    /// The scope the tests are read in.
-    scope: Option<usize>,
+    /// What the tests' nodes are read in.
+    scope: Env,
     /// How many scopes had been entered when this began. Those entered
     /// since belong to a test that is over.
     entered: usize,
@@ -135,23 +127,24 @@ enum Next {
 enum Look {
     Answer(bool),
     /// The same question, of another node, in another scope.
-    Instead(u64, Option<usize>),
+    Instead(u64, Env),
     Inside(Inside),
 }
 
-/// Whether `ty`, a descriptor, describes a value.
+/// Whether `ty`, a descriptor, describes a value. `scope` is the type
+/// arguments of the function that asks, or null: what a type parameter
+/// in `ty` stands for.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_is(value: Word, ty: u64) -> Word {
-    unsafe { boolean(is(value, ty)) }
+pub unsafe extern "C" fn amb_is(value: Word, ty: u64, scope: Word) -> Word {
+    unsafe { boolean(is(value, ty, Env::given(scope))) }
 }
 
 /// A value can be nested arbitrarily deep, and a type can follow it all
 /// the way down, so the tests still to be made are kept in `frames`,
 /// never on the stack.
-unsafe fn is(mut value: Word, mut ty: u64) -> bool {
+unsafe fn is(mut value: Word, mut ty: u64, mut scope: Env) -> bool {
     let mut scopes: Vec<Scope> = Vec::new();
     let mut frames: Vec<Frame> = Vec::new();
-    let mut scope = None;
     loop {
         let mut answer = match unsafe { look(value, ty, scope, &mut scopes) } {
             Look::Answer(answer) => answer,
@@ -197,7 +190,7 @@ unsafe fn is(mut value: Word, mut ty: u64) -> bool {
 
 /// Tests `value` against the node at `ty` alone: whatever the node says
 /// of the values inside it is left to the caller.
-unsafe fn look(value: Word, ty: u64, scope: Option<usize>, scopes: &mut Vec<Scope>) -> Look {
+unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Look {
     use descriptor as d;
     unsafe {
         let ty = ty as usize as *const u64;
@@ -257,10 +250,10 @@ unsafe fn look(value: Word, ty: u64, scope: Option<usize>, scopes: &mut Vec<Scop
                     nodes: nodes(3, node(2)),
                     outer: scope,
                 });
-                return Look::Instead(node(1), Some(scopes.len() - 1));
+                return Look::Instead(node(1), Env::Entered(scopes.len() - 1));
             }
-            d::PARAMETER => match scope.map(|scope| &scopes[scope]) {
-                Some(scope) => return Look::Instead(scope.nodes[node(1) as usize], scope.outer),
+            d::PARAMETER => match argument(scopes, scope, node(1) as usize) {
+                Some((node, outer)) => return Look::Instead(node, outer),
                 None => false,
             },
             d::ALIAS => return Look::Instead(node(1), scope),
@@ -268,15 +261,18 @@ unsafe fn look(value: Word, ty: u64, scope: Option<usize>, scopes: &mut Vec<Scop
             // types must be the same, not one within the other.
             d::CELL => {
                 kind(value) == KIND_CELL
-                    && made_at(value) != 0
-                    && Types::new(scopes).same((made_at(value), None), (node(1), scope))
+                    && made_at(value).0 != 0
+                    && Types::new(scopes).same(made_at(value), (node(1), scope))
             }
             // A function is of the type its definition's signature says,
             // and of any that type is within.
             d::FUNCTION => {
                 kind(value) == KIND_CLOSURE
                     && signature(value) != 0
-                    && Types::new(scopes).within((signature(value), None), (ty as u64, scope))
+                    && Types::new(scopes).within(
+                        (signature(value), Env::given(scope::of_closure(value))),
+                        (ty as u64, scope),
+                    )
             }
             _ => false,
         })

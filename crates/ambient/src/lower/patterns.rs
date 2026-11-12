@@ -100,7 +100,7 @@ impl Lowering {
                 }
                 self.all(tests)
             }
-            Pattern::Is(ty) => Some(self.is(subject, ty)?),
+            Pattern::Is(ty) => Some(self.is(subject, ty)),
         })
     }
 

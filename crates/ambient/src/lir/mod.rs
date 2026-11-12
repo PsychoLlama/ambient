@@ -56,6 +56,10 @@ pub enum Constant {
     /// A type, as the descriptor a value is tested against. Its slots are
     /// those of the definition it is a constant of.
     Type(crate::core::Type),
+    /// Type arguments that mention no type parameter: what a generic
+    /// function used at them is made with. Their slots are those of the
+    /// definition they are a constant of.
+    Types(Vec<crate::core::Type>),
     /// The ability in a slot, as the key bindings hold the budget its
     /// handler was bound inside under. Only metered code has these.
     AbilityBudget(usize),
@@ -100,8 +104,17 @@ pub enum Op {
     /// A closure over the lambda in a slot.
     Closure { slot: usize, captures: Vec<Value> },
     /// A new cell that holds a value, made at a type, a
-    /// [`Constant::Type`], if the type is known here.
-    Cell { value: Value, ty: Option<usize> },
+    /// [`Constant::Type`], read in `scope`: the type arguments of the
+    /// function being run, or null.
+    Cell {
+        value: Value,
+        ty: usize,
+        scope: Value,
+    },
+    /// Type arguments for a generic function: each a type, a
+    /// [`Constant::Type`], and the type arguments it is read in, or null
+    /// if it mentions no type parameter.
+    Types(Vec<(usize, Value)>),
     /// A tuple, or a list.
     Sequence { list: bool, members: Vec<Value> },
     /// A record. Each field is a [`Constant::Field`] and its value.
@@ -116,8 +129,13 @@ pub enum Op {
     IsRecord(Value),
     /// Whether a value is a tuple of exactly this length.
     IsTuple { value: Value, length: usize },
-    /// Whether a type, a [`Constant::Type`], describes a value.
-    Is { value: Value, ty: usize },
+    /// Whether a type, a [`Constant::Type`], read in `scope` as a cell's
+    /// is, describes a value.
+    Is {
+        value: Value,
+        ty: usize,
+        scope: Value,
+    },
     /// A record with the fields of both, `overlay`'s where both have one.
     /// `base` may be null, for no fields. This is how bindings are
     /// extended.

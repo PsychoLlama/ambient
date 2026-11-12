@@ -158,3 +158,13 @@ fn a_value_nested_deeper_than_any_stack_crosses_into_a_program_and_back() {
     unsafe { ambient_runtime::amb_release(word) };
     assert_eq!(ambient_runtime::amb_live(), live);
 }
+
+#[test]
+fn a_generic_function_has_no_encoding() {
+    let generic = Value::Function(Function {
+        definition: Some(Hash::from_bytes([0; 32])),
+        captures: vec![Value::Types],
+    });
+
+    assert_eq!(encode(&generic), Err(Unsendable::Types));
+}

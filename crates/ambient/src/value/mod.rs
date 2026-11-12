@@ -32,10 +32,14 @@ pub enum Value {
     /// What an abort handler is bound to: a hold on a provide that is
     /// still running. It never leaves its program.
     Token,
+    /// The type arguments a generic function was made at, which follow
+    /// what it captured. Nothing outside its program can read them yet.
+    Types,
 }
 
 /// A function value: a definition, and what it captured where it was
-/// ready. The bindings it captured are among the captures, as a record.
+/// ready. The bindings it captured are among the captures, as a record,
+/// and then the type arguments of a generic one.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Function {
     /// The hash of its definition, if it has one a host can name.
@@ -118,6 +122,7 @@ pub fn decode(word: Word, inspect: &mut impl Inspect) -> Value {
             }
             kind if kind == Kind::Cell as u64 => Value::Cell,
             kind if kind == Kind::Token as u64 => Value::Token,
+            kind if kind == Kind::Types as u64 => Value::Types,
             _ => Value::Int(inspect.int(word)),
         })
     })
@@ -169,7 +174,7 @@ pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
             key: ambient_runtime::NULL,
         };
         let mut ready = match next {
-            Value::Null | Value::Function(_) | Value::Cell | Value::Token => {
+            Value::Null | Value::Function(_) | Value::Cell | Value::Token | Value::Types => {
                 Some(ambient_runtime::NULL)
             }
             Value::Bool(true) => Some(ambient_runtime::TRUE),

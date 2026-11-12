@@ -30,6 +30,8 @@
 - The core checker (`verify/`) accepts what `checker/` makes and nothing looser; `support::run` verifies every definition it runs. Typing rules live in `types::Env`, which both checkers ask.
 - A received definition (`engine/pack.rs`) is an `Open` under a made-up symbol: it is verified, then hashed, compiled, and linked like any other. It has no surface tree and never reaches the store.
 - A definition holds its own hash (`DEFINITION_HASH`), so a host reads a function value as a hash and captures (`value.rs`). Nothing makes a function value from outside a program yet.
+- A generic function reads its type arguments from its closure, after its captures and bindings (`lower/types.rs`, `ambient-runtime/src/scope.rs`). So a generic definition is never called through its slot, only through a closure made at type arguments.
+- Subtyping is decided in two places: `types/relate.rs` when checking, and `ambient-runtime/src/relate.rs` for casts to cell and function types. Change them together.
 - A value has one encoding (`exchange.rs`); `decode` accepts only what `encode` produces.
 - `core::Tree::resolved` defines every hash: the tree's encoding with slots replaced by hashes and unions ordered by that. `Tree::encode` is the stored form, which names can order; never hash it. Changing either or the node set means bumping `FORMAT`.
 

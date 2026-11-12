@@ -58,6 +58,14 @@ pub fn lower(definition: &Open, metered: bool) -> Result<lir::Function, Unsuppor
         temporaries: 0,
         constants,
         bindings: Value::Local(0),
+        // They follow what it captured: values, then bindings.
+        types: if function.type_params.is_empty() {
+            Value::Null
+        } else {
+            let before = function.captures.len() + usize::from(!function.bindings.is_empty());
+            Value::Captured(before)
+        },
+        type_params: function.type_params.len(),
         groups: Vec::new(),
         metered,
     };
@@ -165,6 +173,11 @@ struct Lowering {
     /// The bindings in scope where lowering is now: a record keyed by
     /// ability, or null where nothing is bound.
     bindings: Value,
+    /// The type arguments the function was made at, which a generic
+    /// function's closure holds; null if it is not generic.
+    types: Value,
+    /// How many type parameters the function has.
+    type_params: usize,
     /// The groups lowering is inside of, innermost last.
     groups: Vec<Value>,
     /// Whether what is being lowered runs inside a budget: the whole of
@@ -238,7 +251,7 @@ impl Lowering {
             core::Expr::Local(_) | core::Expr::Captured(_) | core::Expr::AbilityId(_) => {
                 Op::Copy(self.operand(expr, &mut scope)?)
             }
-            core::Expr::Reference(slot, _) => Op::Slot(slot.0),
+            core::Expr::Reference(slot, types) => self.reference(*slot, types, &mut scope),
             core::Expr::Let { value, body } => {
                 let value = self.expr(value)?;
                 let local = self.bind();
@@ -249,20 +262,20 @@ impl Lowering {
                 });
             }
             core::Expr::Call { callee, args } => self.call(callee, args, &mut scope)?,
-            core::Expr::Cell { ty, value } => Op::Cell {
-                value: self.operand(value, &mut scope)?,
-                ty: self.made_at(ty),
-            },
+            core::Expr::Cell { ty, value } => {
+                let value = self.operand(value, &mut scope)?;
+                self.cell(value, ty)
+            }
             core::Expr::Primitive { operation, args } => Op::Primitive {
                 operation: *operation,
                 args: self.operands(args, &mut scope)?,
             },
             core::Expr::Closure {
                 slot,
+                type_args,
                 captures,
                 bindings,
-                ..
-            } => self.closure(*slot, captures, bindings, &mut scope)?,
+            } => self.closure(*slot, type_args, captures, bindings, &mut scope)?,
             core::Expr::Perform {
                 ability,
                 args,
@@ -312,7 +325,7 @@ impl Lowering {
                 otherwise,
             } => {
                 let value = self.operand(value, &mut scope)?;
-                let test = self.is(value, ty)?;
+                let test = self.is(value, ty);
                 let otherwise = self.expr(otherwise)?;
                 let kept = Expr::Op(Op::Copy(value));
                 return Ok(scope.wrap(self.branch(test, kept, otherwise)));
@@ -431,7 +444,11 @@ impl Lowering {
         args: &[core::Expr],
         scope: &mut Scope,
     ) -> Result<Op, Unsupported> {
-        if let core::Expr::Reference(slot, _) = callee {
+        // A generic function is reached through a closure that holds its
+        // type arguments, like any function value.
+        if let core::Expr::Reference(slot, types) = callee
+            && types.is_empty()
+        {
             let args = self.arguments(self.bindings, args, scope)?;
             let (slot, metered) = (slot.0, self.metered);
             return Ok(Op::Call {

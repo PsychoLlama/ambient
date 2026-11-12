@@ -2,8 +2,8 @@
 
 use crate::object::layout::DEFINITION_HASH;
 use crate::object::{
-    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TOKEN,
-    KIND_TUPLE, header, int, payload, words,
+    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_LIST, KIND_RECORD, KIND_SCOPE, KIND_STRING, KIND_TAG,
+    KIND_TOKEN, KIND_TUPLE, header, int, payload, words,
 };
 use crate::task::Scheduler;
 use crate::{Context, FALSE, Kind, NULL, TRUE, Word};
@@ -75,6 +75,7 @@ pub unsafe extern "C" fn amb_kind(word: Word) -> u64 {
             KIND_CELL => Kind::Cell,
             KIND_TAG => Kind::Tag,
             KIND_TOKEN => Kind::Token,
+            KIND_SCOPE => Kind::Types,
             _ => Kind::Int,
         }
     };

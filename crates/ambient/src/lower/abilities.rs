@@ -113,6 +113,7 @@ impl Lowering {
     pub(super) fn closure(
         &mut self,
         slot: Slot,
+        type_args: &[core::Type],
         captures: &[core::Expr],
         bindings: &[Slot],
         scope: &mut Scope,
@@ -123,6 +124,10 @@ impl Lowering {
         if !bindings.is_empty() {
             let keys = self.ability_keys(bindings);
             captures.push(self.select(self.bindings, &keys, scope));
+        }
+        // And the type arguments of a generic one follow those.
+        if !type_args.is_empty() {
+            captures.push(self.type_arguments(type_args, scope));
         }
         Ok(Op::Closure {
             slot: slot.0,

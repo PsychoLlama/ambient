@@ -163,7 +163,8 @@ impl Op {
             | Self::IsRecord(_)
             | Self::IsTuple { .. }
             | Self::Is { .. }
-            | Self::Cell { .. } => self.type_steps(),
+            | Self::Cell { .. }
+            | Self::Types(_) => self.type_steps(),
             Self::Merge { base, overlay } => {
                 vec![step(Entry::RecordMerge, [value(base), value(overlay)])]
             }
@@ -207,8 +208,8 @@ impl Op {
 }
 
 impl Op {
-    /// The steps of an operation that asks what a value is, or says what
-    /// a cell holds.
+    /// The steps of an operation that asks what a value is, says what a
+    /// cell holds, or makes type arguments.
     fn type_steps(&self) -> Vec<Step> {
         use Arg::Raw;
         let value = |value: &Value| Arg::Value(*value);
@@ -228,10 +229,23 @@ impl Op {
                 let length = Raw(*length as u64);
                 vec![step(Entry::SequenceIs, [value(subject), Raw(0), length])]
             }
-            Self::Is { value: subject, ty } => vec![step(Entry::Is, [value(subject), key(ty)])],
-            Self::Cell { value: held, ty } => {
-                let ty = ty.as_ref().map_or(Raw(0), key);
-                vec![step(Entry::CellNew, [value(held), ty])]
+            Self::Is {
+                value: subject,
+                ty,
+                scope,
+            } => vec![step(Entry::Is, [value(subject), key(ty), value(scope)])],
+            Self::Cell {
+                value: held,
+                ty,
+                scope,
+            } => vec![step(Entry::CellNew, [value(held), key(ty), value(scope)])],
+            Self::Types(types) => {
+                let mut steps = vec![step(Entry::ScopeNew, [Raw(types.len() as u64)])];
+                for (index, (ty, within)) in types.iter().enumerate() {
+                    let set = [Arg::Object, Raw(index as u64), key(ty), value(within)];
+                    steps.push(step(Entry::ScopeSet, set));
+                }
+                steps
             }
             _ => Vec::new(),
         }

@@ -40,12 +40,14 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 
 - A type a [cast](types.md) or type test names exists at run time as a descriptor: data, laid out when a program is loaded.
 - A recursive type definition has one descriptor, which the descriptors that name it refer to.
-- Two values carry a type: a [cell](cells.md) keeps the descriptor of the type it was made at, and a function's definition holds the descriptor of its signature. A descriptor is otherwise consulted only where a cast is written.
+- A generic function is handed its type arguments at run time, as descriptors. A function value over one holds them with what it captured, so calling it is no different from calling any function.
+- A type argument that is itself a type parameter is handed on as what it stands for, so a function that calls itself holds nothing of its callers.
+- Two values carry a type: a [cell](cells.md) keeps the descriptor of the type it was made at, and a function's definition holds the descriptor of its signature. Each is read with the type arguments in force where the value was made.
+- A descriptor is otherwise consulted only where a cast is written.
 - A cast to a cell type passes a cell whose descriptor describes the same type as the cast's: names stand for their definitions, and a union is its members in any order.
 - A cast to a function type passes a function whose signature is [within](types.md) the cast's type, decided at run time as checking decides it.
-- TODO: a cell made at a type that mentions a type parameter keeps no descriptor, and passes no cast to a cell type.
-- TODO: a generic function's signature mentions its type parameters, which nothing knows at run time, so it passes no cast to a function type.
-- TODO: a cast to a type parameter is not compiled; it needs the type argument passed at run time.
+- A cast to a type parameter tests against the type argument.
+- TODO: every use of a generic function at type arguments makes a function value, even one called at once; a function that never consults its type arguments should not be handed them.
 
 ## Calls
 

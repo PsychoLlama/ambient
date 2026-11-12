@@ -52,10 +52,20 @@ impl Op {
             Self::Record(fields) => fields.iter_mut().map(|(_, member)| member).collect(),
             Self::Field { record, .. } => vec![record],
             Self::Member { tuple, .. } => vec![tuple],
-            Self::HasField { value: subject, .. }
-            | Self::IsTuple { value: subject, .. }
-            | Self::Is { value: subject, .. }
-            | Self::Cell { value: subject, .. } => vec![subject],
+            Self::HasField { value: subject, .. } | Self::IsTuple { value: subject, .. } => {
+                vec![subject]
+            }
+            Self::Is {
+                value: subject,
+                scope,
+                ..
+            }
+            | Self::Cell {
+                value: subject,
+                scope,
+                ..
+            } => vec![subject, scope],
+            Self::Types(types) => types.iter_mut().map(|(_, within)| within).collect(),
         }
     }
 }

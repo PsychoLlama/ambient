@@ -1,48 +1,70 @@
-//! Types at run time: testing a value against one, and what a cell
-//! keeps of the type it was made at. See `spec/backends.md`.
+//! Types at run time: testing a value against one, what a cell keeps
+//! of the type it was made at, and the type arguments a generic function
+//! is handed. See `spec/backends.md`.
 
-use super::{Lowering, Unsupported};
+use super::{Lowering, Scope};
 use crate::core;
 use crate::lir::{Constant, Expr, Op, Value};
 
 impl Lowering {
-    /// The type a cell made at `ty` keeps, as a constant. Nothing at run
-    /// time knows a type parameter, so a cell made at one keeps none, and passes no cast to a cell type.
-    pub(super) fn made_at(&mut self, ty: &core::Type) -> Option<usize> {
-        testable(ty)
-            .is_ok()
-            .then(|| self.constant(Constant::Type(ty.clone())))
+    /// What a type written in the function being lowered is read in:
+    /// the function's type arguments if the type mentions a parameter,
+    /// and nothing if not.
+    fn read_in(&self, ty: &core::Type) -> Value {
+        if ty.mentions_parameter() {
+            self.types
+        } else {
+            Value::Null
+        }
+    }
+
+    /// A cell that holds `value`, which keeps the type it is made at.
+    pub(super) fn cell(&mut self, value: Value, ty: &core::Type) -> Op {
+        let scope = self.read_in(ty);
+        let ty = self.constant(Constant::Type(ty.clone()));
+        Op::Cell { value, ty, scope }
     }
 
     /// An expression that is true when `ty` describes `value`.
-    pub(super) fn is(&mut self, value: Value, ty: &core::Type) -> Result<Expr, Unsupported> {
-        testable(ty)?;
+    pub(super) fn is(&mut self, value: Value, ty: &core::Type) -> Expr {
+        let scope = self.read_in(ty);
         let ty = self.constant(Constant::Type(ty.clone()));
-        Ok(Expr::Op(Op::Is { value, ty }))
+        Expr::Op(Op::Is { value, ty, scope })
     }
-}
 
-/// Whether a value can be tested against `ty` at run time.
-fn testable(ty: &core::Type) -> Result<(), Unsupported> {
-    if mentions(ty, &|ty| matches!(ty, core::Type::Parameter(_))) {
-        return Err(Unsupported("tests against a type parameter"));
-    }
-    Ok(())
-}
-
-/// Whether `found` holds of `ty` or of any type inside it.
-fn mentions(ty: &core::Type, found: &impl Fn(&core::Type) -> bool) -> bool {
-    use core::Type;
-    found(ty)
-        || match ty {
-            Type::Record(fields) => fields.iter().any(|(_, ty)| mentions(ty, found)),
-            Type::Tuple(members) | Type::Union(members) | Type::Reference(_, members) => {
-                members.iter().any(|ty| mentions(ty, found))
-            }
-            Type::List(member) | Type::Cell(member) => mentions(member, found),
-            Type::Function { params, ret, .. } => {
-                params.iter().any(|ty| mentions(ty, found)) || mentions(ret, found)
-            }
-            _ => false,
+    /// The function in a slot, as a value: a closure that holds its type
+    /// arguments, if it is generic.
+    pub(super) fn reference(
+        &mut self,
+        slot: core::Slot,
+        types: &[core::Type],
+        scope: &mut Scope,
+    ) -> Op {
+        if types.is_empty() {
+            return Op::Slot(slot.0);
         }
+        Op::Closure {
+            slot: slot.0,
+            captures: vec![self.type_arguments(types, scope)],
+        }
+    }
+
+    /// The type arguments a generic function is used at here, as the
+    /// value a closure over it holds after what it captures.
+    pub(super) fn type_arguments(&mut self, args: &[core::Type], scope: &mut Scope) -> Value {
+        if !args.iter().any(core::Type::mentions_parameter) {
+            return Value::Constant(self.constant(Constant::Types(args.to_vec())));
+        }
+        // Its own, handed on whole: what a function that calls itself or
+        // a lambda inside it passes.
+        let own = (0..self.type_params).map(core::Type::Parameter);
+        if args.iter().eq(own.collect::<Vec<_>>().iter()) {
+            return self.types;
+        }
+        let types = args
+            .iter()
+            .map(|ty| (self.constant(Constant::Type(ty.clone())), self.read_in(ty)))
+            .collect();
+        self.bound(Op::Types(types), scope)
+    }
 }

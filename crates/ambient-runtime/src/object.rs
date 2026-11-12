@@ -17,6 +17,8 @@ pub(crate) const KIND_TOKEN: u32 = 8;
 pub(crate) const KIND_CELL: u32 = 9;
 /// A tag value: its text, interned, so that equal tags are one object.
 pub(crate) const KIND_TAG: u32 = 10;
+/// Not a value: the type arguments a generic function was made at.
+pub(crate) const KIND_SCOPE: u32 = 12;
 
 /// The count of an object that is never reclaimed.
 pub(crate) const PINNED: u32 = u32::MAX;
@@ -194,10 +196,17 @@ pub unsafe extern "C" fn amb_release(word: Word) {
             }
             let held = match (*header).kind {
                 KIND_TUPLE | KIND_LIST | KIND_RECORD => words(word),
-                // After the value is the type the cell was made at.
-                KIND_CELL => &words(word)[..1],
+                // After the value and the type arguments it was made
+                // under is the type the cell was made at.
+                KIND_CELL => &words(word)[..2],
                 // The first word is the definition, which is not a value.
                 KIND_CLOSURE => &words(word)[1..],
+                // Each argument is a node, which is not a value, and the
+                // type arguments it is read in.
+                KIND_SCOPE => {
+                    pending.extend(words(word).iter().skip(1).step_by(2));
+                    &[]
+                }
                 _ => &[],
             };
             pending.extend_from_slice(held);

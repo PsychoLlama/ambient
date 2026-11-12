@@ -1,8 +1,9 @@
 //! Integers, floats, and structural equality.
 
 use crate::object::{
-    KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TUPLE, boolean,
-    bytes, fault, float, header, int, is_object, object, payload, small, words,
+    KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_SCOPE, KIND_STRING,
+    KIND_TUPLE, boolean, bytes, fault, float, header, int, is_object, object, payload, small,
+    words,
 };
 use crate::{Context, Fault, Word};
 
@@ -116,6 +117,8 @@ pub(crate) unsafe fn equal(left: Word, right: Word) -> bool {
                     let (left, right) = (words(left), words(right));
                     left[0] == right[0] && all(&left[1..], &right[1..])
                 }
+                // Functions made at the same types are made at equal ones.
+                (KIND_SCOPE, KIND_SCOPE) => crate::scope::same(left, right),
                 _ => false,
             }
         };

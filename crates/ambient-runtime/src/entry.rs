@@ -90,7 +90,7 @@ entries! {
     RecordIs = amb_record_is, plain, 1, word;
     ClosureNew = amb_closure_new, plain, 2, word;
     ClosureSet = amb_closure_set, plain, 3, nothing;
-    Is = amb_is, plain, 2, word;
+    Is = amb_is, plain, 3, word;
     Trace = amb_trace, context, 2, word;
     RecordMerge = amb_record_merge, plain, 2, word;
     TokenNew = amb_token_new, plain, 0, word;
@@ -123,9 +123,11 @@ entries! {
     CleanupEnter = amb_cleanup_enter, context, 0, word;
     CleanupLeave = amb_cleanup_leave, context, 0, word;
     CleanupFailed = amb_cleanup_failed, context, 0, word;
-    CellNew = amb_cell_new, plain, 2, word;
+    CellNew = amb_cell_new, plain, 3, word;
     CellRead = amb_cell_read, plain, 1, word;
     CellReplace = amb_cell_replace, context, 3, word;
     CellWait = amb_cell_wait, context, 2, word;
     Capture = amb_capture, context, 0, word;
+    ScopeNew = amb_scope_new, plain, 1, word;
+    ScopeSet = amb_scope_set, plain, 4, nothing;
 }
