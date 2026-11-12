@@ -20,6 +20,7 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - A call in tail position never grows the stack.
 - Modules contain only definitions; importing a module runs nothing.
 - There is no ad-hoc polymorphism: no traits, overloads, operator overloading, or implicit conversion.
+- A [method](methods.md) is resolved when its call is checked, by the static type of its receiver, to one definition.
 - There are no classes and no inheritance.
 
 ## Non-goals
@@ -37,6 +38,7 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - [symbols](symbols.md): canonical names, aliases, and the index.
 - [types](types.md): structural types, subtyping, brands, generics.
 - [values](values.md): runtime shapes, serialization, handles, faults.
+- [methods](methods.md): record methods, keys, methods of nominal types.
 - [operations](operations.md): arithmetic, comparison, strings, lists.
 - [iteration](iteration.md): iterators, sources, loops.
 - [errors](errors.md): the standard error shape, throwing, traces.
