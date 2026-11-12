@@ -115,7 +115,8 @@ pub(crate) unsafe fn equal(left: Word, right: Word) -> bool {
                 }
                 (KIND_CLOSURE, KIND_CLOSURE) => {
                     let (left, right) = (words(left), words(right));
-                    left[0] == right[0] && all(&left[1..], &right[1..])
+                    crate::closure::same_definition(left[0], right[0])
+                        && all(&left[1..], &right[1..])
                 }
                 // Functions made at the same types are made at equal ones.
                 (KIND_SCOPE, KIND_SCOPE) => crate::scope::same(left, right),

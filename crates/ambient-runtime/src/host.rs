@@ -1,6 +1,6 @@
 //! For the host: making a context and reading results.
 
-use crate::object::layout::DEFINITION_HASH;
+use crate::object::layout::{DEFINITION_CODE, DEFINITION_HASH};
 use crate::object::{
     KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_LIST, KIND_RECORD, KIND_SCOPE, KIND_STRING, KIND_TAG,
     KIND_TOKEN, KIND_TUPLE, header, int, payload, words,
@@ -137,6 +137,18 @@ pub unsafe extern "C" fn amb_closure_hash(word: Word) -> Word {
     unsafe {
         let definition = words(word)[0] as usize as *const u64;
         definition.add(DEFINITION_HASH as usize / 8).read()
+    }
+}
+
+/// The code of the definition a function value is over, and how many
+/// words that code takes after the context and the closure: what a host
+/// needs to call it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_closure_code(word: Word, arity: *mut u64) -> u64 {
+    unsafe {
+        let definition = words(word)[0] as usize as *const u64;
+        arity.write(definition.add(2).read());
+        definition.add(DEFINITION_CODE as usize / 8).read()
     }
 }
 

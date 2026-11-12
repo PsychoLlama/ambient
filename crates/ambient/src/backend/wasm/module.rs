@@ -11,7 +11,7 @@ use wasm_encoder::{
 use super::emit::memory;
 use super::{INTERN, RUNTIME_MODULE, STRING_PINNED, TAG, WORDS, function_type};
 use crate::backend::MAX_ARITY;
-use crate::backend::statics::{self, Field, Make};
+use crate::backend::statics::{self, Base, Field, Make, Place};
 use crate::engine::Parts;
 
 /// The types and imports every module has, and the type of `init`.
@@ -161,7 +161,7 @@ fn initializer(
 ) -> Result<(Function, Vec<u8>), String> {
     let small = |value: usize| i32::try_from(value).map_err(|error| error.to_string());
     let number = |value: usize| i64::try_from(value).map_err(|error| error.to_string());
-    let plan = statics::plan(parts);
+    let plan = statics::plan(parts, &Base::none());
 
     let mut body = Function::new_with_locals_types([ValType::I32, ValType::I32, ValType::I32]);
     // Room in the table for the program's functions, then the functions.
@@ -230,7 +230,11 @@ fn initializer(
         body.instruction(&Instruction::I64Store(memory(small(word * 8)?)));
     }
 
-    address(&mut body, plan.entry)?;
+    // Nothing is known to a program's first block, so its entry is in it.
+    let Some(Place::Here(entry)) = plan.entry else {
+        return Err("the program has no entry".to_owned());
+    };
+    address(&mut body, entry)?;
     body.instruction(&Instruction::End);
     Ok((body, plan.text))
 }

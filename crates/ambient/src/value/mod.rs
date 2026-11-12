@@ -144,6 +144,14 @@ pub trait Construct {
     fn record(&mut self, length: u64) -> Word;
     fn record_set(&mut self, record: Word, key: Word, value: Word);
     fn release(&mut self, word: Word);
+    /// A function over the definition with this hash, with room for
+    /// `captures` values, or nothing if there is no such definition
+    /// here. What it captures is trusted to be what its definition
+    /// takes.
+    fn function(&mut self, _definition: &Hash, _captures: u64) -> Option<Word> {
+        None
+    }
+    fn capture(&mut self, _function: Word, _index: u64, _value: Word) {}
 }
 
 /// A container being filled: its word, and what is still to go in it.
@@ -158,11 +166,13 @@ struct Filling<'a> {
 
 enum Members<'a> {
     Sequence(std::slice::Iter<'a, Value>),
+    Captures(std::slice::Iter<'a, Value>),
     Record(std::collections::btree_map::Iter<'a, String, Value>),
 }
 
-/// A value as a word the caller owns. Nothing makes a function, a cell,
-/// or a token from outside a program yet: each becomes null.
+/// A value as a word the caller owns. A function is made only of a
+/// definition `make` has; any other, and a cell or a token, which nothing
+/// makes from outside a program, becomes null.
 pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
     let mut open: Vec<Filling> = Vec::new();
     let mut next = value;
@@ -174,8 +184,17 @@ pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
             key: ambient_runtime::NULL,
         };
         let mut ready = match next {
-            Value::Null | Value::Function(_) | Value::Cell | Value::Token | Value::Types => {
-                Some(ambient_runtime::NULL)
+            Value::Null | Value::Cell | Value::Token | Value::Types => Some(ambient_runtime::NULL),
+            Value::Function(function) => {
+                let captures = function.captures.len() as u64;
+                let definition = function.definition.as_ref();
+                match definition.and_then(|hash| make.function(hash, captures)) {
+                    Some(word) => {
+                        open.push(filling(word, Members::Captures(function.captures.iter())));
+                        None
+                    }
+                    None => Some(ambient_runtime::NULL),
+                }
             }
             Value::Bool(true) => Some(ambient_runtime::TRUE),
             Value::Bool(false) => Some(ambient_runtime::FALSE),
@@ -207,13 +226,14 @@ pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
             if let Some(word) = ready.take() {
                 match parent.members {
                     Members::Sequence(_) => make.sequence_set(parent.word, parent.index, word),
+                    Members::Captures(_) => make.capture(parent.word, parent.index, word),
                     Members::Record(_) => make.record_set(parent.word, parent.key, word),
                 }
                 parent.index += 1;
                 make.release(word);
             }
             let member = match &mut parent.members {
-                Members::Sequence(members) => members.next(),
+                Members::Sequence(members) | Members::Captures(members) => members.next(),
                 Members::Record(fields) => fields.next().map(|(name, member)| {
                     parent.key = make.key(name.as_bytes());
                     member

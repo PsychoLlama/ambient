@@ -34,4 +34,5 @@ A budget bounds how much work and allocation a body may do, and enforces the bou
 
 - A definition is compiled in metered form only if it runs inside a budget; all other code is unchanged and pays nothing.
 - The metered and unmetered forms of a definition have the same hash.
+- A definition [loaded](exchange.md) into a running program has both forms, since where it will be called from is not known.
 - Metered code can be cancelled at any charge, so a task inside a budget can always be cancelled.

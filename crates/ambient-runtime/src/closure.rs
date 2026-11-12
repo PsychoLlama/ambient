@@ -1,7 +1,7 @@
 //! Closures, and starting a fault.
 
-use crate::object::layout::DEFINITION_TYPE;
-use crate::object::{KIND_CLOSURE, amb_retain, fault, object, words};
+use crate::object::layout::{DEFINITION_HASH, DEFINITION_TYPE};
+use crate::object::{KIND_CLOSURE, amb_retain, bytes, fault, object, words};
 use crate::{Context, Fault, NULL, Word};
 
 /// A closure over `definition` with room for `captures` values. Fill it
@@ -24,6 +24,16 @@ pub unsafe extern "C" fn amb_closure_set(closure: Word, index: u64, value: Word)
         amb_retain(value);
         words(closure)[index as usize + 1] = value;
     }
+}
+
+/// Whether two definitions are one: the same, or loaded apart with one
+/// hash.
+pub(crate) unsafe fn same_definition(left: u64, right: u64) -> bool {
+    let hash = |definition: u64| unsafe {
+        let definition = definition as usize as *const u64;
+        bytes(definition.add(DEFINITION_HASH as usize / 8).read())
+    };
+    left == right || hash(left) == hash(right)
 }
 
 /// The name of the type of a closure's function, or zero: see

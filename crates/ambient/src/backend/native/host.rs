@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use super::load::Program;
 use crate::engine::Native;
+use crate::hash::Hash;
 use crate::value::{self, Construct, Inspect, Value};
 
 /// Native code for one extern: arguments in, a result or what went wrong
@@ -128,31 +129,91 @@ pub(super) unsafe extern "C" fn dispatch(
         _ => Vec::new(),
     };
     let index = usize::try_from(index).unwrap_or(usize::MAX);
+    // Native code may load more into the program, so nothing of the
+    // program is borrowed while it runs.
+    let offered = program.natives.borrow().get(index).cloned();
     // Native code is not to unwind through compiled code.
-    let outcome = match program.natives.get(index) {
+    let outcome = match &offered {
         Some(offered) => catch_unwind(AssertUnwindSafe(|| (offered.run)(&args)))
             .unwrap_or_else(|_| Err("native code panicked".to_owned())),
         None => Err("no such extern".to_owned()),
     };
-    if let (Some(trace), Some(offered), Some(native)) = (
-        program.trace.borrow_mut().as_mut(),
-        program.natives.get(index),
-        program.externs.get(index),
-    ) {
+    let native = program.externs.borrow().get(index).cloned();
+    if let (Some(trace), Some(offered), Some(native)) =
+        (program.trace.borrow_mut().as_mut(), &offered, native)
+    {
         trace.push(Observation {
-            native: native.clone(),
+            native,
             args,
             result: outcome.clone(),
             verifiable: offered.verifiable,
         });
     }
     match outcome {
-        Ok(value) => encode(&value),
+        Ok(value) => value::encode(&value, &mut Inside(program)),
         Err(message) => {
             *program.failure.borrow_mut() = Some(message);
             // SAFETY: the context is the one this call was handed.
             unsafe { ambient_runtime::amb_fault(context, Fault::Native as u64) }
         }
+    }
+}
+
+/// Makes words for one program, which is what it takes to make a
+/// function: a function is a definition the program has.
+pub struct Inside<'a>(pub &'a Program);
+
+impl Construct for Inside<'_> {
+    fn int(&mut self, value: i64) -> Word {
+        Construct::int(&mut Host, value)
+    }
+
+    fn float(&mut self, bits: u64) -> Word {
+        Construct::float(&mut Host, bits)
+    }
+
+    fn string(&mut self, bytes: &[u8]) -> Word {
+        Construct::string(&mut Host, bytes)
+    }
+
+    fn key(&mut self, name: &[u8]) -> Word {
+        Construct::key(&mut Host, name)
+    }
+
+    fn tag(&mut self, text: &[u8]) -> Word {
+        Construct::tag(&mut Host, text)
+    }
+
+    fn sequence(&mut self, list: bool, length: u64) -> Word {
+        Construct::sequence(&mut Host, list, length)
+    }
+
+    fn sequence_set(&mut self, sequence: Word, index: u64, value: Word) {
+        Construct::sequence_set(&mut Host, sequence, index, value);
+    }
+
+    fn record(&mut self, length: u64) -> Word {
+        Construct::record(&mut Host, length)
+    }
+
+    fn record_set(&mut self, record: Word, key: Word, value: Word) {
+        Construct::record_set(&mut Host, record, key, value);
+    }
+
+    fn release(&mut self, word: Word) {
+        Construct::release(&mut Host, word);
+    }
+
+    fn function(&mut self, definition: &Hash, captures: u64) -> Option<Word> {
+        let definition = self.0.definition(definition)?;
+        // SAFETY: the definition is one the program has, and every
+        // capture is set before the closure is seen.
+        Some(unsafe { ambient_runtime::amb_closure_new(definition, captures) })
+    }
+
+    fn capture(&mut self, function: Word, index: u64, value: Word) {
+        // SAFETY: `encode` stays within the captures it asked for.
+        unsafe { ambient_runtime::amb_closure_set(function, index, value) }
     }
 }
 

@@ -138,6 +138,22 @@ impl Engine<'_> {
         {
             return Err(Error::EntryAbilities(entry.clone()));
         }
+        self.parts(entry, backend, false)
+    }
+
+    /// Compiles `function` and everything it reaches, to be loaded into
+    /// a program that is running. Where it will be called from is not
+    /// known, so every function gets a metered form, and it may take
+    /// abilities: whatever calls it provides them.
+    ///
+    /// # Errors
+    ///
+    /// Fails if anything reached does not check or does not compile.
+    pub fn link_to_load(&self, function: &Symbol, backend: &dyn Backend) -> Result<Parts, Error> {
+        self.parts(function, backend, true)
+    }
+
+    fn parts(&self, entry: &Symbol, backend: &dyn Backend, loaded: bool) -> Result<Parts, Error> {
         let mut indices: HashMap<Hash, usize> = HashMap::new();
         let mut symbols: Vec<Symbol> = Vec::new();
         let mut pending = vec![entry.clone()];
@@ -151,7 +167,12 @@ impl Engine<'_> {
             symbols.push(symbol);
         }
 
-        let metered = self.metered(&symbols)?;
+        let metered = if loaded {
+            let hashes = symbols.iter().map(|symbol| self.hash(symbol));
+            hashes.collect::<Result<_, _>>()?
+        } else {
+            self.metered(&symbols)?
+        };
 
         let mut parts = Vec::new();
         let mut natives = Vec::new();

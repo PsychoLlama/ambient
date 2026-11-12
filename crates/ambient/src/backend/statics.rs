@@ -41,6 +41,55 @@ pub enum Make {
     Tag,
 }
 
+/// Where something a block refers to is: in the block, by position, or
+/// in a block the program already has, by address.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Place {
+    Here(usize),
+    There(u64),
+}
+
+impl Place {
+    fn field(self) -> Field {
+        match self {
+            Self::Here(word) => Field::Address(word),
+            Self::There(address) => Field::Word(address),
+        }
+    }
+}
+
+/// A definition a program already has: where its closure or descriptor
+/// is, and where its definition is if it is a function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Known {
+    pub root: u64,
+    pub definition: u64,
+}
+
+/// The program a block is planned for, if it is not the program's first.
+pub struct Base<'a> {
+    /// The definitions it has, by hash. A part that is one of them is
+    /// not laid out again.
+    pub known: &'a dyn Fn(&Hash) -> Option<Known>,
+    /// How many externs it has: the block's own are numbered after them.
+    pub natives: usize,
+}
+
+fn unknown(_: &Hash) -> Option<Known> {
+    None
+}
+
+impl Base<'_> {
+    /// No program: the block is a program's first.
+    #[must_use]
+    pub fn none() -> Self {
+        Base {
+            known: &unknown,
+            natives: 0,
+        }
+    }
+}
+
 /// One block of words and what to write in it.
 #[derive(Debug, Default)]
 pub struct Statics {
@@ -51,35 +100,19 @@ pub struct Statics {
     /// The bytes [`Field::Text`] refers to.
     pub text: Vec<u8>,
     /// Where the entry's closure is.
-    pub entry: usize,
+    pub entry: Option<Place>,
+    /// Where each part that was laid out is: its closure or descriptor,
+    /// and its definition. Nothing for a part the program had.
+    pub placed: Vec<Option<(usize, usize)>>,
 }
 
-/// Plans the block for a program.
+/// Plans the block for a program, or for what is added to one.
 #[must_use]
-pub fn plan(parts: &Parts) -> Statics {
+pub fn plan(parts: &Parts, base: &Base) -> Statics {
     let mut statics = Statics::default();
 
-    // Where each part is found: a function's closure, a type's descriptor.
-    // These are fixed first, because parts refer to each other freely.
-    let mut definitions = Vec::new();
-    let mut roots = Vec::new();
-    for part in &parts.parts {
-        definitions.push(statics.words);
-        match &part.body {
-            Body::Function { constants, .. } => {
-                let definition = DEFINITION_WORDS + part.slots.len() + constants.len();
-                roots.push(statics.words + definition);
-                statics.words += definition + CLOSURE_WORDS;
-            }
-            Body::Type(ty) => {
-                roots.push(statics.words);
-                statics.words += root_size(ty);
-            }
-            // Never read: an ability is reached by its key, a constant.
-            Body::Inert => roots.push(0),
-        }
-    }
-    statics.entry = roots[parts.entry];
+    let (definitions, roots) = statics.reserve(parts, base);
+    statics.entry = Some(roots[parts.entry]);
 
     let mut header = [0u64; CLOSURE_WORDS];
     ambient_runtime::pinned_closure(&mut header, 0, 0);
@@ -93,7 +126,9 @@ pub fn plan(parts: &Parts) -> Statics {
                 hash: parts.parts[*slot].hash,
             })
             .collect();
-        let at = definitions[index];
+        let Some((closure, at)) = statics.placed[index] else {
+            continue;
+        };
         match &part.body {
             Body::Function {
                 arity,
@@ -114,10 +149,7 @@ pub fn plan(parts: &Parts) -> Statics {
                     statics.set(at + 4, name);
                 }
                 for (position, slot) in slots.iter().enumerate() {
-                    statics.set(
-                        at + DEFINITION_WORDS + position,
-                        Field::Address(slot.address),
-                    );
+                    statics.set(at + DEFINITION_WORDS + position, slot.address.field());
                 }
                 let first = at + DEFINITION_WORDS + slots.len();
                 for (position, constant) in constants.iter().enumerate() {
@@ -125,7 +157,7 @@ pub fn plan(parts: &Parts) -> Statics {
                         Constant::String(text) => statics.text(Make::String, text),
                         Constant::Tag(text) => statics.text(Make::Tag, text),
                         Constant::Field(name) => statics.text(Make::Field, name),
-                        Constant::Type(ty) => Field::Address(statics.describe(ty, &slots)),
+                        Constant::Type(ty) => statics.describe(ty, &slots).field(),
                         Constant::Types(types) => Field::Address(statics.types(types, &slots)),
                         Constant::Instance(slot, types) => {
                             Field::Address(statics.instance(&slots[*slot], types, &slots))
@@ -137,12 +169,13 @@ pub fn plan(parts: &Parts) -> Statics {
                             let key = format!("{}$", ability_key(&slots[*slot].hash));
                             statics.text(Make::Field, &key)
                         }
-                        Constant::Native => Field::Word(part.native.unwrap_or(0) as u64),
+                        Constant::Native => {
+                            Field::Word((base.natives + part.native.unwrap_or(0)) as u64)
+                        }
                         Constant::Own => statics.text(Make::String, &part.hash.to_string()),
                     };
                     statics.set(first + position, field);
                 }
-                let closure = roots[index];
                 statics.set(closure, Field::Word(header[0]));
                 statics.set(closure + 1, Field::Word(header[1]));
                 statics.set(closure + 2, Field::Address(at));
@@ -157,9 +190,9 @@ pub fn plan(parts: &Parts) -> Statics {
 /// What a slot of the definition being laid out refers to.
 struct Target {
     /// Where its closure or descriptor is.
-    address: usize,
+    address: Place,
     /// Where its definition is, if it is a function.
-    definition: usize,
+    definition: Place,
     hash: Hash,
 }
 
@@ -201,6 +234,47 @@ fn node_size(ty: &Type) -> usize {
 }
 
 impl Statics {
+    /// Makes room for each part the program lacks, and says where each
+    /// part's definition and its closure or descriptor are. These are
+    /// fixed before anything is written, because parts refer to each
+    /// other freely.
+    fn reserve(&mut self, parts: &Parts, base: &Base) -> (Vec<Place>, Vec<Place>) {
+        // Where each part is found: a function's closure, a type's descriptor.
+        // These are fixed first, because parts refer to each other freely.
+        let mut definitions = Vec::new();
+        let mut roots = Vec::new();
+        for part in &parts.parts {
+            let known = match part.body {
+                Body::Inert => None,
+                _ => (base.known)(&part.hash),
+            };
+            if let Some(known) = known {
+                definitions.push(Place::There(known.definition));
+                roots.push(Place::There(known.root));
+                self.placed.push(None);
+                continue;
+            }
+            let at = self.words;
+            definitions.push(Place::Here(at));
+            let root = match &part.body {
+                Body::Function { constants, .. } => {
+                    let definition = DEFINITION_WORDS + part.slots.len() + constants.len();
+                    self.words += definition + CLOSURE_WORDS;
+                    at + definition
+                }
+                Body::Type(ty) => {
+                    self.words += root_size(ty);
+                    at
+                }
+                // Never read: an ability is reached by its key, a constant.
+                Body::Inert => 0,
+            };
+            roots.push(Place::Here(root));
+            self.placed.push(Some((root, at)));
+        }
+        (definitions, roots)
+    }
+
     fn set(&mut self, word: usize, field: Field) {
         self.fields.push((word, field));
     }
@@ -230,7 +304,7 @@ impl Statics {
             && args.is_empty()
         {
             self.set(at, Field::Word(d::ALIAS));
-            self.set(at + 1, Field::Address(slots[slot.0].address));
+            self.set(at + 1, slots[slot.0].address.field());
         } else {
             self.node(ty, slots, at);
         }
@@ -238,7 +312,7 @@ impl Statics {
 
     /// The address of a descriptor for `ty`, adding one if `ty` is not
     /// already a definition's.
-    fn describe(&mut self, ty: &Type, slots: &[Target]) -> usize {
+    fn describe(&mut self, ty: &Type, slots: &[Target]) -> Place {
         if let Type::Reference(slot, args) = ty
             && args.is_empty()
         {
@@ -247,7 +321,7 @@ impl Statics {
         let at = self.words;
         self.words += node_size(ty);
         self.node(ty, slots, at);
-        at
+        Place::Here(at)
     }
 
     /// Writes the node for `ty` at `at`, and the nodes it refers to after
@@ -268,7 +342,7 @@ impl Statics {
                 self.children(params, slots, at + 1);
                 let after = at + 2 + params.len();
                 let ret = self.describe(ret, slots);
-                self.set(after, Field::Address(ret));
+                self.set(after, ret.field());
                 self.set(after + 1, Field::Word(row.len() as u64));
                 for (position, slot) in row.iter().enumerate() {
                     let key = self.text(Make::Field, &ability_key(&slots[slot.0].hash));
@@ -304,7 +378,7 @@ impl Statics {
                     };
                     self.set(at + 2 + position * 2, key);
                     let child = self.describe(ty, slots);
-                    self.set(at + 3 + position * 2, Field::Address(child));
+                    self.set(at + 3 + position * 2, child.field());
                 }
             }
             Type::Tuple(members) | Type::Union(members) => {
@@ -321,12 +395,12 @@ impl Statics {
             Type::List(member) => {
                 tag(self, d::LIST);
                 let child = self.describe(member, slots);
-                self.set(at + 1, Field::Address(child));
+                self.set(at + 1, child.field());
             }
             Type::Cell(member) => {
                 tag(self, d::CELL);
                 let child = self.describe(member, slots);
-                self.set(at + 1, Field::Address(child));
+                self.set(at + 1, child.field());
             }
             Type::Parameter(position) => {
                 tag(self, d::PARAMETER);
@@ -334,7 +408,7 @@ impl Statics {
             }
             Type::Reference(slot, args) => {
                 tag(self, d::APPLY);
-                self.set(at + 1, Field::Address(slots[slot.0].address));
+                self.set(at + 1, slots[slot.0].address.field());
                 self.children(args, slots, at + 2);
             }
         }
@@ -351,7 +425,7 @@ impl Statics {
         self.set(at + 1, Field::Word(header[1]));
         for (position, ty) in types.iter().enumerate() {
             let node = self.describe(ty, slots);
-            self.set(at + 2 + position * 2, Field::Address(node));
+            self.set(at + 2 + position * 2, node.field());
             self.set(at + 3 + position * 2, Field::Word(ambient_runtime::NULL));
         }
         at
@@ -366,7 +440,7 @@ impl Statics {
         self.words += CLOSURE_WORDS + 1;
         self.set(at, Field::Word(header[0]));
         self.set(at + 1, Field::Word(header[1]));
-        self.set(at + 2, Field::Address(function.definition));
+        self.set(at + 2, function.definition.field());
         let types = self.types(types, slots);
         self.set(at + 3, Field::Address(types));
         at
@@ -378,7 +452,7 @@ impl Statics {
         self.set(at, Field::Word(types.len() as u64));
         for (position, ty) in types.iter().enumerate() {
             let child = self.describe(ty, slots);
-            self.set(at + 1 + position, Field::Address(child));
+            self.set(at + 1 + position, child.field());
         }
     }
 }
