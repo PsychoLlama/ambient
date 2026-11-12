@@ -3,7 +3,7 @@
 use std::sync::{Mutex, PoisonError};
 
 use crate::Word;
-use crate::object::{KIND_STRING, PINNED, bytes, header, object, payload};
+use crate::object::{KIND_STRING, bytes, object, payload, pin};
 
 /// A string that is never reclaimed, copied from `length` bytes at
 /// `pointer`.
@@ -11,7 +11,7 @@ use crate::object::{KIND_STRING, PINNED, bytes, header, object, payload};
 pub unsafe extern "C" fn amb_string_pinned(pointer: *const u8, length: u64) -> Word {
     unsafe {
         let word = object(KIND_STRING, length as usize);
-        (*header(word)).count = PINNED;
+        pin(word);
         std::ptr::copy_nonoverlapping(pointer, payload(word).cast::<u8>(), length as usize);
         word
     }

@@ -99,3 +99,11 @@ pub unsafe extern "C" fn amb_string_bytes(word: Word) -> *const u8 {
 pub unsafe extern "C" fn amb_word_at(word: Word, index: u64) -> Word {
     unsafe { words(word)[index as usize] }
 }
+
+/// How many objects the calling thread has made and not yet reclaimed. A
+/// host that has released everything it was given reads the same number
+/// before and after a call, or the program leaked.
+#[unsafe(no_mangle)]
+pub extern "C" fn amb_live() -> u64 {
+    crate::object::live()
+}

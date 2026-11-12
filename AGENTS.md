@@ -20,7 +20,7 @@
 ## Testing
 
 - Tests build a `Workspace` in memory and run an `Engine` over a `MemoryStore`; nothing touches disk.
-- A program is run with `support::run`, which runs it natively and in wasmtime and fails if they disagree.
+- A program is run with `support::run`, which runs it natively and in wasmtime and fails if they disagree or if either leaks an object.
 - An incremental test builds twice over one store and asserts on `Engine::ran` and `Engine::reused`.
 
 ## Committing

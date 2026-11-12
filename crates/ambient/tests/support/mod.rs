@@ -80,6 +80,7 @@ fn run_native(parts: &ambient::engine::Parts, args: &[i64]) -> Outcome {
     use ambient::backend::native::{Host, Program};
 
     let program = Program::load(parts).unwrap();
+    let live = ambient_runtime::amb_live();
     // SAFETY: making an integer has no preconditions.
     let words: Vec<u64> = args
         .iter()
@@ -95,6 +96,7 @@ fn run_native(parts: &ambient::engine::Parts, args: &[i64]) -> Outcome {
         // SAFETY: as above.
         unsafe { ambient_runtime::amb_release(word) };
     }
+    assert_eq!(ambient_runtime::amb_live(), live, "the program leaked");
     result
 }
 
@@ -175,6 +177,7 @@ fn run_wasm(parts: &ambient::engine::Parts, args: &[i64]) -> Outcome {
     let init = program.get_func(&mut guest.store, "init").unwrap();
     init.call(&mut guest.store, &[], &mut closure).unwrap();
     let context = guest.runtime("amb_context_new", &[]).unwrap();
+    let live = guest.runtime("amb_live", &[]);
 
     // The entry is handed no bindings.
     let mut all = vec![
@@ -190,11 +193,24 @@ fn run_wasm(parts: &ambient::engine::Parts, args: &[i64]) -> Outcome {
     entry.call(&mut guest.store, &all, &mut result).unwrap();
     let word = result[0].unwrap_i64().cast_unsigned();
 
-    if word == ambient_runtime::UNWIND {
+    let outcome = if word == ambient_runtime::UNWIND {
         let code = guest.runtime("amb_context_fault", &[context]).unwrap();
-        return Err(ambient_runtime::Fault::from_code(
+        Err(ambient_runtime::Fault::from_code(
             code.unwrap_i64().cast_unsigned(),
-        ));
+        ))
+    } else {
+        let value = ambient::value::decode(word, &mut guest);
+        guest.runtime("amb_release", &[result[0]]);
+        Ok(value)
+    };
+    for arg in &all[3..] {
+        guest.runtime("amb_release", &[*arg]);
     }
-    Ok(ambient::value::decode(word, &mut guest))
+    guest.runtime("amb_context_free", &[context]);
+    assert_eq!(
+        guest.runtime("amb_live", &[]).map(|v| v.unwrap_i64()),
+        live.map(|v| v.unwrap_i64()),
+        "the program leaked"
+    );
+    outcome
 }

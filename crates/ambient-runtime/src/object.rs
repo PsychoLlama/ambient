@@ -1,6 +1,7 @@
 //! Objects: what a word that is an address points at, and who owns it.
 
 use std::alloc::{Layout, alloc, dealloc};
+use std::cell::Cell;
 
 use crate::{Context, FALSE, Fault, SMALL_MAX, SMALL_MIN, TRUE, UNWIND, Word};
 
@@ -75,6 +76,26 @@ pub(crate) unsafe fn payload(word: Word) -> *mut u64 {
     unsafe { (word as usize as *mut u8).add(HEADER).cast() }
 }
 
+thread_local! {
+    /// How many objects this thread has made and not yet reclaimed or
+    /// pinned. A program that returns to its host with more than it was
+    /// given, besides its result, has leaked.
+    static LIVE: Cell<u64> = const { Cell::new(0) };
+}
+
+/// How many objects are live. See [`crate::amb_live`].
+pub(crate) fn live() -> u64 {
+    LIVE.get()
+}
+
+/// Makes an object one that is never reclaimed.
+pub(crate) unsafe fn pin(word: Word) {
+    unsafe {
+        (*header(word)).count = PINNED;
+    }
+    LIVE.set(LIVE.get() - 1);
+}
+
 /// A new object of `kind` with one reference and `size` payload bytes.
 pub(crate) unsafe fn object(kind: u32, size: usize) -> Word {
     unsafe {
@@ -82,6 +103,7 @@ pub(crate) unsafe fn object(kind: u32, size: usize) -> Word {
         if pointer.is_null() {
             std::process::abort();
         }
+        LIVE.set(LIVE.get() + 1);
         pointer.write(Header {
             count: 1,
             kind,
@@ -164,6 +186,7 @@ pub unsafe extern "C" fn amb_release(word: Word) {
             pending.extend_from_slice(held);
             let size = (*header).size as usize;
             dealloc(header.cast(), layout(size));
+            LIVE.set(LIVE.get() - 1);
         }
     }
 }
