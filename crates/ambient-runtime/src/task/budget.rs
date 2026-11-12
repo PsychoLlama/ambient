@@ -20,6 +20,8 @@ pub(super) struct Budget {
     parent: Option<usize>,
     /// The limit that ran out, once one has.
     exhausted: Option<&'static str>,
+    /// Whether its body is still running.
+    live: bool,
 }
 
 /// Enters a budget of `steps` steps and `words` words of allocation, both
@@ -37,6 +39,7 @@ pub unsafe extern "C" fn amb_budget_enter(context: *mut Context, steps: Word, wo
             words: limit(words),
             parent,
             exhausted: None,
+            live: true,
         });
         amb_int_new(id as i64)
     }
@@ -47,10 +50,11 @@ pub unsafe extern "C" fn amb_budget_enter(context: *mut Context, steps: Word, wo
 pub unsafe extern "C" fn amb_budget_leave(context: *mut Context, budget: Word) -> Word {
     unsafe {
         let scheduler = scheduler(context);
-        let parent = scheduler
-            .budgets
-            .get(int(budget) as usize)
-            .and_then(|budget| budget.parent);
+        let mut parent = None;
+        if let Some(budget) = scheduler.budgets.get_mut(int(budget) as usize) {
+            budget.live = false;
+            parent = budget.parent;
+        }
         scheduler.current().budget = parent;
         NULL
     }
@@ -111,6 +115,53 @@ pub unsafe extern "C" fn amb_charge(context: *mut Context, steps: u64, words: u6
             return fault(context, Fault::Exhausted);
         }
         NULL
+    }
+}
+
+/// The budget the task is inside, for [`amb_budget_switch`], or null.
+/// A provide keeps this beside each handler it binds.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_budget_current(context: *mut Context) -> Word {
+    unsafe {
+        match scheduler(context).current().budget {
+            Some(id) => amb_int_new(id as i64),
+            None => NULL,
+        }
+    }
+}
+
+/// Puts the task inside `budget`, as [`amb_budget_current`] gave it, for
+/// as long as a handler bound there runs. If that budget is over, the
+/// nearest around it that is not stands in. Returns the budget the task
+/// was inside, for [`amb_budget_back`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_budget_switch(context: *mut Context, budget: Word) -> Word {
+    unsafe {
+        let saved = amb_budget_current(context);
+        let scheduler = scheduler(context);
+        let mut to = (budget != NULL).then(|| int(budget) as usize);
+        while let Some(id) = to
+            && !scheduler.budgets[id].live
+        {
+            to = scheduler.budgets[id].parent;
+        }
+        scheduler.current().budget = to;
+        saved
+    }
+}
+
+/// Puts the task back inside the budget [`amb_budget_switch`] took it out
+/// of. Returns null, or, with `unwinding`, [`UNWIND`]: the handler
+/// unwound, and that goes on.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_budget_back(
+    context: *mut Context,
+    saved: Word,
+    unwinding: u64,
+) -> Word {
+    unsafe {
+        scheduler(context).current().budget = (saved != NULL).then(|| int(saved) as usize);
+        if unwinding == 0 { NULL } else { UNWIND }
     }
 }
 

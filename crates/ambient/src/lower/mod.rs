@@ -44,6 +44,7 @@ pub fn lower(definition: &Open, metered: bool) -> Result<lir::Function, Unsuppor
         bindings: Value::Local(0),
         groups: Vec::new(),
         budgets: false,
+        metered,
     };
     let entry = lowering.enter(function);
     let mut body = entry.wrap(lowering.expr(&function.body)?);
@@ -107,69 +108,7 @@ fn renumber(expr: &mut Expr, base: usize) {
         }
     };
     match expr {
-        Expr::Op(op) => match op {
-            Op::Int(_)
-            | Op::Float(_)
-            | Op::Slot(_)
-            | Op::Token
-            | Op::Charge { .. }
-            | Op::Hold
-            | Op::Contain
-            | Op::Group
-            | Op::Cleanup(_) => {}
-            Op::Copy(operand)
-            | Op::IsRecord(operand)
-            | Op::Expire(operand)
-            | Op::Caught(operand)
-            | Op::Rethrow(operand)
-            | Op::BudgetLeave(operand)
-            | Op::BudgetCaught(operand)
-            | Op::ChargeSize(operand)
-            | Op::All(operand)
-            | Op::First(operand) => {
-                value(operand);
-            }
-            Op::Spawn {
-                group: base,
-                thunk: overlay,
-            }
-            | Op::GroupEnd {
-                group: base,
-                held: overlay,
-            }
-            | Op::BudgetEnter {
-                steps: base,
-                words: overlay,
-            }
-            | Op::Merge { base, overlay } => {
-                value(base);
-                value(overlay);
-            }
-            Op::GroupClose { group, .. } => value(group),
-            Op::Abort { token, args } => {
-                value(token);
-                value(args);
-            }
-            Op::Native { bindings, args, .. } => {
-                value(bindings);
-                value(args);
-            }
-            Op::Call { args, .. } | Op::Primitive { args, .. } => args.iter_mut().for_each(value),
-            Op::CallValue { callee, args } => {
-                value(callee);
-                args.iter_mut().for_each(value);
-            }
-            Op::Closure { captures, .. } => captures.iter_mut().for_each(value),
-            Op::Sequence { members, .. } => members.iter_mut().for_each(value),
-            Op::Record(fields) => fields.iter_mut().for_each(|(_, member)| value(member)),
-            Op::Field { record, .. } => value(record),
-            Op::Member { tuple, .. } => value(tuple),
-            Op::HasField { value: subject, .. }
-            | Op::IsTuple { value: subject, .. }
-            | Op::Is { value: subject, .. } => {
-                value(subject);
-            }
-        },
+        Expr::Op(op) => op.operands_mut().into_iter().for_each(value),
         Expr::Try { body, recover, .. } => {
             renumber(body, base);
             renumber(recover, base);
@@ -211,6 +150,8 @@ struct Lowering {
     groups: Vec<Value>,
     /// Whether the function enters a budget.
     budgets: bool,
+    /// Whether the function is being compiled to run inside budgets.
+    metered: bool,
 }
 
 impl Lowering {

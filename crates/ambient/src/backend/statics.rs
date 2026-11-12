@@ -113,6 +113,10 @@ pub fn plan(parts: &Parts) -> Statics {
                         Constant::Ability(slot) => {
                             statics.text(Make::Field, &ability_key(&slots[*slot].hash))
                         }
+                        Constant::AbilityBudget(slot) => {
+                            let key = format!("{}$", ability_key(&slots[*slot].hash));
+                            statics.text(Make::Field, &key)
+                        }
                         Constant::Native => Field::Word(part.native.unwrap_or(0) as u64),
                     };
                     statics.set(first + position, field);

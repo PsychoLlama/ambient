@@ -111,6 +111,9 @@ entries! {
     BudgetEnter = amb_budget_enter, context, 2, word;
     BudgetLeave = amb_budget_leave, context, 1, word;
     BudgetCaught = amb_budget_caught, context, 1, word;
+    BudgetCurrent = amb_budget_current, context, 0, word;
+    BudgetSwitch = amb_budget_switch, context, 1, word;
+    BudgetBack = amb_budget_back, context, 2, word;
     Charge = amb_charge, context, 2, word;
     ChargeSize = amb_charge_size, context, 1, word;
     Contain = amb_contain, context, 0, word;

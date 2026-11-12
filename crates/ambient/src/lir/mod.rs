@@ -20,6 +20,8 @@
 //! out, so a backend translates calls and never decides what an operation
 //! means.
 
+mod operands;
+
 use ambient_runtime::{Entry, Fault};
 
 use crate::core::Primitive;
@@ -51,6 +53,9 @@ pub enum Constant {
     /// A type, as the descriptor a value is tested against. Its slots are
     /// those of the definition it is a constant of.
     Type(crate::core::Type),
+    /// The ability in a slot, as the key bindings hold the budget its
+    /// handler was bound inside under. Only metered code has these.
+    AbilityBudget(usize),
     /// The ability in a slot, as the key bindings are indexed by.
     Ability(usize),
     /// Where the definition, an extern, sits among the externs of the
@@ -128,6 +133,14 @@ pub enum Op {
     /// For a budget whose body unwound: leaves it, and is the limit that
     /// ran out if one did; if not, goes on unwinding.
     BudgetCaught(Value),
+    /// The budget the task is inside, or null.
+    BudgetCurrent,
+    /// Puts the task inside a budget, as [`Op::BudgetCurrent`] gave it,
+    /// and is the one it was inside.
+    BudgetSwitch(Value),
+    /// Puts the task back inside a budget it was switched out of, and is
+    /// null; or, with `unwinding`, goes on unwinding.
+    BudgetBack { saved: Value, unwinding: bool },
     /// Charges steps and words of allocation to the budgets the task is
     /// inside, and is null. Unwinds if one runs out.
     Charge { steps: u64, words: u64 },
@@ -208,6 +221,9 @@ impl Op {
             | Self::Rethrow(_)
             | Self::Contain
             | Self::BudgetCaught(_)
+            | Self::BudgetBack {
+                unwinding: true, ..
+            }
             | Self::Charge { .. }
             | Self::ChargeSize(_)
             | Self::GroupClose { .. }
@@ -310,6 +326,9 @@ impl Op {
             | Self::BudgetEnter { .. }
             | Self::BudgetLeave(_)
             | Self::BudgetCaught(_)
+            | Self::BudgetCurrent
+            | Self::BudgetSwitch(_)
+            | Self::BudgetBack { .. }
             | Self::Charge { .. }
             | Self::ChargeSize(_)
             | Self::Group
@@ -356,6 +375,12 @@ impl Op {
                 vec![step(Entry::BudgetEnter, [value(steps), value(words)])]
             }
             Self::BudgetLeave(budget) => vec![step(Entry::BudgetLeave, [value(budget)])],
+            Self::BudgetCurrent => vec![step(Entry::BudgetCurrent, [])],
+            Self::BudgetSwitch(budget) => vec![step(Entry::BudgetSwitch, [value(budget)])],
+            Self::BudgetBack { saved, unwinding } => {
+                let unwinding = Raw(u64::from(*unwinding));
+                vec![step(Entry::BudgetBack, [value(saved), unwinding])]
+            }
             Self::BudgetCaught(budget) => vec![step(Entry::BudgetCaught, [value(budget)])],
             Self::Charge { steps, words } => {
                 vec![step(Entry::Charge, [Raw(*steps), Raw(*words)])]

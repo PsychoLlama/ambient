@@ -43,11 +43,50 @@ impl Lowering {
         self.constant(Constant::Ability(ability.0))
     }
 
+    /// The keys bindings hold `abilities` under. Metered code keeps
+    /// beside each handler the budget it was bound inside, so those keys
+    /// go wherever the handlers' do.
     pub(super) fn ability_keys(&mut self, abilities: &[Slot]) -> Vec<usize> {
-        abilities
-            .iter()
-            .map(|ability| self.ability_key(*ability))
-            .collect()
+        let mut keys = Vec::new();
+        for ability in abilities {
+            keys.push(self.ability_key(*ability));
+            if self.metered {
+                keys.push(self.constant(Constant::AbilityBudget(ability.0)));
+            }
+        }
+        keys
+    }
+
+    /// Calls `handler`, which answers a perform. In metered code a handler
+    /// runs inside the budget it was bound inside, not the performer's:
+    /// the perform costs the performer a step, whatever the handler does.
+    fn answer(&mut self, ability: Slot, callee: Value, args: Vec<Value>, scope: &mut Scope) -> Op {
+        let call = Op::CallValue { callee, args };
+        if !self.metered {
+            return call;
+        }
+        let record = self.bindings;
+        let key = self.constant(Constant::AbilityBudget(ability.0));
+        let bound = self.bound(Op::Field { record, key }, scope);
+        let (steps, words) = (1, 0);
+        self.bound(Op::Charge { steps, words }, scope);
+        let saved = self.bound(Op::BudgetSwitch(bound), scope);
+        let back = |unwinding| Expr::Op(Op::BudgetBack { saved, unwinding });
+        let answered = Expr::Try {
+            body: Box::new(Expr::Op(call)),
+            recover: Box::new(back(true)),
+            recovering: (0, 0),
+        };
+        let result = self.temporary();
+        scope.bindings.push((result, answered));
+        self.bound(
+            Op::BudgetBack {
+                saved,
+                unwinding: false,
+            },
+            scope,
+        );
+        Op::Copy(Value::Local(result))
     }
 
     /// A record of exactly `keys`, each a constant, taken from `source`,
@@ -127,10 +166,7 @@ impl Lowering {
         if returns {
             // A handler took what it needs where it was provided.
             let args = self.arguments(Value::Null, args, scope)?;
-            return Ok(Op::CallValue {
-                callee: binding,
-                args,
-            });
+            return Ok(self.answer(ability, binding, args, scope));
         }
         let members = self.operands(args, scope)?;
         let list = false;
@@ -155,6 +191,10 @@ impl Lowering {
         for handler in handlers {
             let value = self.operand(&handler.handler, &mut scope)?;
             let key = self.ability_key(handler.ability);
+            if self.metered {
+                let stamp = self.constant(Constant::AbilityBudget(handler.ability.0));
+                fields.push((stamp, self.bound(Op::BudgetCurrent, &mut scope)));
+            }
             match handler.abort {
                 None => fields.push((key, value)),
                 Some(arity) => {

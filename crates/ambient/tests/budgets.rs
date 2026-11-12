@@ -159,3 +159,65 @@ fn a_boundary_does_not_contain_a_budget_running_out() {
 
     assert_eq!(evaluates(body), limit("steps"));
 }
+
+// Handlers
+
+/// `ability work(): int`
+fn work() -> Definition {
+    b::ability("work", "work").returns(ty::int()).into()
+}
+
+/// Runs `body` beside `work`.
+fn working(body: Expr) -> Value {
+    let main = b::function("main").returns(ty::unknown()).body(body);
+    run([count(), work(), main], &[]).unwrap()
+}
+
+/// `body` with `work` handled by a hundred calls.
+fn provided(body: Expr) -> Expr {
+    b::provide([("work", b::lambda([], counts(100)))], body)
+}
+
+#[test]
+fn a_handler_bound_outside_a_budget_costs_it_one_step() {
+    let performs = || b::perform("work", []);
+
+    assert_eq!(
+        working(provided(budgeted(1, 1000, performs()))),
+        Value::Int(100)
+    );
+    assert_eq!(
+        working(provided(budgeted(0, 1000, performs()))),
+        limit("steps")
+    );
+}
+
+#[test]
+fn a_handler_bound_inside_a_budget_draws_from_it() {
+    let body = budgeted(50, 1000, provided(b::perform("work", [])));
+
+    assert_eq!(working(body), limit("steps"));
+}
+
+#[test]
+fn a_handler_bound_between_two_budgets_draws_from_the_outer_one() {
+    let inner = || budgeted(5, 1000, b::perform("work", []));
+
+    assert_eq!(
+        working(budgeted(1000, 1000, provided(inner()))),
+        Value::Int(100)
+    );
+    assert_eq!(
+        working(budgeted(50, 1000, provided(inner()))),
+        limit("steps")
+    );
+}
+
+#[test]
+fn a_function_value_carries_the_budget_its_handlers_were_bound_inside() {
+    // The lambda captures `work` outside the budget and is called inside.
+    let made = provided(b::lambda([], b::perform("work", [])));
+    let body = b::let_("f", made, budgeted(2, 1000, b::call(b::name("f"), [])));
+
+    assert_eq!(working(body), Value::Int(100));
+}

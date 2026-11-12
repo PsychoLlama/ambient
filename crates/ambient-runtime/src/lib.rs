@@ -58,10 +58,10 @@ pub use object::{amb_release, amb_retain, layout, pinned_closure};
 pub use record::*;
 pub use sequence::*;
 pub use task::{
-    RESUMING, RUNNING, SUSPENDING, amb_all, amb_budget_caught, amb_budget_enter, amb_budget_leave,
-    amb_charge, amb_charge_size, amb_first, amb_frame_drop, amb_frame_load, amb_frame_point,
-    amb_frame_push, amb_frame_save, amb_group_close, amb_group_end, amb_group_new, amb_schedule,
-    amb_spawn,
+    RESUMING, RUNNING, SUSPENDING, amb_all, amb_budget_back, amb_budget_caught, amb_budget_current,
+    amb_budget_enter, amb_budget_leave, amb_budget_switch, amb_charge, amb_charge_size, amb_first,
+    amb_frame_drop, amb_frame_load, amb_frame_point, amb_frame_push, amb_frame_save,
+    amb_group_close, amb_group_end, amb_group_new, amb_schedule, amb_spawn,
 };
 pub use text::*;
 
