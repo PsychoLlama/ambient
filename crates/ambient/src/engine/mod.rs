@@ -23,6 +23,7 @@
 mod check;
 mod compile;
 mod group;
+mod link;
 mod read;
 mod resolve;
 
@@ -43,6 +44,7 @@ use crate::workspace::Sources;
 
 pub use check::Interface;
 pub use compile::{Artifact, Backend};
+pub use link::{Part, Parts};
 pub use read::{Entry, Read, Scope, Table};
 pub use resolve::Resolved;
 

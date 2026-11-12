@@ -5,9 +5,18 @@ edition.workspace = true
 description = "The Ambient programming language"
 
 [dependencies]
+ambient-runtime.workspace = true
+cranelift-codegen.workspace = true
+cranelift-frontend.workspace = true
+cranelift-native.workspace = true
+memmap2.workspace = true
+wasm-encoder.workspace = true
 blake3.workspace = true
 postcard.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+wasmtime.workspace = true
 
 [lints]
 workspace = true

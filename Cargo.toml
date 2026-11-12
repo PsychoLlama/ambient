@@ -7,6 +7,13 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace.dependencies]
+ambient-runtime = { path = "crates/ambient-runtime" }
+cranelift-codegen = "0.136"
+cranelift-frontend = "0.136"
+cranelift-native = "0.136"
+memmap2 = "0.9"
+wasm-encoder = "0.263"
+wasmtime = { version = "49", default-features = false, features = ["cranelift", "runtime", "std"] }
 blake3 = "1.8"
 postcard = { version = "1.1", default-features = false, features = ["use-std"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
