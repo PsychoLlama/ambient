@@ -32,6 +32,15 @@ pub enum Field {
     /// Code, however the backend refers to code: by its position in
     /// [`Parts::codes`].
     Code(usize),
+    /// The closure or descriptor of a part the block lays out, by the
+    /// part's position: where [`Statics::placed`] says, unless whoever
+    /// loads the block finds the program has the part already.
+    Root(usize),
+    /// The definition of such a part, likewise.
+    Definition(usize),
+    /// An extern's position among the program's: the one given, among
+    /// the block's own, after however many the program had.
+    Native(usize),
     /// Something the runtime makes from bytes of [`Statics::text`].
     Text {
         make: Make,
@@ -50,12 +59,16 @@ pub enum Make {
     Tag,
 }
 
-/// Where something a block refers to is: in the block, by position, or
-/// in a block the program already has, by address.
+/// Where something a block refers to is: in the block, by position;
+/// in a block the program is known to have, by address; or wherever a
+/// part the block lays out turns out to be, as [`Field::Root`] and
+/// [`Field::Definition`] say.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Place {
     Here(usize),
     There(u64),
+    Root(usize),
+    Definition(usize),
 }
 
 impl Place {
@@ -63,6 +76,8 @@ impl Place {
         match self {
             Self::Here(word) => Field::Address(word),
             Self::There(address) => Field::Word(address),
+            Self::Root(part) => Field::Root(part),
+            Self::Definition(part) => Field::Definition(part),
         }
     }
 }
@@ -79,11 +94,9 @@ pub struct Known {
 
 /// The program a block is planned for, if it is not the program's first.
 pub struct Base<'a> {
-    /// The definitions it has, by hash. A part that is one of them is
-    /// not laid out again.
+    /// The definitions it is known to have, by hash. A part that is one
+    /// of them is not laid out again.
     pub known: &'a dyn Fn(&Hash) -> Option<Known>,
-    /// How many externs it has: the block's own are numbered after them.
-    pub natives: usize,
     /// Whether the block is a unit: one reclaimed before the program is.
     pub loaded: bool,
 }
@@ -98,7 +111,6 @@ impl Base<'_> {
     pub fn none() -> Self {
         Base {
             known: &unknown,
-            natives: 0,
             loaded: false,
         }
     }
@@ -189,9 +201,7 @@ pub fn plan(parts: &Parts, base: &Base) -> Statics {
                             let key = format!("{}$", ability_key(&slots[*slot].hash));
                             statics.text(Make::Field, &key)
                         }
-                        Constant::Native => {
-                            Field::Word((base.natives + part.native.unwrap_or(0)) as u64)
-                        }
+                        Constant::Native => Field::Native(part.native.unwrap_or(0)),
                         Constant::Own => statics.text(Make::String, &part.hash.to_string()),
                     };
                     statics.set(first + position, field);
@@ -232,7 +242,7 @@ impl Statics {
         // These are fixed first, because parts refer to each other freely.
         let mut definitions = Vec::new();
         let mut roots = Vec::new();
-        for part in &parts.parts {
+        for (parts_placed, part) in parts.parts.iter().enumerate() {
             let known = match part.body {
                 Body::Inert => None,
                 _ => (base.known)(&part.hash),
@@ -244,7 +254,7 @@ impl Statics {
                 continue;
             }
             let at = self.held();
-            definitions.push(Place::Here(at));
+            definitions.push(Place::Definition(parts_placed));
             let root = match &part.body {
                 Body::Function { constants, .. } => {
                     self.words += DEFINITION_WORDS + part.slots.len() + constants.len();
@@ -259,7 +269,7 @@ impl Statics {
                 // Never read: an ability is reached by its key, a constant.
                 Body::Inert => 0,
             };
-            roots.push(Place::Here(root));
+            roots.push(Place::Root(parts_placed));
             self.placed.push(Some((root, at)));
         }
         (definitions, roots)

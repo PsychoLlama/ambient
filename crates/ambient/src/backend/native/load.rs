@@ -155,11 +155,11 @@ impl Program {
             parts,
             &Base {
                 known: &known,
-                natives: self.natives.borrow().len(),
                 loaded,
             },
         );
         let (code, offsets) = map(parts, &plan)?;
+        let externs = self.natives.borrow().len();
         let code_base = code.as_ptr() as usize;
 
         let block = Box::into_raw(vec![0u64; plan.words.max(1)].into_boxed_slice());
@@ -179,6 +179,9 @@ impl Program {
                 Field::Word(value) => value,
                 Field::Address(target) => address(target),
                 Field::Code(code) => (code_base + offsets[code]) as u64,
+                Field::Root(part) => address(plan.placed[part].map_or(0, |(root, _)| root)),
+                Field::Definition(part) => address(plan.placed[part].map_or(0, |(_, at)| at)),
+                Field::Native(native) => (externs + native) as u64,
                 Field::Text {
                     make,
                     offset,
@@ -220,9 +223,9 @@ impl Program {
             .extend(parts.natives.iter().cloned());
         self.units.borrow_mut().insert(address(0), unit);
         let entry = match plan.entry {
-            Some(Place::Here(word)) => address(word),
+            Some(Place::Root(part)) => address(plan.placed[part].map_or(0, |(root, _)| root)),
             Some(Place::There(closure)) => closure,
-            None => return Err("the parts have no entry".to_owned()),
+            _ => return Err("the parts have no entry".to_owned()),
         };
         // SAFETY: the entry is a closure and the record a unit's. The
         // unit is held while the entry is taken, so that one the entry

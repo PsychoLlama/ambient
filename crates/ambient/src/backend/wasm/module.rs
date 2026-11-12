@@ -214,6 +214,15 @@ fn initializer(
                 body.instruction(&Instruction::I64Const(value.cast_signed()));
             }
             Field::Address(target) => address(&mut body, target)?,
+            // Nothing is known to a program's first block, so each part
+            // is where the block has it.
+            Field::Root(part) => address(&mut body, plan.placed[part].map_or(0, |(root, _)| root))?,
+            Field::Definition(part) => {
+                address(&mut body, plan.placed[part].map_or(0, |(_, at)| at))?;
+            }
+            Field::Native(native) => {
+                body.instruction(&Instruction::I64Const(number(native)?));
+            }
             // Code is an index into the table.
             Field::Code(code) => {
                 body.instruction(&Instruction::I64Const(positions[code].cast_signed()));
@@ -241,10 +250,10 @@ fn initializer(
     }
 
     // Nothing is known to a program's first block, so its entry is in it.
-    let Some(Place::Here(entry)) = plan.entry else {
+    let Some(Place::Root(entry)) = plan.entry else {
         return Err("the program has no entry".to_owned());
     };
-    address(&mut body, entry)?;
+    address(&mut body, plan.placed[entry].map_or(0, |(root, _)| root))?;
     body.instruction(&Instruction::End);
     Ok((body, plan.text))
 }
