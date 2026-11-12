@@ -172,73 +172,35 @@ pub(super) fn check_pattern<'a>(
 }
 
 pub(super) fn check_expr(expr: &Expr) -> Result<(), BuildError> {
+    check_node(expr)?;
+    let mut inside = Ok(());
+    expr.children(&mut |child| {
+        if inside.is_ok() {
+            inside = check_expr(child);
+        }
+    });
+    inside
+}
+
+/// Checks what a node holds besides the expressions inside it.
+fn check_node(expr: &Expr) -> Result<(), BuildError> {
     match expr {
-        Expr::Null | Expr::Literal(_) => Ok(()),
-        Expr::Name(path) => check_path(path),
+        Expr::Name(path) | Expr::AbilityId(path) | Expr::Perform { ability: path, .. } => {
+            check_path(path)
+        }
         Expr::Instantiate { function, args } => {
             check_path(function)?;
             args.iter().try_for_each(check_type)
         }
-        Expr::Call { callee, args } => {
-            check_expr(callee)?;
-            args.iter().try_for_each(check_expr)
-        }
-        Expr::Record(fields) => {
-            check_keys(fields.iter().map(|(key, _)| key))?;
-            fields.iter().try_for_each(|(_, value)| check_expr(value))
-        }
-        Expr::Tuple(members) | Expr::List(members) => members.iter().try_for_each(check_expr),
-        Expr::Field { target, key } => {
-            check_keys(std::iter::once(key))?;
-            check_expr(target)
-        }
-        Expr::Let { name, value, body } => {
-            check_name(name)?;
-            check_expr(value)?;
-            check_expr(body)
-        }
-        Expr::Binary { left, right, .. } | Expr::Merge { left, right } => {
-            check_expr(left)?;
-            check_expr(right)
-        }
-        Expr::Match { subject, arms } => {
-            check_expr(subject)?;
-            arms.iter().try_for_each(|arm| {
-                check_pattern(&arm.pattern, &mut BTreeSet::new())?;
-                check_expr(&arm.body)
-            })
-        }
-        Expr::Perform { ability, args } => {
-            check_path(ability)?;
-            args.iter().try_for_each(check_expr)
-        }
-        Expr::Provide { bundle, body, .. } => {
-            check_expr(bundle)?;
-            check_expr(body)
-        }
-        Expr::Observe { observer, body }
-        | Expr::Cleanup {
-            cleanup: observer,
-            body,
-        } => {
-            check_expr(observer)?;
-            check_expr(body)
-        }
-        Expr::AbilityId(ability) => check_path(ability),
-        Expr::Budget {
-            steps,
-            allocation,
-            body,
-        } => [steps, allocation, body]
-            .into_iter()
-            .try_for_each(|expr| check_expr(expr)),
-        Expr::Group(inner) | Expr::Spawn(inner) | Expr::Boundary(inner) => check_expr(inner),
-        Expr::All(branches) | Expr::First(branches) => branches.iter().try_for_each(check_expr),
-        Expr::Cell { ty, args, .. } => {
-            ty.iter().try_for_each(check_type)?;
-            args.iter().try_for_each(check_expr)
-        }
-        Expr::Lambda { params, row, body } => {
+        Expr::Record(fields) => check_keys(fields.iter().map(|(key, _)| key)),
+        Expr::Field { key, .. } => check_keys(std::iter::once(key)),
+        Expr::Let { name, .. } => check_name(name),
+        Expr::Match { arms, .. } => arms
+            .iter()
+            .try_for_each(|arm| check_pattern(&arm.pattern, &mut BTreeSet::new())),
+        Expr::Cell { ty, .. } => ty.iter().try_for_each(check_type),
+        Expr::Cast { ty, .. } => check_type(ty),
+        Expr::Lambda { params, row, .. } => {
             row.iter().try_for_each(check_path)?;
             let mut seen = BTreeSet::new();
             for (name, ty) in params {
@@ -250,24 +212,17 @@ pub(super) fn check_expr(expr: &Expr) -> Result<(), BuildError> {
                     check_type(ty)?;
                 }
             }
-            check_expr(body)
+            Ok(())
         }
         Expr::Comptime(call) => {
             let named =
                 matches!(&**call, Expr::Call { callee, .. } if matches!(**callee, Expr::Name(_)));
-            if !named {
-                return Err(BuildError::ComptimeNotCall);
+            if named {
+                Ok(())
+            } else {
+                Err(BuildError::ComptimeNotCall)
             }
-            check_expr(call)
         }
-        Expr::Cast {
-            value,
-            ty,
-            otherwise,
-        } => {
-            check_expr(value)?;
-            check_type(ty)?;
-            check_expr(otherwise)
-        }
+        _ => Ok(()),
     }
 }

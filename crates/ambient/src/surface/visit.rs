@@ -66,96 +66,32 @@ impl<N> Pattern<N> {
 }
 
 impl<N> Expr<N> {
-    /// Calls `visit` with every name in the expression, in order.
+    /// Calls `visit` with every name in the expression: those a node
+    /// holds itself, then those of the expressions inside it.
     pub fn names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
         match self {
-            Self::Null | Self::Literal(_) => {}
-            Self::Name(name) => visit(name),
+            Self::Name(name) | Self::AbilityId(name) | Self::Perform { ability: name, .. } => {
+                visit(name);
+            }
             Self::Instantiate { function, args } => {
                 visit(function);
                 for arg in args {
                     arg.names(visit);
                 }
             }
-            Self::Call { callee, args } => {
-                callee.names(visit);
-                for arg in args {
-                    arg.names(visit);
-                }
-            }
-            Self::Record(fields) => {
-                for (key, value) in fields {
-                    key.names(visit);
-                    value.names(visit);
-                }
-            }
-            Self::Tuple(members) | Self::List(members) => {
-                for member in members {
-                    member.names(visit);
-                }
-            }
-            Self::Field { target, key } => {
-                target.names(visit);
-                key.names(visit);
-            }
-            Self::Let { value, body, .. } => {
-                value.names(visit);
-                body.names(visit);
-            }
-            Self::Binary { left, right, .. } | Self::Merge { left, right } => {
-                left.names(visit);
-                right.names(visit);
-            }
-            Self::Match { subject, arms } => {
-                subject.names(visit);
-                for arm in arms {
-                    arm.pattern.names(visit);
-                    arm.body.names(visit);
-                }
-            }
-            Self::Lambda { params, row, body } => {
+            Self::Record(fields) => fields.iter().for_each(|(key, _)| key.names(visit)),
+            Self::Field { key, .. } => key.names(visit),
+            Self::Match { arms, .. } => arms.iter().for_each(|arm| arm.pattern.names(visit)),
+            Self::Lambda { params, row, .. } => {
                 for ty in params.iter().filter_map(|(_, ty)| ty.as_ref()) {
                     ty.names(visit);
                 }
                 row.iter().for_each(&mut *visit);
-                body.names(visit);
             }
-            Self::Perform { ability, args } => {
-                visit(ability);
-                for arg in args {
-                    arg.names(visit);
-                }
-            }
-            // These name nothing themselves.
-            Self::Provide { .. }
-            | Self::Observe { .. }
-            | Self::Cleanup { .. }
-            | Self::Budget { .. }
-            | Self::Group(_)
-            | Self::Spawn(_)
-            | Self::Boundary(_)
-            | Self::All(_)
-            | Self::First(_) => self.children(&mut |child| child.names(visit)),
-            Self::AbilityId(ability) => visit(ability),
-            Self::Cell { ty, args, .. } => {
-                if let Some(ty) = ty {
-                    ty.names(visit);
-                }
-                for arg in args {
-                    arg.names(visit);
-                }
-            }
-            Self::Comptime(call) => call.names(visit),
-            Self::Cast {
-                value,
-                ty,
-                otherwise,
-            } => {
-                value.names(visit);
-                ty.names(visit);
-                otherwise.names(visit);
-            }
+            Self::Cell { ty: Some(ty), .. } | Self::Cast { ty, .. } => ty.names(visit),
+            _ => {}
         }
+        self.children(&mut |child| child.names(visit));
     }
 }
 
@@ -177,45 +113,15 @@ impl<N> Expr<N> {
     /// numbered in binding order, so this is how many numbers it uses.
     #[must_use]
     pub fn binders(&self) -> usize {
-        let all = |exprs: &[Self]| exprs.iter().map(Self::binders).sum::<usize>();
-        match self {
-            Self::Null
-            | Self::Literal(_)
-            | Self::Name(_)
-            | Self::Instantiate { .. }
-            | Self::AbilityId(_) => 0,
-            Self::Call { callee, args } => callee.binders() + all(args),
-            Self::Record(fields) => fields.iter().map(|(_, value)| value.binders()).sum(),
-            Self::Tuple(members) | Self::List(members) => all(members),
-            Self::Field { target, .. } => target.binders(),
-            Self::Let { value, body, .. } => 1 + value.binders() + body.binders(),
-            Self::Binary { left, right, .. } | Self::Merge { left, right } => {
-                left.binders() + right.binders()
-            }
-            Self::Match { subject, arms } => {
-                let arms: usize = arms
-                    .iter()
-                    .map(|arm| arm.pattern.binders() + arm.body.binders())
-                    .sum();
-                subject.binders() + arms
-            }
-            Self::Lambda { params, body, .. } => params.len() + body.binders(),
-            Self::Perform { args, .. } => all(args),
-            Self::Provide { bundle, body, .. } => bundle.binders() + 1 + body.binders(),
-            Self::Observe { observer, body } => observer.binders() + 1 + body.binders(),
-            Self::Cleanup { cleanup, body } => cleanup.binders() + body.binders(),
-            Self::Budget {
-                steps,
-                allocation,
-                body,
-            } => steps.binders() + allocation.binders() + body.binders(),
-            Self::Group(inner) | Self::Spawn(inner) | Self::Boundary(inner) => inner.binders(),
-            Self::All(exprs) | Self::First(exprs) | Self::Cell { args: exprs, .. } => all(exprs),
-            Self::Comptime(call) => call.binders(),
-            Self::Cast {
-                value, otherwise, ..
-            } => value.binders() + otherwise.binders(),
-        }
+        let own = match self {
+            Self::Let { .. } | Self::Provide { .. } | Self::Observe { .. } => 1,
+            Self::Lambda { params, .. } => params.len(),
+            Self::Match { arms, .. } => arms.iter().map(|arm| arm.pattern.binders()).sum(),
+            _ => 0,
+        };
+        let mut inside = 0;
+        self.children(&mut |child| inside += child.binders());
+        own + inside
     }
 }
 
@@ -232,8 +138,10 @@ impl<N> Expr<N> {
         self.children(&mut |child| child.comptime_callees(visit));
     }
 
-    /// Calls `visit` with each expression directly inside this one.
-    fn children<'a>(&'a self, visit: &mut impl FnMut(&'a Self)) {
+    /// Calls `visit` with each expression directly inside this one, in
+    /// order. A walk that treats most nodes alike is written with this,
+    /// so that a new node is added here and not to every walk.
+    pub fn children<'a>(&'a self, visit: &mut impl FnMut(&'a Self)) {
         match self {
             Self::Null
             | Self::Literal(_)
