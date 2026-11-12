@@ -88,6 +88,7 @@ pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
         Ty::Tuple(members) => Ty::Tuple(all(members)),
         Ty::Union(members) => Ty::Union(all(members)),
         Ty::List(member) => Ty::List(Box::new(substitute(member, args))),
+        Ty::Cell(member) => Ty::Cell(Box::new(substitute(member, args))),
         Ty::Function { params, ret, row } => Ty::Function {
             params: all(params),
             ret: Box::new(substitute(ret, args)),
@@ -145,6 +146,7 @@ impl Env {
             }
             Ty::Tuple(members) => Ty::Tuple(members.iter().map(|m| self.normalize(m)).collect()),
             Ty::List(member) => Ty::List(Box::new(self.normalize(member))),
+            Ty::Cell(member) => Ty::Cell(Box::new(self.normalize(member))),
             Ty::Function { params, ret, row } => {
                 let mut row = row.clone();
                 row.sort();
@@ -277,6 +279,11 @@ impl Env {
             }
             (Ty::Tuple(have), Ty::List(want)) => have.iter().all(|h| self.sub(h, want, assumed)),
             (Ty::List(have), Ty::List(want)) => self.sub(have, want, assumed),
+            // A cell is written as well as read, so it is the same type
+            // or it is not a subtype.
+            (Ty::Cell(have), Ty::Cell(want)) => {
+                self.sub(have, want, assumed) && self.sub(want, have, assumed)
+            }
             (
                 Ty::Function { params, ret, row },
                 Ty::Function {

@@ -17,6 +17,7 @@ A task is an independent execution of an expression. Tasks exist only inside the
 - An all expression evaluates a fixed set of expressions as tasks and yields the tuple of their results.
 - A first expression evaluates a fixed set of expressions as tasks, yields the result of whichever finishes first, and cancels the rest.
 - Both complete only after every branch has finished or unwound.
+- A branch is evaluated with the locals and [bindings](abilities.md) of where it is written.
 - A task's result reaches other code through one of these two forms or through a [cell](cells.md); there is nothing to await.
 
 ## Sharing
@@ -37,6 +38,7 @@ A task is an independent execution of an expression. Tasks exist only inside the
 - A program is correct under either; it may not assume that code between two suspensions runs atomically.
 - A target that owns no thread, such as a browser or an embedding host, runs tasks only while its host calls in, and returns once every task is suspended.
 - No task ever blocks a host's thread.
+- When every task of a program is suspended and nothing outside it can wake one, its root task is cancelled, so the program ends by unwinding instead of hanging.
 - Build and test targets schedule deterministically, so a run that mixes tasks and cells is reproducible.
 
 ## Failure

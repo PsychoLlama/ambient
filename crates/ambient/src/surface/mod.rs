@@ -187,6 +187,8 @@ pub enum Type<N = Path> {
     Record(Vec<(Key<N>, Type<N>)>),
     Tuple(Vec<Type<N>>),
     List(Box<Type<N>>),
+    /// A cell that holds a value of the type.
+    Cell(Box<Type<N>>),
     Function {
         params: Vec<Type<N>>,
         ret: Box<Type<N>>,
@@ -206,6 +208,20 @@ pub enum Operator {
     Multiply,
     Less,
     Equal,
+}
+
+/// What can be done with a cell. See `spec/cells.md`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CellOp {
+    /// Makes a cell: its type, then its first value.
+    New,
+    /// The value a cell holds.
+    Read,
+    /// A cell, the value read, and a new one: puts the new one in if the
+    /// cell still holds the value read, and says whether it did.
+    Replace,
+    /// A cell and the value read: suspends until the cell holds another.
+    Wait,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -283,6 +299,16 @@ pub enum Expr<N = Path> {
     /// Calls the handler bound to an ability.
     Perform {
         ability: N,
+        args: Vec<Expr<N>>,
+    },
+    /// Evaluates each expression as a task, and is the tuple of their
+    /// results once every one is over.
+    All(Vec<Expr<N>>),
+    /// An operation on a cell. `ty` is the cell's type, for
+    /// [`CellOp::New`].
+    Cell {
+        operation: CellOp,
+        ty: Option<Type<N>>,
         args: Vec<Expr<N>>,
     },
     /// Evaluates `body`, calling `observer` with each ability it performs,

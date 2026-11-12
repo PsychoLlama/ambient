@@ -33,7 +33,7 @@ impl<N> Type<N> {
                     ty.names(visit);
                 }
             }
-            Self::List(member) => member.names(visit),
+            Self::List(member) | Self::Cell(member) => member.names(visit),
             Self::Function { params, ret, row } => {
                 for ty in params {
                     ty.names(visit);
@@ -134,6 +134,19 @@ impl<N> Expr<N> {
                 body.names(visit);
             }
             Self::AbilityId(ability) => visit(ability),
+            Self::All(branches) => {
+                for branch in branches {
+                    branch.names(visit);
+                }
+            }
+            Self::Cell { ty, args, .. } => {
+                if let Some(ty) = ty {
+                    ty.names(visit);
+                }
+                for arg in args {
+                    arg.names(visit);
+                }
+            }
             Self::Comptime(call) => call.names(visit),
             Self::Cast {
                 value,
@@ -192,6 +205,7 @@ impl<N> Expr<N> {
             Self::Perform { args, .. } => all(args),
             Self::Provide { bundle, body, .. } => bundle.binders() + 1 + body.binders(),
             Self::Observe { observer, body } => observer.binders() + 1 + body.binders(),
+            Self::All(exprs) | Self::Cell { args: exprs, .. } => all(exprs),
             Self::Comptime(call) => call.binders(),
             Self::Cast {
                 value, otherwise, ..
@@ -252,6 +266,7 @@ impl<N> Expr<N> {
                 visit(observer);
                 visit(body);
             }
+            Self::All(exprs) | Self::Cell { args: exprs, .. } => exprs.iter().for_each(visit),
             Self::Comptime(call) => visit(call),
             Self::Cast {
                 value, otherwise, ..

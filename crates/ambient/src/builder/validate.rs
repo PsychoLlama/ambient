@@ -131,7 +131,7 @@ pub(super) fn check_type(ty: &crate::surface::Type) -> Result<(), BuildError> {
             fields.iter().try_for_each(|(_, ty)| check_type(ty))
         }
         Type::Tuple(members) | Type::Union(members) => members.iter().try_for_each(check_type),
-        Type::List(member) => check_type(member),
+        Type::List(member) | Type::Cell(member) => check_type(member),
         Type::Function { params, ret, row } => {
             params.iter().try_for_each(check_type)?;
             row.iter().try_for_each(check_path)?;
@@ -220,6 +220,11 @@ pub(super) fn check_expr(expr: &Expr) -> Result<(), BuildError> {
             check_expr(body)
         }
         Expr::AbilityId(ability) => check_path(ability),
+        Expr::All(branches) => branches.iter().try_for_each(check_expr),
+        Expr::Cell { ty, args, .. } => {
+            ty.iter().try_for_each(check_type)?;
+            args.iter().try_for_each(check_expr)
+        }
         Expr::Lambda { params, row, body } => {
             row.iter().try_for_each(check_path)?;
             let mut seen = BTreeSet::new();

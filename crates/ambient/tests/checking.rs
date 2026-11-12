@@ -482,6 +482,43 @@ fn a_match_has_the_union_of_its_arms() {
     assert!(!accepts(taking(ty::bool(), ty::int(), body)));
 }
 
+// Cells
+
+#[test]
+fn a_cell_is_only_a_cell_of_exactly_what_it_holds() {
+    let made = || b::cell(ty::int(), b::int(1));
+    let wider = ty::cell(ty::union([ty::int(), ty::string()]));
+
+    assert!(accepts(returning(ty::cell(ty::int()), made())));
+    // A holder of the wider type could put a string in it.
+    assert!(!accepts(returning(wider, made())));
+}
+
+#[test]
+fn a_cell_operation_takes_a_cell_and_values_it_could_hold() {
+    let cell = ty::cell(ty::int());
+    let (expected, found) = mismatch(check([returning(ty::int(), b::read(b::int(1)))]));
+
+    assert_eq!((expected.as_str(), found.as_str()), ("Cell<unknown>", "1"));
+    assert!(accepts(taking(cell.clone(), ty::int(), b::read(x()))));
+    assert!(!accepts(taking(
+        cell,
+        ty::bool(),
+        b::replace(x(), b::int(1), b::string("no"))
+    )));
+}
+
+#[test]
+fn all_has_the_type_of_a_tuple_of_its_branches() {
+    let ret = ty::tuple([ty::int(), ty::string()]);
+
+    assert!(accepts(returning(ret, b::all([b::int(1), b::string("a")]))));
+    assert!(!accepts(returning(
+        ty::tuple([ty::int()]),
+        b::all([b::string("a")])
+    )));
+}
+
 // Hashing
 
 #[test]

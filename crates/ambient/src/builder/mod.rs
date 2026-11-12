@@ -19,7 +19,7 @@ pub use error::BuildError;
 pub use world::{ExternBuilder, TargetBuilder, extern_function, native_handler, target};
 
 use crate::literal::Literal;
-use crate::surface::{Arm, Expr, Key, Operator, Path, Pattern};
+use crate::surface::{Arm, CellOp, Expr, Key, Operator, Path, Pattern};
 
 /// The first segment of a path into the module's own package.
 pub const OWN_PACKAGE: &str = "pkg";
@@ -184,6 +184,44 @@ pub fn using_only(bundle: Expr, body: Expr) -> Expr {
         only: true,
         body: Box::new(body),
     }
+}
+
+/// Evaluates each expression as a task, and is the tuple of their results
+/// once every one is over.
+pub fn all(branches: impl IntoIterator<Item = Expr>) -> Expr {
+    Expr::All(branches.into_iter().collect())
+}
+
+fn cell_op(operation: CellOp, ty: Option<crate::surface::Type>, args: Vec<Expr>) -> Expr {
+    Expr::Cell {
+        operation,
+        ty,
+        args,
+    }
+}
+
+/// A new cell of values of type `ty`, holding `value`.
+#[must_use]
+pub fn cell(ty: crate::surface::Type, value: Expr) -> Expr {
+    cell_op(CellOp::New, Some(ty), vec![value])
+}
+
+/// The value a cell holds.
+#[must_use]
+pub fn read(cell: Expr) -> Expr {
+    cell_op(CellOp::Read, None, vec![cell])
+}
+
+/// Puts `new` in a cell if it still holds `seen`, and is whether it did.
+#[must_use]
+pub fn replace(cell: Expr, seen: Expr, new: Expr) -> Expr {
+    cell_op(CellOp::Replace, None, vec![cell, seen, new])
+}
+
+/// Suspends the task until a cell holds something other than `seen`.
+#[must_use]
+pub fn wait(cell: Expr, seen: Expr) -> Expr {
+    cell_op(CellOp::Wait, None, vec![cell, seen])
 }
 
 /// Evaluates `body`, calling `observer` with each ability it performs:

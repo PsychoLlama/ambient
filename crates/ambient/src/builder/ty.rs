@@ -40,6 +40,12 @@ pub fn list(member: Type) -> Type {
     Type::List(Box::new(member))
 }
 
+/// A cell that holds a value of type `member`.
+#[must_use]
+pub fn cell(member: Type) -> Type {
+    Type::Cell(Box::new(member))
+}
+
 pub fn union(members: impl IntoIterator<Item = Type>) -> Type {
     Type::Union(members.into_iter().collect())
 }

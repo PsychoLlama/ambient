@@ -17,6 +17,8 @@ pub enum Value {
     Record(BTreeMap<String, Value>),
     /// A function. What it does cannot be read back.
     Function,
+    /// A cell. It never leaves its program.
+    Cell,
 }
 
 /// Reads words. Each backend has its own way to reach the runtime.
@@ -66,6 +68,7 @@ pub fn decode(word: Word, inspect: &mut impl Inspect) -> Value {
             Value::Record(fields)
         }
         kind if kind == Kind::Function as u64 => Value::Function,
+        kind if kind == Kind::Cell as u64 => Value::Cell,
         _ => Value::Int(inspect.int(word)),
     }
 }
@@ -90,7 +93,7 @@ pub trait Construct {
 /// from, and becomes null.
 pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
     match value {
-        Value::Null | Value::Function => ambient_runtime::NULL,
+        Value::Null | Value::Function | Value::Cell => ambient_runtime::NULL,
         Value::Bool(true) => ambient_runtime::TRUE,
         Value::Bool(false) => ambient_runtime::FALSE,
         Value::Int(value) => make.int(*value),

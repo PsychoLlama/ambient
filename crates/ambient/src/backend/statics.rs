@@ -160,7 +160,8 @@ fn node_size(ty: &Type) -> usize {
         | Type::Int
         | Type::Float
         | Type::String
-        | Type::Function { .. } => 1,
+        | Type::Function { .. }
+        | Type::Cell(_) => 1,
         Type::Literal(_) => 3,
         Type::Record(fields) => 2 + fields.len() * 2,
         Type::Tuple(members) | Type::Union(members) => 2 + members.len(),
@@ -222,7 +223,8 @@ impl Statics {
             Type::Int => tag(self, d::INT),
             Type::Float => tag(self, d::FLOAT),
             Type::String => tag(self, d::STRING),
-            Type::Function { .. } => tag(self, d::FUNCTION),
+            // No value is known to be one of these: see the runtime.
+            Type::Function { .. } | Type::Cell(_) => tag(self, d::FUNCTION),
             Type::Literal(literal) => {
                 tag(self, d::LITERAL);
                 let (kind, payload) = match literal {

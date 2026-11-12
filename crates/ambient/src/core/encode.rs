@@ -5,7 +5,7 @@ use crate::literal::Literal;
 
 /// The version named by every encoding. Changing the node set or the
 /// encoding means changing this, which changes every hash.
-const FORMAT: u8 = 4;
+const FORMAT: u8 = 5;
 
 impl Tree {
     /// The canonical encoding: the bytes a hash is computed over.
@@ -154,6 +154,10 @@ fn encode_type(ty: &Type, out: &mut Vec<u8>) {
             out.push(10);
             encode_type(member, out);
         }
+        Type::Cell(member) => {
+            out.push(15);
+            encode_type(member, out);
+        }
         Type::Function { params, ret, row } => {
             out.push(11);
             encode_types(params, out);
@@ -292,7 +296,11 @@ fn encode_expr(expr: &Expr, out: &mut Vec<u8>) {
             out.push(13);
             unsigned(*index as u64, out);
         }
-        Expr::Closure { .. } | Expr::Perform { .. } | Expr::Provide { .. } | Expr::AbilityId(_) => {
+        Expr::Closure { .. }
+        | Expr::Perform { .. }
+        | Expr::Provide { .. }
+        | Expr::AbilityId(_)
+        | Expr::All(_) => {
             encode_binding(expr, out);
         }
     }
@@ -316,6 +324,10 @@ fn encode_binding(expr: &Expr, out: &mut Vec<u8>) {
         Expr::AbilityId(ability) => {
             out.push(18);
             unsigned(ability.0 as u64, out);
+        }
+        Expr::All(thunks) => {
+            out.push(19);
+            encode_exprs(thunks, out);
         }
         Expr::Perform {
             ability,

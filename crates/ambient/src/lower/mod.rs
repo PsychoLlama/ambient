@@ -254,6 +254,14 @@ impl Lowering {
                 args,
                 returns,
             } => self.perform(*ability, args, *returns, &mut scope)?,
+            core::Expr::All(thunks) => {
+                let members = self.operands(thunks, &mut scope)?;
+                let tuple = self.temporary();
+                let list = false;
+                let made = Expr::Op(Op::Sequence { list, members });
+                scope.bindings.push((tuple, made));
+                Op::All(Value::Local(tuple))
+            }
             core::Expr::Provide {
                 handlers,
                 only,
@@ -370,6 +378,9 @@ impl Lowering {
         if mentions(ty, &|ty| matches!(ty, core::Type::Function { .. })) {
             return Err(Unsupported("tests against a function type"));
         }
+        if mentions(ty, &|ty| matches!(ty, core::Type::Cell(_))) {
+            return Err(Unsupported("tests against a cell type"));
+        }
         let ty = self.constant(Constant::Type(ty.clone()));
         Ok(Expr::Op(Op::Is { value, ty }))
     }
@@ -404,7 +415,7 @@ fn mentions(ty: &core::Type, found: &impl Fn(&core::Type) -> bool) -> bool {
             Type::Tuple(members) | Type::Union(members) | Type::Reference(_, members) => {
                 members.iter().any(|ty| mentions(ty, found))
             }
-            Type::List(member) => mentions(member, found),
+            Type::List(member) | Type::Cell(member) => mentions(member, found),
             Type::Function { params, ret, .. } => {
                 params.iter().any(|ty| mentions(ty, found)) || mentions(ret, found)
             }

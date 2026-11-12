@@ -204,6 +204,7 @@ impl Resolver<'_> {
             ),
             Type::Tuple(members) => Type::Tuple(self.types(members)?),
             Type::List(member) => Type::List(Box::new(self.ty(member)?)),
+            Type::Cell(member) => Type::Cell(Box::new(self.ty(member)?)),
             Type::Function { params, ret, row } => Type::Function {
                 params: self.types(params)?,
                 ret: Box::new(self.ty(ret)?),
@@ -304,21 +305,10 @@ impl Resolver<'_> {
                 left: Box::new(self.expr(left)?),
                 right: Box::new(self.expr(right)?),
             },
-            Expr::Match { subject, arms } => {
-                let subject = Box::new(self.expr(subject)?);
-                let mut resolved = Vec::new();
-                for arm in arms {
-                    let scope = self.locals.len();
-                    let pattern = self.pattern(&arm.pattern)?;
-                    let body = self.expr(&arm.body)?;
-                    self.locals.truncate(scope);
-                    resolved.push(Arm { pattern, body });
-                }
-                Expr::Match {
-                    subject,
-                    arms: resolved,
-                }
-            }
+            Expr::Match { subject, arms } => Expr::Match {
+                subject: Box::new(self.expr(subject)?),
+                arms: self.arms(arms)?,
+            },
             Expr::Perform { ability, args } => Expr::Perform {
                 ability: self.ability(ability)?,
                 args: self.exprs(args)?,
@@ -333,6 +323,16 @@ impl Resolver<'_> {
                 }
             }
             Expr::AbilityId(ability) => Expr::AbilityId(self.ability(ability)?),
+            Expr::All(branches) => Expr::All(self.exprs(branches)?),
+            Expr::Cell {
+                operation,
+                ty,
+                args,
+            } => Expr::Cell {
+                operation: *operation,
+                ty: ty.as_ref().map(|ty| self.ty(ty)).transpose()?,
+                args: self.exprs(args)?,
+            },
             Expr::Provide { bundle, only, body } => {
                 let bundle = Box::new(self.expr(bundle)?);
                 // The binder a provide holds its bundle in. It has no name.
@@ -362,6 +362,19 @@ impl Resolver<'_> {
             Key::Field(name) => Key::Field(name.clone()),
             Key::Ability(path) => Key::Ability(self.ability(path)?),
         })
+    }
+
+    /// Each arm, with what its pattern binds in scope for its body.
+    fn arms(&mut self, arms: &[Arm]) -> Result<Vec<Arm<Reference>>, Error> {
+        let mut resolved = Vec::new();
+        for arm in arms {
+            let scope = self.locals.len();
+            let pattern = self.pattern(&arm.pattern)?;
+            let body = self.expr(&arm.body)?;
+            self.locals.truncate(scope);
+            resolved.push(Arm { pattern, body });
+        }
+        Ok(resolved)
     }
 
     fn lambda(

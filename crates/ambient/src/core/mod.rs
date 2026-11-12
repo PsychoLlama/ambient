@@ -39,6 +39,7 @@ pub enum Type {
     Record(Vec<(Key, Type)>),
     Tuple(Vec<Type>),
     List(Box<Type>),
+    Cell(Box<Type>),
     Function {
         params: Vec<Type>,
         ret: Box<Type>,
@@ -148,6 +149,9 @@ pub enum Expr {
         captures: Vec<Expr>,
         bindings: Vec<Slot>,
     },
+    /// Runs each of these, closures that take nothing, as a task, and is
+    /// the tuple of their results once every one is over.
+    All(Vec<Expr>),
     /// What an observer is told an ability is: a string made from the
     /// ability's hash.
     AbilityId(Slot),

@@ -124,6 +124,6 @@ fn splice(value: &Value) -> Option<(core::Expr, Ty)> {
             }
             (core::Expr::Record(exprs), Ty::Record(types))
         }
-        Value::Function => return None,
+        Value::Function | Value::Cell => return None,
     })
 }

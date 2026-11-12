@@ -163,6 +163,12 @@ impl<S: wasmtime::AsContextMut> Guest<S> {
         result.map_or(0, |result| result.unwrap_i64().cast_unsigned())
     }
 
+    /// Calls a runtime export that returns a word.
+    fn words_of(&mut self, name: &str, args: &[Val]) -> u64 {
+        let result = self.runtime(name, args);
+        result.map_or(0, |result| result.unwrap_i64().cast_unsigned())
+    }
+
     /// Copies `bytes` into the runtime's memory and calls `name` with
     /// their address and length.
     fn with_bytes(&mut self, name: &str, bytes: &[u8]) -> u64 {
@@ -310,6 +316,14 @@ fn run_wasm(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -> 
     let entry = program.get_func(&mut guest.store, "entry").unwrap();
     let mut result = [Val::I64(0)];
     entry.call(&mut guest.store, &all, &mut result).unwrap();
+    // Unwinding in this mode is the root task suspending: the others take
+    // their turns, and the entry runs again to resume it.
+    while result[0].unwrap_i64().cast_unsigned() == ambient_runtime::UNWIND
+        && guest.words_of("amb_context_mode", &[context]) == ambient_runtime::SUSPENDING
+    {
+        guest.runtime("amb_schedule", &[context]);
+        entry.call(&mut guest.store, &all, &mut result).unwrap();
+    }
     let returned = result[0].unwrap_i64().cast_unsigned();
 
     let outcome = if returned == ambient_runtime::UNWIND {

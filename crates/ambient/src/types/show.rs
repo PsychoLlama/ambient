@@ -52,6 +52,11 @@ pub(super) fn show(ty: &Ty, out: &mut String) {
             show_all(members, ", ", out);
             out.push(')');
         }
+        Ty::Cell(member) => {
+            out.push_str("Cell<");
+            show(member, out);
+            out.push('>');
+        }
         Ty::List(member) => {
             out.push_str("List<");
             show(member, out);

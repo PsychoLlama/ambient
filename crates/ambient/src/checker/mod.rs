@@ -18,6 +18,7 @@ mod observe;
 mod operators;
 mod patterns;
 mod records;
+mod tasks;
 mod world;
 
 use std::collections::BTreeMap;
@@ -225,6 +226,7 @@ impl<'a> Checker<'a> {
                 core::Type::Tuple(members.iter().map(|m| self.lower(m)).collect())
             }
             Ty::List(member) => core::Type::List(Box::new(self.lower(member))),
+            Ty::Cell(member) => core::Type::Cell(Box::new(self.lower(member))),
             Ty::Function { params, ret, row } => core::Type::Function {
                 params: params.iter().map(|p| self.lower(p)).collect(),
                 ret: Box::new(self.lower(ret)),
@@ -385,6 +387,12 @@ impl<'a> Checker<'a> {
             Expr::Perform { ability, args } => self.perform(ability, args)?,
             Expr::Provide { bundle, only, body } => self.provide(bundle, *only, body)?,
             Expr::Observe { observer, body } => self.observe(observer, body)?,
+            Expr::All(branches) => self.all(branches)?,
+            Expr::Cell {
+                operation,
+                ty,
+                args,
+            } => self.cell(*operation, ty.as_ref(), args)?,
             Expr::AbilityId(ability) => match ability {
                 Reference::Definition(ability) => {
                     (core::Expr::AbilityId(self.slot(ability)), Ty::String)
