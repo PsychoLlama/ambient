@@ -128,6 +128,11 @@ impl Env {
     /// names expanded, record fields ordered, unions simplified.
     #[must_use]
     pub fn normalize(&self, ty: &Ty) -> Ty {
+        self.normal(ty, true)
+    }
+
+    /// [`Self::normalize`], with unions simplified only if `absorb`.
+    fn normal(&self, ty: &Ty, absorb: bool) -> Ty {
         match ty {
             Ty::Never
             | Ty::Unknown
@@ -142,29 +147,36 @@ impl Env {
             Ty::Record(fields) => {
                 let mut fields: Vec<_> = fields
                     .iter()
-                    .map(|(key, ty)| (key.clone(), self.normalize(ty)))
+                    .map(|(key, ty)| (key.clone(), self.normal(ty, absorb)))
                     .collect();
                 fields.sort_by(|(a, _), (b, _)| a.cmp(b));
                 Ty::Record(fields)
             }
-            Ty::Tuple(members) => Ty::Tuple(members.iter().map(|m| self.normalize(m)).collect()),
-            Ty::List(member) => Ty::List(Box::new(self.normalize(member))),
-            Ty::Cell(member) => Ty::Cell(Box::new(self.normalize(member))),
+            Ty::Tuple(members) => {
+                Ty::Tuple(members.iter().map(|m| self.normal(m, absorb)).collect())
+            }
+            Ty::List(member) => Ty::List(Box::new(self.normal(member, absorb))),
+            Ty::Cell(member) => Ty::Cell(Box::new(self.normal(member, absorb))),
             Ty::Function { params, ret, row } => {
                 let mut row = row.clone();
                 row.sort();
                 row.dedup();
                 Ty::Function {
-                    params: params.iter().map(|p| self.normalize(p)).collect(),
-                    ret: Box::new(self.normalize(ret)),
+                    params: params.iter().map(|p| self.normal(p, absorb)).collect(),
+                    ret: Box::new(self.normal(ret, absorb)),
                     row,
                 }
             }
-            Ty::Union(members) => self.union(members.iter().map(|m| self.normalize(m)).collect()),
+            Ty::Union(members) => {
+                let members = members.iter().map(|m| self.normal(m, absorb)).collect();
+                self.join(members, absorb)
+            }
             Ty::Named(Reference::Definition(symbol), args) => {
-                let args: Vec<Ty> = args.iter().map(|arg| self.normalize(arg)).collect();
+                let args: Vec<Ty> = args.iter().map(|arg| self.normal(arg, absorb)).collect();
                 match self.types.get(symbol) {
-                    Some(info) if !info.recursive => self.normalize(&substitute(&info.ty, &args)),
+                    Some(info) if !info.recursive => {
+                        self.normal(&substitute(&info.ty, &args), absorb)
+                    }
                     _ => Ty::Named(Reference::Definition(symbol.clone()), args),
                 }
             }
@@ -173,6 +185,10 @@ impl Env {
 
     /// A normalized type with any recursive name at its head replaced by
     /// its definition, so its outermost constructor can be inspected.
+    ///
+    /// The unions of the definition are not simplified: simplifying asks
+    /// whether one member is a subtype of another, which unfolds, and a
+    /// definition that holds a union with itself in it would never be done.
     #[must_use]
     pub fn unfold(&self, ty: &Ty) -> Ty {
         let mut ty = ty.clone();
@@ -185,7 +201,7 @@ impl Env {
             let Some(info) = self.recursive(symbol) else {
                 break;
             };
-            ty = self.normalize(&substitute(&info.ty, args));
+            ty = self.normal(&substitute(&info.ty, args), false);
         }
         ty
     }
@@ -194,6 +210,11 @@ impl Env {
     /// members that another member already covers dropped.
     #[must_use]
     pub fn union(&self, members: Vec<Ty>) -> Ty {
+        self.join(members, true)
+    }
+
+    /// [`Self::union`], dropping covered members only if `absorb`.
+    fn join(&self, members: Vec<Ty>, absorb: bool) -> Ty {
         let mut flat = Vec::new();
         for member in members {
             match member {
@@ -204,6 +225,10 @@ impl Env {
         }
         let mut kept: Vec<Ty> = Vec::new();
         for member in flat {
+            if !absorb {
+                kept.push(member);
+                continue;
+            }
             if kept.iter().any(|other| self.subtype(&member, other)) {
                 continue;
             }
@@ -216,6 +241,7 @@ impl Env {
             kept.push(Ty::Bool);
         }
         kept.sort();
+        kept.dedup();
         match kept.len() {
             0 => Ty::Never,
             1 => kept.remove(0),

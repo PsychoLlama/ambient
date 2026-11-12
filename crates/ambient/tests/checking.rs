@@ -202,6 +202,17 @@ fn recursive_types_are_compared_by_structure() {
 }
 
 #[test]
+fn a_recursive_type_is_a_member_of_a_union_in_its_own_definition() {
+    let tail = ty::union([ty::named("Items"), ty::null()]);
+    let items = b::type_("Items", ty::record([("head", ty::int()), ("tail", tail)]));
+    let one = b::record([("head", b::int(1)), ("tail", b::null())]);
+    let bad = b::record([("head", b::int(1)), ("tail", b::int(2))]);
+
+    assert!(check([items.clone(), returning(ty::named("Items"), one)]).is_ok());
+    assert!(check([items, returning(ty::named("Items"), bad)]).is_err());
+}
+
+#[test]
 fn a_recursive_type_must_pass_through_a_constructor() {
     for body in [ty::named("T"), ty::union([ty::null(), ty::named("T")])] {
         let result = check([
