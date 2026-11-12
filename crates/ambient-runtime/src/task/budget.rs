@@ -5,7 +5,7 @@
 //! the task is inside, and the first to run out unwinds the task to it.
 //! Tasks started inside a budget are inside it too.
 
-use super::{interrupted, scheduler};
+use super::scheduler;
 use crate::boundary::FAULT_PACKAGE;
 use crate::number::amb_int_new;
 use crate::object::{fault, header, int, is_object};
@@ -94,7 +94,7 @@ pub unsafe extern "C" fn amb_charge(context: *mut Context, steps: u64, words: u6
         if next.is_none() {
             return NULL;
         }
-        if interrupted(context) {
+        if scheduler.interrupted() {
             return fault(context, Fault::Cancelled);
         }
         let mut spent = false;

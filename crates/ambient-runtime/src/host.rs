@@ -22,6 +22,12 @@ pub unsafe extern "C" fn amb_context_new() -> *mut Context {
     }))
 }
 
+/// Frees a context.
+///
+/// The entry must have returned for good: with a value, or unwinding in a
+/// mode other than suspending. Every task is over by then. A context
+/// freed while tasks are suspended drops them where they wait, without
+/// their cleanups, and leaks what they held.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_context_free(context: *mut Context) {
     unsafe {

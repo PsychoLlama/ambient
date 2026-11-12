@@ -7,7 +7,7 @@
 //! its next suspension in the body, as if cancelled, and the group goes on
 //! unwinding with the task's failure.
 
-use super::{Join, Task, arriving, interrupted, mask, scheduler, suspend};
+use super::{Join, Task, arriving, interrupted, scheduler, suspend};
 use crate::abort::abandon;
 use crate::number::amb_int_new;
 use crate::object::{amb_retain, fault, int};
@@ -107,10 +107,11 @@ pub unsafe extern "C" fn amb_group_end(context: *mut Context, group: Word, held:
             .and_then(Option::take)
             .and_then(|join| join.failure);
         let Some(failure) = failure else {
+            let interrupted = scheduler.interrupted();
             if held != NULL {
                 return amb_rethrow(context, held);
             }
-            if interrupted(context) {
+            if interrupted {
                 return fault(context, Fault::Cancelled);
             }
             return NULL;
@@ -119,7 +120,7 @@ pub unsafe extern "C" fn amb_group_end(context: *mut Context, group: Word, held:
         let task = scheduler.current();
         task.disturbed = task.disturbed.saturating_sub(1);
         if held != NULL {
-            mask(context, false);
+            scheduler.mask(false);
         }
         abandon(context);
         (*context).fault = failure.fault;

@@ -82,7 +82,7 @@ unsafe fn joined(context: *mut Context) -> Word {
         let unfinished = scheduler.joins[id]
             .as_ref()
             .is_some_and(|join| join.remaining > 0);
-        if unfinished && !interrupted(context) {
+        if unfinished && !scheduler.interrupted() {
             // It was cancelled inside a cleanup, which goes on waiting.
             return suspend(context);
         }
@@ -105,7 +105,7 @@ unsafe fn joined(context: *mut Context) -> Word {
             return fault(context, Fault::Cancelled);
         };
         let failure = match join.failure {
-            _ if interrupted(context) => Some(Fault::Cancelled as u64),
+            _ if scheduler.interrupted() => Some(Fault::Cancelled as u64),
             Some(failure) => {
                 (*context).abort_token = failure.token;
                 (*context).abort_args = failure.args;

@@ -144,6 +144,24 @@ impl Scheduler {
         self.queue(id);
     }
 
+    /// Whether the current task is to unwind where it is: it has been
+    /// cancelled, and is not inside a cleanup.
+    fn interrupted(&mut self) -> bool {
+        let stalled = self.stalled;
+        let task = self.current();
+        (task.cancelled || task.disturbed > 0) && (task.masked == 0 || stalled)
+    }
+
+    /// Notes that the current task has entered a cleanup, or left one.
+    fn mask(&mut self, entering: bool) {
+        let task = self.current();
+        task.masked = if entering {
+            task.masked + 1
+        } else {
+            task.masked.saturating_sub(1)
+        };
+    }
+
     /// Records that a task is over, with `result` if it gave one.
     unsafe fn finish(&mut self, id: usize, result: Option<Word>) {
         let Some(task) = self.tasks[id].take() else {
@@ -182,8 +200,12 @@ impl Scheduler {
     }
 }
 
-/// The scheduler of a context. Nothing holds this across a call into
-/// compiled code, which may come back into the runtime.
+/// The scheduler of a context.
+///
+/// This is the only way to it, and it is exclusive: whoever holds what
+/// this returns must be done with it before anything else asks, which
+/// means before calling compiled code, which comes back into the
+/// runtime, and before calling any function here that takes a context.
 unsafe fn scheduler<'a>(context: *mut Context) -> &'a mut Scheduler {
     unsafe { &mut *((*context).scheduler as usize as *mut Scheduler) }
 }
@@ -251,20 +273,12 @@ pub(crate) unsafe fn suspend(context: *mut Context) -> Word {
 /// Whether the current task is to unwind where it is: it has been
 /// cancelled, and is not inside a cleanup.
 pub(crate) unsafe fn interrupted(context: *mut Context) -> bool {
-    let scheduler = unsafe { scheduler(context) };
-    let stalled = scheduler.stalled;
-    let task = scheduler.current();
-    (task.cancelled || task.disturbed > 0) && (task.masked == 0 || stalled)
+    unsafe { scheduler(context) }.interrupted()
 }
 
 /// Notes that the current task has entered a cleanup, or left one.
 pub(crate) unsafe fn mask(context: *mut Context, entering: bool) {
-    let task = unsafe { scheduler(context) }.current();
-    task.masked = if entering {
-        task.masked + 1
-    } else {
-        task.masked.saturating_sub(1)
-    };
+    unsafe { scheduler(context) }.mask(entering);
 }
 
 /// Makes the current task wait on `cell`, or stop waiting.
