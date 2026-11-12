@@ -33,6 +33,8 @@ pub enum BuildError {
         name: String,
     },
     DuplicateField(String),
+    /// A comptime call must be a call to a function by name.
+    ComptimeNotCall,
     /// One pattern binds a name twice.
     DuplicateBinder(String),
     /// An import must name a package and at least one thing inside it.
@@ -51,6 +53,9 @@ impl fmt::Display for BuildError {
                 write!(f, "two type parameters are named `{name}`")
             }
             Self::DuplicateField(name) => write!(f, "a record has two fields named `{name}`"),
+            Self::ComptimeNotCall => {
+                write!(f, "a comptime call must call a function by name")
+            }
             Self::DuplicateBinder(name) => write!(f, "a pattern binds `{name}` twice"),
             Self::ImportTooShort(path) => write!(f, "import `{path}` names only a package"),
         }
@@ -248,6 +253,13 @@ pub fn lambda<'a>(
             .collect(),
         body: Box::new(body),
     }
+}
+
+/// Runs `call`, a call to a named function, during compilation, and
+/// stands for its result.
+#[must_use]
+pub fn comptime(call: Expr) -> Expr {
+    Expr::Comptime(Box::new(call))
 }
 
 /// `value` at type `ty` if the type describes it, and `otherwise` if not.
@@ -741,6 +753,14 @@ fn check_expr(expr: &Expr) -> Result<(), BuildError> {
                 }
             }
             check_expr(body)
+        }
+        Expr::Comptime(call) => {
+            let named =
+                matches!(&**call, Expr::Call { callee, .. } if matches!(**callee, Expr::Name(_)));
+            if !named {
+                return Err(BuildError::ComptimeNotCall);
+            }
+            check_expr(call)
         }
         Expr::Cast {
             value,

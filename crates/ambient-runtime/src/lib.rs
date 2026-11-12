@@ -613,6 +613,16 @@ pub unsafe extern "C" fn amb_string_pinned(pointer: *const u8, length: u64) -> W
     }
 }
 
+/// A string copied from `length` bytes at `pointer`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_string_new(pointer: *const u8, length: u64) -> Word {
+    unsafe {
+        let word = object(KIND_STRING, length as usize);
+        std::ptr::copy_nonoverlapping(pointer, payload(word).cast::<u8>(), length as usize);
+        word
+    }
+}
+
 /// The one string with these bytes that stands for a field name. Two field
 /// names are the same name exactly when their words are equal.
 #[unsafe(no_mangle)]

@@ -282,6 +282,7 @@ impl Resolver<'_> {
                     body,
                 }
             }
+            Expr::Comptime(call) => Expr::Comptime(Box::new(self.expr(call)?)),
             Expr::Cast {
                 value,
                 ty,

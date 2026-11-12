@@ -165,80 +165,98 @@ impl Engine<'_> {
                 }
                 return Ok(Arc::new(open.clone()));
             }
-            let resolved = self.resolve(symbol)?;
-            let mut env = Env::default();
-            let mut key = Hasher::new("check");
-            key.hash(&resolved.digest);
-
-            match &resolved.definition.kind {
-                DefinitionKind::Type(definition) => {
-                    // A type refers only to types, so what checking one
-                    // reads is the definitions it can reach.
-                    self.gather(vec![symbol.clone()], &mut env)?;
-                    for reachable in env.types.keys() {
-                        key.hash(&self.resolve(reachable)?.digest);
-                    }
-                    self.stage(Stage::Check, symbol, key.finish(), || {
-                        checker::check_type(symbol, definition, &env)
-                    })
-                }
-                DefinitionKind::Function(function) => {
-                    let mut types = Vec::new();
-                    for used in definitions(|visit| {
-                        resolved.definition.names(&mut |name| visit(name));
-                    }) {
-                        match used.namespace {
-                            Namespace::Type => {
-                                key.hash(&self.hash(&used)?);
-                                types.push(used);
-                            }
-                            Namespace::Value => {
-                                key.hash(&self.interface(&used)?.digest);
-                                let header = self.resolve(&used)?;
-                                if let DefinitionKind::Function(header) = &header.definition.kind {
-                                    types.extend(header_definitions(header));
-                                    let signature = Signature {
-                                        type_params: header
-                                            .type_params
-                                            .iter()
-                                            .map(|p| p.bound.clone().unwrap_or(Ty::Unknown))
-                                            .collect(),
-                                        params: header
-                                            .params
-                                            .iter()
-                                            .map(|p| p.ty.clone())
-                                            .collect(),
-                                        ret: header.ret.clone(),
-                                    };
-                                    env.functions.insert(used, signature);
-                                }
-                            }
-                            Namespace::Ability => {}
-                        }
-                    }
-                    self.gather(types, &mut env)?;
-                    // Headers are read in normal form everywhere.
-                    let functions = std::mem::take(&mut env.functions);
-                    env.functions = functions
-                        .into_iter()
-                        .map(|(symbol, signature)| {
-                            let signature = Signature {
-                                type_params: signature
-                                    .type_params
-                                    .iter()
-                                    .map(|bound| env.normalize(bound))
-                                    .collect(),
-                                params: signature.params.iter().map(|p| env.normalize(p)).collect(),
-                                ret: env.normalize(&signature.ret),
-                            };
-                            (symbol, signature)
-                        })
-                        .collect();
-                    self.stage(Stage::Check, symbol, key.finish(), || {
-                        checker::check_function(symbol, function, env)
-                    })
-                }
+            // A comptime call inside this definition may come back here.
+            if self.checking.borrow().contains(symbol) {
+                return Err(Error::ComptimeCycle(symbol.clone()));
             }
+            self.checking.borrow_mut().push(symbol.clone());
+            let result = self.check_named(symbol);
+            self.checking.borrow_mut().pop();
+            result
         })
+    }
+
+    fn check_named(&self, symbol: &Symbol) -> Query<Open> {
+        let resolved = self.resolve(symbol)?;
+        let mut env = Env::default();
+        let mut key = Hasher::new("check");
+        key.hash(&resolved.digest);
+
+        match &resolved.definition.kind {
+            DefinitionKind::Type(definition) => {
+                // A type refers only to types, so what checking one
+                // reads is the definitions it can reach.
+                self.gather(vec![symbol.clone()], &mut env)?;
+                for reachable in env.types.keys() {
+                    key.hash(&self.resolve(reachable)?.digest);
+                }
+                self.stage(Stage::Check, symbol, key.finish(), || {
+                    checker::check_type(symbol, definition, &env)
+                })
+            }
+            DefinitionKind::Function(function) => {
+                let mut types = Vec::new();
+                for used in definitions(|visit| {
+                    resolved.definition.names(&mut |name| visit(name));
+                }) {
+                    match used.namespace {
+                        Namespace::Type => {
+                            key.hash(&self.hash(&used)?);
+                            types.push(used);
+                        }
+                        Namespace::Value => {
+                            key.hash(&self.interface(&used)?.digest);
+                            let header = self.resolve(&used)?;
+                            if let DefinitionKind::Function(header) = &header.definition.kind {
+                                types.extend(header_definitions(header));
+                                let signature = Signature {
+                                    type_params: header
+                                        .type_params
+                                        .iter()
+                                        .map(|p| p.bound.clone().unwrap_or(Ty::Unknown))
+                                        .collect(),
+                                    params: header.params.iter().map(|p| p.ty.clone()).collect(),
+                                    ret: header.ret.clone(),
+                                };
+                                env.functions.insert(used, signature);
+                            }
+                        }
+                        Namespace::Ability => {}
+                    }
+                }
+                self.gather(types, &mut env)?;
+                // Headers are read in normal form everywhere.
+                let functions = std::mem::take(&mut env.functions);
+                env.functions = functions
+                    .into_iter()
+                    .map(|(symbol, signature)| {
+                        let signature = Signature {
+                            type_params: signature
+                                .type_params
+                                .iter()
+                                .map(|bound| env.normalize(bound))
+                                .collect(),
+                            params: signature.params.iter().map(|p| env.normalize(p)).collect(),
+                            ret: env.normalize(&signature.ret),
+                        };
+                        (symbol, signature)
+                    })
+                    .collect();
+                // What a comptime call returns is content of this
+                // definition, and depends on everything its callee is.
+                let mut callees = Vec::new();
+                function.body.comptime_callees(&mut |name| {
+                    if let Reference::Definition(callee) = name {
+                        callees.push(callee.clone());
+                    }
+                });
+                for callee in &callees {
+                    key.hash(&self.hash(callee)?);
+                }
+                self.stage(Stage::Check, symbol, key.finish(), || {
+                    checker::check_function(symbol, function, env, self)
+                })
+            }
+        }
     }
 }

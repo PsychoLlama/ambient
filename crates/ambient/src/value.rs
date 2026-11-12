@@ -3,8 +3,9 @@
 use std::collections::BTreeMap;
 
 use ambient_runtime::{Kind, Word};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     Null,
     Bool(bool),

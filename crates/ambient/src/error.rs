@@ -65,6 +65,15 @@ pub enum Error {
     /// A generic function is used where its type arguments cannot be
     /// worked out.
     CannotInfer { symbol: Symbol, function: Symbol },
+    /// A comptime argument's value is not known from its type.
+    NotComptime { symbol: Symbol, found: String },
+    /// A comptime call's result has no literal form.
+    NotSpliceable { symbol: Symbol },
+    /// A comptime call faulted.
+    ComptimeFault { function: Symbol, fault: String },
+    /// A definition's content depends on a comptime call that depends on
+    /// the definition.
+    ComptimeCycle(Symbol),
     /// A lambda parameter has no type, and nothing expects one of it.
     UntypedParameter { symbol: Symbol, name: String },
     /// A recursive generic type applies itself to something other than its
@@ -141,6 +150,19 @@ impl fmt::Display for Error {
                     f,
                     "{symbol}: cannot infer the type arguments of `{function}`"
                 )
+            }
+            Self::NotComptime { symbol, found } => write!(
+                f,
+                "{symbol}: a comptime argument must have one possible value, found `{found}`"
+            ),
+            Self::NotSpliceable { symbol } => {
+                write!(f, "{symbol}: a comptime result must be plain data")
+            }
+            Self::ComptimeFault { function, fault } => {
+                write!(f, "`{function}` faulted during compilation: {fault}")
+            }
+            Self::ComptimeCycle(symbol) => {
+                write!(f, "{symbol}: depends on a comptime call that depends on it")
             }
             Self::UntypedParameter { symbol, name } => {
                 write!(f, "{symbol}: parameter `{name}` needs a type")

@@ -26,6 +26,7 @@ mod group;
 mod link;
 mod read;
 mod resolve;
+mod run;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -58,6 +59,8 @@ pub enum Stage {
     Resolve,
     Check,
     Compile,
+    /// A function called during the build.
+    Run,
 }
 
 /// Whether a stage did its work or took the result from the store.
@@ -89,6 +92,10 @@ pub struct Engine<'a> {
     check: Memo<Symbol, crate::core::Open>,
     hash: RefCell<HashMap<Symbol, Hash>>,
     compile: Memo<(Symbol, String), Artifact>,
+    /// The definitions being checked, outermost first. A comptime call
+    /// makes checking re-entrant; this is how a cycle through one is seen.
+    checking: RefCell<Vec<Symbol>>,
+    runner: run::Runner,
 }
 
 impl<'a> Engine<'a> {
@@ -106,6 +113,8 @@ impl<'a> Engine<'a> {
             check: RefCell::default(),
             hash: RefCell::default(),
             compile: RefCell::default(),
+            checking: RefCell::default(),
+            runner: run::Runner::default(),
         }
     }
 

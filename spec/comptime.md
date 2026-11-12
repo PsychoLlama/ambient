@@ -9,6 +9,10 @@ A comptime call runs an ordinary function during compilation and splices its res
 - An argument is an expression of [singleton type](types.md), a closed type, or a closed row.
 - The result replaces the call before checking; the enclosing definition's hash covers the result, not the call.
 - A comptime call runs only when its enclosing definition is demanded by a [build](build.md).
+- Checking the enclosing definition depends on the callee's [hash](definitions.md), not only its interface, because the result is the enclosing definition's content.
+- A definition whose content depends on a comptime call that depends on that definition is an error.
+- A [fault](values.md) in a comptime call is a compile error at the call.
+- A comptime call is compiled and run for the machine doing the build, whatever the program is being built for.
 
 ## Splice positions
 

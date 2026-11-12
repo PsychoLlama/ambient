@@ -7,7 +7,8 @@
 ## Invariants
 
 - No text syntax. Programs are made with `ambient::builder`; do not add a parser or a printer that can be parsed back.
-- Every stage result is stored under a key derived from the content of its inputs (`engine/mod.rs`). A stage's compute function reads nothing that is not in its key, and never sees the engine.
+- Every stage result is stored under a key derived from the content of its inputs (`engine/mod.rs`). A stage's compute function reads nothing that is not in its key.
+- Checking is re-entrant: a comptime call compiles and runs its callee mid-check (`engine/run.rs`). The check key covers the callee's hash, which is what keeps the result a function of the key.
 - Names, docs, and declaration order never reach a core tree or a hash.
 - A backend only translates `lir`; anything about semantics belongs in `lower.rs` or the runtime, so both backends get it.
 - Layouts and the calling convention are defined once, in `ambient-runtime`; never restate an offset in a backend.

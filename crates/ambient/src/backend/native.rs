@@ -22,7 +22,7 @@ use crate::core::Open;
 use crate::engine::{Backend, Body, Parts};
 use crate::lir::{self, Arg, Expr, Op};
 use crate::lower::lower;
-use crate::value::Inspect;
+use crate::value::{Inspect, Value};
 
 /// Compiles for the machine this process runs on.
 pub struct Native {
@@ -474,6 +474,46 @@ impl Program {
                 Err(fault)
             } else {
                 Ok(result)
+            }
+        }
+    }
+}
+
+/// A value as a word the caller owns.
+#[must_use]
+pub fn encode(value: &Value) -> Word {
+    let count = |length: usize| length as u64;
+    // SAFETY: each constructor is given what it documents: lengths that
+    // match the pointers, and indices within the lengths just allocated.
+    unsafe {
+        match value {
+            Value::Null | Value::Function => NULL,
+            Value::Bool(true) => TRUE,
+            Value::Bool(false) => FALSE,
+            Value::Int(value) => ambient_runtime::amb_int_new(*value),
+            Value::Float(value) => ambient_runtime::amb_float_new(value.to_bits()),
+            Value::String(text) => {
+                ambient_runtime::amb_string_new(text.as_ptr(), count(text.len()))
+            }
+            Value::Tuple(members) | Value::List(members) => {
+                let list = u64::from(matches!(value, Value::List(_)));
+                let word = ambient_runtime::amb_sequence_new(list, count(members.len()));
+                for (index, member) in members.iter().enumerate() {
+                    let member = encode(member);
+                    ambient_runtime::amb_sequence_set(word, count(index), member);
+                    ambient_runtime::amb_release(member);
+                }
+                word
+            }
+            Value::Record(fields) => {
+                let word = ambient_runtime::amb_record_new(count(fields.len()));
+                for (name, member) in fields {
+                    let key = ambient_runtime::amb_intern(name.as_ptr(), count(name.len()));
+                    let member = encode(member);
+                    ambient_runtime::amb_record_set(word, key, member);
+                    ambient_runtime::amb_release(member);
+                }
+                word
             }
         }
     }

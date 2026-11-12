@@ -210,6 +210,8 @@ pub enum Expr<N = Path> {
         params: Vec<(String, Option<Type<N>>)>,
         body: Box<Expr<N>>,
     },
+    /// A call that runs during compilation, replaced by its result.
+    Comptime(Box<Expr<N>>),
     /// `value` at type `ty` if the type describes it, and `otherwise` if not.
     Cast {
         value: Box<Expr<N>>,
@@ -312,6 +314,7 @@ impl<N> Expr<N> {
                 }
                 body.names(visit);
             }
+            Self::Comptime(call) => call.names(visit),
             Self::Cast {
                 value,
                 ty,
@@ -360,9 +363,60 @@ impl<N> Expr<N> {
                 subject.binders() + arms
             }
             Self::Lambda { params, body } => params.len() + body.binders(),
+            Self::Comptime(call) => call.binders(),
             Self::Cast {
                 value, otherwise, ..
             } => value.binders() + otherwise.binders(),
+        }
+    }
+}
+
+impl<N> Expr<N> {
+    /// Calls `visit` with the callee of every comptime call inside the
+    /// expression.
+    pub fn comptime_callees<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
+        if let Self::Comptime(call) = self
+            && let Self::Call { callee, .. } = &**call
+            && let Self::Name(name) = &**callee
+        {
+            visit(name);
+        }
+        self.children(&mut |child| child.comptime_callees(visit));
+    }
+
+    /// Calls `visit` with each expression directly inside this one.
+    fn children<'a>(&'a self, visit: &mut impl FnMut(&'a Self)) {
+        match self {
+            Self::Null | Self::Literal(_) | Self::Name(_) | Self::Instantiate { .. } => {}
+            Self::Call { callee, args } => {
+                visit(callee);
+                args.iter().for_each(visit);
+            }
+            Self::Record(fields) => fields.iter().for_each(|(_, value)| visit(value)),
+            Self::Tuple(members) | Self::List(members) => members.iter().for_each(visit),
+            Self::Field { target, .. } => visit(target),
+            Self::Let { value, body, .. } => {
+                visit(value);
+                visit(body);
+            }
+            Self::Binary { left, right, .. } => {
+                visit(left);
+                visit(right);
+            }
+            Self::Match { subject, arms } => {
+                visit(subject);
+                for arm in arms {
+                    visit(&arm.body);
+                }
+            }
+            Self::Lambda { body, .. } => visit(body),
+            Self::Comptime(call) => visit(call),
+            Self::Cast {
+                value, otherwise, ..
+            } => {
+                visit(value);
+                visit(otherwise);
+            }
         }
     }
 }
