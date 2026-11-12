@@ -13,7 +13,7 @@ use ambient::error::Error;
 use ambient::pack::{Pack, Refused, Target};
 use ambient::store::MemoryStore;
 use ambient::surface::Definition;
-use ambient::value::Value;
+use ambient::value::{Function, Value};
 use ambient::workspace::Workspace;
 use support::{run_entry, value, workspace};
 
@@ -140,4 +140,37 @@ fn bytes_that_are_not_a_pack_do_not_decode() {
     assert!(Pack::decode(&[0xff; 8]).is_err());
     pack.entry = 7;
     assert!(Pack::decode(&pack.encode()).is_err());
+}
+
+/// Runs `main` of `program`, which gives a function, and returns it with
+/// the hash of `named` there.
+fn function_from(program: &Workspace, named: &str) -> (Function, ambient::hash::Hash) {
+    let store = MemoryStore::new();
+    let engine = Engine::new(program, &store);
+    let outcome = run_entry(&engine, &value("main", "main"), &[], Natives::new);
+    let Ok(Value::Function(function)) = outcome else {
+        panic!("expected a function, got {outcome:?}");
+    };
+    (function, engine.hash(&value("main", named)).unwrap())
+}
+
+#[test]
+fn a_function_value_names_its_definition_by_hash() {
+    let main = b::function("main")
+        .returns(ty::unknown())
+        .body(b::name("double"));
+    let (function, double) = function_from(&module([double(), main]), "double");
+    assert_eq!(function.definition, Some(double));
+    assert_eq!(function.captures, Vec::new());
+}
+
+#[test]
+fn a_function_value_holds_what_it_captured() {
+    let adder = b::lambda([("n", Some(ty::int()))], b::add(b::name("n"), b::name("k")));
+    let main = b::function("main")
+        .returns(ty::unknown())
+        .body(b::let_("k", b::int(7), adder));
+    let (function, main) = function_from(&module([main]), "main");
+    assert!(function.captures.contains(&Value::Int(7)));
+    assert!(function.definition.is_some_and(|lambda| lambda != main));
 }

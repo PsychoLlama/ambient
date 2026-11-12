@@ -5,8 +5,17 @@
 use std::collections::BTreeMap;
 
 use ambient::exchange::{Malformed, Unsendable, decode, encode, hash};
-use ambient::value::Value;
+use ambient::hash::Hash;
+use ambient::value::{Function, Value};
 use proptest::prelude::*;
+
+/// A function over the definition with this hash.
+fn function((definition, captures): ([u8; 32], Vec<Value>)) -> Value {
+    Value::Function(Function {
+        definition: Some(Hash::from_bytes(definition)),
+        captures,
+    })
+}
 
 /// Any value that can be sent.
 fn value() -> impl Strategy<Value = Value> {
@@ -22,7 +31,8 @@ fn value() -> impl Strategy<Value = Value> {
         prop_oneof![
             prop::collection::vec(inner.clone(), 0..4).prop_map(Value::Tuple),
             prop::collection::vec(inner.clone(), 0..4).prop_map(Value::List),
-            prop::collection::btree_map("[a-z]*", inner, 0..4).prop_map(Value::Record),
+            prop::collection::btree_map("[a-z]*", inner.clone(), 0..4).prop_map(Value::Record),
+            (any::<[u8; 32]>(), prop::collection::vec(inner, 0..4)).prop_map(function),
         ]
     })
 }
@@ -107,11 +117,11 @@ fn a_record_whose_fields_are_out_of_order_does_not_decode() {
 }
 
 #[test]
-fn a_value_that_holds_a_cell_or_a_function_has_no_encoding() {
+fn a_value_that_holds_a_cell_or_an_abort_handler_has_no_encoding() {
     let holding = |value: Value| Value::List(vec![Value::Int(1), value]);
 
     assert_eq!(encode(&holding(Value::Cell)), Err(Unsendable::Cell));
-    assert_eq!(encode(&holding(Value::Function)), Err(Unsendable::Function));
+    assert_eq!(encode(&holding(Value::Token)), Err(Unsendable::Abort));
 }
 
 #[test]

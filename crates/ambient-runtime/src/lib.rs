@@ -150,6 +150,9 @@ pub enum Kind {
     Function = 8,
     Cell = 9,
     Tag = 10,
+    /// Not a value a program can name: what an abort handler is bound
+    /// to.
+    Token = 11,
 }
 
 /// The state of one execution. Compiled code receives a pointer to it as

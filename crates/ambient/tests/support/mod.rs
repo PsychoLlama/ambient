@@ -241,6 +241,10 @@ impl<S: wasmtime::AsContextMut> ambient::value::Inspect for Guest<S> {
         self.words("amb_float_bits", &[word])
     }
 
+    fn definition(&mut self, word: u64) -> u64 {
+        self.words("amb_closure_hash", &[word])
+    }
+
     fn length(&mut self, word: u64) -> u64 {
         self.words("amb_length", &[word])
     }

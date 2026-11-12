@@ -10,15 +10,18 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::hash::{Hash, Hasher};
-use crate::value::Value;
+use crate::value::{Function, Value};
 
 /// Why a value has no encoding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unsendable {
     /// It contains a cell, which is tied to the program that holds it.
     Cell,
-    /// It contains a function. A host cannot read one back yet, so it
-    /// has nothing to encode.
+    /// It contains an abort handler, which is tied to a provide that is
+    /// still running.
+    Abort,
+    /// It contains a function whose definition has no hash to name it
+    /// by.
     Function,
 }
 
@@ -26,7 +29,8 @@ impl fmt::Display for Unsendable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Cell => write!(f, "a cell never leaves its program"),
-            Self::Function => write!(f, "a function cannot be encoded yet"),
+            Self::Abort => write!(f, "an abort handler never leaves its program"),
+            Self::Function => write!(f, "a function has no definition to name"),
         }
     }
 }
@@ -55,6 +59,7 @@ const TAG: u8 = 6;
 const TUPLE: u8 = 7;
 const LIST: u8 = 8;
 const RECORD: u8 = 9;
+const FUNCTION: u8 = 10;
 
 fn text(text: &str, out: &mut Vec<u8>) {
     out.extend_from_slice(&(text.len() as u64).to_le_bytes());
@@ -116,8 +121,23 @@ pub fn encode(value: &Value) -> Result<Vec<u8>, Unsendable> {
                 let fields = fields.iter().rev();
                 pending.extend(fields.map(|(name, member)| (Some(name.as_str()), member)));
             }
-            Value::Function => return Err(Unsendable::Function),
+            // A function is its definition's hash and what it captured:
+            // the definition itself travels as a pack.
+            Value::Function(function) => {
+                let definition = function.definition.ok_or(Unsendable::Function)?;
+                out.push(FUNCTION);
+                out.extend_from_slice(definition.as_bytes());
+                count(function.captures.len(), &mut out);
+                pending.extend(
+                    function
+                        .captures
+                        .iter()
+                        .rev()
+                        .map(|capture| (None, capture)),
+                );
+            }
             Value::Cell => return Err(Unsendable::Cell),
+            Value::Token => return Err(Unsendable::Abort),
         }
     }
     Ok(out)
@@ -142,6 +162,10 @@ enum Partial {
         fields: BTreeMap<String, Value>,
         key: String,
     },
+    Function {
+        definition: Hash,
+        captures: Vec<Value>,
+    },
 }
 
 struct Reader<'a>(&'a [u8]);
@@ -156,6 +180,11 @@ impl Reader<'_> {
     fn u64(&mut self) -> Result<u64, Malformed> {
         let bytes = self.take(8)?.try_into().map_err(|_| Malformed)?;
         Ok(u64::from_le_bytes(bytes))
+    }
+
+    fn hash(&mut self) -> Result<Hash, Malformed> {
+        let bytes = self.take(32)?.try_into().map_err(|_| Malformed)?;
+        Ok(Hash::from_bytes(bytes))
     }
 
     fn text(&mut self) -> Result<String, Malformed> {
@@ -195,6 +224,13 @@ impl Open {
             } => Value::List(members),
             Partial::Sequence { members, .. } => Value::Tuple(members),
             Partial::Record { fields, .. } => Value::Record(fields),
+            Partial::Function {
+                definition,
+                captures,
+            } => Value::Function(Function {
+                definition: Some(definition),
+                captures,
+            }),
         }
     }
 }
@@ -223,11 +259,15 @@ pub fn decode(bytes: &[u8]) -> Result<Value, Malformed> {
                 package: reader.text()?,
                 tag: reader.text()?,
             },
-            kind @ (TUPLE | LIST | RECORD) => {
+            kind @ (TUPLE | LIST | RECORD | FUNCTION) => {
                 let partial = match kind {
                     RECORD => Partial::Record {
                         fields: BTreeMap::new(),
                         key: String::new(),
+                    },
+                    FUNCTION => Partial::Function {
+                        definition: reader.hash()?,
+                        captures: Vec::new(),
                     },
                     _ => sequence(kind == LIST),
                 };
@@ -255,7 +295,10 @@ pub fn decode(bytes: &[u8]) -> Result<Value, Malformed> {
                 };
             };
             match &mut parent.partial {
-                Partial::Sequence { members, .. } => members.push(value),
+                Partial::Sequence { members, .. }
+                | Partial::Function {
+                    captures: members, ..
+                } => members.push(value),
                 Partial::Record { fields, key } => {
                     fields.insert(std::mem::take(key), value);
                 }

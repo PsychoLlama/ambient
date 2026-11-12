@@ -23,6 +23,7 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 - Every value that is not anchored has one canonical encoding, determined by its shape alone.
 - Equal values encode identically, so the encoding gives every value a hash.
 - A function value encodes as its definition hash and its captures; the definition itself travels as a [pack](exchange.md).
+- The bindings a function captured are among its captures, so a captured abort handler anchors it.
 - A decoded value is `unknown`.
 - A value is anchored if it contains a handle, a [cell](cells.md), a [native handler](externs.md), or an [abort](handlers.md) handler.
 - An anchored value is tied to the program and scope that hold it and has no encoding.

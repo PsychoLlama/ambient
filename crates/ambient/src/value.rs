@@ -3,6 +3,8 @@
 use std::collections::BTreeMap;
 
 use ambient_runtime::{Kind, Word};
+
+use crate::hash::Hash;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -20,10 +22,21 @@ pub enum Value {
     Tuple(Vec<Value>),
     List(Vec<Value>),
     Record(BTreeMap<String, Value>),
-    /// A function. What it does cannot be read back.
-    Function,
+    Function(Function),
     /// A cell. It never leaves its program.
     Cell,
+    /// What an abort handler is bound to: a hold on a provide that is
+    /// still running. It never leaves its program.
+    Token,
+}
+
+/// A function value: a definition, and what it captured where it was
+/// made. The bindings it captured are among the captures, as a record.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Function {
+    /// The hash of its definition, if it has one a host can name.
+    pub definition: Option<Hash>,
+    pub captures: Vec<Value>,
 }
 
 /// Reads words. Each backend has its own way to reach the runtime.
@@ -38,6 +51,8 @@ pub trait Inspect {
     fn word_at(&mut self, word: Word, index: u64) -> Word;
     /// The bytes of a string, or of a tag.
     fn string(&mut self, word: Word) -> Vec<u8>;
+    /// The hash of a function value's definition, as a string.
+    fn definition(&mut self, word: Word) -> Word;
 }
 
 /// The value a word represents.
@@ -80,8 +95,22 @@ pub fn decode(word: Word, inspect: &mut impl Inspect) -> Value {
             }
             Value::Record(fields)
         }
-        kind if kind == Kind::Function as u64 => Value::Function,
+        kind if kind == Kind::Function as u64 => {
+            let hash = inspect.definition(word);
+            // The payload is the definition, and then what was captured.
+            let captures = (1..inspect.length(word))
+                .map(|index| {
+                    let capture = inspect.word_at(word, index);
+                    decode(capture, inspect)
+                })
+                .collect();
+            Value::Function(Function {
+                definition: Hash::parse(&text(inspect, hash)),
+                captures,
+            })
+        }
         kind if kind == Kind::Cell as u64 => Value::Cell,
+        kind if kind == Kind::Token as u64 => Value::Token,
         _ => Value::Int(inspect.int(word)),
     }
 }
@@ -104,11 +133,11 @@ pub trait Construct {
     fn release(&mut self, word: Word);
 }
 
-/// A value as a word the caller owns. A function has no word to be made
-/// from, and becomes null.
+/// A value as a word the caller owns. Nothing makes a function, a cell,
+/// or a token from outside a program yet: each becomes null.
 pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
     match value {
-        Value::Null | Value::Function | Value::Cell => ambient_runtime::NULL,
+        Value::Null | Value::Function(_) | Value::Cell | Value::Token => ambient_runtime::NULL,
         Value::Bool(true) => ambient_runtime::TRUE,
         Value::Bool(false) => ambient_runtime::FALSE,
         Value::Int(value) => make.int(*value),

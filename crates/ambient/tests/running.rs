@@ -382,10 +382,10 @@ fn function_values() {
         run([apply, main(ty::int(), written)], &[]).unwrap(),
         Value::Int(42)
     );
-    assert_eq!(
+    assert!(matches!(
         evaluates(ty::unknown(), b::lambda([], b::null())),
-        Value::Function
-    );
+        Value::Function(_)
+    ));
     let same = b::equal(b::name("double"), b::name("double"));
     assert_eq!(
         run([double, main(ty::bool(), same)], &[]).unwrap(),

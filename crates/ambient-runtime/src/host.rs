@@ -1,8 +1,9 @@
 //! For the host: making a context and reading results.
 
+use crate::object::layout::DEFINITION_HASH;
 use crate::object::{
-    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE,
-    header, int, payload, words,
+    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TOKEN,
+    KIND_TUPLE, header, int, payload, words,
 };
 use crate::task::Scheduler;
 use crate::{Context, FALSE, Kind, NULL, TRUE, Word};
@@ -73,6 +74,7 @@ pub unsafe extern "C" fn amb_kind(word: Word) -> u64 {
             KIND_CLOSURE => Kind::Function,
             KIND_CELL => Kind::Cell,
             KIND_TAG => Kind::Tag,
+            KIND_TOKEN => Kind::Token,
             _ => Kind::Int,
         }
     };
@@ -123,6 +125,17 @@ pub unsafe extern "C" fn amb_string_bytes(word: Word) -> *const u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_word_at(word: Word, index: u64) -> Word {
     unsafe { words(word)[index as usize] }
+}
+
+/// The hash of the definition a function value is over, as a string,
+/// borrowed. The values it captured are the words of its payload after
+/// the first.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_closure_hash(word: Word) -> Word {
+    unsafe {
+        let definition = words(word)[0] as usize as *const u64;
+        definition.add(DEFINITION_HASH as usize / 8).read()
+    }
 }
 
 /// How many objects the calling thread has made and not yet reclaimed. A

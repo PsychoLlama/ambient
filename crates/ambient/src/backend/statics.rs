@@ -104,6 +104,8 @@ pub fn plan(parts: &Parts) -> Statics {
                 statics.set(at, Field::Code(plain));
                 statics.set(at + 1, Field::Code(plain + usize::from(metered.is_some())));
                 statics.set(at + 2, Field::Word(*arity as u64));
+                let hash = statics.text(Make::String, &part.hash.to_string());
+                statics.set(at + 3, hash);
                 for (position, slot) in slots.iter().enumerate() {
                     statics.set(
                         at + DEFINITION_WORDS + position,

@@ -28,6 +28,7 @@
 - The standard library is a package built with builders (`library.rs`), installed into a workspace on request. Fault kinds and budget limits are its tags; their names come from the runtime, never restated.
 - The core checker (`verify/`) accepts what `checker/` makes and nothing looser; `support::run` verifies every definition it runs. Typing rules live in `types::Env`, which both checkers ask.
 - A received definition (`engine/pack.rs`) is an `Open` under a made-up symbol: it is verified, then hashed, compiled, and linked like any other. It has no surface tree and never reaches the store.
+- A definition holds its own hash (`DEFINITION_HASH`), so a host reads a function value as a hash and captures (`value.rs`). Nothing makes a function value from outside a program yet.
 - A value has one encoding (`exchange.rs`); `decode` accepts only what `encode` produces.
 - `core::Tree::resolved` defines every hash: the tree's encoding with slots replaced by hashes and unions ordered by that. `Tree::encode` is the stored form, which names can order; never hash it. Changing either or the node set means bumping `FORMAT`.
 

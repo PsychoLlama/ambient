@@ -191,6 +191,11 @@ impl Inspect for Host {
         unsafe { ambient_runtime::amb_word_at(word, index) }
     }
 
+    fn definition(&mut self, word: Word) -> Word {
+        // SAFETY: `decode` asks only about functions.
+        unsafe { ambient_runtime::amb_closure_hash(word) }
+    }
+
     fn string(&mut self, word: Word) -> Vec<u8> {
         // SAFETY: the word is a string, and its bytes are as long as its
         // length says.

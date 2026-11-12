@@ -14,6 +14,25 @@ impl Hash {
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
+
+    #[must_use]
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// The hash that [`fmt::Display`] writes as `text`.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        let mut bytes = [0; 32];
+        if text.len() != 64 || !text.is_ascii() {
+            return None;
+        }
+        for (byte, digits) in bytes.iter_mut().zip(text.as_bytes().chunks(2)) {
+            let digits = std::str::from_utf8(digits).ok()?;
+            *byte = u8::from_str_radix(digits, 16).ok()?;
+        }
+        Some(Self(bytes))
+    }
 }
 
 impl fmt::Display for Hash {
