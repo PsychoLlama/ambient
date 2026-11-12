@@ -68,6 +68,12 @@ impl ModuleId {
     pub fn ty(&self, name: &str) -> Symbol {
         self.symbol(Namespace::Type, name)
     }
+
+    /// The symbol of an ability defined in this module.
+    #[must_use]
+    pub fn ability(&self, name: &str) -> Symbol {
+        self.symbol(Namespace::Ability, name)
+    }
 }
 
 impl fmt::Display for ModuleId {

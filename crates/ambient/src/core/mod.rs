@@ -235,7 +235,7 @@ pub enum Tree {
     },
     Function(Function),
     Ability {
-        /// The package that declares it, and its tag.
+        /// The ID of the package that declares it, and its tag.
         package: String,
         tag: String,
         params: Vec<Type>,

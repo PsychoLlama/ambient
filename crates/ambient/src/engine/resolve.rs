@@ -37,15 +37,18 @@ impl Engine<'_> {
                 .ok_or_else(|| Error::UnknownSymbol(symbol.clone()))?;
             let definition = &module.definitions[entry.index];
             let scoped = self.scope(&symbol.module)?;
+            let package = self.sources.identity(&symbol.module.package);
 
             let key = Hasher::new("resolve")
                 .hash(&module.digests[entry.index])
                 .hash(&scoped.digest)
+                .bytes(package.as_bytes())
                 .finish();
             self.stage(Stage::Resolve, symbol, key, || {
                 let definition = Resolver {
                     scope: &scoped.scope,
                     symbol,
+                    package: &package,
                     type_params: Vec::new(),
                     locals: Vec::new(),
                     next: 0,
@@ -61,6 +64,8 @@ impl Engine<'_> {
 struct Resolver<'a> {
     scope: &'a Scope,
     symbol: &'a Symbol,
+    /// The ID of the package the definition is in.
+    package: &'a str,
     /// The type parameters of the definition, by position.
     type_params: Vec<String>,
     /// Binders in scope, innermost last, with their numbers.
@@ -399,7 +404,7 @@ impl Resolver<'_> {
         use crate::literal::Literal;
         match literal {
             Literal::Tag { tag, .. } => Literal::Tag {
-                package: self.symbol.module.package.0.clone(),
+                package: self.package.to_owned(),
                 tag: tag.clone(),
             },
             other => other.clone(),

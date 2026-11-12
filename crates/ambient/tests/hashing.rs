@@ -299,3 +299,45 @@ fn the_order_of_a_union_is_not_content_whatever_its_members_are_named() {
         hash_of(&pick, &[("main", lists("z", "m"))]),
     );
 }
+
+// Packages
+
+/// The hashes of `main` in two packages, `left` and `right`, that hold the
+/// same module: a function that is a tag. Each is a snapshot of the
+/// package whose ID is given.
+fn tagged_in(left: &str, right: &str) -> (Hash, Hash) {
+    let module = || b::module().define(b::function("main").returns(ty::tag()).body(b::tag("t")));
+    let mut workspace = workspace([("left", "main", module()), ("right", "main", module())]);
+    workspace.identify("left", left);
+    workspace.identify("right", right);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let hash = |package| {
+        let main = ambient::symbol::ModuleId::new(package, "main").value("main");
+        engine.hash(&main).unwrap()
+    };
+    (hash("left"), hash("right"))
+}
+
+#[test]
+fn a_tag_is_scoped_by_its_packages_id_not_by_what_a_workspace_calls_it() {
+    let (left, right) = tagged_in("one", "one");
+    assert_eq!(left, right);
+
+    let (left, right) = tagged_in("one", "another");
+    assert_ne!(left, right);
+}
+
+#[test]
+fn an_ability_is_one_of_the_package_that_declares_it() {
+    let module = || b::module().define(b::ability("ask", "ask").returns(ty::int()));
+    let workspace = workspace([("left", "main", module()), ("right", "main", module())]);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let hash = |package| {
+        let ask = ambient::symbol::ModuleId::new(package, "main").ability("ask");
+        engine.hash(&ask).unwrap()
+    };
+
+    assert_ne!(hash("left"), hash("right"));
+}

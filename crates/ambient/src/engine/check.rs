@@ -108,7 +108,10 @@ impl Engine<'_> {
                         resolved.definition.names(&mut |name| visit(name));
                     }));
                     let info = AbilityInfo {
-                        tag: (symbol.module.package.0.clone(), ability.tag.clone()),
+                        tag: (
+                            self.sources.identity(&symbol.module.package),
+                            ability.tag.clone(),
+                        ),
                         params: ability.params.iter().map(|p| p.ty.clone()).collect(),
                         ret: ability.ret.clone(),
                     };
@@ -243,8 +246,10 @@ impl Engine<'_> {
         }
         let resolved = self.resolve(symbol)?;
         let mut env = Env::default();
+        // Tags are scoped by the package's ID, which no definition holds.
+        let package = self.sources.identity(&symbol.module.package);
         let mut key = Hasher::new("check");
-        key.hash(&resolved.digest);
+        key.hash(&resolved.digest).bytes(package.as_bytes());
         let used = definitions(|visit| resolved.definition.names(&mut |name| visit(name)));
 
         match &resolved.definition.kind {
@@ -261,13 +266,13 @@ impl Engine<'_> {
                 self.gather(vec![symbol.clone()], &mut env)?;
                 self.reachable(&env, &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
-                    checker::check_ability(symbol, ability, &env)
+                    checker::check_ability(symbol, ability, &package, &env)
                 })
             }
             DefinitionKind::Extern(native) => {
                 let env = self.environment(used, &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
-                    checker::check_extern(symbol, native, &env)
+                    checker::check_extern(symbol, native, &package, &env)
                 })
             }
             DefinitionKind::Target(_) => {

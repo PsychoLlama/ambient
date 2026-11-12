@@ -62,6 +62,7 @@ pub fn encode_header(
 pub fn check_ability(
     symbol: &Symbol,
     ability: &Ability<Reference>,
+    package: &str,
     env: &Env,
 ) -> Result<Open, Error> {
     let mut checker = Checker::new(symbol, env);
@@ -74,7 +75,7 @@ pub fn check_ability(
     let ret = checker.lower(&env.normalize(&ability.ret));
     Ok(Open {
         tree: Tree::Ability {
-            package: symbol.module.package.0.clone(),
+            package: package.to_owned(),
             tag: ability.tag.clone(),
             params,
             ret,

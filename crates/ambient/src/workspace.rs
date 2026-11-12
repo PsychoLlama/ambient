@@ -20,6 +20,11 @@ pub trait Sources {
 
     /// The preludes of `package`, in the order it lists them.
     fn preludes(&self, package: &PackageId) -> Vec<ModuleId>;
+
+    /// The ID of the package that `package` is an instance of: what its
+    /// tags are scoped by. Every snapshot of one package has the same ID,
+    /// whatever a workspace calls it. See `spec/packages.md`.
+    fn identity(&self, package: &PackageId) -> String;
 }
 
 /// Why a workspace refused a change.
@@ -49,6 +54,7 @@ pub struct Workspace {
     modules: BTreeMap<ModuleId, Arc<Module>>,
     dependencies: BTreeMap<(PackageId, String), PackageId>,
     preludes: BTreeMap<PackageId, Vec<ModuleId>>,
+    identities: BTreeMap<PackageId, String>,
 }
 
 impl Workspace {
@@ -105,6 +111,13 @@ impl Workspace {
 }
 
 impl Workspace {
+    /// Says which package `package` is an instance of. One that is never
+    /// told is a package of its own, with its name for an ID.
+    pub fn identify(&mut self, package: &str, id: &str) {
+        self.identities
+            .insert(PackageId(package.to_owned()), id.to_owned());
+    }
+
     /// Adds `module` to the end of the preludes of `package`: its public
     /// definitions and re-exports are then in scope in every module of the
     /// package. See `spec/modules.md`.
@@ -133,5 +146,9 @@ impl Sources for Workspace {
 
     fn preludes(&self, package: &PackageId) -> Vec<ModuleId> {
         self.preludes.get(package).cloned().unwrap_or_default()
+    }
+
+    fn identity(&self, package: &PackageId) -> String {
+        self.identities.get(package).unwrap_or(&package.0).clone()
     }
 }

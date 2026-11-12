@@ -15,7 +15,12 @@ use crate::types::{Env, Ty, abilities, layers};
 /// # Errors
 ///
 /// Fails if a type in the signature is ill-formed.
-pub fn check_extern(symbol: &Symbol, native: &Extern<Reference>, env: &Env) -> Result<Open, Error> {
+pub fn check_extern(
+    symbol: &Symbol,
+    native: &Extern<Reference>,
+    package: &str,
+    env: &Env,
+) -> Result<Open, Error> {
     let mut checker = Checker::new(symbol, env);
     let (params, ret, handles, row) = match &native.kind {
         ExternKind::Function { params, ret } => {
@@ -50,7 +55,7 @@ pub fn check_extern(symbol: &Symbol, native: &Extern<Reference>, env: &Env) -> R
     let row = checker.row(&row);
     Ok(Open {
         tree: Tree::Extern {
-            package: symbol.module.package.0.clone(),
+            package: package.to_owned(),
             tag: native.tag.clone(),
             params,
             ret,
