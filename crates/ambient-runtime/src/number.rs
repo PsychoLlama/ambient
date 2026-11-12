@@ -87,32 +87,41 @@ pub unsafe extern "C" fn amb_equal(left: Word, right: Word) -> Word {
 }
 
 pub(crate) unsafe fn equal(left: Word, right: Word) -> bool {
-    if left == right {
-        return true;
-    }
-    if !is_object(left) || !is_object(right) {
-        return false;
-    }
-    // TODO: this recurses as deep as the values nest.
-    unsafe {
-        let all = |left: &[u64], right: &[u64]| {
-            left.len() == right.len() && left.iter().zip(right).all(|(l, r)| equal(*l, *r))
+    // A value can be nested arbitrarily deep, so the pairs still to be
+    // compared are queued here, never compared by recursion.
+    let mut pending = vec![(left, right)];
+    while let Some((left, right)) = pending.pop() {
+        if left == right {
+            continue;
+        }
+        if !is_object(left) || !is_object(right) {
+            return false;
+        }
+        let mut all = |left: &[u64], right: &[u64]| {
+            pending.extend(left.iter().copied().zip(right.iter().copied()));
+            left.len() == right.len()
         };
-        match ((*header(left)).kind, (*header(right)).kind) {
-            (KIND_INT, KIND_INT) => int(left) == int(right),
-            // Equality is structural: a float equals itself, bit for bit.
-            (KIND_FLOAT, KIND_FLOAT) => payload(left).read() == payload(right).read(),
-            (KIND_STRING, KIND_STRING) => bytes(left) == bytes(right),
-            // A record's keys are interned and kept in order, so equal
-            // records have equal keys at equal positions.
-            (KIND_TUPLE, KIND_TUPLE) | (KIND_LIST, KIND_LIST) | (KIND_RECORD, KIND_RECORD) => {
-                all(words(left), words(right))
+        let equal = unsafe {
+            match ((*header(left)).kind, (*header(right)).kind) {
+                (KIND_INT, KIND_INT) => int(left) == int(right),
+                // Equality is structural: a float equals itself, bit for bit.
+                (KIND_FLOAT, KIND_FLOAT) => payload(left).read() == payload(right).read(),
+                (KIND_STRING, KIND_STRING) => bytes(left) == bytes(right),
+                // A record's keys are interned and kept in order, so equal
+                // records have equal keys at equal positions.
+                (KIND_TUPLE, KIND_TUPLE) | (KIND_LIST, KIND_LIST) | (KIND_RECORD, KIND_RECORD) => {
+                    all(words(left), words(right))
+                }
+                (KIND_CLOSURE, KIND_CLOSURE) => {
+                    let (left, right) = (words(left), words(right));
+                    left[0] == right[0] && all(&left[1..], &right[1..])
+                }
+                _ => false,
             }
-            (KIND_CLOSURE, KIND_CLOSURE) => {
-                let (left, right) = (words(left), words(right));
-                left[0] == right[0] && all(&left[1..], &right[1..])
-            }
-            _ => false,
+        };
+        if !equal {
+            return false;
         }
     }
+    true
 }

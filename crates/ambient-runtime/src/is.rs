@@ -49,36 +49,162 @@ pub mod descriptor {
 }
 
 /// The arguments a generic type definition is being read at.
-pub(crate) struct Arguments<'a> {
-    nodes: &'a [u64],
-    /// What the arguments themselves are read at.
-    outer: Option<&'a Arguments<'a>>,
+struct Scope {
+    nodes: &'static [u64],
+    /// What the arguments themselves are read at: another scope, by
+    /// position among those entered.
+    outer: Option<usize>,
+}
+
+/// The tests a descriptor makes of the values inside a value.
+enum Inside {
+    /// A record's fields: pairs of a key and a node.
+    Fields {
+        record: Word,
+        fields: &'static [u64],
+    },
+    /// A tuple's members, each against its own node.
+    Members {
+        nodes: &'static [u64],
+        members: &'static [u64],
+    },
+    /// A list's members, all against one node.
+    Every { node: u64, members: &'static [u64] },
+    /// One value against each member of a union.
+    Union { value: Word, nodes: &'static [u64] },
+}
+
+/// Tests under way: those of one descriptor, and how far along they are.
+struct Frame {
+    inside: Inside,
+    next: usize,
+    /// The scope the tests are read in.
+    scope: Option<usize>,
+    /// How many scopes had been entered when this began. Those entered
+    /// since belong to a test that is over.
+    entered: usize,
+}
+
+impl Frame {
+    /// The answer that settles the frame: one member of a union that
+    /// holds, or one of anything else that does not.
+    fn settled_by(&self) -> bool {
+        matches!(self.inside, Inside::Union { .. })
+    }
+
+    unsafe fn advance(&mut self) -> Next {
+        let index = self.next;
+        self.next += 1;
+        let test = |member: Option<&u64>, node: Option<&u64>| match (member, node) {
+            (Some(member), Some(node)) => Next::Test(*member, *node),
+            _ => Next::Done,
+        };
+        match &self.inside {
+            Inside::Fields { record, fields } => match fields.chunks(2).nth(index) {
+                Some(field) => match unsafe { find(*record, field[0]) } {
+                    Some(member) => Next::Test(member, field[1]),
+                    None => Next::Missing,
+                },
+                None => Next::Done,
+            },
+            Inside::Members { nodes, members } => test(members.get(index), nodes.get(index)),
+            Inside::Every { node, members } => test(members.get(index), Some(node)),
+            Inside::Union { value, nodes } => test(Some(value), nodes.get(index)),
+        }
+    }
+}
+
+/// What a frame tests next.
+enum Next {
+    /// A value against a node.
+    Test(Word, u64),
+    /// A field the record does not have.
+    Missing,
+    Done,
+}
+
+/// What looking at one value and one node gives.
+enum Look {
+    Answer(bool),
+    /// The same question, of another node, in another scope.
+    Instead(u64, Option<usize>),
+    Inside(Inside),
 }
 
 /// Whether `ty`, a descriptor, describes a value.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_is(value: Word, ty: u64) -> Word {
-    // An entry point takes words; the descriptor's address arrives as one.
-    unsafe { boolean(is(value, ty as usize as *const u64, None)) }
+    unsafe { boolean(is(value, ty)) }
 }
 
-// TODO: this recurses as deep as the value nests.
-pub(crate) unsafe fn is(value: Word, ty: *const u64, arguments: Option<&Arguments>) -> bool {
+/// A value can be nested arbitrarily deep, and a type can follow it all
+/// the way down, so the tests still to be made are kept in `frames`,
+/// never on the stack.
+unsafe fn is(mut value: Word, mut ty: u64) -> bool {
+    let mut scopes: Vec<Scope> = Vec::new();
+    let mut frames: Vec<Frame> = Vec::new();
+    let mut scope = None;
+    loop {
+        let mut answer = match unsafe { look(value, ty, scope, &mut scopes) } {
+            Look::Answer(answer) => answer,
+            Look::Instead(node, outer) => {
+                (ty, scope) = (node, outer);
+                continue;
+            }
+            Look::Inside(inside) => {
+                let frame = Frame {
+                    inside,
+                    next: 0,
+                    scope,
+                    entered: scopes.len(),
+                };
+                // Not what settles it: so far, nothing has.
+                let unsettled = !frame.settled_by();
+                frames.push(frame);
+                unsettled
+            }
+        };
+        // Hand the answer to whatever was waiting for it, until something
+        // has another test to make.
+        loop {
+            let Some(frame) = frames.last_mut() else {
+                return answer;
+            };
+            if answer != frame.settled_by() {
+                match unsafe { frame.advance() } {
+                    Next::Test(member, node) => {
+                        scopes.truncate(frame.entered);
+                        (value, ty, scope) = (member, node, frame.scope);
+                        break;
+                    }
+                    Next::Missing => answer = false,
+                    // Nothing settled it.
+                    Next::Done => {}
+                }
+            }
+            frames.pop();
+        }
+    }
+}
+
+/// Tests `value` against the node at `ty` alone: whatever the node says
+/// of the values inside it is left to the caller.
+unsafe fn look(value: Word, ty: u64, scope: Option<usize>, scopes: &mut Vec<Scope>) -> Look {
     use descriptor as d;
     unsafe {
+        let ty = ty as usize as *const u64;
         let node = |index: usize| ty.add(index).read();
-        let child = |index: usize| node(index) as usize as *const u64;
         let nodes =
             |start: usize, count: u64| std::slice::from_raw_parts(ty.add(start), count as usize);
-        let each = |children: &[u64], members: &[u64]| {
-            children.len() == members.len()
-                && children
-                    .iter()
-                    .zip(members)
-                    .all(|(child, member)| is(*member, *child as usize as *const u64, arguments))
+        let inside = |holds: bool, inside: Inside| {
+            if holds {
+                Look::Inside(inside)
+            } else {
+                Look::Answer(false)
+            }
         };
         let integer = value & 1 == 1 || kind(value) == KIND_INT;
-        match node(0) {
+        Look::Answer(match node(0) {
             d::UNKNOWN => true,
             d::NULL => value == NULL,
             d::BOOL => value == TRUE || value == FALSE,
@@ -94,39 +220,45 @@ pub(crate) unsafe fn is(value: Word, ty: *const u64, arguments: Option<&Argument
                 _ => kind(value) == KIND_STRING && bytes(value) == bytes(node(2)),
             },
             d::RECORD => {
-                kind(value) == KIND_RECORD
-                    && nodes(2, node(1) * 2).chunks(2).all(|field| {
-                        find(value, field[0]).is_some_and(|member| {
-                            is(member, field[1] as usize as *const u64, arguments)
-                        })
-                    })
+                let fields = nodes(2, node(1) * 2);
+                let record = value;
+                return inside(
+                    kind(value) == KIND_RECORD,
+                    Inside::Fields { record, fields },
+                );
             }
-            d::TUPLE => kind(value) == KIND_TUPLE && each(nodes(2, node(1)), words(value)),
+            d::TUPLE => {
+                let nodes = nodes(2, node(1));
+                let holds = kind(value) == KIND_TUPLE && words(value).len() == nodes.len();
+                let members = if holds { &*words(value) } else { &[] };
+                return inside(holds, Inside::Members { nodes, members });
+            }
             // A tuple is a list of its members.
             d::LIST => {
-                matches!(kind(value), KIND_LIST | KIND_TUPLE)
-                    && words(value)
-                        .iter()
-                        .all(|member| is(*member, child(1), arguments))
+                let holds = matches!(kind(value), KIND_LIST | KIND_TUPLE);
+                let members = if holds { &*words(value) } else { &[] };
+                let node = node(1);
+                return inside(holds, Inside::Every { node, members });
             }
-            d::UNION => nodes(2, node(1))
-                .iter()
-                .any(|member| is(value, *member as usize as *const u64, arguments)),
+            d::UNION => {
+                let nodes = nodes(2, node(1));
+                return Look::Inside(Inside::Union { value, nodes });
+            }
             d::APPLY => {
-                let applied = Arguments {
+                scopes.push(Scope {
                     nodes: nodes(3, node(2)),
-                    outer: arguments,
-                };
-                is(value, child(1), Some(&applied))
+                    outer: scope,
+                });
+                return Look::Instead(node(1), Some(scopes.len() - 1));
             }
-            d::PARAMETER => arguments.is_some_and(|arguments| {
-                let argument = arguments.nodes[node(1) as usize] as usize as *const u64;
-                is(value, argument, arguments.outer)
-            }),
-            d::ALIAS => is(value, child(1), arguments),
+            d::PARAMETER => match scope.map(|scope| &scopes[scope]) {
+                Some(scope) => return Look::Instead(scope.nodes[node(1) as usize], scope.outer),
+                None => false,
+            },
+            d::ALIAS => return Look::Instead(node(1), scope),
             // TODO: a function value carries no signature yet, so nothing
             // is known to be a function of a given type.
             _ => false,
-        }
+        })
     }
 }
