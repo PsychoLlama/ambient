@@ -126,6 +126,7 @@ pub unsafe extern "C" fn amb_group_end(context: *mut Context, group: Word, held:
         (*context).fault = failure.fault;
         (*context).abort_token = failure.token;
         (*context).abort_args = failure.args;
+        crate::trace::attach(context, failure.trace);
         UNWIND
     }
 }

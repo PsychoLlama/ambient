@@ -13,6 +13,7 @@ impl Op {
             | Self::BudgetCurrent
             | Self::Charge { .. }
             | Self::Hold
+            | Self::Trace { .. }
             | Self::Contain
             | Self::Group
             | Self::Cleanup(_) => Vec::new(),

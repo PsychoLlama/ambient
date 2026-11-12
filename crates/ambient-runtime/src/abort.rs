@@ -62,12 +62,14 @@ pub unsafe extern "C" fn amb_caught(context: *mut Context, token: Word) -> Word 
     }
 }
 
-/// Gives up whatever an abort that never arrived left in the context.
+/// Gives up whatever an unwinding that never arrived left in the context:
+/// the arguments of an abort, and the trace of a fault.
 pub(crate) unsafe fn abandon(context: *mut Context) {
     unsafe {
         let args = (*context).abort_args;
         if args != 0 {
             amb_release(args);
         }
+        amb_release(std::mem::take(&mut (*context).trace));
     }
 }

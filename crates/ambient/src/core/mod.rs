@@ -4,6 +4,7 @@
 //! in the spec is the target.
 
 mod encode;
+mod visit;
 
 use serde::{Deserialize, Serialize};
 

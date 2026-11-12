@@ -94,6 +94,18 @@ struct Failure {
     fault: u64,
     token: u64,
     args: u64,
+    /// The trace of a fault, or null.
+    trace: Word,
+}
+
+impl Failure {
+    /// Gives up what the failure holds: it is not going anywhere.
+    unsafe fn drop(self) {
+        unsafe {
+            amb_release(self.args);
+            amb_release(self.trace);
+        }
+    }
 }
 
 pub(crate) struct Scheduler {
@@ -358,6 +370,7 @@ unsafe fn ended(context: *mut Context, id: usize, result: Word) {
             fault: (*context).fault,
             token: std::mem::take(&mut (*context).abort_token),
             args: std::mem::take(&mut (*context).abort_args),
+            trace: crate::trace::detach(context),
         };
         (*context).fault = Fault::None as u64;
         let cancelled = scheduler.task(id).cancelled;
@@ -378,7 +391,7 @@ unsafe fn ended(context: *mut Context, id: usize, result: Word) {
                     scheduler.queue(parent);
                 }
             }
-            _ => amb_release(failure.args),
+            _ => failure.drop(),
         }
         scheduler.finish(id, None);
     }

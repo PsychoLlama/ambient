@@ -22,7 +22,10 @@ An error is a structured value of one standard shape, and it is the only thing t
 ## Traces
 
 - A trace is a list of frames, each a definition hash and a node position within that definition.
+- A node's position is its place in a walk of the definition's core tree that visits each node before the nodes inside it.
+- The trace of a fault has a frame for the node that faulted and for each call the fault left, nearest the fault first; a task's frames are followed by those of what started it.
 - A trace contains no names; a tool with the [index](symbols.md) turns frames into symbols and source positions.
 - A trace is data: it serialises with its error and can be resolved on another machine.
 - Capturing a trace is a language operation, not an ability; a target may bound how much it captures.
 - The trace is captured where the error is made, not where it is thrown.
+- TODO: only a fault has a trace; nothing yet captures one where a program makes an error.

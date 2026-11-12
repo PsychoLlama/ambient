@@ -20,6 +20,7 @@
 - A task suspends by unwinding with the context's mode set, and resumes by its functions being called again (`lower/resume.rs`, `ambient-runtime/src/task.rs`). A host that sees the entry unwind while suspending calls `amb_schedule` and the entry again.
 - A task's body is a closure that takes nothing; the checker makes one for each branch, spawn, and cleanup (`checker/tasks.rs`), so they capture locals and bindings as any closure does.
 - Whatever must happen on every way out of a block (cleanups, closing a group) is lowered as a `Try` whose recovery holds the unwinding, does the work, and rethrows (`lower/tasks.rs`).
+- A trace is gathered only while a fault unwinds: lowering wraps each operation a fault can leave in a `Try` that notes its position (`core::Expr::positions`), so code that does not fault pays nothing.
 - Metering is a property of lowering (`lower/meter.rs`), chosen for a whole program at link time: a program that enters a budget anywhere is compiled metered throughout, under the same hashes.
 - Compiled code is position-independent: it reaches definitions through slots and the runtime through entry points, never by address.
 - A name reaches a definition through a module's members (`engine/scope.rs`): its own definitions and its re-exports, which keep the symbol of what they alias. Another package is reached only through its library module and the modules that lists.

@@ -46,6 +46,7 @@ impl Op {
             | Self::All(_)
             | Self::First(_)
             | Self::Rethrow(_)
+            | Self::Trace { .. }
             | Self::Contain
             | Self::BudgetCaught(_)
             | Self::BudgetBack {
@@ -62,6 +63,25 @@ impl Op {
                     | Primitive::IntSubtract
                     | Primitive::IntMultiply
                     | Primitive::CellWait
+            ),
+            _ => false,
+        }
+    }
+
+    /// Whether a fault can leave the operation: it can fault itself, or
+    /// calls something that can. These are what a trace has frames for.
+    #[must_use]
+    pub fn faults(&self) -> bool {
+        match self {
+            Self::Call { .. }
+            | Self::CallValue { .. }
+            | Self::Native { .. }
+            | Self::Abort { .. }
+            | Self::All(_)
+            | Self::First(_) => true,
+            Self::Primitive { operation, .. } => matches!(
+                operation,
+                Primitive::IntAdd | Primitive::IntSubtract | Primitive::IntMultiply
             ),
             _ => false,
         }
@@ -161,6 +181,7 @@ impl Op {
             | Self::GroupClose { .. }
             | Self::GroupEnd { .. }
             | Self::Rethrow(_)
+            | Self::Trace { .. }
             | Self::Cleanup(_)
             | Self::All(_)
             | Self::First(_) => self.task_steps(),
@@ -245,6 +266,13 @@ impl Op {
                 vec![step(Entry::GroupEnd, [value(group), value(held)])]
             }
             Self::Rethrow(held) => vec![step(Entry::Rethrow, [value(held)])],
+            Self::Trace {
+                definition,
+                position,
+            } => {
+                let definition = Arg::Value(Value::Constant(*definition));
+                vec![step(Entry::Trace, [definition, Raw(*position as u64)])]
+            }
             Self::Cleanup(moment) => {
                 let entry = match moment {
                     Cleanup::Enter => Entry::CleanupEnter,

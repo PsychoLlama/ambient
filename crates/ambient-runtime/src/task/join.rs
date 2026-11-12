@@ -104,14 +104,21 @@ unsafe fn joined(context: *mut Context) -> Word {
         let Some(join) = scheduler.joins[id].take() else {
             return fault(context, Fault::Cancelled);
         };
+        let interrupted = scheduler.interrupted();
         let failure = match join.failure {
-            _ if scheduler.interrupted() => Some(Fault::Cancelled as u64),
-            Some(failure) => {
+            Some(failure) if !interrupted => {
                 (*context).abort_token = failure.token;
                 (*context).abort_args = failure.args;
+                crate::trace::attach(context, failure.trace);
                 Some(failure.fault)
             }
-            None => None,
+            // Its own cancellation comes before what its tasks did.
+            failure => {
+                if let Some(failure) = failure {
+                    failure.drop();
+                }
+                interrupted.then_some(Fault::Cancelled as u64)
+            }
         };
         if let Some(code) = failure {
             join.results.iter().for_each(|result| amb_release(*result));

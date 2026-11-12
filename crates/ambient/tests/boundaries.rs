@@ -9,7 +9,7 @@ use ambient::builder::{self as b, pat, ty};
 use ambient::surface::{Definition, Expr, Type};
 use ambient::value::Value;
 use ambient_runtime::{FAULT_PACKAGE, Fault};
-use support::run;
+use support::{run, value, workspace};
 
 fn outcome(
     ret: Type,
@@ -57,7 +57,7 @@ fn a_boundary_gives_the_fault_that_ended_its_body_as_an_error() {
     assert_eq!(error["kind"], fault("overflow"));
     assert!(matches!(error["message"], Value::String(_)));
     assert_eq!(error["cause"], Value::Null);
-    assert_eq!(error["trace"], Value::List(vec![]));
+    assert!(matches!(error["trace"], Value::List(_)));
 }
 
 #[test]
@@ -125,4 +125,104 @@ fn a_program_that_stalls_inside_a_boundary_still_ends() {
     let body = b::let_("c", b::cell(ty::int(), b::int(0)), b::boundary(waits));
 
     assert_eq!(outcome(ty::unknown(), body, []), Err(Fault::Cancelled));
+}
+
+// Traces
+
+/// The trace of the error a boundary around `body` gives: for each frame,
+/// which of `extra` or `main` its definition is, by name, and its
+/// position there. A lambda has no name, and is `"?"`.
+fn trace<const N: usize>(body: Expr, extra: [Definition; N]) -> Vec<(String, i64)> {
+    let main = b::function("main")
+        .returns(ty::unknown())
+        .body(b::boundary(body));
+    let names: Vec<String> = extra.iter().map(|d| d.name.clone()).collect();
+    let definitions: Vec<Definition> = extra.into_iter().chain([main]).collect();
+
+    // The same program, to learn the hash of each definition in it.
+    let module = definitions
+        .iter()
+        .cloned()
+        .fold(b::module(), b::ModuleBuilder::define);
+    let workspace = workspace([("app", "main", module)]);
+    let store = ambient::store::MemoryStore::new();
+    let engine = ambient::engine::Engine::new(&workspace, &store);
+    let owner = |hash: &str| {
+        let is = |name: &&str| engine.hash(&value("main", name)).unwrap().to_string() == hash;
+        let names = names.iter().map(String::as_str).chain(["main"]);
+        names.clone().find(is).unwrap_or("?").to_owned()
+    };
+
+    let Value::Record(error) = run(definitions, &[]).unwrap() else {
+        panic!("expected an error");
+    };
+    let Value::List(frames) = &error["trace"] else {
+        panic!("expected a list of frames");
+    };
+    let frame = |frame: &Value| match frame {
+        Value::Record(fields) => match (&fields["definition"], &fields["position"]) {
+            (Value::String(hash), Value::Int(position)) => (owner(hash), *position),
+            other => panic!("expected a hash and a position, got {other:?}"),
+        },
+        other => panic!("expected a frame, got {other:?}"),
+    };
+    frames.iter().map(frame).collect()
+}
+
+fn at(name: &str, position: i64) -> (String, i64) {
+    (name.to_owned(), position)
+}
+
+/// `fn name(): int`
+fn giving(name: &str, body: Expr) -> Definition {
+    b::function(name).returns(ty::int()).body(body)
+}
+
+#[test]
+fn a_trace_says_where_the_fault_was() {
+    // The boundary is the first node of `main`, and the sum the second.
+    assert_eq!(trace(overflows(), []), [at("main", 1)]);
+}
+
+#[test]
+fn a_trace_has_a_frame_for_each_call_the_fault_left() {
+    let inner = giving("inner", overflows());
+    let outer = giving("outer", b::call(b::name("inner"), []));
+
+    assert_eq!(
+        trace(b::call(b::name("outer"), []), [inner, outer]),
+        [at("inner", 0), at("outer", 0), at("main", 1)]
+    );
+}
+
+#[test]
+fn a_trace_goes_on_from_a_task_to_what_started_it() {
+    let frames = trace(b::all([overflows()]), []);
+
+    // The task's body is a definition of its own, then the `all`.
+    assert_eq!(frames, [at("?", 0), at("main", 1)]);
+}
+
+#[test]
+fn a_trace_is_kept_while_a_cleanup_runs() {
+    let body = b::cleanup(b::lambda([], b::int(0)), overflows());
+
+    // The cleanup is `main`'s second node, its closure the third.
+    assert_eq!(trace(body, []), [at("main", 3)]);
+}
+
+#[test]
+fn a_trace_keeps_only_the_frames_nearest_the_fault() {
+    let deeper = b::call(b::name("down"), [b::subtract(b::name("n"), b::int(1))]);
+    let down = b::function("down")
+        .param("n", ty::int())
+        .returns(ty::int())
+        .body(b::match_(
+            b::name("n"),
+            [(pat::int(0), overflows()), (pat::any(), deeper)],
+        ));
+    let frames = trace(b::call(b::name("down"), [b::int(100)]), [down]);
+
+    assert_eq!(frames.len(), 64);
+    assert!(frames.iter().all(|(name, _)| name == "down"));
 }

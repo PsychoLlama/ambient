@@ -21,7 +21,7 @@ impl Lowering {
     }
 
     /// `body`, or, if it unwinds, `recover`.
-    fn attempt(body: Expr, recover: Expr) -> Expr {
+    pub(super) fn attempt(body: Expr, recover: Expr) -> Expr {
         Expr::Try {
             body: Box::new(body),
             recover: Box::new(recover),

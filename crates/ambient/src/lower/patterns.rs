@@ -1,8 +1,6 @@
 //! Match: a chain of tests and branches, then the bindings of the arm
 //! that was taken.
 
-use ambient_runtime::Fault;
-
 use super::{Lowering, Scope, Unsupported};
 use crate::core::{self, Pattern, Primitive};
 use crate::lir::{Expr, Op, Value};
@@ -23,6 +21,7 @@ impl Lowering {
         &mut self,
         subject: Value,
         arms: &[(Pattern, core::Expr)],
+        unmatched: Expr,
     ) -> Result<Expr, Unsupported> {
         // Binders are numbered in arm order, so the arms are lowered in
         // order. The chain is then built from the last arm back, so that
@@ -34,7 +33,7 @@ impl Lowering {
             let body = self.expr(body)?;
             lowered.push((test, plan, body));
         }
-        let mut chain = Expr::Fault(Fault::NoMatch);
+        let mut chain = unmatched;
         for (test, plan, body) in lowered.into_iter().rev() {
             let body = self.extract(plan, subject, body);
             chain = match test {

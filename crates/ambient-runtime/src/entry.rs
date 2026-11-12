@@ -91,6 +91,7 @@ entries! {
     ClosureNew = amb_closure_new, plain, 2, word;
     ClosureSet = amb_closure_set, plain, 3, nothing;
     Is = amb_is, plain, 2, word;
+    Trace = amb_trace, context, 2, word;
     RecordMerge = amb_record_merge, plain, 2, word;
     TokenNew = amb_token_new, plain, 0, word;
     TokenExpire = amb_token_expire, plain, 1, word;

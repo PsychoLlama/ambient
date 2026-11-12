@@ -64,6 +64,9 @@ pub enum Constant {
     /// Where the definition, an extern, sits among the externs of the
     /// program it is loaded into. Not a value.
     Native,
+    /// The hash of the definition itself, as a string: what a frame of a
+    /// trace names it by. Known only once the program is linked.
+    Own,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,6 +130,10 @@ pub enum Op {
     /// Entering or leaving a cleanup whose block completed. Leaving one
     /// that failed unwinds.
     Cleanup(Cleanup),
+    /// For an operation that unwound: if the unwinding is a fault, adds
+    /// a frame to its trace, for `position` of the definition, a
+    /// [`Constant::Own`]. Goes on unwinding either way.
+    Trace { definition: usize, position: usize },
     /// For a boundary whose body unwound: if the unwinding is a fault,
     /// ends it and is the error that describes it; if not, goes on
     /// unwinding.

@@ -3,7 +3,6 @@
 
 use crate::object::amb_release;
 use crate::record::{amb_record_new, amb_record_set};
-use crate::sequence::amb_sequence_new;
 use crate::text::{amb_intern, amb_string_new, amb_tag};
 use crate::{Context, Fault, NULL, UNWIND, Word};
 
@@ -31,7 +30,7 @@ impl Fault {
 
 /// Adds the field `name` to a record under construction, giving up
 /// `value`.
-unsafe fn set(record: Word, name: &str, value: Word) {
+pub(crate) unsafe fn set(record: Word, name: &str, value: Word) {
     unsafe {
         let key = amb_intern(name.as_ptr(), name.len() as u64);
         amb_record_set(record, key, value);
@@ -55,7 +54,7 @@ pub unsafe extern "C" fn amb_contain(context: *mut Context) -> Word {
         let text = amb_string_new(message.as_ptr(), message.len() as u64);
         set(error, "message", text);
         set(error, "cause", NULL);
-        set(error, "trace", amb_sequence_new(1, 0));
+        set(error, "trace", crate::trace::take(context));
         error
     }
 }

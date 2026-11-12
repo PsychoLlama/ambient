@@ -118,6 +118,7 @@ pub fn plan(parts: &Parts) -> Statics {
                             statics.text(Make::Field, &key)
                         }
                         Constant::Native => Field::Word(part.native.unwrap_or(0) as u64),
+                        Constant::Own => statics.text(Make::String, &part.hash.to_string()),
                     };
                     statics.set(first + position, field);
                 }

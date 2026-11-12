@@ -10,7 +10,10 @@ mod patterns;
 mod resume;
 mod tasks;
 
-use ambient_runtime::{SMALL_MAX, SMALL_MIN};
+use std::collections::HashMap;
+use std::ptr;
+
+use ambient_runtime::{Fault, SMALL_MAX, SMALL_MIN};
 
 use crate::core::{self, Open, Tree};
 use crate::lir::{self, Constant, Expr, Op, Value};
@@ -37,7 +40,12 @@ pub fn lower(definition: &Open, metered: bool) -> Result<lir::Function, Unsuppor
         Tree::Extern { params, .. } => return Ok(native(params.len(), definition.slots.len())),
         _ => return Err(Unsupported("definitions that are not functions")),
     };
+    let positions = function.body.positions();
     let mut lowering = Lowering {
+        positions: (0..)
+            .zip(positions)
+            .map(|(at, expr)| (ptr::from_ref(expr), at))
+            .collect(),
         binders: function.params.len(),
         temporaries: 0,
         constants: Vec::new(),
@@ -76,11 +84,17 @@ fn native(arity: usize, slots: usize) -> lir::Function {
         bindings: Value::Local(0),
         args: Value::Local(args),
     };
+    // The extern is where native code fails, if it does.
+    let frame = Op::Trace {
+        definition: 1,
+        position: 0,
+    };
+    let call = Lowering::attempt(Expr::Op(call), Expr::Op(frame));
     lir::Function {
         params: arity + 1,
         locals: arity + 2,
         slots,
-        constants: vec![Constant::Native],
+        constants: vec![Constant::Native, Constant::Own],
         budgets: false,
         body: resume::resumable(Expr::Let {
             local: args,
@@ -88,7 +102,7 @@ fn native(arity: usize, slots: usize) -> lir::Function {
                 list: false,
                 members,
             })),
-            body: Box::new(Expr::Op(call)),
+            body: Box::new(call),
         }),
     }
 }
@@ -137,6 +151,9 @@ fn renumber(expr: &mut Expr, base: usize) {
 }
 
 struct Lowering {
+    /// Where each expression of the function's body is in it: see
+    /// [`core::Expr::positions`].
+    positions: HashMap<*const core::Expr, usize>,
     /// How many of the core tree's locals are bound so far. A core local
     /// is numbered one past its own number: local `0` is the bindings the
     /// function was handed.
@@ -278,7 +295,8 @@ impl Lowering {
             core::Expr::Merge { left, right, keys } => self.merge(left, right, keys, &mut scope)?,
             core::Expr::Match { subject, arms } => {
                 let subject = self.operand(subject, &mut scope)?;
-                return Ok(scope.wrap(self.matching(subject, arms)?));
+                let unmatched = self.traced(expr, Expr::Fault(Fault::NoMatch));
+                return Ok(scope.wrap(self.matching(subject, arms, unmatched)?));
             }
             core::Expr::Cast {
                 value,
@@ -292,7 +310,34 @@ impl Lowering {
                 return Ok(scope.wrap(self.branch(test, kept, otherwise)));
             }
         };
-        Ok(scope.wrap(Expr::Op(op)))
+        Ok(scope.wrap(self.operation(expr, op)))
+    }
+
+    /// The operation `node` lowered to, which goes in the trace of a
+    /// fault that leaves it, if one can.
+    fn operation(&mut self, node: &core::Expr, op: Op) -> Expr {
+        let faults = op.faults();
+        let lowered = Expr::Op(op);
+        if faults {
+            self.traced(node, lowered)
+        } else {
+            lowered
+        }
+    }
+
+    /// `lowered`, which is where a fault can leave `node`, adding the
+    /// node to the trace of one that does.
+    fn traced(&mut self, node: &core::Expr, lowered: Expr) -> Expr {
+        // A node lowering made up has no position, and no frame.
+        let Some(position) = self.positions.get(&ptr::from_ref(node)).copied() else {
+            return lowered;
+        };
+        let definition = self.constant(Constant::Own);
+        let frame = Op::Trace {
+            definition,
+            position,
+        };
+        Self::attempt(lowered, Expr::Op(frame))
     }
 
     /// `then` if `test` is true, `otherwise` if not.

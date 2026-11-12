@@ -44,6 +44,7 @@ mod same;
 mod sequence;
 mod task;
 mod text;
+mod trace;
 
 pub use abort::*;
 pub use boundary::*;
@@ -65,6 +66,7 @@ pub use task::{
     amb_frame_save, amb_group_close, amb_group_end, amb_group_new, amb_schedule, amb_spawn,
 };
 pub use text::*;
+pub use trace::amb_trace;
 
 pub type Word = u64;
 
@@ -177,6 +179,9 @@ pub struct Context {
     pub mode: u64,
     /// The tasks of this execution. Opaque to compiled code.
     pub scheduler: u64,
+    /// While a fault unwinds: the frames it has left so far, as a value
+    /// this context owns, or zero.
+    pub trace: u64,
 }
 
 impl Context {

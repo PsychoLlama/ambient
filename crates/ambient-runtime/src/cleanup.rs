@@ -15,6 +15,7 @@ use crate::number::amb_int_new;
 use crate::object::{amb_release, amb_retain, fault, int, words};
 use crate::sequence::{amb_sequence_new, amb_sequence_set};
 use crate::task::mask;
+use crate::trace::{attach, detach};
 use crate::{Context, Fault, NULL, UNWIND, Word};
 
 /// For a block that unwound and has a cleanup to run: ends the unwinding
@@ -23,7 +24,7 @@ use crate::{Context, Fault, NULL, UNWIND, Word};
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_hold(context: *mut Context) -> Word {
     unsafe {
-        let held = amb_sequence_new(0, 3);
+        let held = amb_sequence_new(0, 4);
         let code = amb_int_new((*context).fault.cast_signed());
         amb_sequence_set(held, 0, code);
         amb_release(code);
@@ -35,6 +36,9 @@ pub unsafe extern "C" fn amb_hold(context: *mut Context) -> Word {
             amb_sequence_set(held, 2, args);
             amb_release(args);
         }
+        let trace = detach(context);
+        amb_sequence_set(held, 3, trace);
+        amb_release(trace);
         (*context).fault = Fault::None as u64;
         mask(context, true);
         held
@@ -49,7 +53,7 @@ pub unsafe extern "C" fn amb_rethrow(context: *mut Context, held: Word) -> Word 
     unsafe {
         mask(context, false);
         abandon(context);
-        let [code, token, args] = *words(held) else {
+        let [code, token, args, trace] = *words(held) else {
             return fault(context, Fault::Cancelled);
         };
         (*context).fault = int(code).cast_unsigned();
@@ -59,6 +63,8 @@ pub unsafe extern "C" fn amb_rethrow(context: *mut Context, held: Word) -> Word 
             amb_retain(args);
             (*context).abort_args = args;
         }
+        amb_retain(trace);
+        attach(context, trace);
         UNWIND
     }
 }
