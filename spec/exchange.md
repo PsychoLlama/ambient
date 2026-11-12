@@ -1,9 +1,20 @@
 # Exchange
 
-Definitions and values move between running programs by hash. A receiver trusts nothing it has not recomputed or rechecked.
+Definitions and values move between running programs by hash. A receiver trusts the code it is given, unless it embeds the compiler and rechecks it.
+
+## Trust
+
+- Code that reaches a program is trusted: that it is the definition its hash names, of the type it is said to have, compiled faithfully.
+- A hash commits to a definition's type, so a definition known by hash when a program was built needs no check when it is loaded.
+- A definition whose hash is learned as the program runs arrives with the type its sender checked it against, by hash; a receiver loads it only at the type it expects.
+- A mismatch is an error where the definition is loaded, never a fault where it is later used.
+- Keeping what is delivered authentic is the program's concern.
+- Running code from a sender that is not trusted takes the compiler: a host embeds it, rechecks what arrives, and vouches for the result itself.
+- The language does no more for that case; such a host is assembled from the compiler as a library.
 
 ## Packs
 
+- A pack is for a receiver that has the compiler; one that does not is given code compiled for its backend.
 - A pack is the core trees of a definition and of the dependencies its receiver lacks.
 - A pack names a definition it carries by position and one its receiver has by hash; it carries no hash of what it holds.
 - A receiver recomputes every hash from the trees it received.
@@ -20,7 +31,7 @@ Definitions and values move between running programs by hash. A receiver trusts 
 
 - Decoding a function value needs its definition, which comes from one of two places.
 - A receiver may supply the definitions it is willing to run; a hash outside that set does not decode, and nothing new enters the program.
-- Or the definition arrives in a pack and is loaded; loading adds code to a running program and is an ability.
+- Or the definition is loaded, as compiled code or from a pack; loading adds code to a running program and is an ability.
 - A loaded definition is held by the values that refer to it and is discarded with them.
 - A loaded definition is never written to a [store](build.md).
 

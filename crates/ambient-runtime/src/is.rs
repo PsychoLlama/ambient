@@ -1,14 +1,13 @@
 //! Type tests: whether a descriptor describes a value.
 
 use crate::cell::made_at;
-use crate::closure::signature;
 use crate::object::{
-    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG,
-    KIND_TUPLE, boolean, bytes, int, kind, payload, words,
+    KIND_CELL, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE,
+    boolean, bytes, int, kind, payload, words,
 };
 use crate::record::find;
-use crate::relate::Types;
-use crate::scope::{self, Env, Scope, argument};
+use crate::same::Types;
+use crate::scope::{Env, Scope, argument};
 use crate::{FALSE, NULL, TRUE, Word};
 
 /// The layout of a type descriptor: what a cast tests a value against.
@@ -264,16 +263,9 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
                     && made_at(value).0 != 0
                     && Types::new(scopes).same(made_at(value), (node(1), scope))
             }
-            // A function is of the type its definition's signature says,
-            // and of any that type is within.
-            d::FUNCTION => {
-                kind(value) == KIND_CLOSURE
-                    && signature(value) != 0
-                    && Types::new(scopes).within(
-                        (signature(value), Env::given(scope::of_closure(value))),
-                        (ty as u64, scope),
-                    )
-            }
+            // A function does not say what type it is, so a test for a
+            // function type, which only a type argument can ask for,
+            // passes nothing.
             _ => false,
         })
     }

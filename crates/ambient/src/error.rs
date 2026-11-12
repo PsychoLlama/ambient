@@ -127,6 +127,9 @@ pub enum Error {
     IrregularType(Symbol),
     /// A recursive type that never reaches a constructor.
     Uncontractive(Symbol),
+    /// A cast or a pattern tests for a type that holds a function type,
+    /// which no value says it is.
+    Untestable { symbol: Symbol, found: String },
     /// Only functions compile to an artifact.
     NotCompilable(Symbol),
     /// A backend refused a definition.
@@ -224,15 +227,8 @@ impl fmt::Display for Error {
             Self::UntypedParameter { symbol, name } => {
                 write!(f, "{symbol}: parameter `{name}` needs a type")
             }
-            Self::IrregularType(symbol) => write!(
-                f,
-                "{symbol}: a recursive type may apply itself only to its own parameters"
-            ),
-            Self::Uncontractive(symbol) => {
-                write!(
-                    f,
-                    "{symbol}: a recursive type must pass through a constructor"
-                )
+            Self::IrregularType(_) | Self::Untestable { .. } | Self::Uncontractive(_) => {
+                self.fmt_type(f)
             }
             Self::NotCompilable(symbol) => write!(f, "{symbol}: not a function"),
             Self::Backend { symbol, message } => write!(f, "{symbol}: {message}"),
@@ -243,6 +239,27 @@ impl fmt::Display for Error {
 }
 
 impl Error {
+    /// The errors about what a type may be.
+    fn fmt_type(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::IrregularType(symbol) => write!(
+                f,
+                "{symbol}: a recursive type may apply itself only to its own parameters"
+            ),
+            Self::Untestable { symbol, found } => write!(
+                f,
+                "{symbol}: no value can be tested for `{found}`, which holds a function type"
+            ),
+            Self::Uncontractive(symbol) => {
+                write!(
+                    f,
+                    "{symbol}: a recursive type must pass through a constructor"
+                )
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// The errors about names: what reading and resolving report.
     fn fmt_name(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

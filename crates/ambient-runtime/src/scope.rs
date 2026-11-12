@@ -2,8 +2,8 @@
 //! node that mentions one is read. See `spec/backends.md`.
 
 use crate::is::descriptor as d;
-use crate::object::{KIND_SCOPE, PINNED, amb_retain, kind, object, words};
-use crate::relate::Types;
+use crate::object::{KIND_SCOPE, PINNED, amb_retain, object, words};
+use crate::same::Types;
 use crate::{NULL, Word};
 
 /// Where the type parameters a node mentions are found.
@@ -93,17 +93,6 @@ pub unsafe extern "C" fn amb_scope_set(scope: Word, index: u64, node: u64, withi
         let entries = words(scope);
         entries[index as usize * 2] = node;
         entries[index as usize * 2 + 1] = within;
-    }
-}
-
-/// The type arguments a closure's function was made at, or null: they
-/// follow whatever else it captured.
-pub(crate) unsafe fn of_closure(closure: Word) -> Word {
-    unsafe {
-        match words(closure) {
-            [_, .., last] if kind(*last) == KIND_SCOPE => *last,
-            _ => NULL,
-        }
     }
 }
 

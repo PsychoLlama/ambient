@@ -26,7 +26,7 @@ A cell is the only mutable thing in the language: a slot that holds one immutabl
 - A replace is atomic: of several racing on one value read, exactly one succeeds.
 - A failed replace changes nothing, so an update is a read, a computation, and a replace, retried until it succeeds.
 - No operation spans two cells; state that must change together lives in one cell.
-- A cell records the type it was created at, so a cast to a cell type is decidable.
+- A cell records the type it was created at, so a cast to a cell type is decidable: it passes a cell made at the same type.
 
 ## Determinism
 

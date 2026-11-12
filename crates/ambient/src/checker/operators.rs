@@ -16,7 +16,7 @@ impl Checker<'_> {
         otherwise: &Expr<Reference>,
     ) -> Result<(core::Expr, Ty), Error> {
         let (value, _) = self.infer(value)?;
-        self.well_formed(ty)?;
+        self.tested(ty)?;
         let target = self.env.normalize(ty);
         let (otherwise, alternative) = self.infer(otherwise)?;
         let core = core::Expr::Cast {

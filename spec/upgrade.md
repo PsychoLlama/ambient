@@ -19,7 +19,7 @@ A program upgrades while running by swapping the handlers its late-bound abiliti
 
 ## Compatibility
 
-- A generation is [cast](types.md) to the bundle type the running program expects before it is swapped in.
+- A generation is [loaded](exchange.md) at the bundle type the running program expects before it is swapped in.
 - A generation whose handlers do not fit, or need abilities the program does not provide to them, is rejected and the previous one keeps running.
 - Changing a late-bound ability's signature makes a different ability; the old one stays until nothing performs it.
 
@@ -28,6 +28,7 @@ A program upgrades while running by swapping the handlers its late-bound abiliti
 - State survives an upgrade because it is held by code above the late-bound points and handed down.
 - Changing the shape of state means re-entering the code that owns it.
 - An owner hands its state to its successor as `unknown`; the successor's cast is the migration.
+- State that holds functions is handed over at a type both generations name, since no cast recovers a function.
 - Handles and cells pass through that handover unchanged, since nothing is serialised.
 
 ## Structure

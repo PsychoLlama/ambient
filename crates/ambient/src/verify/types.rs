@@ -74,6 +74,19 @@ impl Verifier<'_> {
         }
     }
 
+    /// [`Self::sound`], of a type a value is tested against as the
+    /// program runs.
+    pub(super) fn tested(&self, ty: &core::Type) -> Result<Ty, Invalid> {
+        let ty = self.sound(ty)?;
+        if self.env.testable(&ty) {
+            Ok(ty)
+        } else {
+            Err(Invalid::Shape(
+                "a value is tested for a function type".into(),
+            ))
+        }
+    }
+
     pub(super) fn sound_all(&self, types: &[core::Type]) -> Result<Vec<Ty>, Invalid> {
         types.iter().map(|ty| self.sound(ty)).collect()
     }

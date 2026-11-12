@@ -122,6 +122,38 @@ impl Env {
         self.types.get(symbol).filter(|info| info.recursive)
     }
 
+    /// Whether a value can be tested against a type as a program runs.
+    /// A function does not say what type it is, so the type may hold no
+    /// function type, but inside a cell type: a cell keeps its own.
+    #[must_use]
+    pub fn testable(&self, ty: &Ty) -> bool {
+        self.tests(ty, &mut Vec::new())
+    }
+
+    /// [`Self::testable`], given the definitions already looked into.
+    fn tests<'a>(&'a self, ty: &'a Ty, seen: &mut Vec<&'a Symbol>) -> bool {
+        match ty {
+            Ty::Function { .. } => false,
+            Ty::Record(fields) => fields.iter().all(|(_, ty)| self.tests(ty, seen)),
+            Ty::Tuple(members) | Ty::Union(members) => {
+                members.iter().all(|member| self.tests(member, seen))
+            }
+            Ty::List(member) => self.tests(member, seen),
+            Ty::Named(name, args) => {
+                let definition = match name {
+                    Reference::Definition(symbol) if !seen.contains(&symbol) => {
+                        seen.push(symbol);
+                        self.types.get(symbol)
+                    }
+                    _ => None,
+                };
+                args.iter().all(|arg| self.tests(arg, seen))
+                    && definition.is_none_or(|info| self.tests(&info.ty, seen))
+            }
+            _ => true,
+        }
+    }
+
     /// The type in the form every other operation expects: transparent
     /// names expanded, record fields ordered, unions simplified.
     #[must_use]

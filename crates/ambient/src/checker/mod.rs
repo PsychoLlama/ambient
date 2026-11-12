@@ -388,6 +388,19 @@ impl<'a> Checker<'a> {
     }
 
     /// Fails if a type applies a definition to the wrong number of
+    /// arguments, or cannot be tested for as a program runs.
+    pub(super) fn tested(&self, ty: &Ty) -> Result<(), Error> {
+        self.well_formed(ty)?;
+        if self.env.testable(ty) {
+            return Ok(());
+        }
+        Err(Error::Untestable {
+            symbol: self.symbol.clone(),
+            found: self.env.show(ty),
+        })
+    }
+
+    /// Fails if a type applies a definition to the wrong number of
     /// arguments.
     fn well_formed(&self, ty: &Ty) -> Result<(), Error> {
         let mut result = Ok(());

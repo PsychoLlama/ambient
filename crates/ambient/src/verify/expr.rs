@@ -198,7 +198,7 @@ impl Body<'_, '_> {
                 otherwise,
             } => {
                 self.infer(value)?;
-                let target = verifier.sound(ty)?;
+                let target = verifier.tested(ty)?;
                 let alternative = self.infer(otherwise)?;
                 env.union(vec![target, alternative])
             }

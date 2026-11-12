@@ -48,84 +48,42 @@ fn double() -> Definition {
         .body(b::add(b::name("n"), b::name("n")))
 }
 
-/// Whether `double` casts to a function from `param` to `ret`.
-fn double_is(param: Type, ret: Type) -> bool {
-    casts(&[double()], b::name("double"), ty::function([param], ret))
+/// Whether checking refuses a cast to `ty` because no value can be
+/// tested for it.
+fn refused(ty: Type) -> bool {
+    use ambient::engine::Engine;
+    use ambient::error::Error;
+    use ambient::store::MemoryStore;
+
+    let function = || ty::function([ty::int()], ty::int());
+    let link = ty::record([("next", ty::named("Chain")), ("run", function())]);
+    let chain = b::type_("Chain", ty::union([ty::null(), link]));
+    let main = b::function("main")
+        .param("v", ty::unknown())
+        .returns(ty::unknown())
+        .body(b::cast(b::name("v"), ty, b::null()));
+    let module = b::module().define(chain).define(main);
+    let workspace = support::workspace([("app", "main", module)]);
+    let store = MemoryStore::new();
+    let checked = Engine::new(&workspace, &store).check(&support::value("main", "main"));
+    matches!(checked, Err(Error::Untestable { .. }))
 }
 
 #[test]
-fn a_function_casts_to_its_own_type() {
-    assert!(double_is(ty::int(), ty::int()));
-    assert!(!double_is(ty::int(), ty::string()));
-    assert!(!double_is(ty::string(), ty::int()));
-    assert!(!casts(&[], b::int(1), ty::function([], ty::int())));
+fn a_cast_to_a_type_that_holds_a_function_type_is_refused() {
+    let function = || ty::function([ty::int()], ty::int());
+
+    assert!(refused(function()));
+    assert!(refused(ty::record([("f", function())])));
+    assert!(refused(ty::list(ty::union([function(), ty::null()]))));
+    assert!(refused(ty::named("Chain")));
+    assert!(!refused(ty::list(ty::int())));
 }
 
 #[test]
-fn a_function_casts_to_a_type_its_own_is_within() {
-    let maybe = || ty::union([ty::int(), ty::null()]);
-
-    // It may be given less than it takes, and give more than is asked.
-    assert!(double_is(ty::integer(1), maybe()));
-    assert!(!double_is(maybe(), ty::int()));
-    assert!(!double_is(ty::int(), ty::integer(2)));
-    assert!(double_is(ty::int(), ty::unknown()));
-}
-
-#[test]
-fn a_function_does_not_cast_to_one_of_another_arity() {
-    let two = ty::function([ty::int(), ty::int()], ty::int());
-
-    assert!(!casts(&[double()], b::name("double"), two));
-    assert!(!casts(
-        &[double()],
-        b::name("double"),
-        ty::function([], ty::int())
-    ));
-}
-
-#[test]
-fn a_lambda_casts_to_its_type() {
-    let lambda = || b::lambda([("s", Some(ty::string()))], b::int(1));
-
-    assert!(casts(
-        &[],
-        lambda(),
-        ty::function([ty::string()], ty::int())
-    ));
-    assert!(!casts(&[], lambda(), ty::function([ty::int()], ty::int())));
-}
-
-#[test]
-fn a_function_casts_only_to_a_type_that_gives_it_what_it_performs() {
-    let ask = b::ability("ask", "ask").returns(ty::int());
-    let asks = b::function("asks")
-        .performs(["ask"])
-        .returns(ty::int())
-        .body(b::perform("ask", []));
-    let pure = b::function("pure").returns(ty::int()).body(b::int(1));
-    let extra = [ask.into(), asks, pure];
-    let with = |row: &[&str]| ty::function_row([], row.iter().copied(), ty::int());
-
-    assert!(casts(&extra, b::name("asks"), with(&["ask"])));
-    assert!(!casts(&extra, b::name("asks"), with(&[])));
-    assert!(casts(&extra, b::name("pure"), with(&["ask"])));
-}
-
-#[test]
-fn a_function_type_is_compared_through_the_names_in_it() {
-    let pair = b::type_("Pair", ty::tuple([ty::int(), ty::int()]));
-    let swap = b::function("swap")
-        .param("p", ty::named("Pair"))
-        .returns(ty::named("Pair"))
-        .body(b::name("p"));
-    let spelled = || ty::tuple([ty::int(), ty::int()]);
-
-    assert!(casts(
-        &[pair, swap],
-        b::name("swap"),
-        ty::function([spelled()], spelled())
-    ));
+fn a_cast_to_a_cell_of_functions_is_allowed() {
+    // A cell keeps the type it was made at, whatever that holds.
+    assert!(!refused(ty::cell(ty::function([ty::int()], ty::int()))));
 }
 
 #[test]
@@ -264,12 +222,12 @@ fn id() -> Definition {
 }
 
 #[test]
-fn a_generic_function_casts_to_its_type_at_its_type_arguments() {
-    let at_int = || b::instantiate("id", [ty::int()]);
-    let from = |ty: Type| ty::function([ty.clone()], ty);
+fn no_function_passes_a_cast_to_a_type_parameter() {
+    // The type argument is a function type, which no value says it is.
+    let double_type = ty::function([ty::int()], ty::int());
+    let call = b::call(b::instantiate("keep", [double_type]), [b::name("double")]);
 
-    assert!(casts(&[id()], at_int(), from(ty::int())));
-    assert!(!casts(&[id()], at_int(), from(ty::string())));
+    assert!(!passed(&[double()], call));
 }
 
 #[test]
@@ -285,105 +243,4 @@ fn a_generic_function_equals_itself_at_the_same_type_arguments() {
 
     assert!(equal(pair(), pair()));
     assert!(!equal(ty::int(), ty::string()));
-}
-
-/// Types of every shape, some within others: by name, as a union, by
-/// width, and through a definition that names itself.
-fn shapes() -> Vec<Type> {
-    let items = |name: &str| ty::named(name);
-    vec![
-        ty::never(),
-        ty::unknown(),
-        ty::null(),
-        ty::bool(),
-        ty::boolean(true),
-        ty::union([ty::boolean(true), ty::boolean(false)]),
-        ty::int(),
-        ty::integer(1),
-        ty::union([ty::int(), ty::null()]),
-        ty::string(),
-        ty::text("a"),
-        ty::tuple([ty::int(), ty::int()]),
-        ty::tuple([ty::integer(1), ty::int()]),
-        ty::list(ty::int()),
-        ty::record([("a", ty::int())]),
-        ty::record([("a", ty::integer(1)), ("b", ty::string())]),
-        ty::cell(ty::int()),
-        ty::cell(ty::integer(1)),
-        ty::function([ty::int()], ty::int()),
-        ty::function([ty::integer(1)], ty::unknown()),
-        items("Items"),
-        items("Others"),
-        ty::apply("Box", [ty::int()]),
-        ty::record([("value", ty::int())]),
-    ]
-}
-
-/// What [`shapes`] names: two lists of integers defined apart, and a
-/// generic record.
-fn named() -> [Definition; 3] {
-    let list = |name: &str| {
-        let node = ty::record([("head", ty::int()), ("tail", ty::named(name))]);
-        b::type_(name, ty::union([ty::null(), node]))
-    };
-    let boxed = b::generic_type("Box", ["T"], ty::record([("value", t())]));
-    [list("Items"), list("Others"), boxed]
-}
-
-#[test]
-fn a_cast_to_a_function_type_agrees_with_checking() {
-    use ambient::engine::Engine;
-    use ambient::store::MemoryStore;
-
-    let shapes = shapes();
-    let pairs = || (0..shapes.len()).flat_map(|i| (0..shapes.len()).map(move |j| (i, j)));
-    let taking = |param: usize| ty::function([shapes[param].clone()], ty::null());
-    // `fn f{i}(v: shapes[i]): null`, and for each pair a function that
-    // checks only if `f{i}` is a function that takes `shapes[j]`.
-    let functions = (0..shapes.len()).map(|i| {
-        b::function(&format!("f{i}"))
-            .param("v", shapes[i].clone())
-            .returns(ty::null())
-            .body(b::null())
-    });
-    let claims = pairs().map(|(i, j)| {
-        b::function(&format!("claim{i}_{j}"))
-            .returns(taking(j))
-            .body(b::name(&format!("f{i}")))
-    });
-    let fixed: Vec<Definition> = named().into_iter().chain(functions).collect();
-    let module = fixed.iter().cloned().chain(claims);
-    let module = module.fold(b::module(), b::ModuleBuilder::define);
-    let workspace = support::workspace([("app", "main", module)]);
-    let store = MemoryStore::new();
-    let engine = Engine::new(&workspace, &store);
-
-    // `fn row{i}(): list<unknown>` casts `f{i}` to every type: a row to
-    // a function, so that no function is large.
-    let rows = (0..shapes.len()).map(|i| {
-        let hidden = b::call(b::name("hide"), [b::name(&format!("f{i}"))]);
-        let casts = (0..shapes.len()).map(|j| b::cast(b::name("h"), taking(j), b::null()));
-        b::function(&format!("row{i}"))
-            .returns(ty::list(ty::unknown()))
-            .body(b::let_("h", hidden, b::list(casts)))
-    });
-    let calls = (0..shapes.len()).map(|i| b::call(b::name(&format!("row{i}")), []));
-    let main = b::function("main")
-        .returns(ty::unknown())
-        .body(b::list(calls));
-    let ran = run(fixed.into_iter().chain(rows).chain([hide(), main]), &[]).unwrap();
-    let Value::List(rows) = &ran else {
-        panic!("not a list")
-    };
-    let passed = |row: &Value| match row {
-        Value::List(casts) => casts.iter().map(|cast| *cast != Value::Null).collect(),
-        _ => Vec::new(),
-    };
-    let ran: Vec<bool> = rows.iter().flat_map(passed).collect();
-
-    let checked = pairs().map(|(i, j)| {
-        let claim = support::value("main", &format!("claim{i}_{j}"));
-        engine.check(&claim).is_ok()
-    });
-    assert_eq!(ran, checked.collect::<Vec<_>>());
 }

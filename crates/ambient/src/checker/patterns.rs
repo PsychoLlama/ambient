@@ -20,7 +20,7 @@ impl Checker<'_> {
             let mut result = Ok(());
             pattern_types(&arm.pattern, &mut |ty| {
                 if result.is_ok() {
-                    result = self.well_formed(ty);
+                    result = self.tested(ty);
                 }
             });
             result?;

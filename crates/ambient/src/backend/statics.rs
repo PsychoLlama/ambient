@@ -98,7 +98,6 @@ pub fn plan(parts: &Parts) -> Statics {
                 arity,
                 constants,
                 metered,
-                signature,
                 ..
             } => {
                 // Without a metered form, the plain one stands in for it.
@@ -108,8 +107,6 @@ pub fn plan(parts: &Parts) -> Statics {
                 statics.set(at + 2, Field::Word(*arity as u64));
                 let hash = statics.text(Make::String, &part.hash.to_string());
                 statics.set(at + 3, hash);
-                let signature = statics.describe(signature, &slots);
-                statics.set(at + 4, Field::Address(signature));
                 for (position, slot) in slots.iter().enumerate() {
                     statics.set(
                         at + DEFINITION_WORDS + position,

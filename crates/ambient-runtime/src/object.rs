@@ -28,8 +28,7 @@ pub(crate) const PINNED: u32 = u32::MAX;
 ///
 /// A closure is an object whose payload is its definition and then its
 /// captures. A definition is not an object: it is the code, the code
-/// compiled to run inside a budget, the arity, its hash, its signature,
-/// and then one
+/// compiled to run inside a budget, the arity, its hash, and then one
 /// closure per slot.
 pub mod layout {
     /// From a closure to its definition.
@@ -47,13 +46,10 @@ pub mod layout {
     /// From a definition to its hash, a string: what a host names the
     /// definition of a function value by.
     pub const DEFINITION_HASH: i32 = 24;
-    /// From a definition to its signature: the descriptor of its type,
-    /// or zero.
-    pub const DEFINITION_SIGNATURE: i32 = 32;
     /// From a definition to its first slot.
-    pub const DEFINITION_SLOTS: i32 = 40;
+    pub const DEFINITION_SLOTS: i32 = 32;
     /// The words in a definition with no slots.
-    pub const DEFINITION_WORDS: usize = 5;
+    pub const DEFINITION_WORDS: usize = 4;
 }
 
 /// Writes a closure that is never reclaimed into `words`: its header,

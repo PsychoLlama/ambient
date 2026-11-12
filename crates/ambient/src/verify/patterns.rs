@@ -32,7 +32,7 @@ impl Verifier<'_> {
                     .map(|member| self.pattern(member))
                     .collect::<Result<_, _>>()?,
             ),
-            core::Pattern::Is(ty) => Pattern::Is(self.sound(ty)?),
+            core::Pattern::Is(ty) => Pattern::Is(self.tested(ty)?),
             core::Pattern::Bind(inner) => {
                 Pattern::Bind(String::new(), Box::new(self.pattern(inner)?))
             }

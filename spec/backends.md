@@ -44,13 +44,12 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 - A recursive type definition has one descriptor, which the descriptors that name it refer to.
 - A generic function is handed its type arguments at run time, as descriptors. A function value over one holds them with what it captured, so calling it is no different from calling any function.
 - A type argument that is itself a type parameter is handed on as what it stands for, so a function that calls itself holds nothing of its callers.
-- Two values carry a type: a [cell](cells.md) keeps the descriptor of the type it was made at, and a function's definition holds the descriptor of its signature. Each is read with the type arguments in force where the value was made.
+- One value carries a type: a [cell](cells.md) keeps the descriptor of the type it was made at, read with the type arguments in force where it was made.
 - A descriptor is otherwise consulted only where a cast is written.
 - A cast to a cell type passes a cell whose descriptor describes the same type as the cast's: names stand for their definitions, and a union is its members in any order.
-- A cast to a function type passes a function whose signature is [within](types.md) the cast's type, decided at run time as checking decides it.
-- A cast to a type parameter tests against the type argument.
+- A cast to a type parameter tests against the type argument; no value passes a test for a function type, which only a type argument can ask for.
 - A generic function used at type arguments that mention no type parameter is one function value, made when the program is loaded.
-- TODO: a generic function is handed its type arguments even if it never consults them, which costs a function value for each use inside another generic function.
+- TODO: every generic function is handed its type arguments, needed or not, which costs a function value for each use inside another generic function and keeps a function value over one from being [sent](values.md).
 
 ## Calls
 

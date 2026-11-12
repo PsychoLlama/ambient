@@ -169,6 +169,23 @@ fn a_type_not_in_its_one_form_is_refused() {
 }
 
 #[test]
+fn a_test_for_a_function_type_is_refused() {
+    let function = Type::Function {
+        params: Vec::new(),
+        ret: Box::new(Type::Null),
+        row: Vec::new(),
+    };
+    let cast = |ty| Expr::Cast {
+        value: Box::new(int(1)),
+        ty,
+        otherwise: Box::new(int(2)),
+    };
+
+    assert_eq!(with_body(cast(Type::Int)), Ok(()));
+    assert!(matches!(with_body(cast(function)), Err(Invalid::Shape(_))));
+}
+
+#[test]
 fn a_task_spawned_outside_every_group_is_refused() {
     let spawn = Expr::Spawn(Box::new(Expr::Null));
     assert!(matches!(with_body(spawn), Err(Invalid::Shape(_))));
