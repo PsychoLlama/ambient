@@ -211,7 +211,7 @@ impl Lowering {
                 Literal::Float(bits) => Op::Float(*bits),
                 Literal::String(_) => Op::Copy(self.operand(expr, &mut scope)?),
             },
-            core::Expr::Local(_) | core::Expr::Captured(_) => {
+            core::Expr::Local(_) | core::Expr::Captured(_) | core::Expr::AbilityId(_) => {
                 Op::Copy(self.operand(expr, &mut scope)?)
             }
             core::Expr::Reference(slot, _) => Op::Slot(slot.0),
@@ -345,6 +345,10 @@ impl Lowering {
             }
             core::Expr::Local(number) => Value::Local(*number + 1),
             core::Expr::Captured(position) => Value::Captured(*position),
+            // The key bindings hold the ability under is its id.
+            core::Expr::AbilityId(slot) => {
+                Value::Constant(self.constant(Constant::Ability(slot.0)))
+            }
             _ => {
                 let value = self.expr(expr)?;
                 let local = self.temporary();

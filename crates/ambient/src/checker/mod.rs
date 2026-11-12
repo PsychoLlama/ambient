@@ -13,6 +13,7 @@ mod comptime;
 mod generics;
 mod header;
 mod lambda;
+mod observe;
 mod operators;
 mod patterns;
 mod records;
@@ -55,6 +56,7 @@ pub fn check_function(
     checker.frame().layers.push(Layer {
         abilities: header.row,
         only: false,
+        seen: None,
     });
     for param in header.params {
         checker.bind_local(param);
@@ -381,6 +383,14 @@ impl<'a> Checker<'a> {
             Expr::Lambda { params, row, body } => self.lambda(params, row, body, None)?,
             Expr::Perform { ability, args } => self.perform(ability, args)?,
             Expr::Provide { bundle, only, body } => self.provide(bundle, *only, body)?,
+            Expr::Observe { observer, body } => self.observe(observer, body)?,
+            Expr::AbilityId(ability) => match ability {
+                Reference::Definition(ability) => {
+                    (core::Expr::AbilityId(self.slot(ability)), Ty::String)
+                }
+                // Resolution only ever names an ability here.
+                _ => (core::Expr::Null, Ty::Never),
+            },
             Expr::Comptime(call) => self.comptime(call)?,
             Expr::Cast {
                 value,

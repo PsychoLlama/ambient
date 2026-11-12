@@ -285,6 +285,18 @@ pub enum Expr<N = Path> {
         ability: N,
         args: Vec<Expr<N>>,
     },
+    /// Evaluates `body`, calling `observer` with each ability it performs,
+    /// the arguments, and what came back. See `spec/handlers.md`.
+    ///
+    /// Counts as one binder, numbered after those in `observer`: it holds
+    /// the observer.
+    Observe {
+        observer: Box<Expr<N>>,
+        body: Box<Expr<N>>,
+    },
+    /// What an observer is told an ability is: a string that is equal
+    /// only for the same ability.
+    AbilityId(N),
     /// Binds the handlers in `bundle` for the extent of `body`. With
     /// `only`, the body sees no other binding.
     ///

@@ -129,6 +129,11 @@ impl<N> Expr<N> {
                 bundle.names(visit);
                 body.names(visit);
             }
+            Self::Observe { observer, body } => {
+                observer.names(visit);
+                body.names(visit);
+            }
+            Self::AbilityId(ability) => visit(ability),
             Self::Comptime(call) => call.names(visit),
             Self::Cast {
                 value,
@@ -163,7 +168,11 @@ impl<N> Expr<N> {
     pub fn binders(&self) -> usize {
         let all = |exprs: &[Self]| exprs.iter().map(Self::binders).sum::<usize>();
         match self {
-            Self::Null | Self::Literal(_) | Self::Name(_) | Self::Instantiate { .. } => 0,
+            Self::Null
+            | Self::Literal(_)
+            | Self::Name(_)
+            | Self::Instantiate { .. }
+            | Self::AbilityId(_) => 0,
             Self::Call { callee, args } => callee.binders() + all(args),
             Self::Record(fields) => fields.iter().map(|(_, value)| value.binders()).sum(),
             Self::Tuple(members) | Self::List(members) => all(members),
@@ -182,6 +191,7 @@ impl<N> Expr<N> {
             Self::Lambda { params, body, .. } => params.len() + body.binders(),
             Self::Perform { args, .. } => all(args),
             Self::Provide { bundle, body, .. } => bundle.binders() + 1 + body.binders(),
+            Self::Observe { observer, body } => observer.binders() + 1 + body.binders(),
             Self::Comptime(call) => call.binders(),
             Self::Cast {
                 value, otherwise, ..
@@ -206,7 +216,11 @@ impl<N> Expr<N> {
     /// Calls `visit` with each expression directly inside this one.
     fn children<'a>(&'a self, visit: &mut impl FnMut(&'a Self)) {
         match self {
-            Self::Null | Self::Literal(_) | Self::Name(_) | Self::Instantiate { .. } => {}
+            Self::Null
+            | Self::Literal(_)
+            | Self::Name(_)
+            | Self::Instantiate { .. }
+            | Self::AbilityId(_) => {}
             Self::Call { callee, args } => {
                 visit(callee);
                 args.iter().for_each(visit);
@@ -232,6 +246,10 @@ impl<N> Expr<N> {
             Self::Perform { args, .. } => args.iter().for_each(visit),
             Self::Provide { bundle, body, .. } => {
                 visit(bundle);
+                visit(body);
+            }
+            Self::Observe { observer, body } => {
+                visit(observer);
                 visit(body);
             }
             Self::Comptime(call) => visit(call),

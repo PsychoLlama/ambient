@@ -13,6 +13,9 @@ pub(super) struct Layer {
     pub(super) abilities: Vec<Symbol>,
     /// Whether nothing bound outside this layer can be seen inside it.
     pub(super) only: bool,
+    /// For a recording: every ability that was looked for inside it and
+    /// found only outside it.
+    pub(super) seen: Option<Vec<Symbol>>,
 }
 
 impl Checker<'_> {
@@ -34,19 +37,25 @@ impl Checker<'_> {
     /// Fails unless `ability` is bound in the frame at `depth`. If only a
     /// frame outside binds it, each lambda in between captures it.
     fn require_at(&mut self, depth: usize, ability: &Symbol) -> Result<(), Error> {
+        let symbol = self.symbol;
         let unbound = || Error::Unbound {
-            symbol: self.symbol.clone(),
+            symbol: symbol.clone(),
             ability: ability.clone(),
         };
-        let Some(frame) = self.frames.get(depth) else {
+        let Some(frame) = self.frames.get_mut(depth) else {
             return Err(unbound());
         };
-        for layer in frame.layers.iter().rev() {
+        for layer in frame.layers.iter_mut().rev() {
             if layer.abilities.contains(ability) {
                 return Ok(());
             }
             if layer.only {
                 return Err(unbound());
+            }
+            if let Some(seen) = &mut layer.seen
+                && !seen.contains(ability)
+            {
+                seen.push(ability.clone());
             }
         }
         if frame.bindings.contains(ability) {
@@ -176,6 +185,7 @@ impl Checker<'_> {
         self.frame().layers.push(Layer {
             abilities: bound,
             only,
+            seen: None,
         });
         let body = self.infer(body);
         self.frame().layers.pop();

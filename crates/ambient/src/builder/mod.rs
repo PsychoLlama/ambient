@@ -186,6 +186,22 @@ pub fn using_only(bundle: Expr, body: Expr) -> Expr {
     }
 }
 
+/// Evaluates `body`, calling `observer` with each ability it performs:
+/// a record of the ability's id, the arguments, and the outcome.
+#[must_use]
+pub fn recording(observer: Expr, body: Expr) -> Expr {
+    Expr::Observe {
+        observer: Box::new(observer),
+        body: Box::new(body),
+    }
+}
+
+/// What an observer is told the ability at a dotted path is.
+#[must_use]
+pub fn ability_id(ability: &str) -> Expr {
+    Expr::AbilityId(Path::parse(ability))
+}
+
 /// [`using`] a bundle written in place.
 pub fn provide<'a>(handlers: impl IntoIterator<Item = (&'a str, Expr)>, body: Expr) -> Expr {
     using(bundle(handlers), body)

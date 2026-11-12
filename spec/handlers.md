@@ -50,6 +50,9 @@ A handler is an ordinary function value bound to an [ability](abilities.md) by a
 - For each ability in the body's row, the compiler derives a handler that forwards to the enclosing binding and reports the ability, arguments, and outcome to the observer.
 - Derived handlers cannot alter arguments or results.
 - Reported events are [self-describing values](values.md), so one observer serves every ability.
+- An event is a record of the ability's id, the arguments as a list, and the outcome; an ability's id is a string made from its [hash](definitions.md).
+- A perform that does not return is reported before it unwinds, with no outcome.
+- An observer's own row is bound outside the recording, so an observer never observes itself.
 - A recording sees performs made through the body's row; it does not see handlers captured before the recording began.
 - Replay is the same construct reversed: derived handlers answer from recorded events instead of forwarding.
 - Recording adds nothing to the type system, because the body's row is statically known where it is recorded.

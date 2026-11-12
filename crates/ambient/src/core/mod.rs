@@ -139,6 +139,9 @@ pub enum Expr {
         captures: Vec<Expr>,
         bindings: Vec<Slot>,
     },
+    /// What an observer is told an ability is: a string made from the
+    /// ability's hash.
+    AbilityId(Slot),
     /// Calls the handler bound to an ability. If the ability does not
     /// return, this unwinds to the provide that bound it.
     Perform {

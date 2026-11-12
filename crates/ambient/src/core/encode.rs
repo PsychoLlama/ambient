@@ -5,7 +5,7 @@ use crate::literal::Literal;
 
 /// The version named by every encoding. Changing the node set or the
 /// encoding means changing this, which changes every hash.
-const FORMAT: u8 = 3;
+const FORMAT: u8 = 4;
 
 impl Tree {
     /// The canonical encoding: the bytes a hash is computed over.
@@ -292,7 +292,7 @@ fn encode_expr(expr: &Expr, out: &mut Vec<u8>) {
             out.push(13);
             unsigned(*index as u64, out);
         }
-        Expr::Closure { .. } | Expr::Perform { .. } | Expr::Provide { .. } => {
+        Expr::Closure { .. } | Expr::Perform { .. } | Expr::Provide { .. } | Expr::AbilityId(_) => {
             encode_binding(expr, out);
         }
     }
@@ -312,6 +312,10 @@ fn encode_binding(expr: &Expr, out: &mut Vec<u8>) {
             encode_types(type_args, out);
             encode_exprs(captures, out);
             encode_slots(bindings, out);
+        }
+        Expr::AbilityId(ability) => {
+            out.push(18);
+            unsigned(ability.0 as u64, out);
         }
         Expr::Perform {
             ability,

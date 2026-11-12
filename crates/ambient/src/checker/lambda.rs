@@ -96,6 +96,7 @@ impl Checker<'_> {
             layers: vec![Layer {
                 abilities: row,
                 only: false,
+                seen: None,
             }],
             ..Frame::default()
         });

@@ -323,6 +323,16 @@ impl Resolver<'_> {
                 ability: self.ability(ability)?,
                 args: self.exprs(args)?,
             },
+            Expr::Observe { observer, body } => {
+                let observer = Box::new(self.expr(observer)?);
+                // The binder a recording holds its observer in.
+                self.next += 1;
+                Expr::Observe {
+                    observer,
+                    body: Box::new(self.expr(body)?),
+                }
+            }
+            Expr::AbilityId(ability) => Expr::AbilityId(self.ability(ability)?),
             Expr::Provide { bundle, only, body } => {
                 let bundle = Box::new(self.expr(bundle)?);
                 // The binder a provide holds its bundle in. It has no name.

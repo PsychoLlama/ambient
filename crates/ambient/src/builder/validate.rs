@@ -215,6 +215,11 @@ pub(super) fn check_expr(expr: &Expr) -> Result<(), BuildError> {
             check_expr(bundle)?;
             check_expr(body)
         }
+        Expr::Observe { observer, body } => {
+            check_expr(observer)?;
+            check_expr(body)
+        }
+        Expr::AbilityId(ability) => check_path(ability),
         Expr::Lambda { params, row, body } => {
             row.iter().try_for_each(check_path)?;
             let mut seen = BTreeSet::new();
