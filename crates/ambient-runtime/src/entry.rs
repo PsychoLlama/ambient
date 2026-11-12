@@ -142,4 +142,6 @@ entries! {
     ListPush = amb_list_push, plain, 2, word;
     ListJoin = amb_list_join, plain, 2, word;
     ListSlice = amb_list_slice, plain, 3, word;
+    Tail = amb_tail, context, 3, word;
+    Bounce = amb_bounce, context, 0, word;
 }

@@ -13,6 +13,7 @@ impl Op {
             | Self::BudgetCurrent
             | Self::Charge { .. }
             | Self::Hold
+            | Self::Bounce
             | Self::Trace { .. }
             | Self::Contain
             | Self::Group
@@ -44,6 +45,7 @@ impl Op {
             | Self::Merge { base, overlay } => vec![base, overlay],
             Self::GroupClose { group, .. } => vec![group],
             Self::Abort { token, args } => vec![token, args],
+            Self::Tail { callee, args, .. } => vec![callee, args],
             Self::Native { bindings, args, .. } => vec![bindings, args],
             Self::Call { args, .. } | Self::Primitive { args, .. } => args.iter_mut().collect(),
             Self::CallValue { callee, args, .. } => std::iter::once(callee).chain(args).collect(),

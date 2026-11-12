@@ -111,6 +111,17 @@ pub enum Op {
         args: Vec<Value>,
         metered: bool,
     },
+    /// Leaves the function to call a function value with `args`, a
+    /// tuple, as [`Op::CallValue`] would: always unwinds, and whatever
+    /// called the function makes the call.
+    Tail {
+        callee: Value,
+        args: Value,
+        metered: bool,
+    },
+    /// For a call that unwound: if what it called left to make a call,
+    /// makes that call and is its result; if not, goes on unwinding.
+    Bounce,
     Primitive {
         operation: Primitive,
         args: Vec<Value>,

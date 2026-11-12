@@ -63,11 +63,11 @@ pub use record::*;
 pub use scope::{amb_scope_new, amb_scope_set, fixed_scope};
 pub use sequence::*;
 pub use task::{
-    LIMITS, RESUMING, RUNNING, SUSPENDING, amb_all, amb_budget_back, amb_budget_caught,
+    LIMITS, RESUMING, RUNNING, SUSPENDING, amb_all, amb_bounce, amb_budget_back, amb_budget_caught,
     amb_budget_current, amb_budget_enter, amb_budget_leave, amb_budget_switch, amb_capture,
     amb_charge, amb_charge_size, amb_first, amb_frame_drop, amb_frame_load, amb_frame_point,
     amb_frame_push, amb_frame_save, amb_group_close, amb_group_end, amb_group_new, amb_schedule,
-    amb_spawn,
+    amb_spawn, amb_start, amb_tail,
 };
 pub use text::*;
 pub use trace::{TRACE_LIMIT, amb_trace};
@@ -111,6 +111,9 @@ pub enum Fault {
     Exhausted = 8,
     /// An integer was divided by zero.
     DivideByZero = 9,
+    /// Not a fault: a function is leaving to make the call it ends
+    /// with.
+    Tail = 10,
 }
 
 impl Fault {
@@ -125,6 +128,7 @@ impl Fault {
         Self::CleanupAbort,
         Self::Exhausted,
         Self::DivideByZero,
+        Self::Tail,
     ];
 
     #[must_use]
@@ -139,6 +143,7 @@ impl Fault {
             7 => Self::CleanupAbort,
             8 => Self::Exhausted,
             9 => Self::DivideByZero,
+            10 => Self::Tail,
             _ => Self::None,
         }
     }
@@ -200,6 +205,9 @@ pub struct Context {
     /// Where the host keeps the first of the program's live cells, or
     /// zero if it keeps none: see [`amb_cells_drop`].
     pub cells: u64,
+    /// While a function leaves for a call: the code to call. The callee
+    /// and its arguments are where an abort's token and arguments go.
+    pub tail: u64,
 }
 
 impl Context {

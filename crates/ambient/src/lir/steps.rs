@@ -40,6 +40,8 @@ impl Op {
         match self {
             Self::Call { .. }
             | Self::CallValue { .. }
+            | Self::Tail { .. }
+            | Self::Bounce
             | Self::Abort { .. }
             | Self::Caught(_)
             | Self::Native { .. }
@@ -103,6 +105,7 @@ impl Op {
         match self {
             Self::Call { .. }
             | Self::CallValue { .. }
+            | Self::Bounce
             | Self::Native { .. }
             | Self::All(_)
             | Self::First(_)
@@ -178,6 +181,15 @@ impl Op {
                 vec![step(Entry::Abort, [value(token), value(args)])]
             }
             Self::Caught(token) => vec![step(Entry::Caught, [value(token)])],
+            Self::Tail {
+                callee,
+                args,
+                metered,
+            } => {
+                let metered = Raw(u64::from(*metered));
+                vec![step(Entry::Tail, [value(callee), value(args), metered])]
+            }
+            Self::Bounce => vec![step(Entry::Bounce, [])],
             Self::Hold
             | Self::Contain
             | Self::BudgetEnter { .. }

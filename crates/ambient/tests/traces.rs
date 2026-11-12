@@ -12,7 +12,7 @@ use ambient::engine::Engine;
 use ambient::store::MemoryStore;
 use ambient::surface::{Definition, Expr};
 use ambient::value::Value;
-use support::{Outcome, run_for_error, value, verify_all, workspace};
+use support::{Outcome, kept, run_for_error, value, verify_all, workspace};
 
 /// `fn main(): unknown`
 fn main(body: Expr) -> Definition {
@@ -78,9 +78,25 @@ fn a_trace_begins_where_it_is_captured() {
 fn a_trace_has_a_frame_for_each_call_it_is_inside() {
     let middle = b::function("middle")
         .returns(ty::unknown())
-        .body(b::call(b::name("here"), []));
-    let outer = main(b::call(b::name("middle"), []));
+        .body(kept(b::call(b::name("here"), [])));
+    let outer = main(kept(b::call(b::name("middle"), [])));
     assert_eq!(traced([here(), middle, outer]), ["here", "middle", "main"]);
+}
+
+#[test]
+fn a_function_that_left_for_its_last_call_is_in_no_trace() {
+    let middle = b::function("middle")
+        .returns(ty::unknown())
+        .body(b::call(b::name("here"), []));
+    let outer = main(kept(b::call(b::name("middle"), [])));
+    assert_eq!(traced([here(), middle, outer]), ["here", "main"]);
+}
+
+#[test]
+fn a_program_that_left_for_its_last_call_is_in_no_trace() {
+    // Nothing compiled is left to resume the capture: the host does.
+    let outer = main(b::call(b::name("here"), []));
+    assert_eq!(traced([here(), outer]), ["here"]);
 }
 
 #[test]
@@ -99,7 +115,7 @@ fn what_was_computed_before_a_capture_is_still_there_after() {
 
 #[test]
 fn the_frames_of_a_task_are_followed_by_those_of_what_started_it() {
-    let branch = b::call(b::name("here"), []);
+    let branch = kept(b::call(b::name("here"), []));
     let first = b::match_(
         b::all([branch]),
         [(b::pat::tuple([b::pat::bind("trace")]), b::name("trace"))],
@@ -110,7 +126,10 @@ fn the_frames_of_a_task_are_followed_by_those_of_what_started_it() {
 #[test]
 fn a_trace_keeps_the_frames_nearest_where_it_was_captured() {
     // `down(n)` calls itself `n` times and then captures.
-    let deeper = b::call(b::name("down"), [b::subtract(b::name("n"), b::int(1))]);
+    let deeper = kept(b::call(
+        b::name("down"),
+        [b::subtract(b::name("n"), b::int(1))],
+    ));
     let down = b::function("down")
         .param("n", ty::int())
         .returns(ty::unknown())
@@ -128,7 +147,7 @@ fn a_fault_that_ends_a_program_reaches_its_host_with_its_trace() {
     let overflows = b::function("overflows")
         .returns(ty::int())
         .body(b::add(b::int(i64::MAX), b::int(1)));
-    let outer = main(b::call(b::name("overflows"), []));
+    let outer = main(kept(b::call(b::name("overflows"), [])));
     let trace = |outcome: Outcome, error: Option<Value>| {
         assert_eq!(outcome, Err(ambient_runtime::Fault::Overflow));
         match error {

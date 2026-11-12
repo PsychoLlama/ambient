@@ -9,7 +9,7 @@
 use ambient_runtime::{Fault, NULL, SUSPENDING, UNWIND};
 use wasmtime::{Engine, Linker, Module, Store, Val};
 
-use super::guest::{Guest, State, must, native, word};
+use super::guest::{Guest, State, native, word};
 use super::units::externs;
 use super::{RUNTIME, RUNTIME_MODULE};
 use crate::backend::native::Natives;
@@ -24,8 +24,6 @@ pub struct Program {
     guest: Guest<Store<State>>,
     /// The closure of the program's entry.
     entry: u64,
-    /// A word of the runtime's memory to be handed results in.
-    scratch: u64,
     /// The fault that ended the last call, as an error.
     error: Option<Value>,
 }
@@ -56,7 +54,6 @@ impl Program {
         let instance = linker.instantiate(&mut store, &module).map_err(text)?;
         let mut guest = Guest { store, runtime };
         let unused = guest.words("amb_words", &[1]);
-        let scratch = guest.words("amb_words", &[1]);
         let externs = externs(&module, instance, &mut guest.store);
         let supplied = natives.resolve(&externs)?;
         let state = guest.store.data_mut();
@@ -66,7 +63,6 @@ impl Program {
         Ok(Self {
             guest,
             entry,
-            scratch,
             error: None,
         })
     }
@@ -145,30 +141,18 @@ impl Program {
             ambient_runtime::Kind::Function as u64,
             "not a function"
         );
-        let scratch = Val::I32(u32::try_from(self.scratch).unwrap_or(0).cast_signed());
-        let code = guest.runtime("amb_closure_code", &[word(function), scratch]);
-        let code = code.map_or(0, |code| code.unwrap_i64().cast_unsigned());
-        let arity = guest.read(self.scratch);
+        let arity = guest.words("amb_closure_arity", &[function]);
         assert_eq!(args.len() as u64 + 1, arity, "wrong number of arguments");
-        let Some(table) = guest
-            .runtime
-            .get_table(&mut guest.store, "__indirect_function_table")
-        else {
-            panic!("the runtime has no table");
-        };
-        let code = table.get(&mut guest.store, code);
-        let Some(code) = code.as_ref().and_then(|code| code.unwrap_func()).copied() else {
-            panic!("a function's code is not in the table");
-        };
-
         let context = guest.runtime("amb_context_new", &[]).unwrap_or(Val::I32(0));
         // The function is handed no bindings: nothing is provided to it.
-        let mut all = vec![context, word(function), word(NULL)];
-        all.extend(args.iter().copied().map(word));
-        let mut result = [Val::I64(0)];
-        let mut run = |guest: &mut Guest<Store<State>>| {
-            must(code.call(&mut guest.store, &all, &mut result), "a call");
-            result[0].unwrap_i64().cast_unsigned()
+        let handed = guest.words("amb_sequence_new", &[0, arity]);
+        for (index, arg) in (1..).zip(args) {
+            guest.runtime("amb_sequence_set", &[word(handed), word(index), word(*arg)]);
+        }
+        let start = [context, word(function), word(handed), word(0)];
+        let run = |guest: &mut Guest<Store<State>>| {
+            let result = guest.runtime("amb_start", &start);
+            result.map_or(UNWIND, |result| result.unwrap_i64().cast_unsigned())
         };
         // Unwinding in this mode is the root task suspending: the others
         // take their turns, and the function runs again to resume it.
@@ -182,6 +166,7 @@ impl Program {
             guest.runtime("amb_schedule", &[context]);
             returned = run(guest);
         }
+        guest.words("amb_release", &[handed]);
         self.error = None;
         let outcome = if returned == UNWIND {
             let code = guest.runtime("amb_context_fault", &[context]);

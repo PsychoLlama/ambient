@@ -209,3 +209,10 @@ fn run_wasm(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -> 
     assert_eq!(program.live(), live, "the program leaked");
     (result, program.error())
 }
+
+/// `expr`, bound and then given: a call written so is not the last
+/// thing its function does, so the function is still there, and in a
+/// trace, while what it called runs.
+pub fn kept(expr: ambient::surface::Expr) -> ambient::surface::Expr {
+    ambient::builder::let_("kept", expr, ambient::builder::name("kept"))
+}

@@ -54,15 +54,12 @@ fn rewrite(expr: Expr, next: &mut usize) -> Expr {
             let mut body = Box::new(rewrite(*body, next));
             // What notes the operation in the trace of a fault says
             // where the function is while it is suspended there.
-            if let (
-                Expr::Point { frame, .. },
-                Expr::Op(Op::Trace {
-                    definition,
-                    position,
-                }),
-            ) = (&mut *body, &*recover)
+            if let Expr::Op(Op::Trace {
+                definition,
+                position,
+            }) = &*recover
             {
-                *frame = Some((*definition, *position));
+                place(&mut body, (*definition, *position));
             }
             let from = *next;
             let recover = Box::new(rewrite(*recover, next));
@@ -73,5 +70,18 @@ fn rewrite(expr: Expr, next: &mut usize) -> Expr {
             }
         }
         other => other,
+    }
+}
+
+/// Says where the function is while it is suspended in an operation:
+/// in it, or in what makes a call its callee left for.
+fn place(operation: &mut Expr, at: (usize, usize)) {
+    match operation {
+        Expr::Point { frame, .. } => *frame = Some(at),
+        Expr::Try { body, recover, .. } => {
+            place(body, at);
+            place(recover, at);
+        }
+        _ => {}
     }
 }

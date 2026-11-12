@@ -4,7 +4,7 @@
 use std::cell::{Cell, RefCell, UnsafeCell};
 use std::collections::{HashMap, HashSet};
 
-use ambient_runtime::{Context, Entry, Fault, NULL, Word};
+use ambient_runtime::{Entry, Fault, NULL, Word};
 
 use super::externs::Externs;
 use super::host::{Host, Natives, Observation, dispatch};
@@ -290,8 +290,7 @@ impl Program {
     ///
     /// # Panics
     ///
-    /// Panics if `args` is not as many words as the entry takes, or more
-    /// than four.
+    /// Panics if `args` is not as many words as the entry takes.
     pub fn call(&self, args: &[Word]) -> Result<Word, Fault> {
         self.call_value(self.entry.get(), args)
     }
@@ -307,9 +306,8 @@ impl Program {
     /// # Panics
     ///
     /// Panics if `function` is not a function, or `args` is not as many
-    /// words as it takes, or more than four.
+    /// words as it takes.
     pub fn call_value(&self, function: Word, args: &[Word]) -> Result<Word, Fault> {
-        type C = *mut Context;
         // SAFETY: a value's kind can always be asked.
         let kind = unsafe { ambient_runtime::amb_kind(function) };
         assert_eq!(
@@ -317,48 +315,26 @@ impl Program {
             ambient_runtime::Kind::Function as u64,
             "not a function"
         );
-        let mut arity = 0;
-        // SAFETY: it is a function, and `arity` is a word to write to.
-        let code = unsafe { ambient_runtime::amb_closure_code(function, &raw mut arity) };
-        let word = |word: u64| usize::try_from(word).unwrap_or(0);
-        let (code, arity) = (word(code), word(arity));
+        // SAFETY: it is a function.
+        let arity = unsafe { ambient_runtime::amb_closure_arity(function) };
         // The function is handed no bindings: nothing is provided to it.
         let mut words = vec![NULL];
         words.extend_from_slice(args);
-        assert_eq!(words.len(), arity, "wrong number of arguments");
+        assert_eq!(words.len() as u64, arity, "wrong number of arguments");
         let closure = function;
-        // SAFETY: the code was compiled by `Native` for a function of this
-        // arity, with the calling convention these types spell out, and the
-        // context and closure are laid out as the runtime defines.
+        // SAFETY: the function takes as many words as it is handed, and
+        // the context is laid out as the runtime defines.
         unsafe {
             let context = ambient_runtime::amb_context_new();
             (*context).entries = self.entries.as_ptr() as u64;
             (*context).native = dispatch as *const () as u64;
             (*context).host = std::ptr::from_ref(self) as u64;
             (*context).cells = self.cells.get() as u64;
-            let invoke = move || match *words {
-                [w0] => std::mem::transmute::<usize, extern "C" fn(C, u64, u64) -> u64>(code)(
-                    context, closure, w0,
-                ),
-                [w0, w1] => std::mem::transmute::<usize, extern "C" fn(C, u64, u64, u64) -> u64>(
-                    code,
-                )(context, closure, w0, w1),
-                [w0, w1, w2] => std::mem::transmute::<
-                    usize,
-                    extern "C" fn(C, u64, u64, u64, u64) -> u64,
-                >(code)(context, closure, w0, w1, w2),
-                [w0, w1, w2, w3] => std::mem::transmute::<
-                    usize,
-                    extern "C" fn(C, u64, u64, u64, u64, u64) -> u64,
-                >(code)(context, closure, w0, w1, w2, w3),
-                [w0, w1, w2, w3, w4] => {
-                    std::mem::transmute::<
-                        usize,
-                        extern "C" fn(C, u64, u64, u64, u64, u64, u64) -> u64,
-                    >(code)(context, closure, w0, w1, w2, w3, w4)
-                }
-                _ => panic!("the host can pass at most four arguments"),
-            };
+            let handed = ambient_runtime::amb_sequence_new(0, words.len() as u64);
+            for (index, word) in (0..).zip(&words) {
+                ambient_runtime::amb_sequence_set(handed, index, *word);
+            }
+            let invoke = move || ambient_runtime::amb_start(context, closure, handed, 0);
             // Unwinding in this mode is the root task suspending: the
             // others take their turns, and the entry runs again to
             // resume it where it was.
@@ -370,6 +346,7 @@ impl Program {
                 ambient_runtime::amb_schedule(context);
                 result = invoke();
             }
+            ambient_runtime::amb_release(handed);
             let fault = Fault::from_code((*context).fault);
             // The root is a boundary: a fault that reached it is an
             // error, for whoever called.

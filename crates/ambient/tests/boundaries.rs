@@ -9,7 +9,7 @@ use ambient::builder::{self as b, pat, ty};
 use ambient::surface::{Definition, Expr, Type};
 use ambient::value::Value;
 use ambient_runtime::{FAULT_PACKAGE, Fault};
-use support::{run, value, workspace};
+use support::{kept, run, value, workspace};
 
 fn outcome(
     ret: Type,
@@ -187,11 +187,11 @@ fn a_trace_says_where_the_fault_was() {
 #[test]
 fn a_trace_has_a_frame_for_each_call_the_fault_left() {
     let inner = giving("inner", overflows());
-    let outer = giving("outer", b::call(b::name("inner"), []));
+    let outer = giving("outer", kept(b::call(b::name("inner"), [])));
 
     assert_eq!(
         trace(b::call(b::name("outer"), []), [inner, outer]),
-        [at("inner", 0), at("outer", 0), at("main", 1)]
+        [at("inner", 0), at("outer", 1), at("main", 1)]
     );
 }
 
@@ -213,7 +213,10 @@ fn a_trace_is_kept_while_a_cleanup_runs() {
 
 #[test]
 fn a_trace_keeps_only_the_frames_nearest_the_fault() {
-    let deeper = b::call(b::name("down"), [b::subtract(b::name("n"), b::int(1))]);
+    let deeper = kept(b::call(
+        b::name("down"),
+        [b::subtract(b::name("n"), b::int(1))],
+    ));
     let down = b::function("down")
         .param("n", ty::int())
         .returns(ty::int())

@@ -9,6 +9,7 @@ mod meter;
 mod native;
 mod patterns;
 mod resume;
+mod tail;
 mod tasks;
 mod types;
 
@@ -80,10 +81,11 @@ pub fn lower(definition: &Open, form: &Form) -> Result<lir::Function, Unsupporte
     // count was not known until now. They go after them.
     let named = lowering.binders + 1;
     renumber(&mut body, named);
-    let body = resume::resumable(body);
+    let mut locals = named + lowering.temporaries;
+    let body = resume::resumable(tail::tailed(body, &mut locals));
     Ok(lir::Function {
         params: function.params.len() + 1,
-        locals: named + lowering.temporaries,
+        locals,
         slots: definition.slots.len(),
         constants: lowering.constants,
         body,

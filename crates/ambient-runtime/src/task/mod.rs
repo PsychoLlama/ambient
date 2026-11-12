@@ -17,6 +17,7 @@ mod budget;
 mod capture;
 mod group;
 mod join;
+mod tail;
 
 use std::collections::VecDeque;
 
@@ -27,9 +28,9 @@ pub use budget::{
 pub use capture::amb_capture;
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
 pub use join::{amb_all, amb_first};
+pub use tail::{amb_bounce, amb_start, amb_tail};
 
-use crate::object::layout::{DEFINITION_CODE, DEFINITION_METERED};
-use crate::object::{amb_release, words};
+use crate::object::amb_release;
 use crate::{Context, Fault, NULL, UNWIND, Word};
 
 /// The modes of a context. Compiled code reads the mode after a call
@@ -340,8 +341,6 @@ pub(crate) unsafe fn wake(context: *mut Context, cell: Word) {
     }
 }
 
-type Thunk = unsafe extern "C" fn(*mut Context, Word, Word) -> Word;
-
 /// Runs tasks until the root can go on, then makes it the current task
 /// and sets the mode so that calling the entry again resumes it.
 ///
@@ -374,15 +373,12 @@ pub unsafe extern "C" fn amb_schedule(context: *mut Context) {
             task.started = true;
             let thunk = task.thunk;
             // A task inside a budget is metered, as what started it was.
-            let form = if task.budget.is_some() {
-                DEFINITION_METERED
-            } else {
-                DEFINITION_CODE
-            };
-            let definition = words(thunk)[0] as usize as *const u8;
-            let code = definition.add(form as usize).cast::<u64>().read();
-            let code = std::mem::transmute::<usize, Thunk>(code as usize);
-            let result = code(context, thunk, NULL);
+            let metered = u64::from(task.budget.is_some());
+            // A thunk takes nothing but the bindings every function is
+            // handed, and it is handed none: it captured its own.
+            let nothing = crate::sequence::amb_sequence_new(0, 1);
+            let result = amb_start(context, thunk, nothing, metered);
+            amb_release(nothing);
             ended(context, id, result);
         }
     }

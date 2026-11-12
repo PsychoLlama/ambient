@@ -93,18 +93,6 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
         }
     }
 
-    /// The word at an address.
-    pub(super) fn read(&mut self, address: u64) -> u64 {
-        let mut bytes = [0u8; 8];
-        let start = usize::try_from(address).unwrap_or(usize::MAX);
-        let memory = self.memory();
-        must(
-            memory.read(&mut self.store, start, &mut bytes),
-            "reading memory",
-        );
-        u64::from_le_bytes(bytes)
-    }
-
     /// Copies `bytes` into the runtime's memory and calls `name` with
     /// their address and length.
     fn with_bytes(&mut self, name: &str, bytes: &[u8]) -> u64 {
