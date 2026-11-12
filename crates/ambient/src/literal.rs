@@ -12,12 +12,25 @@ pub enum Literal {
     /// The bits of a 64-bit float, so that literals compare exactly.
     Float(u64),
     String(String),
+    /// A tag: a token equal only to the same tag of the same package.
+    /// The package is the one the tag is written in, which resolution
+    /// fills in; a builder leaves it empty.
+    Tag {
+        package: String,
+        tag: String,
+    },
 }
 
 impl Literal {
     #[must_use]
     pub fn float(value: f64) -> Self {
         Self::Float(value.to_bits())
+    }
+
+    /// What a tag is to the runtime: its package and itself, as one text.
+    #[must_use]
+    pub fn tag_text(package: &str, tag: &str) -> String {
+        format!("{package}\0{tag}")
     }
 }
 
@@ -28,6 +41,7 @@ impl fmt::Display for Literal {
             Self::Int(value) => write!(f, "{value}"),
             Self::Float(bits) => write!(f, "{:?}", f64::from_bits(*bits)),
             Self::String(value) => write!(f, "{value:?}"),
+            Self::Tag { tag, .. } => write!(f, "#{tag}"),
         }
     }
 }

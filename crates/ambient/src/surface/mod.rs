@@ -183,6 +183,8 @@ pub enum Type<N = Path> {
     Int,
     Float,
     String,
+    /// Every tag value.
+    Tag,
     Literal(Literal),
     Record(Vec<(Key<N>, Type<N>)>),
     Tuple(Vec<Type<N>>),

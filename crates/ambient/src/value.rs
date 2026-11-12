@@ -12,6 +12,11 @@ pub enum Value {
     Int(i64),
     Float(f64),
     String(String),
+    /// A tag, and the package it belongs to.
+    Tag {
+        package: String,
+        tag: String,
+    },
     Tuple(Vec<Value>),
     List(Vec<Value>),
     Record(BTreeMap<String, Value>),
@@ -31,7 +36,7 @@ pub trait Inspect {
     fn length(&mut self, word: Word) -> u64;
     /// A word of an object's payload.
     fn word_at(&mut self, word: Word, index: u64) -> Word;
-    /// The bytes of a string.
+    /// The bytes of a string, or of a tag.
     fn string(&mut self, word: Word) -> Vec<u8>;
 }
 
@@ -56,6 +61,14 @@ pub fn decode(word: Word, inspect: &mut impl Inspect) -> Value {
             Value::Float(f64::from_bits(inspect.float_bits(word)))
         }
         kind if kind == Kind::String as u64 => Value::String(text(inspect, word)),
+        kind if kind == Kind::Tag as u64 => {
+            let text = text(inspect, word);
+            let (package, tag) = text.split_once('\0').unwrap_or(("", &text));
+            Value::Tag {
+                package: package.to_owned(),
+                tag: tag.to_owned(),
+            }
+        }
         kind if kind == Kind::Tuple as u64 => Value::Tuple(members(inspect, word)),
         kind if kind == Kind::List as u64 => Value::List(members(inspect, word)),
         kind if kind == Kind::Record as u64 => {
@@ -80,6 +93,8 @@ pub trait Construct {
     fn string(&mut self, bytes: &[u8]) -> Word;
     /// The key a record holds the field `name` under.
     fn key(&mut self, name: &[u8]) -> Word;
+    /// The tag with this text: see [`crate::literal::Literal::tag_text`].
+    fn tag(&mut self, text: &[u8]) -> Word;
     /// A tuple, or a list, of `length` nulls.
     fn sequence(&mut self, list: bool, length: u64) -> Word;
     fn sequence_set(&mut self, sequence: Word, index: u64, value: Word);
@@ -99,6 +114,9 @@ pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
         Value::Int(value) => make.int(*value),
         Value::Float(value) => make.float(value.to_bits()),
         Value::String(text) => make.string(text.as_bytes()),
+        Value::Tag { package, tag } => {
+            make.tag(crate::literal::Literal::tag_text(package, tag).as_bytes())
+        }
         Value::Tuple(members) | Value::List(members) => {
             let list = matches!(value, Value::List(_));
             let word = make.sequence(list, members.len() as u64);

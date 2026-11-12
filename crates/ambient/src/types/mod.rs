@@ -77,6 +77,7 @@ pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
         | Ty::Int
         | Ty::Float
         | Ty::String
+        | Ty::Tag
         | Ty::Literal(_)
         | Ty::Named(Reference::Local(_), _) => ty.clone(),
         Ty::Record(fields) => Ty::Record(
@@ -107,6 +108,7 @@ fn primitive_of(literal: &Literal) -> Ty {
         Literal::Int(_) => Ty::Int,
         Literal::Float(_) => Ty::Float,
         Literal::String(_) => Ty::String,
+        Literal::Tag { .. } => Ty::Tag,
     }
 }
 
@@ -134,6 +136,7 @@ impl Env {
             | Ty::Int
             | Ty::Float
             | Ty::String
+            | Ty::Tag
             | Ty::Literal(_)
             | Ty::Named(Reference::Local(_) | Reference::Parameter(_), _) => ty.clone(),
             Ty::Record(fields) => {

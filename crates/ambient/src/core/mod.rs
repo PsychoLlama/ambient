@@ -33,6 +33,7 @@ pub enum Type {
     Int,
     Float,
     String,
+    Tag,
     Literal(Literal),
     /// Fields come first, ordered by name; then handlers, ordered by
     /// their abilities' tags.

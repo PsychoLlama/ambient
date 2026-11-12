@@ -34,6 +34,7 @@ pub(super) const WORDS: u32 = Entry::ALL.len() as u32;
 /// The function indices of the imports that make constants.
 pub(super) const STRING_PINNED: u32 = WORDS + 1;
 pub(super) const INTERN: u32 = WORDS + 2;
+pub(super) const TAG: u32 = WORDS + 3;
 
 /// The type index of a compiled function taking `arity` arguments.
 pub(super) fn function_type(arity: usize) -> u32 {

@@ -1,8 +1,8 @@
 //! For the host: making a context and reading results.
 
 use crate::object::{
-    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TUPLE, header,
-    int, payload, words,
+    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE,
+    header, int, payload, words,
 };
 use crate::task::Scheduler;
 use crate::{Context, FALSE, Kind, NULL, TRUE, Word};
@@ -65,6 +65,7 @@ pub unsafe extern "C" fn amb_kind(word: Word) -> u64 {
             KIND_RECORD => Kind::Record,
             KIND_CLOSURE => Kind::Function,
             KIND_CELL => Kind::Cell,
+            KIND_TAG => Kind::Tag,
             _ => Kind::Int,
         }
     };
@@ -96,7 +97,7 @@ pub unsafe extern "C" fn amb_length(word: Word) -> u64 {
     unsafe {
         let size = (*header(word)).size;
         match (*header(word)).kind {
-            KIND_STRING => size,
+            KIND_STRING | KIND_TAG => size,
             KIND_RECORD => size / 16,
             _ => size / 8,
         }

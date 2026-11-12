@@ -21,6 +21,7 @@ impl<N> Type<N> {
             | Self::Int
             | Self::Float
             | Self::String
+            | Self::Tag
             | Self::Literal(_) => {}
             Self::Record(fields) => {
                 for (key, ty) in fields {

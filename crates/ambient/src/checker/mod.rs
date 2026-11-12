@@ -218,6 +218,7 @@ impl<'a> Checker<'a> {
             Ty::Int => core::Type::Int,
             Ty::Float => core::Type::Float,
             Ty::String => core::Type::String,
+            Ty::Tag => core::Type::Tag,
             Ty::Literal(literal) => core::Type::Literal(literal.clone()),
             Ty::Record(fields) => core::Type::Record(
                 self.ordered(fields)

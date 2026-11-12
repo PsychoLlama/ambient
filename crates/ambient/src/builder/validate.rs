@@ -125,6 +125,7 @@ pub(super) fn check_type(ty: &crate::surface::Type) -> Result<(), BuildError> {
         | Type::Int
         | Type::Float
         | Type::String
+        | Type::Tag
         | Type::Literal(_) => Ok(()),
         Type::Record(fields) => {
             check_keys(fields.iter().map(|(key, _)| key))?;

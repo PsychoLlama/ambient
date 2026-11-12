@@ -195,7 +195,8 @@ impl Resolver<'_> {
             Type::Int => Type::Int,
             Type::Float => Type::Float,
             Type::String => Type::String,
-            Type::Literal(literal) => Type::Literal(literal.clone()),
+            Type::Tag => Type::Tag,
+            Type::Literal(literal) => Type::Literal(self.literal(literal)),
             Type::Record(fields) => Type::Record(
                 fields
                     .iter()
@@ -230,7 +231,7 @@ impl Resolver<'_> {
     fn pattern(&mut self, pattern: &Pattern) -> Result<Pattern<Reference>, Error> {
         Ok(match pattern {
             Pattern::Wildcard => Pattern::Wildcard,
-            Pattern::Literal(literal) => Pattern::Literal(literal.clone()),
+            Pattern::Literal(literal) => Pattern::Literal(self.literal(literal)),
             Pattern::Record(fields) => Pattern::Record(
                 fields
                     .iter()
@@ -258,7 +259,7 @@ impl Resolver<'_> {
     fn expr(&mut self, expr: &Expr) -> Result<Expr<Reference>, Error> {
         Ok(match expr {
             Expr::Null => Expr::Null,
-            Expr::Literal(literal) => Expr::Literal(literal.clone()),
+            Expr::Literal(literal) => Expr::Literal(self.literal(literal)),
             Expr::Name(path) => Expr::Name(self.name(path)?),
             Expr::Instantiate { function, args } => Expr::Instantiate {
                 function: Reference::Definition(self.lookup(Namespace::Value, function)?),
@@ -372,6 +373,18 @@ impl Resolver<'_> {
             value,
             body,
         })
+    }
+
+    /// A literal as it means here: a tag is one of this package.
+    fn literal(&self, literal: &crate::literal::Literal) -> crate::literal::Literal {
+        use crate::literal::Literal;
+        match literal {
+            Literal::Tag { tag, .. } => Literal::Tag {
+                package: self.symbol.module.package.0.clone(),
+                tag: tag.clone(),
+            },
+            other => other.clone(),
+        }
     }
 
     /// Each arm, with what its pattern binds in scope for its body.

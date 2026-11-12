@@ -35,6 +35,8 @@ pub enum Make {
     String,
     /// A field name.
     Field,
+    /// A tag value.
+    Tag,
 }
 
 /// One block of words and what to write in it.
@@ -105,6 +107,7 @@ pub fn plan(parts: &Parts) -> Statics {
                 for (position, constant) in constants.iter().enumerate() {
                     let field = match constant {
                         Constant::String(text) => statics.text(Make::String, text),
+                        Constant::Tag(text) => statics.text(Make::Tag, text),
                         Constant::Field(name) => statics.text(Make::Field, name),
                         Constant::Type(ty) => Field::Address(statics.describe(ty, &slots)),
                         Constant::Ability(slot) => {
@@ -160,6 +163,7 @@ fn node_size(ty: &Type) -> usize {
         | Type::Int
         | Type::Float
         | Type::String
+        | Type::Tag
         | Type::Function { .. }
         | Type::Cell(_) => 1,
         Type::Literal(_) => 3,
@@ -223,6 +227,7 @@ impl Statics {
             Type::Int => tag(self, d::INT),
             Type::Float => tag(self, d::FLOAT),
             Type::String => tag(self, d::STRING),
+            Type::Tag => tag(self, d::TAG),
             // No value is known to be one of these: see the runtime.
             Type::Function { .. } | Type::Cell(_) => tag(self, d::FUNCTION),
             Type::Literal(literal) => {
@@ -232,6 +237,10 @@ impl Statics {
                     Literal::Int(value) => (d::LITERAL_INT, Field::Word(value.cast_unsigned())),
                     Literal::Float(bits) => (d::LITERAL_FLOAT, Field::Word(*bits)),
                     Literal::String(text) => (d::LITERAL_STRING, self.text(Make::String, text)),
+                    Literal::Tag { package, tag } => {
+                        let text = Literal::tag_text(package, tag);
+                        (d::LITERAL_TAG, self.text(Make::Tag, &text))
+                    }
                 };
                 self.set(at + 1, Field::Word(kind));
                 self.set(at + 2, payload);

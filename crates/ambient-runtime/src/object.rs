@@ -15,6 +15,8 @@ pub(crate) const KIND_RECORD: u32 = 7;
 /// Not a value: what an abort handler is bound to.
 pub(crate) const KIND_TOKEN: u32 = 8;
 pub(crate) const KIND_CELL: u32 = 9;
+/// A tag value: its text, interned, so that equal tags are one object.
+pub(crate) const KIND_TAG: u32 = 10;
 
 /// The count of an object that is never reclaimed.
 pub(crate) const PINNED: u32 = u32::MAX;

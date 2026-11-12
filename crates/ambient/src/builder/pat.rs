@@ -36,6 +36,15 @@ pub fn string(value: &str) -> Pattern {
     Pattern::Literal(Literal::String(value.to_owned()))
 }
 
+/// Matches one tag, of the package it is written in.
+#[must_use]
+pub fn tag(tag: &str) -> Pattern {
+    Pattern::Literal(Literal::Tag {
+        package: String::new(),
+        tag: tag.to_owned(),
+    })
+}
+
 /// Matches a value the type describes.
 #[must_use]
 pub fn is(ty: Type) -> Pattern {

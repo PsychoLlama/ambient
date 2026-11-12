@@ -43,6 +43,9 @@ pub enum Value {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Constant {
     String(String),
+    /// A tag: its package and itself, as [`crate::literal::Literal::tag_text`]
+    /// spells them.
+    Tag(String),
     /// A field name, as the key records are indexed by.
     Field(String),
     /// A type, as the descriptor a value is tested against. Its slots are

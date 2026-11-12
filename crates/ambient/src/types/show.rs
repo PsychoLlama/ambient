@@ -30,6 +30,7 @@ pub(super) fn show(ty: &Ty, out: &mut String) {
         Ty::Int => out.push_str("int"),
         Ty::Float => out.push_str("float"),
         Ty::String => out.push_str("string"),
+        Ty::Tag => out.push_str("Tag"),
         Ty::Literal(literal) => {
             let _ = write!(out, "{literal}");
         }

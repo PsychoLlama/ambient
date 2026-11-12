@@ -221,6 +221,10 @@ impl Construct for Host {
         unsafe { ambient_runtime::amb_intern(name.as_ptr(), name.len() as u64) }
     }
 
+    fn tag(&mut self, text: &[u8]) -> Word {
+        unsafe { ambient_runtime::amb_tag(text.as_ptr(), text.len() as u64) }
+    }
+
     fn sequence(&mut self, list: bool, length: u64) -> Word {
         unsafe { ambient_runtime::amb_sequence_new(u64::from(list), length) }
     }

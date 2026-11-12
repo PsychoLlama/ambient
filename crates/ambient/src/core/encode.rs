@@ -5,7 +5,7 @@ use crate::literal::Literal;
 
 /// The version named by every encoding. Changing the node set or the
 /// encoding means changing this, which changes every hash.
-const FORMAT: u8 = 8;
+const FORMAT: u8 = 9;
 
 impl Tree {
     /// The canonical encoding: the bytes a hash is computed over.
@@ -122,6 +122,11 @@ fn encode_literal(literal: &Literal, out: &mut Vec<u8>) {
             out.push(3);
             text(value, out);
         }
+        Literal::Tag { package, tag } => {
+            out.push(4);
+            text(package, out);
+            text(tag, out);
+        }
     }
 }
 
@@ -134,6 +139,7 @@ fn encode_type(ty: &Type, out: &mut Vec<u8>) {
         Type::Int => out.push(4),
         Type::Float => out.push(5),
         Type::String => out.push(6),
+        Type::Tag => out.push(16),
         Type::Literal(literal) => {
             out.push(7);
             encode_literal(literal, out);

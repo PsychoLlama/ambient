@@ -231,6 +231,10 @@ impl<S: wasmtime::AsContextMut> ambient::value::Construct for Guest<S> {
         self.with_bytes("amb_intern", name)
     }
 
+    fn tag(&mut self, text: &[u8]) -> u64 {
+        self.with_bytes("amb_tag", text)
+    }
+
     fn sequence(&mut self, list: bool, length: u64) -> u64 {
         self.words("amb_sequence_new", &[u64::from(list), length])
     }

@@ -244,7 +244,9 @@ impl Lowering {
                 Literal::Bool(value) => Op::Copy(Value::Bool(*value)),
                 Literal::Int(value) => Op::Int(*value),
                 Literal::Float(bits) => Op::Float(*bits),
-                Literal::String(_) => Op::Copy(self.operand(expr, &mut scope)?),
+                Literal::String(_) | Literal::Tag { .. } => {
+                    Op::Copy(self.operand(expr, &mut scope)?)
+                }
             },
             core::Expr::Local(_) | core::Expr::Captured(_) | core::Expr::AbilityId(_) => {
                 Op::Copy(self.operand(expr, &mut scope)?)
@@ -382,6 +384,10 @@ impl Lowering {
             }
             core::Expr::Literal(Literal::String(value)) => {
                 Value::Constant(self.constant(Constant::String(value.clone())))
+            }
+            core::Expr::Literal(Literal::Tag { package, tag }) => {
+                let text = Literal::tag_text(package, tag);
+                Value::Constant(self.constant(Constant::Tag(text)))
             }
             core::Expr::Local(number) => Value::Local(*number + 1),
             core::Expr::Captured(position) => Value::Captured(*position),

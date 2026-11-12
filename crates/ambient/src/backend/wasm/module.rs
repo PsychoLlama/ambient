@@ -9,7 +9,7 @@ use wasm_encoder::{
 };
 
 use super::emit::memory;
-use super::{INTERN, RUNTIME_MODULE, STRING_PINNED, WORDS, function_type};
+use super::{INTERN, RUNTIME_MODULE, STRING_PINNED, TAG, WORDS, function_type};
 use crate::backend::MAX_ARITY;
 use crate::backend::statics::{self, Field, Make};
 use crate::engine::{Body, Parts};
@@ -73,7 +73,7 @@ fn signatures() -> Result<(TypeSection, ImportSection, u32), String> {
     types
         .ty()
         .function([ValType::I32, ValType::I64], [ValType::I64]);
-    for name in ["amb_string_pinned", "amb_intern"] {
+    for name in ["amb_string_pinned", "amb_intern", "amb_tag"] {
         imports.import(RUNTIME_MODULE, name, EntityType::Function(next_type + 1));
     }
     let init_type = next_type + 2;
@@ -96,7 +96,7 @@ pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
     let (types, imports, init_type) = signatures()?;
 
     // Functions are numbered, and tabled, in the order of their parts.
-    let first = INTERN + 1;
+    let first = TAG + 1;
     let mut functions = FunctionSection::new();
     let mut code = CodeSection::new();
     let mut table = Vec::new();
@@ -223,6 +223,7 @@ fn initializer(
                 body.instruction(&Instruction::Call(match make {
                     Make::String => STRING_PINNED,
                     Make::Field => INTERN,
+                    Make::Tag => TAG,
                 }));
             }
         }

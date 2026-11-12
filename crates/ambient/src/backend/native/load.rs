@@ -84,6 +84,7 @@ impl Program {
                             Make::Field => {
                                 ambient_runtime::amb_intern(text.as_ptr(), length as u64)
                             }
+                            Make::Tag => ambient_runtime::amb_tag(text.as_ptr(), length as u64),
                         }
                     }
                 }

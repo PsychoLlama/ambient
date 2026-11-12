@@ -127,6 +127,7 @@ pub enum Kind {
     Record = 7,
     Function = 8,
     Cell = 9,
+    Tag = 10,
 }
 
 /// The state of one execution. Compiled code receives a pointer to it as

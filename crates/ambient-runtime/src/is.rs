@@ -1,8 +1,8 @@
 //! Type tests: whether a descriptor describes a value.
 
 use crate::object::{
-    KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TUPLE, boolean, bytes, int,
-    kind, payload, words,
+    KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE, boolean,
+    bytes, int, kind, payload, words,
 };
 use crate::record::find;
 use crate::{FALSE, NULL, TRUE, Word};
@@ -27,6 +27,8 @@ pub mod descriptor {
     pub const LITERAL_INT: u64 = 1;
     pub const LITERAL_FLOAT: u64 = 2;
     pub const LITERAL_STRING: u64 = 3;
+    /// A tag: equal tags are one object.
+    pub const LITERAL_TAG: u64 = 4;
     /// Then a count, and that many pairs of a key and a node.
     pub const RECORD: u64 = 8;
     /// Then a count, and that many nodes.
@@ -43,6 +45,7 @@ pub mod descriptor {
     pub const PARAMETER: u64 = 14;
     /// Then the node this one stands for.
     pub const ALIAS: u64 = 15;
+    pub const TAG: u64 = 16;
 }
 
 /// The arguments a generic type definition is being read at.
@@ -82,10 +85,12 @@ pub(crate) unsafe fn is(value: Word, ty: *const u64, arguments: Option<&Argument
             d::INT => integer,
             d::FLOAT => kind(value) == KIND_FLOAT,
             d::STRING => kind(value) == KIND_STRING,
+            d::TAG => kind(value) == KIND_TAG,
             d::LITERAL => match node(1) {
                 d::LITERAL_BOOL => value == boolean(node(2) != 0),
                 d::LITERAL_INT => integer && int(value) == node(2) as i64,
                 d::LITERAL_FLOAT => kind(value) == KIND_FLOAT && payload(value).read() == node(2),
+                d::LITERAL_TAG => value == node(2),
                 _ => kind(value) == KIND_STRING && bytes(value) == bytes(node(2)),
             },
             d::RECORD => {

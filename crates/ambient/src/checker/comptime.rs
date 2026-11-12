@@ -64,6 +64,10 @@ fn value_of(ty: &Ty) -> Option<Value> {
         Ty::Literal(Literal::Int(value)) => Value::Int(*value),
         Ty::Literal(Literal::Float(bits)) => Value::Float(f64::from_bits(*bits)),
         Ty::Literal(Literal::String(value)) => Value::String(value.clone()),
+        Ty::Literal(Literal::Tag { package, tag }) => Value::Tag {
+            package: package.clone(),
+            tag: tag.clone(),
+        },
         Ty::Tuple(members) => Value::Tuple(members.iter().map(value_of).collect::<Option<_>>()?),
         Ty::Record(fields) => Value::Record(
             fields
@@ -97,6 +101,10 @@ fn splice(value: &Value) -> Option<(core::Expr, Ty)> {
         Value::Int(value) => literal(Literal::Int(*value)),
         Value::Float(value) => literal(Literal::float(*value)),
         Value::String(value) => literal(Literal::String(value.clone())),
+        Value::Tag { package, tag } => literal(Literal::Tag {
+            package: package.clone(),
+            tag: tag.clone(),
+        }),
         Value::Tuple(members) => {
             let (exprs, types) = all(members)?;
             (core::Expr::Tuple(exprs), Ty::Tuple(types))

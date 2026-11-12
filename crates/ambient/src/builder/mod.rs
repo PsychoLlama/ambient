@@ -49,6 +49,15 @@ pub fn string(value: &str) -> Expr {
     Expr::Literal(Literal::String(value.to_owned()))
 }
 
+/// A tag, of the package it is written in.
+#[must_use]
+pub fn tag(tag: &str) -> Expr {
+    Expr::Literal(Literal::Tag {
+        package: String::new(),
+        tag: tag.to_owned(),
+    })
+}
+
 pub fn tuple(members: impl IntoIterator<Item = Expr>) -> Expr {
     Expr::Tuple(members.into_iter().collect())
 }
