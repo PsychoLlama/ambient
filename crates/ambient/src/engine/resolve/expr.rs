@@ -68,14 +68,12 @@ impl Resolver<'_> {
                 right: Box::new(self.expr(right)?),
             },
             Expr::Let { name, value, body } => self.let_(name, value, body)?,
-            Expr::Binary {
-                operator,
-                left,
-                right,
-            } => Expr::Binary {
+            Expr::Operation { operator, operands } => Expr::Operation {
                 operator: *operator,
-                left: Box::new(self.expr(left)?),
-                right: Box::new(self.expr(right)?),
+                operands: operands
+                    .iter()
+                    .map(|operand| self.expr(operand))
+                    .collect::<Result<_, _>>()?,
             },
             Expr::Match { subject, arms } => Expr::Match {
                 subject: Box::new(self.expr(subject)?),

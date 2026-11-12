@@ -12,6 +12,7 @@
 - Checking is re-entrant: a comptime call compiles and runs its callee mid-check (`engine/run.rs`). The check key covers the callee's hash, which is what keeps the result a function of the key.
 - A result that observed the world is stored with what it observed and reused through `Engine::stage_if`, which looks again. Only native code is outside a key, so a trace is the native calls a run made.
 - Names, docs, and declaration order never reach a hash. In a core tree they decide one thing: the stored order of a union's members, and so slot numbering.
+- An operation is a `core::Primitive` and a runtime entry of the same name; `types::Env::operation` types it for both checkers, and the checker picks which one an operator means (`checker/operators.rs`). Adding one touches those, `core/cost.rs`, and `lir/steps.rs`, and no backend.
 - A backend only translates `lir`; anything about semantics belongs in `lower.rs` or the runtime, so both backends get it.
 - Layouts and the calling convention are defined once, in `ambient-runtime`; never restate an offset in a backend.
 - Every function's first parameter is its bindings: a record keyed by ability, or null. The checker tracks what is bound (`checker/abilities.rs`); lowering only threads the record (`lower/abilities.rs`).

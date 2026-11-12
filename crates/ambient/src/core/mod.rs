@@ -86,6 +86,22 @@ pub enum Primitive {
     /// The trace of where the task is: a frame for this node and for
     /// each call it is inside, nearest first.
     Capture,
+    IntDivide,
+    IntRemainder,
+    FloatDivide,
+    /// Whether one string comes before another, by their bytes.
+    StringLess,
+    StringLength,
+    StringJoin,
+    /// The string between two positions, or null.
+    StringSlice,
+    ListLength,
+    /// The member at a position, or null.
+    ListGet,
+    ListPush,
+    ListJoin,
+    /// The members between two positions, or null.
+    ListSlice,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

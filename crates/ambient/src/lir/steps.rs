@@ -62,6 +62,8 @@ impl Op {
                 Primitive::IntAdd
                     | Primitive::IntSubtract
                     | Primitive::IntMultiply
+                    | Primitive::IntDivide
+                    | Primitive::IntRemainder
                     | Primitive::CellWait
                     | Primitive::Capture
             ),
@@ -86,6 +88,8 @@ impl Op {
                 Primitive::IntAdd
                     | Primitive::IntSubtract
                     | Primitive::IntMultiply
+                    | Primitive::IntDivide
+                    | Primitive::IntRemainder
                     | Primitive::Capture
             ),
             _ => false,
@@ -325,5 +329,17 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::CellReplace => Entry::CellReplace,
         Primitive::CellWait => Entry::CellWait,
         Primitive::Capture => Entry::Capture,
+        Primitive::IntDivide => Entry::IntDivide,
+        Primitive::IntRemainder => Entry::IntRemainder,
+        Primitive::FloatDivide => Entry::FloatDivide,
+        Primitive::StringLess => Entry::StringLess,
+        Primitive::StringLength => Entry::StringLength,
+        Primitive::StringJoin => Entry::StringJoin,
+        Primitive::StringSlice => Entry::StringSlice,
+        Primitive::ListLength => Entry::ListLength,
+        Primitive::ListGet => Entry::ListGet,
+        Primitive::ListPush => Entry::ListPush,
+        Primitive::ListJoin => Entry::ListJoin,
+        Primitive::ListSlice => Entry::ListSlice,
     }
 }

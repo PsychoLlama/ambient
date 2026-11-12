@@ -18,6 +18,7 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 - Values are shared freely, between tasks included; sharing never copies.
 - An update yields a new value that shares structure with the old one.
 - An update to a value nothing else holds happens in place; programs may rely on this for cost.
+- TODO: no update happens in place yet: every [push, join, and slice](operations.md) copies, so building a list a member at a time is quadratic.
 
 ## Serialization
 
@@ -36,11 +37,11 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 
 - Equality, ordering, and hashing are defined by the language over every shape and cannot be extended.
 - Function values compare by hash, captures, and the type arguments they hold; handles compare by identity.
-- Operators are defined per primitive and cannot be overloaded.
+- [Operations](operations.md) are defined per shape and cannot be overloaded.
 
 ## Numbers
 
-- Integer addition, subtraction, and multiplication that leave the range of `int` are [faults](#faults); nothing wraps.
+- Integer arithmetic that leaves the range of `int` is a [fault](#faults), and so is dividing an integer by zero; nothing wraps.
 - Float arithmetic follows IEEE 754 and never faults.
 
 ## Faults

@@ -7,6 +7,7 @@
 //! it.
 
 mod lower;
+mod operations;
 mod patterns;
 mod relate;
 mod show;

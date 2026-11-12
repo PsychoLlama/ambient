@@ -19,6 +19,20 @@ impl Lowering {
         }
     }
 
+    /// An operation on `args`, charged first for what it copies of
+    /// them.
+    pub(super) fn primitive(
+        &mut self,
+        operation: core::Primitive,
+        args: Vec<Value>,
+        scope: &mut Scope,
+    ) -> Op {
+        if operation.copies() {
+            self.charge_copies(&args, scope);
+        }
+        Op::Primitive { operation, args }
+    }
+
     /// Charges for a copy of each of `values`, if this is metered code:
     /// what merging them allocates.
     pub(super) fn charge_copies(&mut self, values: &[Value], scope: &mut Scope) {

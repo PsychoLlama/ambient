@@ -56,6 +56,33 @@ pub unsafe extern "C" fn amb_int_multiply(context: *mut Context, left: Word, rig
     unsafe { arithmetic(context, left, right, i64::checked_mul) }
 }
 
+/// Division that truncates toward zero. Dividing by zero is its own
+/// fault; the one quotient that leaves the range is an overflow.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_int_divide(context: *mut Context, left: Word, right: Word) -> Word {
+    unsafe { divided(context, left, right, i64::checked_div) }
+}
+
+/// The remainder of that division, which has the sign of `left`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_int_remainder(context: *mut Context, left: Word, right: Word) -> Word {
+    unsafe { divided(context, left, right, i64::checked_rem) }
+}
+
+unsafe fn divided(
+    context: *mut Context,
+    left: Word,
+    right: Word,
+    operation: fn(i64, i64) -> Option<i64>,
+) -> Word {
+    unsafe {
+        if int(right) == 0 {
+            return fault(context, Fault::DivideByZero);
+        }
+        arithmetic(context, left, right, operation)
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_int_less(left: Word, right: Word) -> Word {
     unsafe { boolean(int(left) < int(right)) }
@@ -74,6 +101,11 @@ pub unsafe extern "C" fn amb_float_subtract(left: Word, right: Word) -> Word {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_float_multiply(left: Word, right: Word) -> Word {
     unsafe { amb_float_new((float(left) * float(right)).to_bits()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_float_divide(left: Word, right: Word) -> Word {
+    unsafe { amb_float_new((float(left) / float(right)).to_bits()) }
 }
 
 #[unsafe(no_mangle)]

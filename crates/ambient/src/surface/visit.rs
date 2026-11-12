@@ -160,7 +160,8 @@ impl<N> Expr<N> {
                 visit(value);
                 visit(body);
             }
-            Self::Binary { left, right, .. } | Self::Merge { left, right } => {
+            Self::Operation { operands, .. } => operands.iter().for_each(visit),
+            Self::Merge { left, right } => {
                 visit(left);
                 visit(right);
             }

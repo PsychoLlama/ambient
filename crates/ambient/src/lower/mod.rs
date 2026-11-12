@@ -256,10 +256,10 @@ impl Lowering {
                 let value = self.operand(value, &mut scope)?;
                 self.cell(value, ty)
             }
-            core::Expr::Primitive { operation, args } => Op::Primitive {
-                operation: *operation,
-                args: self.operands(args, &mut scope)?,
-            },
+            core::Expr::Primitive { operation, args } => {
+                let args = self.operands(args, &mut scope)?;
+                self.primitive(*operation, args, &mut scope)
+            }
             core::Expr::Closure {
                 slot,
                 type_args,

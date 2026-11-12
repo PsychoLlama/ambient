@@ -132,9 +132,12 @@ fn an_operation_on_the_wrong_operands_is_refused() {
     let text = Expr::Literal(Literal::String("one".to_owned()));
     assert!(matches!(
         with_body(add(vec![text, int(1)])),
-        Err(Invalid::Mismatch { .. })
+        Err(Invalid::Shape(_))
     ));
-    assert_eq!(with_body(add(vec![int(1)])), Err(Invalid::Arity));
+    assert!(matches!(
+        with_body(add(vec![int(1)])),
+        Err(Invalid::Shape(_))
+    ));
 }
 
 #[test]

@@ -364,11 +364,7 @@ impl<'a> Checker<'a> {
                 };
                 (core, ty)
             }
-            Expr::Binary {
-                operator,
-                left,
-                right,
-            } => self.binary(*operator, left, right)?,
+            Expr::Operation { operator, operands } => self.operation(*operator, operands)?,
             Expr::Match { subject, arms } => self.matching(subject, arms)?,
             Expr::Lambda { params, row, body } => self.lambda(params, row, body, None)?,
             Expr::Perform { ability, args } => self.perform(ability, args)?,

@@ -130,4 +130,16 @@ entries! {
     Capture = amb_capture, context, 0, word;
     ScopeNew = amb_scope_new, plain, 1, word;
     ScopeSet = amb_scope_set, plain, 4, nothing;
+    IntDivide = amb_int_divide, context, 2, word;
+    IntRemainder = amb_int_remainder, context, 2, word;
+    FloatDivide = amb_float_divide, plain, 2, word;
+    StringLess = amb_string_less, plain, 2, word;
+    StringLength = amb_string_length, plain, 1, word;
+    StringJoin = amb_string_join, plain, 2, word;
+    StringSlice = amb_string_slice, plain, 3, word;
+    ListLength = amb_list_length, plain, 1, word;
+    ListGet = amb_list_get, plain, 2, word;
+    ListPush = amb_list_push, plain, 2, word;
+    ListJoin = amb_list_join, plain, 2, word;
+    ListSlice = amb_list_slice, plain, 3, word;
 }

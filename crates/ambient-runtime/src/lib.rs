@@ -109,6 +109,8 @@ pub enum Fault {
     /// Not a fault: a budget ran out, and what ran inside it is unwinding
     /// to it.
     Exhausted = 8,
+    /// An integer was divided by zero.
+    DivideByZero = 9,
 }
 
 impl Fault {
@@ -122,6 +124,7 @@ impl Fault {
         Self::Cancelled,
         Self::CleanupAbort,
         Self::Exhausted,
+        Self::DivideByZero,
     ];
 
     #[must_use]
@@ -135,6 +138,7 @@ impl Fault {
             6 => Self::Cancelled,
             7 => Self::CleanupAbort,
             8 => Self::Exhausted,
+            9 => Self::DivideByZero,
             _ => Self::None,
         }
     }

@@ -268,16 +268,7 @@ impl Body<'_, '_> {
     }
 
     fn primitive(&mut self, operation: Primitive, args: &[Expr]) -> Result<Ty, Invalid> {
-        let (operands, result) = match operation {
-            Primitive::IntAdd | Primitive::IntSubtract | Primitive::IntMultiply => {
-                (Some(Ty::Int), Ty::Int)
-            }
-            Primitive::IntLess => (Some(Ty::Int), Ty::Bool),
-            Primitive::FloatAdd | Primitive::FloatSubtract | Primitive::FloatMultiply => {
-                (Some(Ty::Float), Ty::Float)
-            }
-            Primitive::FloatLess => (Some(Ty::Float), Ty::Bool),
-            Primitive::Equal => (None, Ty::Bool),
+        match operation {
             Primitive::Capture if args.is_empty() => {
                 return Ok(self.verifier.env.normalize(&trace()));
             }
@@ -285,17 +276,11 @@ impl Body<'_, '_> {
             Primitive::CellRead | Primitive::CellReplace | Primitive::CellWait => {
                 return self.cell(operation, args);
             }
-        };
-        let [left, right] = args else {
-            return Err(Invalid::Arity);
-        };
-        for operand in [left, right] {
-            match &operands {
-                Some(expected) => self.check(operand, expected)?,
-                None => drop(self.infer(operand)?),
-            }
+            _ => {}
         }
-        Ok(result)
+        let operands = self.infer_all(args)?;
+        let given = self.verifier.env.operation(operation, &operands);
+        given.map_or_else(|| shape("an operation is given what it does not take"), Ok)
     }
 
     /// An operation on a cell: the cell, then values it could hold.

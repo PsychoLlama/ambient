@@ -2,8 +2,8 @@
 
 use std::sync::{Mutex, PoisonError};
 
-use crate::Word;
-use crate::object::{KIND_STRING, KIND_TAG, bytes, object, payload, pin};
+use crate::object::{KIND_STRING, KIND_TAG, boolean, bytes, object, payload, pin};
+use crate::{NULL, Word};
 
 /// A string that is never reclaimed, copied from `length` bytes at
 /// `pointer`.
@@ -63,5 +63,47 @@ pub unsafe extern "C" fn amb_intern(pointer: *const u8, length: u64) -> Word {
         let word = amb_string_pinned(pointer, length);
         names.push(word as usize);
         word
+    }
+}
+
+/// A string of `bytes`.
+unsafe fn string(bytes: &[u8]) -> Word {
+    unsafe { amb_string_new(bytes.as_ptr(), bytes.len() as u64) }
+}
+
+/// Whether one string comes before another, by their bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_string_less(left: Word, right: Word) -> Word {
+    unsafe { boolean(bytes(left) < bytes(right)) }
+}
+
+/// A string's size in bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_string_length(value: Word) -> Word {
+    unsafe { crate::amb_int_new(bytes(value).len() as i64) }
+}
+
+/// One string followed by another.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_string_join(left: Word, right: Word) -> Word {
+    unsafe { string(&[bytes(left), bytes(right)].concat()) }
+}
+
+/// The string between two positions, or null if they are out of range,
+/// out of order, or inside a character.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_string_slice(value: Word, start: Word, end: Word) -> Word {
+    unsafe {
+        // Every string is UTF-8: a literal, a host's string, or what
+        // these operations made of them.
+        let text = std::str::from_utf8_unchecked(bytes(value));
+        match crate::sequence::range(start, end, text.len()) {
+            Some(range)
+                if text.is_char_boundary(range.start) && text.is_char_boundary(range.end) =>
+            {
+                string(&text.as_bytes()[range])
+            }
+            _ => NULL,
+        }
     }
 }

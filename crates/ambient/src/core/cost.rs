@@ -41,6 +41,24 @@ impl Cost {
     }
 }
 
+impl Primitive {
+    /// Whether the operation makes a value out of copies of its
+    /// operands, and so costs besides as much as they hold, which is
+    /// known only when it runs. A slice is charged for the whole of
+    /// what it is taken from.
+    #[must_use]
+    pub fn copies(self) -> bool {
+        matches!(
+            self,
+            Self::StringJoin
+                | Self::StringSlice
+                | Self::ListPush
+                | Self::ListJoin
+                | Self::ListSlice
+        )
+    }
+}
+
 impl Expr {
     /// What the node costs, not counting the nodes inside it.
     ///
@@ -86,9 +104,16 @@ impl Expr {
                     Primitive::IntAdd
                     | Primitive::IntSubtract
                     | Primitive::IntMultiply
+                    | Primitive::IntDivide
+                    | Primitive::IntRemainder
                     | Primitive::FloatAdd
                     | Primitive::FloatSubtract
-                    | Primitive::FloatMultiply,
+                    | Primitive::FloatMultiply
+                    | Primitive::FloatDivide
+                    | Primitive::StringLength
+                    | Primitive::ListLength
+                    // The member it adds, beside the copy.
+                    | Primitive::ListPush,
                 ..
             } => Cost::object(1),
             // The bindings it adds, each with its budget, and a token for

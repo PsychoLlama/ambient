@@ -27,41 +27,44 @@ impl Checker<'_> {
         Ok((core, self.env.union(vec![target, alternative])))
     }
 
-    pub(super) fn binary(
+    /// An operator applied to operands: the first operation it can mean
+    /// that takes operands of their types.
+    pub(super) fn operation(
         &mut self,
         operator: Operator,
-        left: &Expr<Reference>,
-        right: &Expr<Reference>,
+        operands: &[Expr<Reference>],
     ) -> Result<(core::Expr, Ty), Error> {
-        let (core_left, left) = self.infer(left)?;
-        let (core_right, right) = self.infer(right)?;
-        let both = |ty: &Ty| self.env.subtype(&left, ty) && self.env.subtype(&right, ty);
-        let choice = match operator {
-            Operator::Equal => Some((Primitive::Equal, Ty::Bool)),
-            _ if both(&Ty::Int) => Some(match operator {
-                Operator::Add => (Primitive::IntAdd, Ty::Int),
-                Operator::Subtract => (Primitive::IntSubtract, Ty::Int),
-                Operator::Multiply => (Primitive::IntMultiply, Ty::Int),
-                Operator::Less | Operator::Equal => (Primitive::IntLess, Ty::Bool),
-            }),
-            _ if both(&Ty::Float) => Some(match operator {
-                Operator::Add => (Primitive::FloatAdd, Ty::Float),
-                Operator::Subtract => (Primitive::FloatSubtract, Ty::Float),
-                Operator::Multiply => (Primitive::FloatMultiply, Ty::Float),
-                Operator::Less | Operator::Equal => (Primitive::FloatLess, Ty::Bool),
-            }),
-            _ => None,
-        };
-        let Some((operation, ty)) = choice else {
+        let (args, types) = self.infer_all(operands)?;
+        let meant = meanings(operator).iter().find_map(|operation| {
+            let ty = self.env.operation(*operation, &types)?;
+            Some((*operation, ty))
+        });
+        let Some((operation, ty)) = meant else {
+            let found: Vec<String> = types.iter().map(|ty| self.env.show(ty)).collect();
             return Err(Error::Operands {
                 symbol: self.symbol.clone(),
-                found: format!("{}, {}", self.env.show(&left), self.env.show(&right)),
+                found: found.join(", "),
             });
         };
-        let core = core::Expr::Primitive {
-            operation,
-            args: vec![core_left, core_right],
-        };
-        Ok((core, ty))
+        Ok((core::Expr::Primitive { operation, args }, ty))
+    }
+}
+
+/// The operations an operator can mean, in the order they are tried.
+fn meanings(operator: Operator) -> &'static [Primitive] {
+    use Primitive as P;
+    match operator {
+        Operator::Add => &[P::IntAdd, P::FloatAdd],
+        Operator::Subtract => &[P::IntSubtract, P::FloatSubtract],
+        Operator::Multiply => &[P::IntMultiply, P::FloatMultiply],
+        Operator::Divide => &[P::IntDivide, P::FloatDivide],
+        Operator::Remainder => &[P::IntRemainder],
+        Operator::Less => &[P::IntLess, P::FloatLess, P::StringLess],
+        Operator::Equal => &[P::Equal],
+        Operator::Length => &[P::StringLength, P::ListLength],
+        Operator::Get => &[P::ListGet],
+        Operator::Push => &[P::ListPush],
+        Operator::Join => &[P::StringJoin, P::ListJoin],
+        Operator::Slice => &[P::StringSlice, P::ListSlice],
     }
 }

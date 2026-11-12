@@ -219,8 +219,20 @@ pub enum Operator {
     Add,
     Subtract,
     Multiply,
+    Divide,
+    Remainder,
     Less,
     Equal,
+    /// How long a string or a list is.
+    Length,
+    /// The member of a list at a position.
+    Get,
+    /// A list with one more member.
+    Push,
+    /// One string or list followed by another.
+    Join,
+    /// What lies between two positions of a string or a list.
+    Slice,
 }
 
 /// What can be done with a cell. See `spec/cells.md`.
@@ -292,10 +304,11 @@ pub enum Expr<N = Path> {
         value: Box<Expr<N>>,
         body: Box<Expr<N>>,
     },
-    Binary {
+    /// An operation of the language on its operands. See
+    /// `spec/operations.md`.
+    Operation {
         operator: Operator,
-        left: Box<Expr<N>>,
-        right: Box<Expr<N>>,
+        operands: Vec<Expr<N>>,
     },
     /// Takes the first arm whose pattern matches the subject.
     Match {

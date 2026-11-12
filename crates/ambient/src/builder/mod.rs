@@ -74,10 +74,13 @@ pub fn list(members: impl IntoIterator<Item = Expr>) -> Expr {
 }
 
 fn binary(operator: Operator, left: Expr, right: Expr) -> Expr {
-    Expr::Binary {
+    operation(operator, [left, right])
+}
+
+fn operation<const N: usize>(operator: Operator, operands: [Expr; N]) -> Expr {
+    Expr::Operation {
         operator,
-        left: Box::new(left),
-        right: Box::new(right),
+        operands: operands.into(),
     }
 }
 
@@ -94,6 +97,48 @@ pub fn subtract(left: Expr, right: Expr) -> Expr {
 #[must_use]
 pub fn multiply(left: Expr, right: Expr) -> Expr {
     binary(Operator::Multiply, left, right)
+}
+
+/// Division: of integers, toward zero.
+#[must_use]
+pub fn divide(left: Expr, right: Expr) -> Expr {
+    binary(Operator::Divide, left, right)
+}
+
+/// What is left of an integer after dividing it.
+#[must_use]
+pub fn remainder(left: Expr, right: Expr) -> Expr {
+    binary(Operator::Remainder, left, right)
+}
+
+/// How long a string or a list is.
+#[must_use]
+pub fn length(value: Expr) -> Expr {
+    operation(Operator::Length, [value])
+}
+
+/// The member of a list at `position`, or null.
+#[must_use]
+pub fn get(list: Expr, position: Expr) -> Expr {
+    binary(Operator::Get, list, position)
+}
+
+/// `list` with `member` after its others.
+#[must_use]
+pub fn push(list: Expr, member: Expr) -> Expr {
+    binary(Operator::Push, list, member)
+}
+
+/// One string or list followed by another.
+#[must_use]
+pub fn join(left: Expr, right: Expr) -> Expr {
+    binary(Operator::Join, left, right)
+}
+
+/// What lies between two positions of a string or a list, or null.
+#[must_use]
+pub fn slice(value: Expr, start: Expr, end: Expr) -> Expr {
+    operation(Operator::Slice, [value, start, end])
 }
 
 #[must_use]
