@@ -18,9 +18,14 @@ fn main() {
         .args(["--target", "wasm32-unknown-unknown"])
         .arg("--target-dir")
         .arg(&target)
-        // Flags meant for the host build do not apply to this one.
+        // Flags meant for the host build do not apply to this one. Its own
+        // make the runtime's function table one a program can add its
+        // functions to, which is what lets the runtime call them.
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
-        .env_remove("RUSTFLAGS")
+        .env(
+            "RUSTFLAGS",
+            "-C link-arg=--export-table -C link-arg=--growable-table",
+        )
         .status();
     assert!(
         status.is_ok_and(|status| status.success()),

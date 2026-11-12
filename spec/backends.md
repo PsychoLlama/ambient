@@ -58,6 +58,15 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 - A closure holds exactly the bindings it captured, never the whole set they were taken from, so a function value's content does not depend on where it was made.
 - A handler for a returning ability is called with no bindings; what it needs was bound where it was provided.
 
+## Suspension
+
+- A [task](tasks.md) suspends by unwinding: each function on its stack saves what it holds and returns, and resuming calls them again from the outermost, each going back to where it was.
+- Suspension is therefore ordinary control flow in the lowered form, like unwinding, and needs nothing from a backend or a host: no second stack and no thread.
+- A suspended task is data on the heap, owned by the task.
+- Cancelling a suspended task resumes it into an unwinding, so its [cleanups](cleanup.md) run as they do on any other exit.
+- A suspension costs in proportion to the depth of the stack that suspends; code that never suspends pays only the check it already makes after each call.
+- The runtime calls compiled code only to start or resume a task.
+
 ## Unwinding
 
 - Unwinding is compiled as ordinary control flow: every call yields a value or a signal to unwind, and the caller checks.

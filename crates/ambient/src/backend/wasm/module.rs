@@ -3,9 +3,9 @@
 
 use ambient_runtime::Entry;
 use wasm_encoder::{
-    CodeSection, ConstExpr, DataCountSection, DataSection, ElementSection, Elements, EntityType,
-    ExportKind, ExportSection, Function, FunctionSection, ImportSection, Instruction, MemoryType,
-    Module, RefType, TableSection, TableType, TypeSection, ValType,
+    CodeSection, DataCountSection, DataSection, ElementSection, Elements, EntityType, ExportKind,
+    ExportSection, Function, FunctionSection, ImportSection, Instruction, MemoryType, Module,
+    RefType, TableType, TypeSection, ValType,
 };
 
 use super::emit::memory;
@@ -34,6 +34,19 @@ fn signatures() -> Result<(TypeSection, ImportSection, u32), String> {
             memory64: false,
             shared: false,
             page_size_log2: None,
+        }),
+    );
+    // Compiled functions go in the runtime's table, so that the runtime
+    // can call them and they can call each other the same way.
+    imports.import(
+        RUNTIME_MODULE,
+        "__indirect_function_table",
+        EntityType::Table(TableType {
+            element_type: RefType::FUNCREF,
+            minimum: 0,
+            maximum: None,
+            table64: false,
+            shared: false,
         }),
     );
     for entry in Entry::ALL {
@@ -102,27 +115,16 @@ pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
     }
     let entry = first + index(usize::try_from(positions[parts.entry]).unwrap_or(0))?;
     let init = first + index(table.len())?;
-    let size = table.len() as u64;
+    let size = index(table.len())?;
     functions.function(init_type);
-    let (initializer, text) = initializer(parts, &positions)?;
+    let (initializer, text) = initializer(parts, &positions, size)?;
     code.function(&initializer);
     let mut data = DataSection::new();
     data.passive(text);
 
-    let mut tables = TableSection::new();
-    tables.table(TableType {
-        element_type: RefType::FUNCREF,
-        minimum: size,
-        maximum: None,
-        table64: false,
-        shared: false,
-    });
+    // `init` copies these into the table, after whatever it holds.
     let mut elements = ElementSection::new();
-    elements.active(
-        Some(0),
-        &ConstExpr::i32_const(0),
-        Elements::Functions(table.into()),
-    );
+    elements.passive(Elements::Functions(table.into()));
     let mut exports = ExportSection::new();
     exports.export("init", ExportKind::Func, init);
     exports.export("entry", ExportKind::Func, entry);
@@ -132,7 +134,6 @@ pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
         .section(&types)
         .section(&imports)
         .section(&functions)
-        .section(&tables)
         .section(&exports)
         .section(&elements)
         .section(&DataCountSection { count: 1 })
@@ -142,20 +143,38 @@ pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
 }
 
 /// The locals of `initializer`: the address of the block the program's
-/// definitions are laid out in, and the address its text was copied to.
+/// definitions are laid out in, the address its text was copied to, and
+/// where in the table its functions start.
 const BASE: u32 = 0;
 const TEXT: u32 = 1;
+const TABLE: u32 = 2;
 
 /// The function that lays out a program in the runtime's memory and
 /// returns the entry's closure, with the bytes it copies in first.
 ///
-/// `positions` is each part's index in the table of functions.
-fn initializer(parts: &Parts, positions: &[u64]) -> Result<(Function, Vec<u8>), String> {
+/// `positions` is each part's index among the program's `functions`
+/// functions.
+fn initializer(
+    parts: &Parts,
+    positions: &[u64],
+    functions: u32,
+) -> Result<(Function, Vec<u8>), String> {
     let small = |value: usize| i32::try_from(value).map_err(|error| error.to_string());
     let number = |value: usize| i64::try_from(value).map_err(|error| error.to_string());
     let plan = statics::plan(parts);
 
-    let mut body = Function::new_with_locals_types([ValType::I32, ValType::I32]);
+    let mut body = Function::new_with_locals_types([ValType::I32, ValType::I32, ValType::I32]);
+    // Room in the table for the program's functions, then the functions.
+    body.instruction(&Instruction::RefNull(wasm_encoder::HeapType::FUNC));
+    body.instruction(&Instruction::I32Const(functions.cast_signed()));
+    body.instruction(&Instruction::TableGrow(0));
+    body.instruction(&Instruction::LocalTee(TABLE));
+    body.instruction(&Instruction::I32Const(0));
+    body.instruction(&Instruction::I32Const(functions.cast_signed()));
+    body.instruction(&Instruction::TableInit {
+        elem_index: 0,
+        table: 0,
+    });
     body.instruction(&Instruction::I64Const(number(plan.words)?));
     body.instruction(&Instruction::Call(WORDS));
     body.instruction(&Instruction::LocalSet(BASE));
@@ -188,6 +207,9 @@ fn initializer(parts: &Parts, positions: &[u64]) -> Result<(Function, Vec<u8>), 
             // Code is an index into the table.
             Field::Code(part) => {
                 body.instruction(&Instruction::I64Const(positions[part].cast_signed()));
+                body.instruction(&Instruction::LocalGet(TABLE));
+                body.instruction(&Instruction::I64ExtendI32U);
+                body.instruction(&Instruction::I64Add);
             }
             Field::Text {
                 make,
