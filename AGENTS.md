@@ -26,7 +26,7 @@
 
 ## Testing
 
-- Tests build a `Workspace` in memory and run an `Engine` over a `MemoryStore`; nothing touches disk.
+- Tests build a `Workspace` in memory and run an `Engine` over a `MemoryStore`; nothing touches disk, except `tests/disk.rs`, which tests the `DiskStore` under the system's temporary directory.
 - A program is run with `support::run` or `support::run_with`, which run it natively and in wasmtime and fail if they disagree or if either leaks an object.
 - An incremental test builds twice over one store and asserts on `Engine::ran` and `Engine::reused`.
 

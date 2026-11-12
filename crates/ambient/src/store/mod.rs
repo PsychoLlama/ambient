@@ -1,7 +1,11 @@
 //! The store: stage results by key. See `spec/build.md`.
 
+mod disk;
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
+
+pub use disk::DiskStore;
 
 use crate::hash::Hash;
 
