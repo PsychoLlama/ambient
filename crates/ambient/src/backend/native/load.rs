@@ -6,10 +6,11 @@ use std::collections::{HashMap, HashSet};
 
 use ambient_runtime::{Context, Entry, Fault, NULL, Word};
 
-use super::host::{Host, Natives, Observation, Offered, dispatch};
+use super::externs::Externs;
+use super::host::{Host, Natives, Observation, dispatch};
 use super::unit::{Unit, map};
 use crate::backend::statics::{self, Base, Field, Known, Place};
-use crate::engine::{Body, Native, Part, Parts};
+use crate::engine::{Body, Part, Parts};
 use crate::hash::Hash;
 use crate::value::{self, Value};
 
@@ -28,10 +29,9 @@ pub struct Program {
     entries: Box<[usize]>,
     /// The closure of the function it was first loaded for.
     entry: Cell<Word>,
-    /// The native code for each extern, by its position in the program.
-    pub(super) natives: RefCell<Vec<Offered>>,
-    /// What each of those externs is, in the same order.
-    pub(super) externs: RefCell<Vec<Native>>,
+    /// Each extern and the native code for it, by the index compiled
+    /// code names it by.
+    pub(super) natives: RefCell<Externs>,
     /// Every call of native code so far, if they are being kept.
     pub(super) trace: RefCell<Option<Vec<Observation>>>,
     /// What native code last said went wrong.
@@ -76,7 +76,6 @@ impl Program {
             entries: Entry::ALL.iter().map(|entry| entry.address()).collect(),
             entry: Cell::new(NULL),
             natives: RefCell::default(),
-            externs: RefCell::default(),
             trace: RefCell::default(),
             failure: RefCell::default(),
             error: RefCell::default(),
@@ -119,6 +118,7 @@ impl Program {
             let Some(gone) = self.units.borrow_mut().remove(&unit) else {
                 continue;
             };
+            self.natives.borrow_mut().remove(gone.natives.clone());
             let mut known = self.known.borrow_mut();
             for hash in &gone.hashes {
                 // A later unit may have brought the definition again.
@@ -156,7 +156,7 @@ impl Program {
             },
         );
         let (code, offsets) = map(parts, &plan)?;
-        let externs = self.natives.borrow().len();
+        let externs = self.natives.borrow().next();
         let code_base = code.as_ptr() as usize;
 
         let block = Box::into_raw(vec![0u64; plan.words.max(1)].into_boxed_slice());
@@ -168,6 +168,7 @@ impl Program {
             strings: Vec::new(),
             holds: Vec::new(),
             hashes: Vec::new(),
+            natives: self.natives.borrow_mut().add(&parts.natives, offered),
         };
         // SAFETY: each word written is one of the block's.
         let write = |word: usize, value: u64| unsafe { block.cast::<u64>().add(word).write(value) };
@@ -214,10 +215,6 @@ impl Program {
                 self.metered.borrow_mut().insert(part.hash);
             }
         }
-        self.natives.borrow_mut().extend(offered);
-        self.externs
-            .borrow_mut()
-            .extend(parts.natives.iter().cloned());
         self.units.borrow_mut().insert(address(0), unit);
         let entry = match plan.entry {
             Some(Place::Root(part)) => address(plan.placed[part].map_or(0, |(root, _)| root)),

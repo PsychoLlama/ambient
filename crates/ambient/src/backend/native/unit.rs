@@ -1,5 +1,7 @@
 //! What one load into a program brought, and how long it is kept.
 
+use std::ops::Range;
+
 use ambient_runtime::Word;
 use memmap2::{Mmap, MmapMut};
 
@@ -24,6 +26,8 @@ pub(super) struct Unit {
     pub(super) holds: Vec<u64>,
     /// The definitions the block has.
     pub(super) hashes: Vec<Hash>,
+    /// Which of the program's externs the block brought.
+    pub(super) natives: Range<usize>,
 }
 
 impl Unit {

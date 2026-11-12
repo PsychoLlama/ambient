@@ -57,9 +57,11 @@ impl Program {
         let mut guest = Guest { store, runtime };
         let unused = guest.words("amb_words", &[1]);
         let scratch = guest.words("amb_words", &[1]);
-        let supplied = natives.resolve(&externs(&module, instance, &mut guest.store))?;
+        let externs = externs(&module, instance, &mut guest.store);
+        let supplied = natives.resolve(&externs)?;
         let state = guest.store.data_mut();
-        (state.natives, state.unused, state.linker) = (supplied, unused, Some(linker));
+        state.natives.add(&externs, supplied);
+        (state.unused, state.linker) = (unused, Some(linker));
         let (entry, _) = guest.init(&module, instance, false, &[])?;
         Ok(Self {
             guest,

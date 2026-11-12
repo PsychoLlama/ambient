@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use wasmtime::{AsContextMut, Caller, Instance, Linker, Val};
 
 use super::units::{Known, Unit};
-use crate::backend::native::{Natives, Offered, Running};
+use crate::backend::native::{Externs, Natives, Running};
 use crate::engine::Parts;
 use crate::hash::Hash;
 use crate::value::{self, Construct, Inspect, Value};
@@ -17,7 +17,7 @@ use crate::value::{self, Construct, Inspect, Value};
 #[derive(Default)]
 pub struct State {
     pub(super) runtime: Option<Instance>,
-    pub(super) natives: Vec<Offered>,
+    pub(super) natives: Externs,
     /// What every module of the program is linked against.
     pub(super) linker: Option<Linker<State>>,
     pub(super) known: HashMap<Hash, Known>,
@@ -239,6 +239,7 @@ pub(super) fn native(
     let offered = usize::try_from(index)
         .ok()
         .and_then(|index| caller.data().natives.get(index).cloned());
+    let offered = offered.map(|(_, offered)| offered);
     let guest = Guest {
         store: &mut caller,
         runtime,

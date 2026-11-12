@@ -6,6 +6,7 @@
 //! one.
 
 use std::collections::HashMap;
+use std::ops::Range;
 
 use wasmtime::{AsContextMut, Global, GlobalType, Instance, Module, Mutability, Val};
 
@@ -32,6 +33,8 @@ pub(super) struct Unit {
     holds: Vec<u64>,
     /// The definitions it brought.
     hashes: Vec<Hash>,
+    /// Which of the program's externs it brought.
+    natives: Range<usize>,
 }
 
 /// What a module exports under names that begin `prefix`: the rest of
@@ -146,7 +149,7 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
                 .map_err(text)?;
             Ok::<(), String>(())
         };
-        let (unused, had) = self.state(|state| (state.unused, state.natives.len() as u64));
+        let (unused, had) = self.state(|state| (state.unused, state.natives.next() as u64));
         define(&mut self.store, HOST_MODULE, "unused", unused)?;
         define(&mut self.store, HOST_MODULE, "natives", had)?;
         let (mut holds, mut hashes) = (Vec::new(), Vec::new());
@@ -176,8 +179,9 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
         }
 
         let instance = linker.instantiate(&mut self.store, &module).map_err(text)?;
-        let supplied = natives.resolve(&externs(&module, instance, &mut self.store))?;
-        self.state(|state| state.natives.extend(supplied));
+        let externs = externs(&module, instance, &mut self.store);
+        let supplied = natives.resolve(&externs)?;
+        let natives = self.state(|state| state.natives.add(&externs, supplied));
         for unit in &holds {
             self.words("amb_unit_retain", &[*unit]);
         }
@@ -188,6 +192,7 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
                 instance,
                 holds,
                 hashes: brought.map(|(hash, _)| *hash).collect(),
+                natives,
             };
             state.units.insert(base, unit);
         });
@@ -204,6 +209,7 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
                 break;
             };
             self.state(|state| {
+                state.natives.remove(gone.natives.clone());
                 // A later unit may have brought a definition again.
                 let known = &mut state.known;
                 let here = |hash: &&Hash| known.get(*hash).is_some_and(|known| known.unit == unit);

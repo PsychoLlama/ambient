@@ -182,7 +182,7 @@ pub(super) unsafe extern "C" fn dispatch(
     let index = usize::try_from(index).unwrap_or(usize::MAX);
     // Native code may load more into the program, so nothing of the
     // program is borrowed while it runs.
-    let offered = program.natives.borrow().get(index).cloned();
+    let (native, offered) = program.natives.borrow().get(index).cloned().unzip();
     // Native code is not to unwind through compiled code.
     let mut call = Call {
         program,
@@ -193,7 +193,6 @@ pub(super) unsafe extern "C" fn dispatch(
             .unwrap_or_else(|_| Err("native code panicked".to_owned())),
         None => Err("no such extern".to_owned()),
     };
-    let native = program.externs.borrow().get(index).cloned();
     if let (Some(trace), Some(offered), Some(native)) =
         (program.trace.borrow_mut().as_mut(), &offered, native)
     {

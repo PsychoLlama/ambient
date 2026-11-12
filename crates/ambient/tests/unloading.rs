@@ -6,11 +6,12 @@
 mod support;
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use ambient::backend::native::{Host, Native, Natives, Program};
 use ambient::backend::wasm;
 use ambient::builder::{self as b, ModuleBuilder, ty};
-use ambient::engine::{Backend, Engine, Parts};
+use ambient::engine::{self, Backend, Engine, Parts};
 use ambient::hash::Hash;
 use ambient::store::MemoryStore;
 use ambient::surface::Definition;
@@ -60,6 +61,8 @@ struct Loaded<Program, Code> {
     parts: HashMap<String, (Code, Hash)>,
     /// How many objects were live before anything was loaded.
     live: u64,
+    /// The native code each load is given.
+    natives: Natives,
 }
 
 /// Compiles `main`, which does nothing, and each of `names` in the
@@ -92,12 +95,23 @@ type InWasm = Loaded<wasm::Program, Vec<u8>>;
 
 /// The same program and plugins on every backend.
 fn plugins<const N: usize>(module: &ModuleBuilder, names: [&str; N]) -> Vec<Box<dyn Plugins>> {
+    plugins_with(module, names, &Natives::new())
+}
+
+/// The same program and plugins on every backend, each plugin loaded
+/// with `natives`.
+fn plugins_with<const N: usize>(
+    module: &ModuleBuilder,
+    names: [&str; N],
+    natives: &Natives,
+) -> Vec<Box<dyn Plugins>> {
     let (main, parts) = compiled(module.clone(), names, &Native::new().unwrap());
     let program = Program::load(&main, &Natives::new()).unwrap();
     let native = Natively {
         program,
         parts,
         live: amb_live(),
+        natives: natives.clone(),
     };
     let (main, parts) = compiled(module.clone(), names, &wasm::Wasm);
     let main = wasm::open_module(&main).unwrap();
@@ -110,6 +124,7 @@ fn plugins<const N: usize>(module: &ModuleBuilder, names: [&str; N]) -> Vec<Box<
         program,
         parts: parts.into_iter().map(unit).collect(),
         live,
+        natives: natives.clone(),
     };
     vec![Box::new(native), Box::new(wasm)]
 }
@@ -117,7 +132,7 @@ fn plugins<const N: usize>(module: &ModuleBuilder, names: [&str; N]) -> Vec<Box<
 impl Plugins for Natively {
     fn add(&mut self, name: &str) -> u64 {
         self.program
-            .add(&self.parts[name].0, &Natives::new())
+            .add(&self.parts[name].0, &self.natives)
             .unwrap()
     }
 
@@ -151,7 +166,7 @@ impl Plugins for Natively {
 impl Plugins for InWasm {
     fn add(&mut self, name: &str) -> u64 {
         self.program
-            .add(&self.parts[name].0, &Natives::new())
+            .add(&self.parts[name].0, &self.natives)
             .unwrap()
     }
 
@@ -302,5 +317,29 @@ fn a_function_named_as_a_value_holds_its_code() {
 
         assert_eq!(plugins.take(made), Value::String("made".to_owned()));
         assert!(plugins.clean());
+    }
+}
+
+#[test]
+fn native_code_goes_with_the_code_that_reaches_it() {
+    let natives = Natives::new().with("app", "seven", |_| Ok(Value::Int(7)));
+    let seven = engine::Native {
+        package: "app".to_owned(),
+        tag: "seven".to_owned(),
+    };
+    // How many hold the native code: this list, and each load of it.
+    let held = || Rc::strong_count(&natives.get(&seven).unwrap().run);
+    let call = b::call(b::name("seven"), []);
+    let module = b::module()
+        .define(b::extern_function("seven", "seven").returns(ty::int()))
+        .define(giving("f", call));
+    for mut plugins in plugins_with(&module, ["f"], &natives) {
+        let before = held();
+        let function = plugins.add("f");
+        assert_eq!(held(), before + 1);
+        plugins.release(function);
+
+        assert!(!plugins.has("f"));
+        assert_eq!(held(), before);
     }
 }
