@@ -30,6 +30,7 @@ mod resolve;
 mod run;
 mod scope;
 mod tags;
+mod verify;
 
 use std::cell::RefCell;
 use std::collections::HashMap;

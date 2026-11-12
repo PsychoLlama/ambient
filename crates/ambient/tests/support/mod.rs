@@ -115,11 +115,28 @@ fn execute_in(
     };
 
     let parts = engine.link(&entry, &Native::new().unwrap()).unwrap();
+    verify_all(&engine, &entry);
     let native = run_native(&parts, args, &natives());
     let parts = engine.link(&entry, &Wasm).unwrap();
     let wasm = run_wasm(&parts, args, &natives());
     assert_eq!(native, wasm, "the backends disagree");
     native
+}
+
+/// Verifies everything `entry` reaches as a receiver of it would: what
+/// checking makes, the core checker accepts.
+pub fn verify_all(engine: &ambient::engine::Engine, entry: &Symbol) {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut pending = vec![entry.clone()];
+    while let Some(symbol) = pending.pop() {
+        if !seen.insert(symbol.clone()) {
+            continue;
+        }
+        if let Err(error) = engine.verify(&symbol) {
+            panic!("the core checker refuses what checking made: {error}");
+        }
+        pending.extend(engine.check(&symbol).unwrap().slots.iter().cloned());
+    }
 }
 
 fn run_native(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -> Outcome {

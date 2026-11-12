@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::surface::Path;
 use crate::symbol::{ModuleId, Symbol};
+use crate::verify::Invalid;
 
 /// A problem in the program being built.
 ///
@@ -129,6 +130,8 @@ pub enum Error {
     NotCompilable(Symbol),
     /// A backend refused a definition.
     Backend { symbol: Symbol, message: String },
+    /// A core tree is not one checking could have made.
+    Invalid { symbol: Symbol, problem: Invalid },
 }
 
 impl fmt::Display for Error {
@@ -230,6 +233,7 @@ impl fmt::Display for Error {
             }
             Self::NotCompilable(symbol) => write!(f, "{symbol}: not a function"),
             Self::Backend { symbol, message } => write!(f, "{symbol}: {message}"),
+            Self::Invalid { symbol, problem } => write!(f, "{symbol}: {problem}"),
         }
     }
 }

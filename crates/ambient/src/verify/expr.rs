@@ -1,0 +1,320 @@
+//! Expressions: the type of each node, from the node and what is inside
+//! it.
+
+use super::{Invalid, Verifier, shape};
+use crate::checker::function_type;
+use crate::core::{self, Expr, Primitive, Slot};
+use crate::surface::{Key, Reference};
+use crate::symbol::Symbol;
+use crate::types::{Signature, Ty, TyKey, abilities, entry, substitute};
+
+/// Abilities bound for part of a function: by its row and what it
+/// captured, or by a provide.
+pub(super) struct Layer {
+    pub(super) abilities: Vec<Symbol>,
+    /// Whether nothing bound outside this layer can be seen inside it.
+    pub(super) only: bool,
+}
+
+/// A function's body, as far as it has been verified.
+pub(super) struct Body<'v, 'a> {
+    pub(super) verifier: &'v Verifier<'a>,
+    /// The type of each value the function captured.
+    captures: Vec<Ty>,
+    /// The type of each local bound so far, by number: `None` once it is
+    /// out of scope. A local's number is how many were bound before it,
+    /// which is how lowering numbers them.
+    pub(super) locals: Vec<Option<Ty>>,
+    /// What binds abilities here, innermost last.
+    pub(super) layers: Vec<Layer>,
+    /// How many groups this is inside of.
+    pub(super) groups: usize,
+}
+
+impl Verifier<'_> {
+    /// A function: its header is well-formed, and its body gives what
+    /// the header says, using only what the header says it has.
+    pub(super) fn function(mut self, function: &core::Function) -> Result<(), Invalid> {
+        // A bound may mention any type parameter, itself included.
+        self.env.bounds = vec![Ty::Unknown; function.type_params.len()];
+        self.env.bounds = self.sound_all(&function.type_params)?;
+        let params = self.sound_all(&function.params)?;
+        let ret = self.sound(&function.ret)?;
+        let mut bound = self.row(&function.row)?;
+        bound.extend(self.row(&function.bindings)?);
+        let mut body = Body {
+            verifier: &self,
+            captures: self.sound_all(&function.captures)?,
+            locals: params.into_iter().map(Some).collect(),
+            layers: vec![Layer {
+                abilities: bound,
+                only: false,
+            }],
+            groups: 0,
+        };
+        body.check(&function.body, &ret)
+    }
+}
+
+impl Body<'_, '_> {
+    /// Ends the scope of every local numbered `scope` or later.
+    pub(super) fn leave(&mut self, scope: usize) {
+        for local in &mut self.locals[scope..] {
+            *local = None;
+        }
+    }
+
+    pub(super) fn require(&self, ability: &Symbol) -> Result<(), Invalid> {
+        for layer in self.layers.iter().rev() {
+            if layer.abilities.contains(ability) {
+                return Ok(());
+            }
+            if layer.only {
+                break;
+            }
+        }
+        Err(Invalid::Unbound(ability.to_string()))
+    }
+
+    pub(super) fn require_all(&self, row: &[Reference]) -> Result<(), Invalid> {
+        abilities(row)
+            .iter()
+            .try_for_each(|ability| self.require(ability))
+    }
+
+    pub(super) fn check(&mut self, expr: &Expr, expected: &Ty) -> Result<(), Invalid> {
+        let found = self.infer(expr)?;
+        if self.verifier.env.subtype(&found, expected) {
+            Ok(())
+        } else {
+            Err(self.verifier.mismatch(expected, &found))
+        }
+    }
+
+    fn infer_all(&mut self, exprs: &[Expr]) -> Result<Vec<Ty>, Invalid> {
+        exprs.iter().map(|expr| self.infer(expr)).collect()
+    }
+
+    /// The arguments a generic function is used at: as many as it has
+    /// type parameters, each within its bound.
+    fn type_args(&self, signature: &Signature, args: &[core::Type]) -> Result<Vec<Ty>, Invalid> {
+        let env = &self.verifier.env;
+        if args.len() != signature.type_params.len() {
+            return Err(Invalid::Arity);
+        }
+        let args = self.verifier.sound_all(args)?;
+        for (arg, bound) in args.iter().zip(&signature.type_params) {
+            let bound = env.normalize(&substitute(bound, &args));
+            if !env.subtype(arg, &bound) {
+                return Err(self.verifier.mismatch(&bound, arg));
+            }
+        }
+        Ok(args)
+    }
+
+    /// A key of a record, as its type holds it.
+    fn key(&self, key: &core::Key) -> Result<TyKey, Invalid> {
+        Ok(match key {
+            core::Key::Field(name) => Key::Field(name.clone()),
+            core::Key::Ability(slot) => {
+                let (ability, _) = self.verifier.ability(*slot)?;
+                Key::Ability(Reference::Definition(ability.clone()))
+            }
+        })
+    }
+
+    /// The type of `expr`, in normal form.
+    pub(super) fn infer(&mut self, expr: &Expr) -> Result<Ty, Invalid> {
+        let verifier = self.verifier;
+        let env = &verifier.env;
+        Ok(match expr {
+            Expr::Null => Ty::Null,
+            Expr::Literal(literal) => Ty::Literal(literal.clone()),
+            Expr::Local(number) => {
+                let local = self.locals.get(*number).cloned().flatten();
+                local.ok_or(Invalid::Local)?
+            }
+            Expr::Captured(position) => {
+                let captured = self.captures.get(*position).cloned();
+                captured.ok_or(Invalid::Local)?
+            }
+            Expr::Reference(slot, args) => self.function_value(*slot, args, &[], &[])?,
+            Expr::Closure {
+                slot,
+                type_args,
+                captures,
+                bindings,
+            } => self.function_value(*slot, type_args, captures, bindings)?,
+            Expr::Call { callee, args } => {
+                let found = self.infer(callee)?;
+                let Ty::Function { params, ret, row } = env.unfold(&found) else {
+                    return shape("something that is not a function is called");
+                };
+                if params.len() != args.len() {
+                    return Err(Invalid::Arity);
+                }
+                self.require_all(&row)?;
+                for (arg, param) in args.iter().zip(&params) {
+                    self.check(arg, param)?;
+                }
+                *ret
+            }
+            Expr::Record(fields) => {
+                let mut types: Vec<(TyKey, Ty)> = Vec::new();
+                for (key, value) in fields {
+                    let key = self.key(key)?;
+                    if entry(&types, &key).is_some() {
+                        return shape("a record has one key twice");
+                    }
+                    types.push((key, self.infer(value)?));
+                }
+                types.sort_by(|(a, _), (b, _)| a.cmp(b));
+                Ty::Record(types)
+            }
+            Expr::Tuple(members) => Ty::Tuple(self.infer_all(members)?),
+            Expr::List(members) => {
+                let members = self.infer_all(members)?;
+                Ty::List(Box::new(env.union(members)))
+            }
+            Expr::Field { target, key } => {
+                let found = self.infer(target)?;
+                let field = env.field(&found, &self.key(key)?);
+                field.ok_or_else(|| Invalid::Shape("a field is read that may be missing".into()))?
+            }
+            Expr::Merge { left, right, keys } => self.merge(left, right, keys)?,
+            Expr::Let { value, body } => {
+                let value = self.infer(value)?;
+                let scope = self.locals.len();
+                self.locals.push(Some(value));
+                let ty = self.infer(body)?;
+                self.leave(scope);
+                ty
+            }
+            Expr::Primitive { operation, args } => self.primitive(*operation, args)?,
+            Expr::Match { subject, arms } => self.matching(subject, arms)?,
+            Expr::Cast {
+                value,
+                ty,
+                otherwise,
+            } => {
+                self.infer(value)?;
+                let target = verifier.sound(ty)?;
+                let alternative = self.infer(otherwise)?;
+                env.union(vec![target, alternative])
+            }
+            Expr::Cell { ty, value } => {
+                let held = verifier.sound(ty)?;
+                self.check(value, &held)?;
+                Ty::Cell(Box::new(held))
+            }
+            _ => self.effect(expr)?,
+        })
+    }
+
+    /// A function as a value: one that stands alone, or a closure over
+    /// one that captures values and bindings.
+    fn function_value(
+        &mut self,
+        slot: Slot,
+        type_args: &[core::Type],
+        captures: &[Expr],
+        bindings: &[Slot],
+    ) -> Result<Ty, Invalid> {
+        let verifier = self.verifier;
+        let env = &verifier.env;
+        let symbol = verifier.symbol(slot)?;
+        let signature = env.functions.get(symbol).ok_or(Invalid::Slot)?;
+        let held = verifier.held.get(symbol).ok_or(Invalid::Slot)?;
+        if signature.native && !verifier.root {
+            return shape("only a program's root names a native handler");
+        }
+        let args = self.type_args(signature, type_args)?;
+        if captures.len() != held.captures.len() {
+            return Err(Invalid::Arity);
+        }
+        for (capture, ty) in captures.iter().zip(&held.captures) {
+            self.check(capture, &env.normalize(&substitute(ty, &args)))?;
+        }
+        // A closure hands over the bindings its function captured, which
+        // it must have itself.
+        if verifier.row(bindings)? != held.bindings {
+            return shape("a closure does not capture the bindings its function needs");
+        }
+        for ability in &held.bindings {
+            self.require(ability)?;
+        }
+        Ok(env.normalize(&function_type(signature, &args)))
+    }
+
+    fn merge(&mut self, left: &Expr, right: &Expr, keys: &[core::Key]) -> Result<Ty, Invalid> {
+        let env = &self.verifier.env;
+        let left = self.infer(left)?;
+        let right = self.infer(right)?;
+        let (Ty::Record(mut fields), Ty::Record(over)) = (env.unfold(&left), env.unfold(&right))
+        else {
+            return shape("something that is not a record is merged");
+        };
+        // Exactly what the second record's type lists is taken from it.
+        let taken: Result<Vec<TyKey>, Invalid> = keys.iter().map(|key| self.key(key)).collect();
+        let listed: Vec<&TyKey> = env.ordered(&over).into_iter().map(|(key, _)| key).collect();
+        if taken?.iter().ne(listed) {
+            return shape("a merge does not take the keys its second record lists");
+        }
+        fields.retain(|(key, _)| entry(&over, key).is_none());
+        fields.extend(over);
+        fields.sort_by(|(a, _), (b, _)| a.cmp(b));
+        Ok(Ty::Record(fields))
+    }
+
+    fn primitive(&mut self, operation: Primitive, args: &[Expr]) -> Result<Ty, Invalid> {
+        let (operands, result) = match operation {
+            Primitive::IntAdd | Primitive::IntSubtract | Primitive::IntMultiply => {
+                (Some(Ty::Int), Ty::Int)
+            }
+            Primitive::IntLess => (Some(Ty::Int), Ty::Bool),
+            Primitive::FloatAdd | Primitive::FloatSubtract | Primitive::FloatMultiply => {
+                (Some(Ty::Float), Ty::Float)
+            }
+            Primitive::FloatLess => (Some(Ty::Float), Ty::Bool),
+            Primitive::Equal => (None, Ty::Bool),
+            Primitive::CellRead | Primitive::CellReplace | Primitive::CellWait => {
+                return self.cell(operation, args);
+            }
+        };
+        let [left, right] = args else {
+            return Err(Invalid::Arity);
+        };
+        for operand in [left, right] {
+            match &operands {
+                Some(expected) => self.check(operand, expected)?,
+                None => drop(self.infer(operand)?),
+            }
+        }
+        Ok(result)
+    }
+
+    /// An operation on a cell: the cell, then values it could hold.
+    fn cell(&mut self, operation: Primitive, args: &[Expr]) -> Result<Ty, Invalid> {
+        let values = match operation {
+            Primitive::CellReplace => 2,
+            Primitive::CellWait => 1,
+            _ => 0,
+        };
+        let Some((cell, rest)) = args.split_first().filter(|(_, rest)| rest.len() == values) else {
+            return Err(Invalid::Arity);
+        };
+        let found = self.infer(cell)?;
+        let Ty::Cell(held) = self.verifier.env.unfold(&found) else {
+            let expected = Ty::Cell(Box::new(Ty::Unknown));
+            return Err(self.verifier.mismatch(&expected, &found));
+        };
+        for value in rest {
+            self.check(value, &held)?;
+        }
+        Ok(match operation {
+            Primitive::CellReplace => Ty::Bool,
+            Primitive::CellWait => Ty::Null,
+            _ => *held,
+        })
+    }
+}

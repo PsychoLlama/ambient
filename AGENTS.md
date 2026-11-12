@@ -26,6 +26,7 @@
 - Compiled code is position-independent: it reaches definitions through slots and the runtime through entry points, never by address.
 - A name reaches a definition through a module's members (`engine/scope.rs`): its own definitions and its re-exports, which keep the symbol of what they alias. Another package is reached only through its library module and the modules that lists.
 - The standard library is a package built with builders (`library.rs`), installed into a workspace on request. Fault kinds and budget limits are its tags; their names come from the runtime, never restated.
+- The core checker (`verify/`) accepts what `checker/` makes and nothing looser: `support::run` verifies every definition of every program it runs. A typing rule belongs in `types::Env` where both can ask it; a rule added to one checker is added to the other.
 - A value has one encoding (`exchange.rs`); `decode` accepts only what `encode` produces.
 - `core::Tree::resolved` defines every hash: the tree's encoding with slots replaced by hashes and unions ordered by that. `Tree::encode` is the stored form, which names can order; never hash it. Changing either or the node set means bumping `FORMAT`.
 

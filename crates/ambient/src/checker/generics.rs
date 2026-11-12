@@ -229,7 +229,7 @@ impl Checker<'_> {
 }
 
 /// The type of a function with this header, at these type arguments.
-pub(super) fn function_type(signature: &Signature, type_args: &[Ty]) -> Ty {
+pub(crate) fn function_type(signature: &Signature, type_args: &[Ty]) -> Ty {
     Ty::Function {
         params: signature
             .params

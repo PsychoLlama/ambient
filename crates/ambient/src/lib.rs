@@ -24,4 +24,5 @@ pub mod surface;
 pub mod symbol;
 pub mod types;
 pub mod value;
+pub mod verify;
 pub mod workspace;

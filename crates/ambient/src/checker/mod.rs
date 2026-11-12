@@ -30,7 +30,7 @@ use crate::symbol::Symbol;
 use crate::types::{Env, Ty};
 use crate::value::Value;
 use abilities::Layer;
-use generics::function_type;
+pub(crate) use generics::function_type;
 pub use header::{check_ability, check_type, encode_header};
 use header::{header, visit_types};
 pub use world::{check_extern, check_target};
