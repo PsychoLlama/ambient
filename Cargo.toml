@@ -32,3 +32,8 @@ expect_used = "deny"
 unwrap_used = "deny"
 print_stdout = "warn"
 print_stderr = "warn"
+
+# The compilers a test run spends its time in are dependencies. Built
+# without optimization they are most of that time.
+[profile.dev.package."*"]
+opt-level = 2
