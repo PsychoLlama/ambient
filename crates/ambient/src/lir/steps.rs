@@ -353,5 +353,11 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::ListPush => Entry::ListPush,
         Primitive::ListJoin => Entry::ListJoin,
         Primitive::ListSlice => Entry::ListSlice,
+        Primitive::IntFloat => Entry::IntFloat,
+        Primitive::FloatInt => Entry::FloatInt,
+        Primitive::IntText => Entry::IntText,
+        Primitive::FloatText => Entry::FloatText,
+        Primitive::StringInt => Entry::StringInt,
+        Primitive::StringFloat => Entry::StringFloat,
     }
 }

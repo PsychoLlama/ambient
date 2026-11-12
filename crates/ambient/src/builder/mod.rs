@@ -141,6 +141,25 @@ pub fn slice(value: Expr, start: Expr, end: Expr) -> Expr {
     operation(Operator::Slice, [value, start, end])
 }
 
+/// A float without its fraction, or the integer a string is; null if
+/// there is none.
+#[must_use]
+pub fn to_int(value: Expr) -> Expr {
+    operation(Operator::ToInt, [value])
+}
+
+/// The float nearest an integer, or the float a string is, or null.
+#[must_use]
+pub fn to_float(value: Expr) -> Expr {
+    operation(Operator::ToFloat, [value])
+}
+
+/// A number as a string.
+#[must_use]
+pub fn to_text(value: Expr) -> Expr {
+    operation(Operator::ToText, [value])
+}
+
 #[must_use]
 pub fn less(left: Expr, right: Expr) -> Expr {
     binary(Operator::Less, left, right)

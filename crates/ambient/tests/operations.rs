@@ -104,6 +104,72 @@ fn an_integer_and_a_float_do_not_divide() {
     assert!(matches!(result, Err(Error::Operands { .. })));
 }
 
+// Conversions
+
+#[test]
+fn an_integer_converts_to_the_float_nearest_it() {
+    let floats = [b::to_float(b::int(3)), b::to_float(b::int(i64::MAX))];
+    #[allow(clippy::cast_precision_loss)]
+    let nearest = Value::Float(i64::MAX as f64);
+    assert_eq!(each(floats), [Value::Float(3.0), nearest]);
+}
+
+#[test]
+fn a_float_converts_to_an_integer_by_dropping_its_fraction() {
+    let ints = [b::to_int(b::float(2.9)), b::to_int(b::float(-2.9))];
+    assert_eq!(each(ints), [Value::Int(2), Value::Int(-2)]);
+}
+
+#[test]
+fn a_float_that_is_no_integer_misses() {
+    let none = [f64::NAN, f64::INFINITY, 1e19, -1e19].map(|float| b::to_int(b::float(float)));
+    assert_eq!(each(none), vec![Value::Null; 4]);
+}
+
+#[test]
+fn a_number_converts_to_text() {
+    let texts = [
+        b::to_text(b::int(-42)),
+        b::to_text(b::float(1.0)),
+        b::to_text(b::float(0.1)),
+        b::to_text(b::float(1e100)),
+    ];
+    assert_eq!(each(texts), ["-42", "1.0", "0.1", "1e100"].map(text));
+}
+
+#[test]
+fn text_converts_to_the_number_it_is() {
+    let numbers = [
+        b::to_int(b::string("-42")),
+        b::to_float(b::string("0.1")),
+        b::to_float(b::to_text(b::float(f64::MIN_POSITIVE))),
+    ];
+    let expected = [
+        Value::Int(-42),
+        Value::Float(0.1),
+        Value::Float(f64::MIN_POSITIVE),
+    ];
+    assert_eq!(each(numbers), expected);
+}
+
+#[test]
+fn text_that_is_not_wholly_a_number_misses() {
+    let none = [
+        b::to_int(b::string("42 ")),
+        b::to_int(b::string("4.2")),
+        b::to_int(b::string("9223372036854775808")),
+        b::to_float(b::string("")),
+    ];
+    assert_eq!(each(none), vec![Value::Null; 4]);
+}
+
+#[test]
+fn a_conversion_that_can_miss_says_so_in_its_type() {
+    assert!(checks(ty::float(), b::to_float(b::int(1))).is_ok());
+    assert!(checks(ty::int(), b::to_int(b::float(1.0))).is_err());
+    assert!(checks(ty::string(), b::to_text(b::string("1"))).is_err());
+}
+
 // Strings
 
 #[test]

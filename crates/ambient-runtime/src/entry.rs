@@ -144,4 +144,10 @@ entries! {
     ListSlice = amb_list_slice, plain, 3, word;
     Tail = amb_tail, context, 3, word;
     Bounce = amb_bounce, context, 0, word;
+    IntFloat = amb_int_float, plain, 1, word;
+    FloatInt = amb_float_int, plain, 1, word;
+    IntText = amb_int_text, plain, 1, word;
+    FloatText = amb_float_text, plain, 1, word;
+    StringInt = amb_string_int, plain, 1, word;
+    StringFloat = amb_string_float, plain, 1, word;
 }

@@ -233,6 +233,12 @@ pub enum Operator {
     Join,
     /// What lies between two positions of a string or a list.
     Slice,
+    /// A float or a string as an integer.
+    ToInt,
+    /// An integer or a string as a float.
+    ToFloat,
+    /// A number as a string.
+    ToText,
 }
 
 /// What can be done with a cell. See `spec/cells.md`.

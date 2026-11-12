@@ -66,5 +66,8 @@ fn meanings(operator: Operator) -> &'static [Primitive] {
         Operator::Push => &[P::ListPush],
         Operator::Join => &[P::StringJoin, P::ListJoin],
         Operator::Slice => &[P::StringSlice, P::ListSlice],
+        Operator::ToInt => &[P::FloatInt, P::StringInt],
+        Operator::ToFloat => &[P::IntFloat, P::StringFloat],
+        Operator::ToText => &[P::IntText, P::FloatText],
     }
 }

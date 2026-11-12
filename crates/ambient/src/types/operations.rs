@@ -67,6 +67,12 @@ impl Env {
             (P::ListSlice, [values, start, end]) if is(start, &Ty::Int) && is(end, &Ty::Int) => {
                 or_null(list(vec![self.members(values)?]))
             }
+            (P::IntFloat, [_]) if all(&Ty::Int) => Ty::Float,
+            (P::FloatInt, [_]) if all(&Ty::Float) => or_null(Ty::Int),
+            (P::IntText, [_]) if all(&Ty::Int) => Ty::String,
+            (P::FloatText, [_]) if all(&Ty::Float) => Ty::String,
+            (P::StringInt, [_]) if all(&Ty::String) => or_null(Ty::Int),
+            (P::StringFloat, [_]) if all(&Ty::String) => or_null(Ty::Float),
             _ => return None,
         })
     }

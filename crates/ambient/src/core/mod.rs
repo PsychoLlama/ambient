@@ -102,6 +102,16 @@ pub enum Primitive {
     ListJoin,
     /// The members between two positions, or null.
     ListSlice,
+    /// The float nearest an integer.
+    IntFloat,
+    /// A float without its fraction, or null if that is no integer.
+    FloatInt,
+    IntText,
+    FloatText,
+    /// The integer a string is, or null.
+    StringInt,
+    /// The float a string is, or null.
+    StringFloat,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

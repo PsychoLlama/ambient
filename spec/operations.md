@@ -17,6 +17,14 @@ An operation is something the language itself does with values: arithmetic, comp
 - Dividing an integer by zero is a [fault](values.md), as leaving the range of `int` is.
 - Less-than orders two integers, two floats, or two strings; a string is ordered by its bytes.
 
+## Conversions
+
+- Nothing converts unless a conversion is written.
+- An integer converts to the float nearest it.
+- A float converts to the integer left when its fraction is dropped, and misses if it is not a number or that integer is out of range.
+- A number converts to text: an integer in decimal, and a float as the shortest decimal that reads back as the same float.
+- Text converts to an integer or to a float if the whole of it is one, and misses if not; what a number converts to always converts back.
+
 ## Strings
 
 - A position in a string is a count of the bytes of its UTF-8 encoding, and a string's length is its size in bytes.

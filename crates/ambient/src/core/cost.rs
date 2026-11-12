@@ -112,10 +112,20 @@ impl Expr {
                     | Primitive::FloatDivide
                     | Primitive::StringLength
                     | Primitive::ListLength
+                    | Primitive::IntFloat
+                    | Primitive::FloatInt
+                    | Primitive::StringInt
+                    | Primitive::StringFloat
                     // The member it adds, beside the copy.
                     | Primitive::ListPush,
                 ..
             } => Cost::object(1),
+            // No number is written in more bytes than three words hold,
+            // and a string says how long it is.
+            Self::Primitive {
+                operation: Primitive::IntText | Primitive::FloatText,
+                ..
+            } => Cost::object(4),
             // The bindings it adds, each with its budget, and a token for
             // each handler that aborts.
             Self::Provide { handlers, .. } => {
