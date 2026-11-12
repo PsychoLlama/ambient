@@ -32,6 +32,12 @@ pub enum Error {
     InternalModule { module: ModuleId, path: Path },
     /// Two things in one module's scope share a name.
     DuplicateName { module: ModuleId, name: String },
+    /// Two declarations of one package share a tag.
+    DuplicateTag {
+        first: Symbol,
+        second: Symbol,
+        tag: String,
+    },
     /// A name in a definition resolves to nothing.
     UnknownName { symbol: Symbol, path: Path },
     /// A name reached through a module is private to that module.
@@ -137,6 +143,7 @@ impl fmt::Display for Error {
             | Self::ExportsModule { .. }
             | Self::ExportCycle(_)
             | Self::DuplicateName { .. }
+            | Self::DuplicateTag { .. }
             | Self::UnknownName { .. }
             | Self::PrivateName { .. } => self.fmt_name(f),
             Self::Arity {
@@ -257,6 +264,9 @@ impl Error {
             ),
             Self::DuplicateName { module, name } => {
                 write!(f, "{module}: `{name}` is bound twice")
+            }
+            Self::DuplicateTag { first, second, tag } => {
+                write!(f, "{second}: `{first}` already declares the tag `{tag}`")
             }
             Self::UnknownName { symbol, path } => {
                 write!(f, "{symbol}: `{path}` names nothing")

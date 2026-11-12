@@ -15,6 +15,9 @@ use crate::symbol::{ModuleId, ModulePath, PackageId};
 pub trait Sources {
     fn module(&self, id: &ModuleId) -> Option<Arc<Module>>;
 
+    /// Every module of `package`, in order of path.
+    fn modules(&self, package: &PackageId) -> Vec<ModuleId>;
+
     /// The package that `package` reaches under the local name `name`.
     fn dependency(&self, package: &PackageId, name: &str) -> Option<PackageId>;
 
@@ -136,6 +139,11 @@ fn is_prefix(shorter: &ModulePath, longer: &ModulePath) -> bool {
 impl Sources for Workspace {
     fn module(&self, id: &ModuleId) -> Option<Arc<Module>> {
         self.modules.get(id).cloned()
+    }
+
+    fn modules(&self, package: &PackageId) -> Vec<ModuleId> {
+        let of_package = |id: &&ModuleId| id.package == *package;
+        self.modules.keys().filter(of_package).cloned().collect()
     }
 
     fn dependency(&self, package: &PackageId, name: &str) -> Option<PackageId> {

@@ -263,6 +263,7 @@ impl Engine<'_> {
                 })
             }
             DefinitionKind::Ability(ability) => {
+                self.tags(&symbol.module.package)?;
                 self.gather(vec![symbol.clone()], &mut env)?;
                 self.reachable(&env, &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
@@ -270,6 +271,7 @@ impl Engine<'_> {
                 })
             }
             DefinitionKind::Extern(native) => {
+                self.tags(&symbol.module.package)?;
                 let env = self.environment(used, &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
                     checker::check_extern(symbol, native, &package, &env)

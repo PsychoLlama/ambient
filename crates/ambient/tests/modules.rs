@@ -470,3 +470,23 @@ fn a_prelude_from_another_package_must_be_one_it_exposes() {
         Err(Error::InternalModule { .. })
     ));
 }
+
+// Tags
+
+#[test]
+fn a_tag_is_declared_once_in_a_package() {
+    let asks = |name: &str| b::module().define(b::ability(name, "ask").returns(ty::int()));
+    let ask = ModuleId::new("app", "one").ability("ask");
+    let again = ModuleId::new("app", "two").ability("again");
+    let workspace = workspace([("app", "one", asks("ask")), ("app", "two", asks("again"))]);
+    let store = MemoryStore::new();
+
+    assert_eq!(
+        Engine::new(&workspace, &store).check(&ask).unwrap_err(),
+        Error::DuplicateTag {
+            first: ask,
+            second: again,
+            tag: "ask".to_owned(),
+        }
+    );
+}
