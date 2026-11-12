@@ -118,6 +118,9 @@ struct Checker<'a> {
     /// Whether this is a program's root, which alone may name a native
     /// handler.
     root: bool,
+    /// Whether whatever is being checked has every ability bound for it:
+    /// true inside a comptime call, which the build target provides for.
+    providing: bool,
     /// The definition being checked, then each lambda being checked inside
     /// it, innermost last.
     frames: Vec<Frame>,
@@ -136,6 +139,7 @@ impl<'a> Checker<'a> {
             env,
             evaluator: None,
             root: false,
+            providing: false,
             frames: vec![Frame::default()],
             types: BTreeMap::new(),
             next: 0,

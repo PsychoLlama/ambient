@@ -4,6 +4,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 use super::{Artifact, Backend, Engine};
 use crate::core::{self, Tree};
 use crate::error::Error;
@@ -24,7 +26,7 @@ pub struct Part {
 }
 
 /// An extern a program reaches: what a host finds native code by.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Native {
     pub package: String,
     pub tag: String,

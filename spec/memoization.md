@@ -4,8 +4,11 @@ A memoized run caches a function's result together with everything the run obser
 
 ## Traces
 
-- A memoized run is keyed by the function's hash and its arguments.
+- A memoized run is keyed by the hash of its [program](targets.md) and its arguments.
+- The key therefore covers every handler written in Ambient that the entry reaches; only native code lies outside it.
 - It stores the result and a trace: the [recording](handlers.md) of every ability performed.
+- A trace is taken where a run meets [native code](externs.md), which is the only place it can observe anything its key does not cover.
+- A run that failed is stored with its trace like any other, so a failure lasts only as long as what caused it.
 - A stored run is reused only if every perform in its trace, repeated now, yields the same result.
 - A run with an empty trace is valid for as long as its hash exists.
 - Nothing is declared: no dependency lists, watch lists, or manual invalidation.
@@ -24,3 +27,9 @@ A memoized run caches a function's result together with everything the run obser
 - A test with an empty row reruns only when its hash changes.
 - A test that needs real effects performs volatile abilities and always reruns, with no annotation.
 - A run with an empty trace is valid on any machine and can be shared between them.
+
+## Dependents
+
+- A definition whose content came from a [comptime](comptime.md) call that observed anything is stored with that call.
+- It is reused only if the call, looked at again, still gives the same result.
+- A call that is made again and gives what it gave before invalidates nothing.

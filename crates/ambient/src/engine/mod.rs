@@ -99,6 +99,11 @@ pub struct Engine<'a> {
     /// The roots of the programs asked for, each with what it is made of.
     roots: RefCell<HashMap<Symbol, program::Root>>,
     runner: run::Runner,
+    /// The world comptime calls run in, if the build has one.
+    build: Option<run::Build>,
+    /// The runs made while checking each definition being checked,
+    /// outermost first.
+    observed: RefCell<Vec<Vec<run::Dependency>>>,
 }
 
 impl<'a> Engine<'a> {
@@ -119,6 +124,8 @@ impl<'a> Engine<'a> {
             checking: RefCell::default(),
             roots: RefCell::default(),
             runner: run::Runner::default(),
+            build: None,
+            observed: RefCell::default(),
         }
     }
 
@@ -163,12 +170,32 @@ impl<'a> Engine<'a> {
     where
         T: Serialize + DeserializeOwned,
     {
+        self.stage_if(stage, subject, key, |_| true, compute)
+    }
+
+    /// A stage whose result depends on more than its key covers: the
+    /// stored result is taken only if `holds` says it still stands.
+    ///
+    /// This is for results that observed the world. What they observed is
+    /// stored with them, and `holds` looks again.
+    fn stage_if<T>(
+        &self,
+        stage: Stage,
+        subject: &dyn Display,
+        key: Hash,
+        holds: impl FnOnce(&Result<T, Error>) -> bool,
+        compute: impl FnOnce() -> Result<T, Error>,
+    ) -> Query<T>
+    where
+        T: Serialize + DeserializeOwned,
+    {
         // An entry that does not decode is treated as missing: the store is
         // only ever a cache.
         let stored = self
             .store
             .get(&key)
-            .and_then(|bytes| postcard::from_bytes::<Result<T, Error>>(&bytes).ok());
+            .and_then(|bytes| postcard::from_bytes::<Result<T, Error>>(&bytes).ok())
+            .filter(holds);
         let (result, outcome) = if let Some(result) = stored {
             (result, Outcome::Reused)
         } else {

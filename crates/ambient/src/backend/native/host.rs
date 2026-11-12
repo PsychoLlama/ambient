@@ -3,8 +3,10 @@
 
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::rc::Rc;
 
 use ambient_runtime::{Context, Fault, Word};
+use serde::{Deserialize, Serialize};
 
 use super::load::Program;
 use crate::engine::Native;
@@ -12,12 +14,22 @@ use crate::value::{self, Construct, Inspect, Value};
 
 /// Native code for one extern: arguments in, a result or what went wrong
 /// out.
-pub type NativeFn = Box<dyn Fn(&[Value]) -> Result<Value, String>>;
+pub type NativeFn = Rc<dyn Fn(&[Value]) -> Result<Value, String>>;
+
+/// Native code as a host offers it.
+#[derive(Clone)]
+pub struct Offered {
+    pub run: NativeFn,
+    /// Whether calling it again is cheap, has no side effects, and shows
+    /// whether what it returned before still holds. See
+    /// `spec/memoization.md`.
+    pub verifiable: bool,
+}
 
 /// The native code a host offers, by the package that declares each
 /// extern and the extern's tag.
-#[derive(Default)]
-pub struct Natives(HashMap<(String, String), NativeFn>);
+#[derive(Clone, Default)]
+pub struct Natives(HashMap<(String, String), Offered>);
 
 impl Natives {
     #[must_use]
@@ -25,17 +37,47 @@ impl Natives {
         Self::default()
     }
 
-    /// Adds native code for the extern tagged `tag` in `package`.
+    fn offer(
+        mut self,
+        package: &str,
+        tag: &str,
+        verifiable: bool,
+        native: impl Fn(&[Value]) -> Result<Value, String> + 'static,
+    ) -> Self {
+        let run: NativeFn = Rc::new(native);
+        let key = (package.to_owned(), tag.to_owned());
+        self.0.insert(key, Offered { run, verifiable });
+        self
+    }
+
+    /// Adds native code for the extern tagged `tag` in `package`. It is
+    /// volatile: a run that called it is never reused.
     #[must_use]
     pub fn with(
-        mut self,
+        self,
         package: &str,
         tag: &str,
         native: impl Fn(&[Value]) -> Result<Value, String> + 'static,
     ) -> Self {
-        let key = (package.to_owned(), tag.to_owned());
-        self.0.insert(key, Box::new(native));
-        self
+        self.offer(package, tag, false, native)
+    }
+
+    /// Adds native code that can be called again, cheaply and without
+    /// side effects, to see whether what it returned still holds.
+    #[must_use]
+    pub fn verifiable(
+        self,
+        package: &str,
+        tag: &str,
+        native: impl Fn(&[Value]) -> Result<Value, String> + 'static,
+    ) -> Self {
+        self.offer(package, tag, true, native)
+    }
+
+    /// The native code offered for one extern.
+    #[must_use]
+    pub fn get(&self, native: &Native) -> Option<&Offered> {
+        self.0.get(&(native.package.clone(), native.tag.clone()))
     }
 
     /// The native code for each of `externs`, in their order.
@@ -43,12 +85,11 @@ impl Natives {
     /// # Errors
     ///
     /// Fails if one is missing: the program cannot be linked.
-    pub fn resolve(mut self, externs: &[Native]) -> Result<Vec<NativeFn>, String> {
+    pub fn resolve(&self, externs: &[Native]) -> Result<Vec<Offered>, String> {
         externs
             .iter()
             .map(|native| {
-                let key = (native.package.clone(), native.tag.clone());
-                self.0.remove(&key).ok_or_else(|| {
+                self.get(native).cloned().ok_or_else(|| {
                     format!(
                         "no native code for `{}` of package `{}`",
                         native.tag, native.package
@@ -57,6 +98,15 @@ impl Natives {
             })
             .collect()
     }
+}
+
+/// One call of native code: what a run observed of the world.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Observation {
+    pub native: Native,
+    pub args: Vec<Value>,
+    pub result: Result<Value, String>,
+    pub verifiable: bool,
 }
 
 /// What the runtime calls to run an extern: see
@@ -77,15 +127,25 @@ pub(super) unsafe extern "C" fn dispatch(
         Value::Tuple(args) => args,
         _ => Vec::new(),
     };
-    let native = usize::try_from(index)
-        .ok()
-        .and_then(|index| program.natives.get(index));
+    let index = usize::try_from(index).unwrap_or(usize::MAX);
     // Native code is not to unwind through compiled code.
-    let outcome = match native {
-        Some(native) => catch_unwind(AssertUnwindSafe(|| native(&args)))
+    let outcome = match program.natives.get(index) {
+        Some(offered) => catch_unwind(AssertUnwindSafe(|| (offered.run)(&args)))
             .unwrap_or_else(|_| Err("native code panicked".to_owned())),
         None => Err("no such extern".to_owned()),
     };
+    if let (Some(trace), Some(offered), Some(native)) = (
+        program.trace.borrow_mut().as_mut(),
+        program.natives.get(index),
+        program.externs.get(index),
+    ) {
+        trace.push(Observation {
+            native: native.clone(),
+            args,
+            result: outcome.clone(),
+            verifiable: offered.verifiable,
+        });
+    }
     match outcome {
         Ok(value) => encode(&value),
         Err(message) => {

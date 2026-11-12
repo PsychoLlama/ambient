@@ -5,7 +5,7 @@
 
 use std::cell::RefCell;
 
-use ambient::backend::native::{NativeFn, Natives};
+use ambient::backend::native::{Natives, Offered};
 use ambient::builder::ModuleBuilder;
 use ambient::core::Open;
 use ambient::engine::Backend;
@@ -98,14 +98,14 @@ fn execute(
     };
 
     let parts = engine.link(&entry, &Native::new().unwrap()).unwrap();
-    let native = run_native(&parts, args, natives());
+    let native = run_native(&parts, args, &natives());
     let parts = engine.link(&entry, &Wasm).unwrap();
-    let wasm = run_wasm(&parts, args, natives());
+    let wasm = run_wasm(&parts, args, &natives());
     assert_eq!(native, wasm, "the backends disagree");
     native
 }
 
-fn run_native(parts: &ambient::engine::Parts, args: &[i64], natives: Natives) -> Outcome {
+fn run_native(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -> Outcome {
     use ambient::backend::native::{Host, Program};
 
     let program = Program::load(parts, natives).unwrap();
@@ -133,7 +133,7 @@ fn run_native(parts: &ambient::engine::Parts, args: &[i64], natives: Natives) ->
 /// and the native code for each extern of the program.
 struct State {
     runtime: Option<wasmtime::Instance>,
-    natives: Vec<NativeFn>,
+    natives: Vec<Offered>,
 }
 
 /// The runtime instantiated in a WebAssembly engine, reached through a
@@ -264,7 +264,7 @@ fn native(
     else {
         panic!("arguments are a tuple");
     };
-    let result = if let Ok(value) = natives[usize::try_from(index).unwrap()](&args) {
+    let result = if let Ok(value) = (natives[usize::try_from(index).unwrap()].run)(&args) {
         ambient::value::encode(&value, &mut guest)
     } else {
         let code = word(ambient_runtime::Fault::Native as u64);
@@ -275,7 +275,7 @@ fn native(
     result.cast_signed()
 }
 
-fn run_wasm(parts: &ambient::engine::Parts, args: &[i64], natives: Natives) -> Outcome {
+fn run_wasm(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -> Outcome {
     use ambient::backend::wasm::{RUNTIME, RUNTIME_MODULE, module};
 
     let engine = wasmtime::Engine::default();

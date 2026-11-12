@@ -94,8 +94,9 @@ pub enum Error {
     GenericEntry(Symbol),
     /// An ability is used where nothing binds it.
     Unbound { symbol: Symbol, ability: Symbol },
-    /// A comptime call names a function that takes abilities.
-    ComptimeAbilities { symbol: Symbol, function: Symbol },
+    /// A comptime call names a function that takes abilities, and the
+    /// build has no target to provide them.
+    ComptimeAbilities(Symbol),
     /// A program's entry takes abilities, and nothing provides them.
     EntryAbilities(Symbol),
     /// A lambda parameter has no type, and nothing expects one of it.
@@ -187,7 +188,7 @@ impl fmt::Display for Error {
             Self::NotBundle { .. }
             | Self::DuplicateHandler { .. }
             | Self::Unbound { .. }
-            | Self::ComptimeAbilities { .. }
+            | Self::ComptimeAbilities(_)
             | Self::EntryAbilities(_) => self.fmt_ability(f),
             Self::UntypedParameter { symbol, name } => {
                 write!(f, "{symbol}: parameter `{name}` needs a type")
@@ -248,9 +249,9 @@ impl Error {
             Self::Unbound { symbol, ability } => {
                 write!(f, "{symbol}: `{ability}` is not bound here")
             }
-            Self::ComptimeAbilities { symbol, function } => write!(
+            Self::ComptimeAbilities(function) => write!(
                 f,
-                "{symbol}: `{function}` takes abilities, which a comptime call cannot provide"
+                "`{function}` takes abilities, and the build has no target to provide them"
             ),
             Self::EntryAbilities(symbol) => {
                 write!(f, "{symbol}: an entry cannot take abilities yet")

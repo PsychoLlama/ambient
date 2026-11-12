@@ -8,6 +8,9 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
+use super::run::Dependency;
 use super::{Engine, Query, Stage, memo};
 use crate::checker;
 use crate::core::{self, Open, Tree};
@@ -16,6 +19,13 @@ use crate::hash::{Hash, Hasher, encode};
 use crate::surface::{DefinitionKind, ExternKind, Function, Param, Reference};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::{AbilityInfo, Env, Signature, Ty, TypeInfo, abilities};
+
+/// A checked function, kept with the runs its content came from.
+#[derive(Serialize, Deserialize)]
+struct Checked {
+    result: Result<Open, Error>,
+    runs: Vec<Dependency>,
+}
 
 /// What dependents check against.
 #[derive(Debug)]
@@ -299,9 +309,21 @@ impl Engine<'_> {
         for callee in &callees {
             key.hash(&self.hash(callee)?);
         }
-        self.stage(Stage::Check, symbol, key.finish(), || {
-            checker::check_function(symbol, function, env, self, root)
-        })
+        // A comptime call that takes abilities observed the world. Its
+        // result is kept with the definition and looked at again before
+        // the definition is reused.
+        let still = |stored: &Result<Checked, Error>| {
+            stored
+                .as_ref()
+                .is_ok_and(|checked| self.still_gives(&checked.runs))
+        };
+        let checked = self.stage_if(Stage::Check, symbol, key.finish(), still, || {
+            self.begin_runs();
+            let result = checker::check_function(symbol, function, env, self, root);
+            let runs = self.end_runs();
+            Ok(Checked { result, runs })
+        })?;
+        checked.result.clone().map(Arc::new)
     }
 
     /// Everything checking reads about the definitions in `used`, with

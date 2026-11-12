@@ -19,21 +19,17 @@ impl Checker<'_> {
         let Expr::Name(Reference::Definition(function)) = &**callee else {
             return Ok((core::Expr::Null, Ty::Never));
         };
-        // TODO: a comptime call runs under the build target once there is
-        // one; until then nothing can be provided to it.
-        let takes = |signature: &crate::types::Signature| !signature.row.is_empty();
-        if self.env.functions.get(function).is_some_and(takes) {
-            return Err(Error::ComptimeAbilities {
-                symbol: self.symbol.clone(),
-                function: function.clone(),
-            });
-        }
         // The call is checked like any other, for its argument types. What
         // it would lower to is dropped, with whatever it added.
         let slots = self.frame().slots.len();
         let lambdas = self.frame().lambdas.len();
         let start = self.next;
-        self.infer(call)?;
+        // What the callee takes comes from the build target, not from
+        // where the call is written.
+        self.providing = true;
+        let call_checked = self.infer(call);
+        self.providing = false;
+        call_checked?;
         self.frame().slots.truncate(slots);
         self.frame().lambdas.truncate(lambdas);
 

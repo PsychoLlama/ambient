@@ -221,7 +221,7 @@ fn a_comptime_call_cannot_take_abilities() {
     let body = asking(b::comptime(b::call(b::name("twice"), [])));
     let result = check(ty::int(), body, []);
 
-    assert!(matches!(result, Err(Error::ComptimeAbilities { .. })));
+    assert!(matches!(result, Err(Error::ComptimeAbilities(_))));
 }
 
 #[test]

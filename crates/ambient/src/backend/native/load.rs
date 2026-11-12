@@ -6,8 +6,9 @@ use std::cell::RefCell;
 
 use memmap2::{Mmap, MmapMut};
 
-use super::host::{NativeFn, Natives, dispatch};
+use super::host::{Natives, Observation, Offered, dispatch};
 use crate::backend::statics::{self, Field, Make};
+use crate::engine::Native;
 use crate::engine::{Body, Parts};
 
 /// A program loaded into this process, ready to call.
@@ -21,7 +22,11 @@ pub struct Program {
     entry_code: usize,
     entry_arity: usize,
     /// The native code for each extern, by its position in the program.
-    pub(super) natives: Vec<NativeFn>,
+    pub(super) natives: Vec<Offered>,
+    /// What each of those externs is, in the same order.
+    pub(super) externs: Vec<Native>,
+    /// Every call of native code so far, if they are being kept.
+    pub(super) trace: RefCell<Option<Vec<Observation>>>,
     /// What native code last said went wrong.
     pub(super) failure: RefCell<Option<String>>,
 }
@@ -34,7 +39,7 @@ impl Program {
     ///
     /// Fails if `natives` lacks an extern the program reaches, or
     /// executable memory cannot be mapped.
-    pub fn load(parts: &Parts, natives: Natives) -> Result<Self, String> {
+    pub fn load(parts: &Parts, natives: &Natives) -> Result<Self, String> {
         let natives = natives.resolve(&parts.natives)?;
         let io = |error: std::io::Error| error.to_string();
         let code_of = |index: usize| match &parts.parts[index].body {
@@ -95,6 +100,8 @@ impl Program {
             entry_arity: arity,
             entries: Entry::ALL.iter().map(|entry| entry.address()).collect(),
             natives,
+            externs: parts.natives.clone(),
+            trace: RefCell::default(),
             failure: RefCell::default(),
             _statics: block,
             _code: code,
@@ -106,6 +113,18 @@ impl Program {
     #[must_use]
     pub fn failure(&self) -> Option<String> {
         self.failure.borrow().clone()
+    }
+
+    /// Keeps every call of native code from now on, for
+    /// [`Self::observations`].
+    pub fn observe(&self) {
+        *self.trace.borrow_mut() = Some(Vec::new());
+    }
+
+    /// Every call of native code since [`Self::observe`], in order.
+    #[must_use]
+    pub fn observations(&self) -> Vec<Observation> {
+        self.trace.borrow().clone().unwrap_or_default()
     }
 
     /// Calls the entry with `args`, which it borrows. The result is a word

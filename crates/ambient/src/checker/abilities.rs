@@ -18,6 +18,9 @@ pub(super) struct Layer {
 impl Checker<'_> {
     /// Fails unless `ability` is bound where checking is now.
     pub(super) fn require(&mut self, ability: &Symbol) -> Result<(), Error> {
+        if self.providing {
+            return Ok(());
+        }
         let depth = self.frames.len().saturating_sub(1);
         self.require_at(depth, ability)
     }

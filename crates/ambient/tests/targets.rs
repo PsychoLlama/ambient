@@ -260,7 +260,7 @@ fn a_program_is_not_loaded_without_the_native_code_it_reaches() {
         .unwrap();
     let parts = engine.link(&root, &Native::new().unwrap()).unwrap();
 
-    assert!(Program::load(&parts, Natives::new()).is_err());
+    assert!(Program::load(&parts, &Natives::new()).is_err());
 }
 
 #[test]

@@ -6,5 +6,5 @@ mod host;
 mod load;
 
 pub use emit::Native;
-pub use host::{Host, NativeFn, Natives, encode};
+pub use host::{Host, NativeFn, Natives, Observation, Offered, encode};
 pub use load::Program;
