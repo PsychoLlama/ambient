@@ -7,6 +7,7 @@
 use ambient_runtime::descriptor as d;
 use ambient_runtime::layout::{CLOSURE_WORDS, DEFINITION_WORDS};
 
+use super::identity;
 use crate::core::{Key, Type};
 use crate::engine::{Body, Parts};
 use crate::hash::Hash;
@@ -98,6 +99,7 @@ pub fn plan(parts: &Parts) -> Statics {
                 arity,
                 constants,
                 metered,
+                signature,
                 ..
             } => {
                 // Without a metered form, the plain one stands in for it.
@@ -107,6 +109,10 @@ pub fn plan(parts: &Parts) -> Statics {
                 statics.set(at + 2, Field::Word(*arity as u64));
                 let hash = statics.text(Make::String, &part.hash.to_string());
                 statics.set(at + 3, hash);
+                if let Some(signature) = signature {
+                    let name = statics.type_name(signature, &slots);
+                    statics.set(at + 4, name);
+                }
                 for (position, slot) in slots.iter().enumerate() {
                     statics.set(
                         at + DEFINITION_WORDS + position,
@@ -185,7 +191,7 @@ fn node_size(ty: &Type) -> usize {
         | Type::Float
         | Type::String
         | Type::Tag => 1,
-        Type::Function { params, row, .. } => 4 + params.len() + row.len(),
+        Type::Function { params, row, .. } => 5 + params.len() + row.len(),
         Type::Literal(_) => 3,
         Type::Record(fields) => 2 + fields.len() * 2,
         Type::Tuple(members) | Type::Union(members) => 2 + members.len(),
@@ -206,6 +212,15 @@ impl Statics {
             make,
             offset,
             length: text.len(),
+        }
+    }
+
+    /// The name of a function type, as one interned word, or zero if the
+    /// type mentions a type parameter.
+    fn type_name(&mut self, ty: &Type, slots: &[Target]) -> Field {
+        match identity::name(ty, &|slot| slots[slot.0].hash) {
+            Some(name) => self.text(Make::Field, &name),
+            None => Field::Word(0),
         }
     }
 
@@ -259,6 +274,8 @@ impl Statics {
                     let key = self.text(Make::Field, &ability_key(&slots[slot.0].hash));
                     self.set(after + 2 + position, key);
                 }
+                let name = self.type_name(ty, slots);
+                self.set(after + 2 + row.len(), name);
             }
             Type::Literal(literal) => {
                 tag(self, d::LITERAL);

@@ -127,8 +127,8 @@ pub enum Error {
     IrregularType(Symbol),
     /// A recursive type that never reaches a constructor.
     Uncontractive(Symbol),
-    /// A cast or a pattern tests for a type that holds a function type,
-    /// which no value says it is.
+    /// A cast or a pattern tests for a function type that mentions a
+    /// type parameter, which no function says it is of.
     Untestable { symbol: Symbol, found: String },
     /// Only functions compile to an artifact.
     NotCompilable(Symbol),
@@ -248,7 +248,7 @@ impl Error {
             ),
             Self::Untestable { symbol, found } => write!(
                 f,
-                "{symbol}: no value can be tested for `{found}`, which holds a function type"
+                "{symbol}: no value can be tested for `{found}`: a function type in it mentions a type parameter"
             ),
             Self::Uncontractive(symbol) => {
                 write!(

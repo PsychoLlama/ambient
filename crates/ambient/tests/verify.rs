@@ -169,20 +169,27 @@ fn a_type_not_in_its_one_form_is_refused() {
 }
 
 #[test]
-fn a_test_for_a_function_type_is_refused() {
-    let function = Type::Function {
+fn a_test_for_a_function_type_that_mentions_a_type_parameter_is_refused() {
+    let function = |ret| Type::Function {
         params: Vec::new(),
-        ret: Box::new(Type::Null),
+        ret: Box::new(ret),
         row: Vec::new(),
     };
-    let cast = |ty| Expr::Cast {
-        value: Box::new(int(1)),
-        ty,
-        otherwise: Box::new(int(2)),
+    let cast = |ty| {
+        tampered(|main| {
+            main.type_params = vec![Type::Unknown];
+            main.ret = Type::Unknown;
+            main.body = Expr::Cast {
+                value: Box::new(int(1)),
+                ty,
+                otherwise: Box::new(int(2)),
+            };
+        })
     };
 
-    assert_eq!(with_body(cast(Type::Int)), Ok(()));
-    assert!(matches!(with_body(cast(function)), Err(Invalid::Shape(_))));
+    assert_eq!(cast(function(Type::Null)), Ok(()));
+    let open = cast(function(Type::Parameter(0)));
+    assert!(matches!(open, Err(Invalid::Shape(_))));
 }
 
 #[test]

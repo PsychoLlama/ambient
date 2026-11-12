@@ -58,8 +58,8 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - `unknown` supports no operations.
 - A cast tests a value against a type and yields either the value at that type or its alternative branch; it is the only way down from `unknown`.
 - A cast decides by the value's [shape](values.md), so an erased type can be a cast target.
-- A type that holds a function type is not a cast target, since a function does not say what type it is; a [cell](cells.md) type is one whatever it holds.
-- A program never decides subtyping as it runs; only checking does.
+- A cast to a function type passes a function of exactly that type, not one whose type is within it: a program never decides subtyping as it runs; only checking does.
+- A function type that mentions a type parameter is not a cast target, but inside a [cell](cells.md) type.
 - A cast to a type parameter is allowed, and tests against the type argument, which a generic function [receives at run time](backends.md).
 - Only a function that casts to a type parameter, makes a cell at one, or hands one on to a function that does, needs its type arguments.
 - A cast never adds a brand to a value.

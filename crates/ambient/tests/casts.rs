@@ -48,42 +48,90 @@ fn double() -> Definition {
         .body(b::add(b::name("n"), b::name("n")))
 }
 
-/// Whether checking refuses a cast to `ty` because no value can be
-/// tested for it.
+/// Whether `double` casts to a function from `param` to `ret`.
+fn double_is(param: Type, ret: Type) -> bool {
+    casts(&[double()], b::name("double"), ty::function([param], ret))
+}
+
+#[test]
+fn a_function_casts_to_its_own_type() {
+    assert!(double_is(ty::int(), ty::int()));
+    assert!(!double_is(ty::int(), ty::string()));
+    assert!(!casts(&[], b::int(1), ty::function([], ty::int())));
+    let two = ty::function([ty::int(), ty::int()], ty::int());
+    assert!(!casts(&[double()], b::name("double"), two));
+}
+
+#[test]
+fn a_function_casts_to_no_type_but_its_own() {
+    // Its type is within each of these, which checking would accept;
+    // a program that is running compares, and decides nothing more.
+    assert!(!double_is(ty::integer(1), ty::int()));
+    assert!(!double_is(ty::int(), ty::unknown()));
+}
+
+#[test]
+fn a_lambda_casts_to_its_type() {
+    let lambda = || b::lambda([("n", Some(ty::int()))], b::name("n"));
+
+    assert!(casts(&[], lambda(), ty::function([ty::int()], ty::int())));
+    assert!(!casts(
+        &[],
+        lambda(),
+        ty::function([ty::int()], ty::string())
+    ));
+}
+
+#[test]
+fn a_function_type_names_the_definitions_in_it_by_what_they_are() {
+    // Two lists of integers, defined apart, are one type.
+    let list = |name: &str| {
+        let node = ty::record([("head", ty::int()), ("tail", ty::named(name))]);
+        b::type_(name, ty::union([ty::null(), node]))
+    };
+    let first = b::function("first")
+        .param("items", ty::named("Items"))
+        .returns(ty::int())
+        .body(b::int(0));
+    let extra = [list("Items"), list("Others"), first];
+    let taking = |name: &str| ty::function([ty::named(name)], ty::int());
+
+    assert!(casts(&extra, b::name("first"), taking("Others")));
+    assert!(!casts(
+        &extra,
+        b::name("first"),
+        ty::function([ty::int()], ty::int())
+    ));
+}
+
+/// Whether checking refuses a cast to `ty`, written in a function with
+/// the type parameter `T`, because no value can be tested for it.
 fn refused(ty: Type) -> bool {
     use ambient::engine::Engine;
     use ambient::error::Error;
     use ambient::store::MemoryStore;
 
-    let function = || ty::function([ty::int()], ty::int());
-    let link = ty::record([("next", ty::named("Chain")), ("run", function())]);
-    let chain = b::type_("Chain", ty::union([ty::null(), link]));
     let main = b::function("main")
+        .type_param("T")
         .param("v", ty::unknown())
         .returns(ty::unknown())
         .body(b::cast(b::name("v"), ty, b::null()));
-    let module = b::module().define(chain).define(main);
-    let workspace = support::workspace([("app", "main", module)]);
+    let workspace = support::workspace([("app", "main", b::module().define(main))]);
     let store = MemoryStore::new();
     let checked = Engine::new(&workspace, &store).check(&support::value("main", "main"));
     matches!(checked, Err(Error::Untestable { .. }))
 }
 
 #[test]
-fn a_cast_to_a_type_that_holds_a_function_type_is_refused() {
-    let function = || ty::function([ty::int()], ty::int());
+fn a_cast_to_a_function_type_that_mentions_a_type_parameter_is_refused() {
+    let open = || ty::function([ty::named("T")], ty::int());
 
-    assert!(refused(function()));
-    assert!(refused(ty::record([("f", function())])));
-    assert!(refused(ty::list(ty::union([function(), ty::null()]))));
-    assert!(refused(ty::named("Chain")));
-    assert!(!refused(ty::list(ty::int())));
-}
-
-#[test]
-fn a_cast_to_a_cell_of_functions_is_allowed() {
+    assert!(refused(open()));
+    assert!(refused(ty::list(ty::union([open(), ty::null()]))));
+    assert!(!refused(ty::function([ty::int()], ty::int())));
+    assert!(!refused(ty::named("T")));
     // A cell keeps the type it was made at, whatever that holds.
-    assert!(!refused(ty::cell(ty::function([ty::int()], ty::int()))));
+    assert!(!refused(ty::cell(open())));
 }
 
 #[test]
@@ -222,12 +270,15 @@ fn id() -> Definition {
 }
 
 #[test]
-fn no_function_passes_a_cast_to_a_type_parameter() {
-    // The type argument is a function type, which no value says it is.
-    let double_type = ty::function([ty::int()], ty::int());
-    let call = b::call(b::instantiate("keep", [double_type]), [b::name("double")]);
+fn a_cast_to_a_type_parameter_tests_for_a_function_type_it_stands_for() {
+    let keeps = |param: Type| {
+        let at = ty::function([param], ty::int());
+        let call = b::call(b::instantiate("keep", [at]), [b::name("double")]);
+        passed(&[double()], call)
+    };
 
-    assert!(!passed(&[double()], call));
+    assert!(keeps(ty::int()));
+    assert!(!keeps(ty::string()));
 }
 
 /// Whether `generic` used at `left` equals itself used at `right`.

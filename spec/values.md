@@ -1,14 +1,14 @@
 # Values
 
-Values are immutable and self-describing. A value's runtime shape is enough to test it against any type but a function type, with no static information about where it came from.
+Values are immutable and self-describing. A value's runtime shape is enough to test it against any type, with no static information about where it came from.
 
 ## Shapes
 
 - The shapes are null, bool, int, float, string, bytes, list, map, set, tag, record, tuple, function, cell, and handle.
 - No shape is user-defined; every [type](types.md) describes a subset of these.
 - A function value is a definition hash, captured values, [captured handlers](abilities.md), and the type arguments it was made at if its function [needs them](backends.md).
-- A function value does not say what type it is; that is known only where its definition was checked.
-- TODO: a function that arrives as `unknown`, inside a decoded value say, cannot be given a type, and so cannot be called.
+- A function value says which type it is of, as one name, and nothing of what that type is within.
+- TODO: a function that holds type arguments does not say its type, so it never comes back out of `unknown`.
 - A handle is an opaque reference minted by [native code](externs.md).
 - A handle carries the tag it was minted under and has no structure to inspect.
 - No cast creates a handle.

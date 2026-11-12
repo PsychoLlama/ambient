@@ -49,7 +49,9 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 - One value carries a type: a [cell](cells.md) keeps the descriptor of the type it was made at, read with the type arguments in force where it was made.
 - A descriptor is otherwise consulted only where a cast is written.
 - A cast to a cell type passes a cell whose descriptor describes the same type as the cast's: names stand for their definitions, and a union is its members in any order.
-- A cast to a type parameter tests against the type argument; no value passes a test for a function type, which only a type argument can ask for.
+- A function's definition carries the name of its type: one word, the same for two functions exactly when their types are the same.
+- A cast to a function type compares that name with the name of the cast's type, and looks no further.
+- A cast to a type parameter tests against the type argument.
 - A function that needs its type arguments, used at ones that mention no type parameter, is one function value, made when the program is loaded.
 
 ## Calls

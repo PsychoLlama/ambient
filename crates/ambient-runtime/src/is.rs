@@ -1,9 +1,10 @@
 //! Type tests: whether a descriptor describes a value.
 
 use crate::cell::made_at;
+use crate::closure::type_name;
 use crate::object::{
-    KIND_CELL, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE,
-    boolean, bytes, int, kind, payload, words,
+    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG,
+    KIND_TUPLE, boolean, bytes, int, kind, payload, words,
 };
 use crate::record::find;
 use crate::same::Types;
@@ -39,7 +40,9 @@ pub mod descriptor {
     /// Then the member's node.
     pub const LIST: u64 = 10;
     /// Then a count and that many parameter nodes, the result's node, a
-    /// count, and that many keys: the abilities it performs.
+    /// count, that many keys: the abilities it performs, and the name of
+    /// the type as a definition carries it, or zero if the type mentions
+    /// a type parameter.
     pub const FUNCTION: u64 = 11;
     /// Then a count, and that many nodes.
     pub const UNION: u64 = 12;
@@ -263,9 +266,13 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
                     && made_at(value).0 != 0
                     && Types::new(scopes).same(made_at(value), (node(1), scope))
             }
-            // A function does not say what type it is, so a test for a
-            // function type, which only a type argument can ask for,
-            // passes nothing.
+            // A function's definition names its type, and so does the
+            // node: a function is of that type and no other. Nothing is
+            // decided here of one type being within another.
+            d::FUNCTION => {
+                let name = node(4 + node(1) as usize + node(3 + node(1) as usize) as usize);
+                kind(value) == KIND_CLOSURE && name != 0 && type_name(value) == name
+            }
             _ => false,
         })
     }

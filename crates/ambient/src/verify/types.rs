@@ -82,7 +82,7 @@ impl Verifier<'_> {
             Ok(ty)
         } else {
             Err(Invalid::Shape(
-                "a value is tested for a function type".into(),
+                "a value is tested for a function type that mentions a type parameter".into(),
             ))
         }
     }

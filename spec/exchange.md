@@ -6,8 +6,8 @@ Definitions and values move between running programs by hash. A receiver trusts 
 
 - Code that reaches a program is trusted: that it is the definition its hash names, of the type it is said to have, compiled faithfully.
 - A hash commits to a definition's type, so a definition known by hash when a program was built needs no check when it is loaded.
-- A definition whose hash is learned as the program runs arrives with the type its sender checked it against, by hash; a receiver loads it only at the type it expects.
-- A mismatch is an error where the definition is loaded, never a fault where it is later used.
+- A definition whose hash is learned as the program runs arrives as `unknown`, and a [cast](types.md) to the type the receiver expects is the check.
+- A mismatch is therefore the cast's other branch where the definition arrives, never a fault where it is later used.
 - Keeping what is delivered authentic is the program's concern.
 - Running code from a sender that is not trusted takes the compiler: a host embeds it, rechecks what arrives, and vouches for the result itself.
 - The language does no more for that case; such a host is assembled from the compiler as a library.

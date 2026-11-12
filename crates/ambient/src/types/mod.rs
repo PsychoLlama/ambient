@@ -117,14 +117,30 @@ fn booleans() -> Ty {
     ])
 }
 
+/// Whether a type mentions a type parameter of the definition it is
+/// written in.
+fn mentions_parameter(ty: &Ty) -> bool {
+    let any = |types: &[Ty]| types.iter().any(mentions_parameter);
+    match ty {
+        Ty::Named(Reference::Parameter(_), _) => true,
+        Ty::Record(fields) => fields.iter().any(|(_, ty)| mentions_parameter(ty)),
+        Ty::Tuple(members) | Ty::Union(members) | Ty::Named(_, members) => any(members),
+        Ty::List(member) | Ty::Cell(member) => mentions_parameter(member),
+        Ty::Function { params, ret, .. } => any(params) || mentions_parameter(ret),
+        _ => false,
+    }
+}
+
 impl Env {
     fn recursive(&self, symbol: &Symbol) -> Option<&TypeInfo> {
         self.types.get(symbol).filter(|info| info.recursive)
     }
 
     /// Whether a value can be tested against a type as a program runs.
-    /// A function does not say what type it is, so the type may hold no
-    /// function type, but inside a cell type: a cell keeps its own.
+    /// A function says which type it is of and no more, so a function
+    /// type in it must be one type whatever the type arguments in
+    /// force: it may mention no type parameter. Inside a cell type
+    /// anything may be, since a cell keeps the type it was made at.
     #[must_use]
     pub fn testable(&self, ty: &Ty) -> bool {
         self.tests(ty, &mut Vec::new())
@@ -133,7 +149,7 @@ impl Env {
     /// [`Self::testable`], given the definitions already looked into.
     fn tests<'a>(&'a self, ty: &'a Ty, seen: &mut Vec<&'a Symbol>) -> bool {
         match ty {
-            Ty::Function { .. } => false,
+            Ty::Function { .. } => !mentions_parameter(ty),
             Ty::Record(fields) => fields.iter().all(|(_, ty)| self.tests(ty, seen)),
             Ty::Tuple(members) | Ty::Union(members) => {
                 members.iter().all(|member| self.tests(member, seen))

@@ -9,6 +9,7 @@
 //! - it reaches other definitions through the slots of its closure's
 //!   definition, and the runtime through entry points.
 
+mod identity;
 pub mod native;
 pub mod statics;
 pub mod wasm;
