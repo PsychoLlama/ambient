@@ -12,6 +12,10 @@ use crate::object::{fault, header, int, is_object};
 use crate::text::amb_tag;
 use crate::{Context, Fault, NULL, UNWIND, Word};
 
+/// The limits of a budget, as the tags that say which ran out: of steps,
+/// and of allocation.
+pub const LIMITS: [&str; 2] = ["steps", "allocation"];
+
 pub(super) struct Budget {
     /// What is left of each limit.
     steps: u64,
@@ -25,7 +29,7 @@ pub(super) struct Budget {
 }
 
 /// Enters a budget of `steps` steps and `words` words of allocation, both
-/// integers; a negative limit is none at all. Returns the budget, for the
+/// integers; a negative limit allows nothing. Returns the budget, for the
 /// entry points that end it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_budget_enter(context: *mut Context, steps: Word, words: Word) -> Word {
@@ -101,10 +105,10 @@ pub unsafe extern "C" fn amb_charge(context: *mut Context, steps: u64, words: u6
         while let Some(id) = next {
             let budget = &mut scheduler.budgets[id];
             if budget.steps < steps {
-                budget.exhausted.get_or_insert("steps");
+                budget.exhausted.get_or_insert(LIMITS[0]);
             }
             if budget.words < words {
-                budget.exhausted.get_or_insert("allocation");
+                budget.exhausted.get_or_insert(LIMITS[1]);
             }
             budget.steps = budget.steps.saturating_sub(steps);
             budget.words = budget.words.saturating_sub(words);

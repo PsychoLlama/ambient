@@ -17,6 +17,7 @@ An error is a structured value of one standard shape, and it is the only thing t
 - An ability other than `throw` that returns `never` is control flow, not an error, and carries whatever its signature says.
 - A [boundary](values.md) reports the fault it contained as an `Error`.
 - The kind of such an error is a tag of the language's own package, one for each fault.
+- The standard library defines `Error` and a type for each of those tags; a program names a fault's kind through them, since a tag it writes is one of its own package.
 
 ## Traces
 

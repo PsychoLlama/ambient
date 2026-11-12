@@ -82,17 +82,32 @@ fn execute(
     target: Option<&str>,
     natives: impl Fn() -> Natives,
 ) -> Outcome {
+    let module = definitions
+        .into_iter()
+        .fold(ambient::builder::module(), ModuleBuilder::define);
+    let workspace = workspace([("app", "main", module)]);
+    execute_in(&workspace, args, target, natives)
+}
+
+/// Runs `main` of module `main` of package `app` in a workspace, on every
+/// backend, and returns what they agree on.
+pub fn run_in(workspace: &Workspace) -> Outcome {
+    execute_in(workspace, &[], None, Natives::new)
+}
+
+fn execute_in(
+    workspace: &Workspace,
+    args: &[i64],
+    target: Option<&str>,
+    natives: impl Fn() -> Natives,
+) -> Outcome {
     use ambient::backend::native::Native;
     use ambient::backend::wasm::Wasm;
     use ambient::engine::Engine;
     use ambient::store::MemoryStore;
 
-    let module = definitions
-        .into_iter()
-        .fold(ambient::builder::module(), ModuleBuilder::define);
-    let workspace = workspace([("app", "main", module)]);
     let store = MemoryStore::new();
-    let engine = Engine::new(&workspace, &store);
+    let engine = Engine::new(workspace, &store);
     let main = value("main", "main");
     let entry = match target {
         Some(target) => engine.program(&main, &value("main", target)).unwrap(),

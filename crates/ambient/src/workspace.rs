@@ -37,6 +37,8 @@ pub enum WorkspaceError {
     FileAndDirectory(ModuleId),
     /// `pkg` always means a module's own package.
     ReservedName,
+    /// The standard library could not be built.
+    Library,
 }
 
 impl fmt::Display for WorkspaceError {
@@ -44,6 +46,7 @@ impl fmt::Display for WorkspaceError {
         match self {
             Self::FileAndDirectory(id) => write!(f, "`{id}` is both a module and a directory"),
             Self::ReservedName => write!(f, "`{OWN_PACKAGE}` cannot name a dependency"),
+            Self::Library => write!(f, "the standard library does not build"),
         }
     }
 }
@@ -58,6 +61,10 @@ pub struct Workspace {
     dependencies: BTreeMap<(PackageId, String), PackageId>,
     preludes: BTreeMap<PackageId, Vec<ModuleId>>,
     identities: BTreeMap<PackageId, String>,
+    /// The preludes of a package that lists none.
+    shared: Vec<ModuleId>,
+    /// The standard library's preludes, for when `shared` is empty too.
+    standard: Vec<ModuleId>,
 }
 
 impl Workspace {
@@ -121,6 +128,18 @@ impl Workspace {
             .insert(PackageId(package.to_owned()), id.to_owned());
     }
 
+    /// Adds `module` to the end of the workspace's own preludes, which a
+    /// package that lists none takes.
+    pub fn shared_prelude(&mut self, module: ModuleId) {
+        self.shared.push(module);
+    }
+
+    /// Sets the standard library's preludes, which a package takes if
+    /// neither it nor the workspace lists any.
+    pub(crate) fn standard(&mut self, preludes: Vec<ModuleId>) {
+        self.standard = preludes;
+    }
+
     /// Adds `module` to the end of the preludes of `package`: its public
     /// definitions and re-exports are then in scope in every module of the
     /// package. See `spec/modules.md`.
@@ -153,7 +172,15 @@ impl Sources for Workspace {
     }
 
     fn preludes(&self, package: &PackageId) -> Vec<ModuleId> {
-        self.preludes.get(package).cloned().unwrap_or_default()
+        if let Some(listed) = self.preludes.get(package) {
+            return listed.clone();
+        }
+        if !self.shared.is_empty() {
+            return self.shared.clone();
+        }
+        // The standard library is not a prelude of itself.
+        let outside = |prelude: &&ModuleId| prelude.package != *package;
+        self.standard.iter().filter(outside).cloned().collect()
     }
 
     fn identity(&self, package: &PackageId) -> String {
