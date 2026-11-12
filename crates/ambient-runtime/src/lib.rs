@@ -29,6 +29,7 @@
 )]
 
 mod abort;
+mod boundary;
 mod cell;
 mod cleanup;
 mod closure;
@@ -44,6 +45,7 @@ mod task;
 mod text;
 
 pub use abort::*;
+pub use boundary::*;
 pub use cell::*;
 pub use cleanup::*;
 pub use closure::*;

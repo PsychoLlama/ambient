@@ -156,6 +156,9 @@ pub enum Expr {
         cleanup: Box<Expr>,
         body: Box<Expr>,
     },
+    /// Evaluates the body, and is what it gave, or the fault that ended
+    /// it, as an error.
+    Boundary(Box<Expr>),
     /// Evaluates the body, and is what it gave once every task spawned in
     /// it is over.
     Group(Box<Expr>),

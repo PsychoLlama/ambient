@@ -47,5 +47,6 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 - A fault unwinds, running [cleanups](cleanup.md), to the nearest boundary; a program's root is a boundary.
 - A boundary expression evaluates a body and yields either its value or the fault that ended it, as an [error](errors.md).
 - A boundary cannot resume what faulted.
+- A boundary contains only faults: an [abort](handlers.md) and a [cancellation](tasks.md) pass through it.
 - Failures a program is expected to handle are union members or errors, never faults.
 - Faults are for conditions no type can rule out, such as exhausted memory; an operation that can fail in ordinary use says so in its type.

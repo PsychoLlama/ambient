@@ -108,6 +108,7 @@ entries! {
     Spawn = amb_spawn, context, 2, word;
     GroupClose = amb_group_close, context, 2, word;
     GroupEnd = amb_group_end, context, 2, word;
+    Contain = amb_contain, context, 0, word;
     Hold = amb_hold, context, 0, word;
     Rethrow = amb_rethrow, context, 1, word;
     CleanupEnter = amb_cleanup_enter, context, 0, word;

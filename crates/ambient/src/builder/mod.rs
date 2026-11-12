@@ -195,6 +195,13 @@ pub fn using_only(bundle: Expr, body: Expr) -> Expr {
     }
 }
 
+/// Evaluates `body`, and is what it gave, or the fault that ended it, as
+/// an error.
+#[must_use]
+pub fn boundary(body: Expr) -> Expr {
+    Expr::Boundary(Box::new(body))
+}
+
 /// Evaluates `body`, and is what it gave once every task it spawned is
 /// over.
 #[must_use]

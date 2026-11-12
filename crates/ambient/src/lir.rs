@@ -116,6 +116,10 @@ pub enum Op {
     /// Entering or leaving a cleanup whose block completed. Leaving one
     /// that failed unwinds.
     Cleanup(Cleanup),
+    /// For a boundary whose body unwound: if the unwinding is a fault,
+    /// ends it and is the error that describes it; if not, goes on
+    /// unwinding.
+    Contain,
     /// A group with no tasks yet.
     Group,
     /// Starts a closure as a task of a group, and is null.
@@ -189,6 +193,7 @@ impl Op {
             | Self::All(_)
             | Self::First(_)
             | Self::Rethrow(_)
+            | Self::Contain
             | Self::GroupClose { .. }
             | Self::GroupEnd { .. }
             | Self::Cleanup(Cleanup::Failed) => true,
@@ -285,6 +290,7 @@ impl Op {
             }
             Self::Caught(token) => vec![step(Entry::Caught, [value(token)])],
             Self::Hold
+            | Self::Contain
             | Self::Group
             | Self::Spawn { .. }
             | Self::GroupClose { .. }
@@ -324,6 +330,7 @@ impl Op {
         let value = |value: &Value| Arg::Value(*value);
         match self {
             Self::Hold => vec![step(Entry::Hold, [])],
+            Self::Contain => vec![step(Entry::Contain, [])],
             Self::Group => vec![step(Entry::GroupNew, [])],
             Self::Spawn { group, thunk } => {
                 vec![step(Entry::Spawn, [value(group), value(thunk)])]

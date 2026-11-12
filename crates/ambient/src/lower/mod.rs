@@ -103,6 +103,7 @@ fn renumber(expr: &mut Expr, base: usize) {
             | Op::Slot(_)
             | Op::Token
             | Op::Hold
+            | Op::Contain
             | Op::Group
             | Op::Cleanup(_) => {}
             Op::Copy(operand)
@@ -289,6 +290,9 @@ impl Lowering {
             } => self.perform(*ability, args, *returns, &mut scope)?,
             core::Expr::Cleanup { cleanup, body } => return self.cleanup(cleanup, body),
             core::Expr::Group(body) => return self.group(body),
+            core::Expr::Boundary(body) => {
+                return Ok(Self::attempt(self.expr(body)?, Expr::Op(Op::Contain)));
+            }
             core::Expr::Spawn(thunk) => self.spawn(thunk, &mut scope)?,
             core::Expr::All(thunks) => Op::All(self.thunks(thunks, &mut scope)?),
             core::Expr::First(thunks) => Op::First(self.thunks(thunks, &mut scope)?),

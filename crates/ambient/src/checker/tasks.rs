@@ -5,11 +5,33 @@ use super::Checker;
 use super::abilities::Layer;
 use crate::core::{self, Primitive};
 use crate::error::Error;
-use crate::surface::{CellOp, Expr, Reference};
+use crate::surface::{CellOp, Expr, Key, Reference};
 use crate::symbol::Symbol;
 use crate::types::Ty;
 
+/// What a boundary gives for a fault: an error, as `spec/errors.md`
+/// shapes one. Nothing captures a trace yet, so it is always empty.
+fn error() -> Ty {
+    let field = |name: &str, ty| (Key::Field(name.to_owned()), ty);
+    let frame = Ty::Record(vec![
+        field("definition", Ty::String),
+        field("position", Ty::Int),
+    ]);
+    Ty::Record(vec![
+        field("kind", Ty::Tag),
+        field("message", Ty::String),
+        field("cause", Ty::Null),
+        field("trace", Ty::List(Box::new(frame))),
+    ])
+}
+
 impl Checker<'_> {
+    pub(super) fn boundary(&mut self, body: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {
+        let (body, ty) = self.infer(body)?;
+        let ty = self.env.union(vec![ty, self.env.normalize(&error())]);
+        Ok((core::Expr::Boundary(Box::new(body)), ty))
+    }
+
     /// The branches of an all or a first, and what each gives. A branch
     /// runs as a task, and is a function that takes
     /// nothing, so it captures what it uses, bindings included, where the

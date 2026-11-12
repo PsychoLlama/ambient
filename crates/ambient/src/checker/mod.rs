@@ -393,6 +393,7 @@ impl<'a> Checker<'a> {
             Expr::Observe { observer, body } => self.observe(observer, body)?,
             Expr::Cleanup { cleanup, body } => self.cleanup(cleanup, body)?,
             Expr::Group(body) => self.group(body)?,
+            Expr::Boundary(body) => self.boundary(body)?,
             Expr::Spawn(task) => self.spawn(task)?,
             Expr::All(branches) => {
                 let (thunks, results) = self.tasks(branches)?;

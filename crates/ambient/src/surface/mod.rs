@@ -309,6 +309,9 @@ pub enum Expr<N = Path> {
         cleanup: Box<Expr<N>>,
         body: Box<Expr<N>>,
     },
+    /// Evaluates the body, and is what it gave, or the fault that ended
+    /// it, as an error. See `spec/values.md`.
+    Boundary(Box<Expr<N>>),
     /// Evaluates the body, and is what it gave once every task it spawned
     /// is over. See `spec/tasks.md`.
     Group(Box<Expr<N>>),
