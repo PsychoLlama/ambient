@@ -1,0 +1,18 @@
+//! The Ambient language.
+//!
+//! `spec/` at the repository root is the source of truth for the design; the
+//! module docs here say which page each module implements.
+//!
+//! A program enters as [`surface`] trees made with a [`builder`], held by a
+//! [`workspace`]. An [`engine::Engine`] answers questions about it on demand,
+//! keeping every stage result in a [`store`].
+
+pub mod builder;
+pub mod core;
+pub mod engine;
+pub mod error;
+pub mod hash;
+pub mod store;
+pub mod surface;
+pub mod symbol;
+pub mod workspace;

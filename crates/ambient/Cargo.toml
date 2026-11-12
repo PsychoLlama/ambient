@@ -4,5 +4,10 @@ version.workspace = true
 edition.workspace = true
 description = "The Ambient programming language"
 
+[dependencies]
+blake3.workspace = true
+postcard.workspace = true
+serde.workspace = true
+
 [lints]
 workspace = true
