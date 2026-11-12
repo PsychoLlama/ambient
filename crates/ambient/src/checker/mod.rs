@@ -8,19 +8,24 @@
 //! other definitions is in the `Env`, which is what lets the engine key its
 //! result by content.
 
+mod comptime;
 mod generics;
+mod header;
+mod lambda;
+mod operators;
 mod patterns;
 
 use std::collections::BTreeMap;
 
-use crate::core::{self, Open, Primitive, Slot, Tree};
+use crate::core::{self, Open, Slot, Tree};
 use crate::error::Error;
-use crate::literal::Literal;
-use crate::surface::{Expr, Function, Operator, Reference, TypeDefinition};
+use crate::surface::{Expr, Function, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Env, Ty, field};
+use crate::types::{Env, Ty};
 use crate::value::Value;
 use generics::function_type;
+pub use header::{check_type, encode_header};
+use header::{header, visit_types};
 
 /// Checks a function against its own header.
 ///
@@ -55,149 +60,6 @@ pub fn check_function(
         slots: frame.slots,
         lambdas: frame.lambdas,
     })
-}
-
-/// Checks a type definition.
-///
-/// # Errors
-///
-/// Fails if the type is ill-formed: recursive without passing through a
-/// constructor, or applying itself to anything but its own parameters.
-pub fn check_type(
-    symbol: &Symbol,
-    definition: &TypeDefinition<Reference>,
-    env: &Env,
-) -> Result<Open, Error> {
-    contractive(symbol, &definition.ty, env, &mut vec![symbol.clone()])?;
-    let mut checker = Checker::new(symbol, env);
-    checker.well_formed(&definition.ty)?;
-    regular(symbol, &definition.ty, definition.params.len())?;
-    let ty = checker.lower(&env.normalize(&definition.ty));
-    Ok(Open {
-        tree: Tree::Type {
-            params: definition.params.len(),
-            ty,
-        },
-        slots: checker.finish().slots,
-        lambdas: Vec::new(),
-    })
-}
-
-/// The canonical encoding of a function's header, and the slots it uses.
-///
-/// # Errors
-///
-/// Fails if a type in the header is ill-formed.
-pub fn encode_header(
-    symbol: &Symbol,
-    function: &Function<Reference>,
-    mut env: Env,
-) -> Result<(Vec<u8>, Vec<Symbol>), Error> {
-    let header = header(symbol, function, &mut env)?;
-    let mut checker = Checker::new(symbol, &env);
-    let type_params: Vec<_> = env.bounds.iter().map(|ty| checker.lower(ty)).collect();
-    let params: Vec<_> = header.params.iter().map(|ty| checker.lower(ty)).collect();
-    let ret = checker.lower(&header.ret);
-    let encoding = core::encode_signature(&type_params, &params, &ret);
-    Ok((encoding, checker.finish().slots))
-}
-
-struct Header {
-    params: Vec<Ty>,
-    ret: Ty,
-}
-
-/// Validates and normalizes a header, and records its bounds in `env`.
-fn header(symbol: &Symbol, function: &Function<Reference>, env: &mut Env) -> Result<Header, Error> {
-    let checker = Checker::new(symbol, env);
-    let mut bounds = Vec::new();
-    for param in &function.type_params {
-        bounds.push(match &param.bound {
-            Some(bound) => {
-                checker.well_formed(bound)?;
-                env.normalize(bound)
-            }
-            None => Ty::Unknown,
-        });
-    }
-    let mut params = Vec::new();
-    for param in &function.params {
-        checker.well_formed(&param.ty)?;
-        params.push(env.normalize(&param.ty));
-    }
-    checker.well_formed(&function.ret)?;
-    let ret = env.normalize(&function.ret);
-    env.bounds = bounds;
-    Ok(Header { params, ret })
-}
-
-/// Fails unless every use of `symbol` inside its own definition applies it
-/// to exactly its own parameters, in order.
-fn regular(symbol: &Symbol, ty: &Ty, params: usize) -> Result<(), Error> {
-    let mut result = Ok(());
-    visit_types(ty, &mut |ty| {
-        if let Ty::Named(Reference::Definition(name), args) = ty
-            && name == symbol
-        {
-            let own = args.len() == params
-                && args.iter().enumerate().all(|(position, arg)| {
-                    matches!(arg, Ty::Named(Reference::Parameter(p), _) if *p == position)
-                });
-            if !own {
-                result = Err(Error::IrregularType(symbol.clone()));
-            }
-        }
-    });
-    result
-}
-
-/// Calls `visit` with `ty` and every type inside it.
-fn visit_types(ty: &Ty, visit: &mut impl FnMut(&Ty)) {
-    visit(ty);
-    match ty {
-        Ty::Record(fields) => fields.iter().for_each(|(_, ty)| visit_types(ty, visit)),
-        Ty::Tuple(members) | Ty::Union(members) | Ty::Named(_, members) => {
-            for member in members {
-                visit_types(member, visit);
-            }
-        }
-        Ty::List(member) => visit_types(member, visit),
-        Ty::Function { params, ret } => {
-            for param in params {
-                visit_types(param, visit);
-            }
-            visit_types(ret, visit);
-        }
-        _ => {}
-    }
-}
-
-/// Fails if following names from `ty`, without passing through a
-/// constructor, leads back to a name already being followed.
-fn contractive(
-    symbol: &Symbol,
-    ty: &Ty,
-    env: &Env,
-    following: &mut Vec<Symbol>,
-) -> Result<(), Error> {
-    match ty {
-        Ty::Named(Reference::Definition(name), _) => {
-            if following.contains(name) {
-                return Err(Error::Uncontractive(symbol.clone()));
-            }
-            let Some(info) = env.types.get(name) else {
-                return Ok(());
-            };
-            following.push(name.clone());
-            let result = contractive(symbol, &info.ty, env, following);
-            following.pop();
-            result
-        }
-        Ty::Union(members) => members
-            .iter()
-            .try_for_each(|member| contractive(symbol, member, env, following)),
-        _ => Ok(()),
-    }
 }
 
 /// What is being built for one definition: the named one, or a lambda
@@ -308,95 +170,6 @@ impl<'a> Checker<'a> {
                 frame.captures.len() - 1
             });
         core::Expr::Captured(position)
-    }
-
-    /// A lambda: its own definition, checked in a frame of its own.
-    ///
-    /// `hint` is the parameter types expected of it, if anything expects
-    /// any. The result type is always the body's.
-    fn lambda(
-        &mut self,
-        params: &[(String, Option<Ty>)],
-        body: &Expr<Reference>,
-        hint: Option<&[Ty]>,
-    ) -> Result<(core::Expr, Ty), Error> {
-        let mut types = Vec::new();
-        for (position, (name, ty)) in params.iter().enumerate() {
-            types.push(match (ty, hint.and_then(|hint| hint.get(position))) {
-                (Some(ty), _) => {
-                    self.well_formed(ty)?;
-                    self.env.normalize(ty)
-                }
-                (None, Some(hint)) => hint.clone(),
-                (None, None) => {
-                    return Err(Error::UntypedParameter {
-                        symbol: self.symbol.clone(),
-                        name: name.clone(),
-                    });
-                }
-            });
-        }
-
-        let mut path = self.frame().path.clone();
-        path.push(self.frame().lambdas.len());
-        self.frames.push(Frame {
-            path,
-            ..Frame::default()
-        });
-        for ty in &types {
-            self.bind_local(ty.clone());
-        }
-        let (body, ret) = self.infer(body)?;
-
-        // The lambda's own tree is lowered while its frame is current, so
-        // the slots land in its table.
-        let type_params: Vec<_> = self.env.bounds.iter().map(|ty| self.lower(ty)).collect();
-        let core_params = types.iter().map(|ty| self.lower(ty)).collect();
-        let core_ret = self.lower(&ret);
-        let outer = self.frame().captures.clone();
-        let captures = outer
-            .iter()
-            .map(|number| {
-                let ty = self.types.get(number).cloned().unwrap_or(Ty::Never);
-                self.lower(&ty)
-            })
-            .collect();
-        let frame = self.frames.pop().unwrap_or_default();
-        let symbol = self.symbol.lambda(&frame.path);
-        let definition = Open {
-            tree: Tree::Function(core::Function {
-                type_params,
-                captures,
-                params: core_params,
-                ret: core_ret,
-                body,
-            }),
-            slots: frame.slots,
-            lambdas: frame.lambdas,
-        };
-        self.frame().lambdas.push(definition);
-
-        // The encloser hands over each captured value, capturing it in turn
-        // if it is not its own.
-        let depth = self.frames.len() - 1;
-        let captures = outer
-            .iter()
-            .map(|number| self.reach(depth, *number))
-            .collect();
-        // A lambda has its encloser's type parameters, at themselves.
-        let type_args = (0..self.env.bounds.len())
-            .map(core::Type::Parameter)
-            .collect();
-        let core = core::Expr::Closure {
-            slot: self.slot(&symbol),
-            type_args,
-            captures,
-        };
-        let ty = Ty::Function {
-            params: types,
-            ret: Box::new(ret),
-        };
-        Ok((core, ty))
     }
 
     /// A normalized type as a core type.
@@ -598,46 +371,6 @@ impl<'a> Checker<'a> {
         })
     }
 
-    /// A comptime call: the function is run now, and its result stands in
-    /// for the call.
-    fn comptime(&mut self, call: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {
-        let Expr::Call { callee, args } = call else {
-            return Ok((core::Expr::Null, Ty::Never));
-        };
-        let Expr::Name(Reference::Definition(function)) = &**callee else {
-            return Ok((core::Expr::Null, Ty::Never));
-        };
-        // The call is checked like any other, for its argument types. What
-        // it would lower to is dropped, with whatever it added.
-        let slots = self.frame().slots.len();
-        let lambdas = self.frame().lambdas.len();
-        let start = self.next;
-        self.infer(call)?;
-        self.frame().slots.truncate(slots);
-        self.frame().lambdas.truncate(lambdas);
-
-        // An argument is known when its type has one value.
-        self.next = start;
-        let mut values = Vec::new();
-        for arg in args {
-            let (_, ty) = self.infer(arg)?;
-            values.push(value_of(&ty).ok_or_else(|| Error::NotComptime {
-                symbol: self.symbol.clone(),
-                found: self.env.show(&ty),
-            })?);
-        }
-        self.frame().slots.truncate(slots);
-        self.frame().lambdas.truncate(lambdas);
-
-        let Some(evaluator) = self.evaluator else {
-            return Ok((core::Expr::Null, Ty::Never));
-        };
-        let result = evaluator.evaluate(function, &values)?;
-        splice(&result).ok_or_else(|| Error::NotSpliceable {
-            symbol: self.symbol.clone(),
-        })
-    }
-
     /// A generic function at type arguments that were written out.
     fn instantiate(
         &mut self,
@@ -733,128 +466,4 @@ impl<'a> Checker<'a> {
         });
         result
     }
-
-    /// The type of field `name` of a value of type `ty`, if every such
-    /// value has one.
-    fn field(&self, ty: &Ty, name: &str) -> Option<Ty> {
-        match self.env.unfold(ty) {
-            Ty::Never => Some(Ty::Never),
-            Ty::Named(Reference::Parameter(position), _) => {
-                self.field(self.env.bounds.get(position)?, name)
-            }
-            Ty::Record(fields) => field(&fields, name).cloned(),
-            Ty::Union(members) => {
-                let fields: Option<Vec<Ty>> = members.iter().map(|m| self.field(m, name)).collect();
-                fields.map(|fields| self.env.union(fields))
-            }
-            _ => None,
-        }
-    }
-
-    fn binary(
-        &mut self,
-        operator: Operator,
-        left: &Expr<Reference>,
-        right: &Expr<Reference>,
-    ) -> Result<(core::Expr, Ty), Error> {
-        let (core_left, left) = self.infer(left)?;
-        let (core_right, right) = self.infer(right)?;
-        let both = |ty: &Ty| self.env.subtype(&left, ty) && self.env.subtype(&right, ty);
-        let choice = match operator {
-            Operator::Equal => Some((Primitive::Equal, Ty::Bool)),
-            _ if both(&Ty::Int) => Some(match operator {
-                Operator::Add => (Primitive::IntAdd, Ty::Int),
-                Operator::Subtract => (Primitive::IntSubtract, Ty::Int),
-                Operator::Multiply => (Primitive::IntMultiply, Ty::Int),
-                Operator::Less | Operator::Equal => (Primitive::IntLess, Ty::Bool),
-            }),
-            _ if both(&Ty::Float) => Some(match operator {
-                Operator::Add => (Primitive::FloatAdd, Ty::Float),
-                Operator::Subtract => (Primitive::FloatSubtract, Ty::Float),
-                Operator::Multiply => (Primitive::FloatMultiply, Ty::Float),
-                Operator::Less | Operator::Equal => (Primitive::FloatLess, Ty::Bool),
-            }),
-            _ => None,
-        };
-        let Some((operation, ty)) = choice else {
-            return Err(Error::Operands {
-                symbol: self.symbol.clone(),
-                found: format!("{}, {}", self.env.show(&left), self.env.show(&right)),
-            });
-        };
-        let core = core::Expr::Primitive {
-            operation,
-            args: vec![core_left, core_right],
-        };
-        Ok((core, ty))
-    }
-}
-
-/// The one value a singleton type has.
-fn value_of(ty: &Ty) -> Option<Value> {
-    Some(match ty {
-        Ty::Null => Value::Null,
-        Ty::Literal(Literal::Bool(value)) => Value::Bool(*value),
-        Ty::Literal(Literal::Int(value)) => Value::Int(*value),
-        Ty::Literal(Literal::Float(bits)) => Value::Float(f64::from_bits(*bits)),
-        Ty::Literal(Literal::String(value)) => Value::String(value.clone()),
-        Ty::Tuple(members) => Value::Tuple(members.iter().map(value_of).collect::<Option<_>>()?),
-        Ty::Record(fields) => Value::Record(
-            fields
-                .iter()
-                .map(|(name, ty)| Some((name.clone(), value_of(ty)?)))
-                .collect::<Option<_>>()?,
-        ),
-        _ => return None,
-    })
-}
-
-/// A value as the literal that makes it, with the literal's type.
-fn splice(value: &Value) -> Option<(core::Expr, Ty)> {
-    let literal = |literal: Literal| (core::Expr::Literal(literal.clone()), Ty::Literal(literal));
-    let all = |values: &[Value]| -> Option<(Vec<core::Expr>, Vec<Ty>)> {
-        Some(
-            values
-                .iter()
-                .map(splice)
-                .collect::<Option<Vec<_>>>()?
-                .into_iter()
-                .unzip(),
-        )
-    };
-    Some(match value {
-        Value::Null => (core::Expr::Null, Ty::Null),
-        Value::Bool(value) => literal(Literal::Bool(*value)),
-        Value::Int(value) => literal(Literal::Int(*value)),
-        Value::Float(value) => literal(Literal::float(*value)),
-        Value::String(value) => literal(Literal::String(value.clone())),
-        Value::Tuple(members) => {
-            let (exprs, types) = all(members)?;
-            (core::Expr::Tuple(exprs), Ty::Tuple(types))
-        }
-        Value::List(members) => {
-            let (exprs, mut types) = all(members)?;
-            // A list type is not a singleton: it is a list of whatever
-            // the members are.
-            types.sort();
-            types.dedup();
-            let member = match types.len() {
-                0 => Ty::Never,
-                1 => types.remove(0),
-                _ => Ty::Union(types),
-            };
-            (core::Expr::List(exprs), Ty::List(Box::new(member)))
-        }
-        Value::Record(fields) => {
-            let mut exprs = Vec::new();
-            let mut types = Vec::new();
-            for (name, value) in fields {
-                let (expr, ty) = splice(value)?;
-                exprs.push((name.clone(), expr));
-                types.push((name.clone(), ty));
-            }
-            (core::Expr::Record(exprs), Ty::Record(types))
-        }
-        Value::Function => return None,
-    })
 }

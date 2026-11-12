@@ -1,0 +1,118 @@
+//! Integers, floats, and structural equality.
+
+use crate::object::{
+    KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TUPLE, boolean,
+    bytes, fault, float, header, int, is_object, object, payload, small, words,
+};
+use crate::{Context, Fault, Word};
+
+/// An integer of any size as a value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_int_new(value: i64) -> Word {
+    small(value).unwrap_or_else(|| unsafe {
+        let word = object(KIND_INT, 8);
+        payload(word).cast::<i64>().write(value);
+        word
+    })
+}
+
+/// A float, given as its bits, as a value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_float_new(bits: u64) -> Word {
+    unsafe {
+        let word = object(KIND_FLOAT, 8);
+        payload(word).write(bits);
+        word
+    }
+}
+
+pub(crate) unsafe fn arithmetic(
+    context: *mut Context,
+    left: Word,
+    right: Word,
+    operation: fn(i64, i64) -> Option<i64>,
+) -> Word {
+    unsafe {
+        match operation(int(left), int(right)) {
+            Some(result) => amb_int_new(result),
+            None => fault(context, Fault::Overflow),
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_int_add(context: *mut Context, left: Word, right: Word) -> Word {
+    unsafe { arithmetic(context, left, right, i64::checked_add) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_int_subtract(context: *mut Context, left: Word, right: Word) -> Word {
+    unsafe { arithmetic(context, left, right, i64::checked_sub) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_int_multiply(context: *mut Context, left: Word, right: Word) -> Word {
+    unsafe { arithmetic(context, left, right, i64::checked_mul) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_int_less(left: Word, right: Word) -> Word {
+    unsafe { boolean(int(left) < int(right)) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_float_add(left: Word, right: Word) -> Word {
+    unsafe { amb_float_new((float(left) + float(right)).to_bits()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_float_subtract(left: Word, right: Word) -> Word {
+    unsafe { amb_float_new((float(left) - float(right)).to_bits()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_float_multiply(left: Word, right: Word) -> Word {
+    unsafe { amb_float_new((float(left) * float(right)).to_bits()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_float_less(left: Word, right: Word) -> Word {
+    unsafe { boolean(float(left) < float(right)) }
+}
+
+/// Structural equality.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_equal(left: Word, right: Word) -> Word {
+    unsafe { boolean(equal(left, right)) }
+}
+
+pub(crate) unsafe fn equal(left: Word, right: Word) -> bool {
+    if left == right {
+        return true;
+    }
+    if !is_object(left) || !is_object(right) {
+        return false;
+    }
+    // TODO: this recurses as deep as the values nest.
+    unsafe {
+        let all = |left: &[u64], right: &[u64]| {
+            left.len() == right.len() && left.iter().zip(right).all(|(l, r)| equal(*l, *r))
+        };
+        match ((*header(left)).kind, (*header(right)).kind) {
+            (KIND_INT, KIND_INT) => int(left) == int(right),
+            // Equality is structural: a float equals itself, bit for bit.
+            (KIND_FLOAT, KIND_FLOAT) => payload(left).read() == payload(right).read(),
+            (KIND_STRING, KIND_STRING) => bytes(left) == bytes(right),
+            // A record's keys are interned and kept in order, so equal
+            // records have equal keys at equal positions.
+            (KIND_TUPLE, KIND_TUPLE) | (KIND_LIST, KIND_LIST) | (KIND_RECORD, KIND_RECORD) => {
+                all(words(left), words(right))
+            }
+            (KIND_CLOSURE, KIND_CLOSURE) => {
+                let (left, right) = (words(left), words(right));
+                left[0] == right[0] && all(&left[1..], &right[1..])
+            }
+            _ => false,
+        }
+    }
+}

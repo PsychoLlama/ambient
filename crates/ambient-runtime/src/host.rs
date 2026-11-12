@@ -1,0 +1,98 @@
+//! For the host: making a context and reading results.
+
+use crate::object::{
+    KIND_CLOSURE, KIND_FLOAT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TUPLE, header, int,
+    payload, words,
+};
+use crate::{Context, FALSE, Kind, NULL, TRUE, Word};
+
+/// A new context. Free it with [`amb_context_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_context_new() -> *mut Context {
+    Box::into_raw(Box::new(Context {
+        entries: 0,
+        fault: 0,
+    }))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_context_free(context: *mut Context) {
+    unsafe {
+        drop(Box::from_raw(context));
+    }
+}
+
+/// The [`Fault`] code of the last unwinding in this context.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_context_fault(context: *mut Context) -> u64 {
+    unsafe { (*context).fault }
+}
+
+/// The [`Kind`] of a value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_kind(word: Word) -> u64 {
+    let kind = if word & 1 == 1 {
+        Kind::Int
+    } else if word == NULL {
+        Kind::Null
+    } else if word == TRUE || word == FALSE {
+        Kind::Bool
+    } else {
+        match unsafe { (*header(word)).kind } {
+            KIND_FLOAT => Kind::Float,
+            KIND_STRING => Kind::String,
+            KIND_TUPLE => Kind::Tuple,
+            KIND_LIST => Kind::List,
+            KIND_RECORD => Kind::Record,
+            KIND_CLOSURE => Kind::Function,
+            _ => Kind::Int,
+        }
+    };
+    kind as u64
+}
+
+/// Room for `count` words that is never reclaimed, zeroed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_words(count: u64) -> *mut u64 {
+    Box::leak(vec![0u64; count as usize].into_boxed_slice()).as_mut_ptr()
+}
+
+/// The integer a value holds. The value must be an integer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_int_value(word: Word) -> i64 {
+    unsafe { int(word) }
+}
+
+/// The bits of the float a value holds. The value must be a float.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_float_bits(word: Word) -> u64 {
+    unsafe { payload(word).read() }
+}
+
+/// How many members a tuple or list has, fields a record has, or bytes a
+/// string has.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_length(word: Word) -> u64 {
+    unsafe {
+        let size = (*header(word)).size;
+        match (*header(word)).kind {
+            KIND_STRING => size,
+            KIND_RECORD => size / 16,
+            _ => size / 8,
+        }
+    }
+}
+
+/// The address of a string's bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_string_bytes(word: Word) -> *const u8 {
+    unsafe { payload(word).cast() }
+}
+
+/// The word at `index` of an object's payload, borrowed: a member of a
+/// tuple or list, or, for a record, a key at an even index and its value
+/// at the next.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_word_at(word: Word, index: u64) -> Word {
+    unsafe { words(word)[index as usize] }
+}
