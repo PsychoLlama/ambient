@@ -26,6 +26,7 @@ pub use budget::{
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
 pub use join::{amb_all, amb_first};
 
+use crate::object::layout::{DEFINITION_CODE, DEFINITION_METERED};
 use crate::object::{amb_release, words};
 use crate::{Context, Fault, NULL, UNWIND, Word};
 
@@ -344,8 +345,15 @@ pub unsafe extern "C" fn amb_schedule(context: *mut Context) {
             (*context).mode = if task.started { RESUMING } else { RUNNING };
             task.started = true;
             let thunk = task.thunk;
-            let definition = words(thunk)[0] as usize as *const u64;
-            let code = std::mem::transmute::<usize, Thunk>(definition.read() as usize);
+            // A task inside a budget is metered, as what started it was.
+            let form = if task.budget.is_some() {
+                DEFINITION_METERED
+            } else {
+                DEFINITION_CODE
+            };
+            let definition = words(thunk)[0] as usize as *const u8;
+            let code = definition.add(form as usize).cast::<u64>().read();
+            let code = std::mem::transmute::<usize, Thunk>(code as usize);
             let result = code(context, thunk, NULL);
             ended(context, id, result);
         }

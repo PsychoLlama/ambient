@@ -40,6 +40,13 @@ pub fn lower(definition: &Open, metered: bool) -> Result<lir::Function, Unsuppor
         Tree::Extern { params, .. } => return Ok(native(params.len(), definition.slots.len())),
         _ => return Err(Unsupported("definitions that are not functions")),
     };
+    // Both forms of a function read one definition, so the constants of
+    // the plain form come first in the metered one's, at the same places.
+    let constants = if metered {
+        lower(definition, false)?.constants
+    } else {
+        Vec::new()
+    };
     let positions = function.body.positions();
     let mut lowering = Lowering {
         positions: (0..)
@@ -48,7 +55,7 @@ pub fn lower(definition: &Open, metered: bool) -> Result<lir::Function, Unsuppor
             .collect(),
         binders: function.params.len(),
         temporaries: 0,
-        constants: Vec::new(),
+        constants,
         bindings: Value::Local(0),
         groups: Vec::new(),
         budgets: false,
@@ -167,7 +174,8 @@ struct Lowering {
     groups: Vec<Value>,
     /// Whether the function enters a budget.
     budgets: bool,
-    /// Whether the function is being compiled to run inside budgets.
+    /// Whether what is being lowered runs inside a budget: the whole of
+    /// a function in its metered form, and the body of a budget in any.
     metered: bool,
 }
 
@@ -407,6 +415,15 @@ impl Lowering {
         })
     }
 
+    /// A call of a function value, metered if it is made inside a budget.
+    pub(super) fn call_value(&self, callee: Value, args: Vec<Value>) -> Op {
+        Op::CallValue {
+            callee,
+            args,
+            metered: self.metered,
+        }
+    }
+
     /// A call. The callee is handed the bindings in scope, whole.
     fn call(
         &mut self,
@@ -416,11 +433,16 @@ impl Lowering {
     ) -> Result<Op, Unsupported> {
         if let core::Expr::Reference(slot, _) = callee {
             let args = self.arguments(self.bindings, args, scope)?;
-            return Ok(Op::Call { slot: slot.0, args });
+            let (slot, metered) = (slot.0, self.metered);
+            return Ok(Op::Call {
+                slot,
+                args,
+                metered,
+            });
         }
         let callee = self.operand(callee, scope)?;
         let args = self.arguments(self.bindings, args, scope)?;
-        Ok(Op::CallValue { callee, args })
+        Ok(self.call_value(callee, args))
     }
 
     /// The type a cell made at `ty` keeps, as a constant. Nothing at run

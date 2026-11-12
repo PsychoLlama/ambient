@@ -42,13 +42,11 @@ impl Program {
     pub fn load(parts: &Parts, natives: &Natives) -> Result<Self, String> {
         let natives = natives.resolve(&parts.natives)?;
         let io = |error: std::io::Error| error.to_string();
-        let code_of = |index: usize| match &parts.parts[index].body {
-            Body::Function { code, .. } => code.0.as_slice(),
-            Body::Type(_) | Body::Inert => &[],
-        };
+        let codes = parts.codes();
+        let code_of = |index: usize| codes[index].map_or(&[][..], |(_, code)| &code.0);
         let mut offsets = Vec::new();
         let mut size = 0usize;
-        for index in 0..parts.parts.len() {
+        for index in 0..codes.len() {
             offsets.push(size);
             size += code_of(index).len().next_multiple_of(16);
         }
@@ -67,7 +65,7 @@ impl Program {
             block[*word] = match *field {
                 Field::Word(value) => value,
                 Field::Address(target) => (base + target * 8) as u64,
-                Field::Code(part) => (code_base + offsets[part]) as u64,
+                Field::Code(code) => (code_base + offsets[code]) as u64,
                 Field::Text {
                     make,
                     offset,

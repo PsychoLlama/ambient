@@ -79,10 +79,20 @@ pub enum Op {
     Float(u64),
     /// The function in a slot of the current definition, as a value.
     Slot(usize),
-    /// Calls the function in a slot of the current definition.
-    Call { slot: usize, args: Vec<Value> },
-    /// Calls a function value.
-    CallValue { callee: Value, args: Vec<Value> },
+    /// Calls the function in a slot of the current definition. With
+    /// `metered`, the call is made inside a budget, and reaches the code
+    /// that charges for what it does.
+    Call {
+        slot: usize,
+        args: Vec<Value>,
+        metered: bool,
+    },
+    /// Calls a function value, as [`Op::Call`] calls a slot.
+    CallValue {
+        callee: Value,
+        args: Vec<Value>,
+        metered: bool,
+    },
     Primitive {
         operation: Primitive,
         args: Vec<Value>,
@@ -250,8 +260,9 @@ pub struct Function {
     /// How many slots its definition has. Its constants follow them.
     pub slots: usize,
     pub constants: Vec<Constant>,
-    /// Whether the function enters a budget: a program with one that
-    /// does is compiled metered.
+    /// Whether the function enters a budget: in a program with one that
+    /// does, every function is compiled a second time, metered, for what
+    /// runs inside a budget to call.
     pub budgets: bool,
     pub body: Expr,
 }

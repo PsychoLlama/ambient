@@ -38,6 +38,9 @@ pub enum Body {
         /// How many parameters it takes.
         arity: usize,
         code: Arc<Artifact>,
+        /// Its code as what runs inside a budget calls it, if the
+        /// program enters one.
+        metered: Option<Arc<Artifact>>,
         /// What the function needs made when the program is loaded.
         constants: Vec<Constant>,
     },
@@ -46,6 +49,32 @@ pub enum Body {
     /// An ability or a target. Nothing is laid out for one: an ability
     /// is reached by a key made from its hash, and a target not at all.
     Inert,
+}
+
+impl Parts {
+    /// The code of the program: for each part, its code, and then its
+    /// metered code. A part that has neither, or no metered code, has
+    /// `None` there. With each is how many parameters it takes.
+    #[must_use]
+    pub fn codes(&self) -> Vec<Option<(usize, &Artifact)>> {
+        let mut codes = Vec::new();
+        for part in &self.parts {
+            let (plain, metered) = match &part.body {
+                Body::Function {
+                    arity,
+                    code,
+                    metered,
+                    ..
+                } => (
+                    Some((*arity, &**code)),
+                    metered.as_deref().map(|code| (*arity, code)),
+                ),
+                Body::Type(_) | Body::Inert => (None, None),
+            };
+            codes.extend([plain, metered]);
+        }
+        codes
+    }
 }
 
 /// A program: exactly the definitions its entry reaches, each once.
@@ -88,9 +117,9 @@ impl Engine<'_> {
             symbols.push(symbol);
         }
 
-        // Metering is all or nothing: a function called inside a budget
-        // may have been made anywhere, so a program that enters one is
-        // compiled metered throughout, and any other pays nothing.
+        // A function called inside a budget may have been made anywhere,
+        // so a program that enters one has a metered form of every
+        // function beside the plain one, and any other has none.
         let mut metered = false;
         for symbol in &symbols {
             let open = self.check(symbol)?;
@@ -105,25 +134,28 @@ impl Engine<'_> {
             for slot in &open.slots {
                 slots.push(indices.get(&self.hash(slot)?).copied().unwrap_or(0));
             }
-            let body = match &open.tree {
-                Tree::Function(function) => Body::Function {
-                    // The bindings a function is handed come first.
-                    arity: function.params.len() + 1,
-                    code: self.compile_as(symbol, backend, metered)?,
+            // The bindings a function is handed come first.
+            let function = |arity: usize| -> Result<Body, Error> {
+                Ok(Body::Function {
+                    arity: arity + 1,
+                    code: self.compile_as(symbol, backend, false)?,
+                    metered: if metered {
+                        Some(self.compile_as(symbol, backend, true)?)
+                    } else {
+                        None
+                    },
                     // Lowering is cheap and has just succeeded inside
                     // `compile`, so its constants are read from it again
-                    // rather than kept beside the code.
+                    // rather than kept beside the code. Those of the
+                    // metered form begin with those of the plain one.
                     constants: lower(&open, metered)
                         .map(|function| function.constants)
                         .unwrap_or_default(),
-                },
-                Tree::Extern { params, .. } => Body::Function {
-                    arity: params.len() + 1,
-                    code: self.compile_as(symbol, backend, metered)?,
-                    constants: lower(&open, metered)
-                        .map(|function| function.constants)
-                        .unwrap_or_default(),
-                },
+                })
+            };
+            let body = match &open.tree {
+                Tree::Function(tree) => function(tree.params.len())?,
+                Tree::Extern { params, .. } => function(params.len())?,
                 Tree::Type { ty, .. } => Body::Type(ty.clone()),
                 Tree::Ability { .. } | Tree::Target { .. } => Body::Inert,
             };

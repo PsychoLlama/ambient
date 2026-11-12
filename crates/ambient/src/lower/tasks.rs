@@ -61,7 +61,14 @@ impl Lowering {
         let budget = self.temporary();
         let held = Value::Local(budget);
         let result = self.temporary();
-        let body = Self::attempt(self.expr(body)?, Expr::Op(Op::BudgetCaught(held)));
+        // The body is metered, whatever is around it.
+        let outside = std::mem::replace(&mut self.metered, true);
+        let mut body = self.expr(body)?;
+        if !outside {
+            body = self.meter(body);
+        }
+        self.metered = outside;
+        let body = Self::attempt(body, Expr::Op(Op::BudgetCaught(held)));
         let leave = self.then(
             Expr::Op(Op::BudgetLeave(held)),
             Expr::Op(Op::Copy(Value::Local(result))),
@@ -114,12 +121,8 @@ impl Lowering {
         let callee = self.operand(cleanup, &mut scope)?;
         // It took what it needs where it was made.
         let args = vec![Value::Null];
-        let run = || {
-            Expr::Op(Op::CallValue {
-                callee,
-                args: args.clone(),
-            })
-        };
+        let call = self.call_value(callee, args);
+        let run = || Expr::Op(call.clone());
         let moment = |moment| Expr::Op(Op::Cleanup(moment));
 
         // The body unwound: the cleanup runs with the unwinding held, and

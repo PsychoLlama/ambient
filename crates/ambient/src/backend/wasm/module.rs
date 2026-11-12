@@ -12,7 +12,7 @@ use super::emit::memory;
 use super::{INTERN, RUNTIME_MODULE, STRING_PINNED, TAG, WORDS, function_type};
 use crate::backend::MAX_ARITY;
 use crate::backend::statics::{self, Field, Make};
-use crate::engine::{Body, Parts};
+use crate::engine::Parts;
 
 /// The types and imports every module has, and the type of `init`.
 fn signatures() -> Result<(TypeSection, ImportSection, u32), String> {
@@ -100,12 +100,10 @@ pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
     let mut functions = FunctionSection::new();
     let mut code = CodeSection::new();
     let mut table = Vec::new();
-    let mut positions = vec![0u64; parts.parts.len()];
-    for (position, part) in parts.parts.iter().enumerate() {
-        let Body::Function {
-            arity, code: body, ..
-        } = &part.body
-        else {
+    let codes = parts.codes();
+    let mut positions = vec![0u64; codes.len()];
+    for (position, unit) in codes.iter().enumerate() {
+        let Some((arity, body)) = unit else {
             continue;
         };
         positions[position] = table.len() as u64;
@@ -113,7 +111,9 @@ pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
         code.raw(&body.0);
         table.push(first + index(table.len())?);
     }
-    let entry = first + index(usize::try_from(positions[parts.entry]).unwrap_or(0))?;
+    // A part's plain code comes before its metered code.
+    let entry = usize::try_from(positions[parts.entry * 2]).unwrap_or(0);
+    let entry = first + index(entry)?;
     let init = first + index(table.len())?;
     let size = index(table.len())?;
     functions.function(init_type);
@@ -152,8 +152,8 @@ const TABLE: u32 = 2;
 /// The function that lays out a program in the runtime's memory and
 /// returns the entry's closure, with the bytes it copies in first.
 ///
-/// `positions` is each part's index among the program's `functions`
-/// functions.
+/// `positions` is where each of [`Parts::codes`] is among the program's
+/// `functions` functions.
 fn initializer(
     parts: &Parts,
     positions: &[u64],
@@ -205,8 +205,8 @@ fn initializer(
             }
             Field::Address(target) => address(&mut body, target)?,
             // Code is an index into the table.
-            Field::Code(part) => {
-                body.instruction(&Instruction::I64Const(positions[part].cast_signed()));
+            Field::Code(code) => {
+                body.instruction(&Instruction::I64Const(positions[code].cast_signed()));
                 body.instruction(&Instruction::LocalGet(TABLE));
                 body.instruction(&Instruction::I64ExtendI32U);
                 body.instruction(&Instruction::I64Add);

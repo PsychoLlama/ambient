@@ -46,7 +46,7 @@ impl Op {
             Self::Abort { token, args } => vec![token, args],
             Self::Native { bindings, args, .. } => vec![bindings, args],
             Self::Call { args, .. } | Self::Primitive { args, .. } => args.iter_mut().collect(),
-            Self::CallValue { callee, args } => std::iter::once(callee).chain(args).collect(),
+            Self::CallValue { callee, args, .. } => std::iter::once(callee).chain(args).collect(),
             Self::Closure { captures, .. } => captures.iter_mut().collect(),
             Self::Sequence { members, .. } => members.iter_mut().collect(),
             Self::Record(fields) => fields.iter_mut().map(|(_, member)| member).collect(),

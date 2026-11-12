@@ -21,7 +21,7 @@
 - A task's body is a closure that takes nothing; the checker makes one for each branch, spawn, and cleanup (`checker/tasks.rs`), so they capture locals and bindings as any closure does.
 - Whatever must happen on every way out of a block (cleanups, closing a group) is lowered as a `Try` whose recovery holds the unwinding, does the work, and rethrows (`lower/tasks.rs`).
 - A trace is gathered only while a fault unwinds: lowering wraps each operation a fault can leave in a `Try` that notes its position (`core::Expr::positions`), so code that does not fault pays nothing.
-- Metering is a property of lowering (`lower/meter.rs`), chosen for a whole program at link time: a program that enters a budget anywhere is compiled metered throughout, under the same hashes.
+- Metering is a mode of lowering (`lower/meter.rs`): on for the body of a budget, and for the whole of a function's metered form. A definition holds both forms' code under one hash; a call made in metered code reaches the metered form, so code outside a budget makes no charge. Both forms read one definition, so the metered form's constants begin with the plain form's.
 - Compiled code is position-independent: it reaches definitions through slots and the runtime through entry points, never by address.
 - A name reaches a definition through a module's members (`engine/scope.rs`): its own definitions and its re-exports, which keep the symbol of what they alias. Another package is reached only through its library module and the modules that lists.
 - The standard library is a package built with builders (`library.rs`), installed into a workspace on request. Fault kinds and budget limits are its tags; their names come from the runtime, never restated.

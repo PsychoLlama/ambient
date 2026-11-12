@@ -8,8 +8,8 @@ use ambient::builder::{self as b, pat, ty};
 use ambient::surface::{Definition, Expr};
 use ambient::value::Value;
 use ambient_runtime::{FAULT_PACKAGE, Fault};
-use support::run;
 use support::tasks::{note, then};
+use support::{run, value, workspace};
 
 /// `fn count(n: int): int`, which calls itself `n` times and gives `n`.
 fn count() -> Definition {
@@ -220,4 +220,45 @@ fn a_function_value_carries_the_budget_its_handlers_were_bound_inside() {
     let body = b::let_("f", made, budgeted(2, 1000, b::call(b::name("f"), [])));
 
     assert_eq!(working(body), Value::Int(100));
+}
+
+// Cost
+
+/// How many charges the plain form of `name` makes: its code as what is
+/// outside every budget calls it, in a program whose `main` is `body`.
+fn charges(name: &str, body: Expr) -> usize {
+    let main = b::function("main").returns(ty::unknown()).body(body);
+    let module = [count(), build(), main]
+        .into_iter()
+        .fold(b::module(), b::ModuleBuilder::define);
+    let workspace = workspace([("app", "main", module)]);
+    let store = ambient::store::MemoryStore::new();
+    let engine = ambient::engine::Engine::new(&workspace, &store);
+    let open = engine.check(&value("main", name)).unwrap();
+    let plain = ambient::lower::lower(&open, false).unwrap();
+
+    format!("{:?}", plain.body).matches("Charge").count()
+}
+
+#[test]
+fn code_that_runs_outside_a_budget_makes_no_charge() {
+    // `count` runs inside this budget too, but not as its plain form.
+    assert_eq!(charges("count", budgeted(10, 10, counts(1))), 0);
+}
+
+#[test]
+fn only_the_body_of_a_budget_is_metered_in_the_function_that_enters_it() {
+    let alone = charges("main", budgeted(10, 10, counts(1)));
+    let after_work = charges("main", then(counts(5), budgeted(10, 10, counts(1))));
+
+    assert!(alone > 0);
+    assert_eq!(after_work, alone);
+}
+
+#[test]
+fn a_function_made_outside_a_budget_is_metered_when_called_inside_it() {
+    let made = b::lambda([], counts(5));
+    let body = b::let_("work", made, budgeted(3, 100, b::call(b::name("work"), [])));
+
+    assert_eq!(evaluates(body), limit("steps"));
 }

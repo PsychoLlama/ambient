@@ -19,7 +19,8 @@ pub enum Field {
     Word(u64),
     /// The address of another word of the block.
     Address(usize),
-    /// The code of a part, however the backend refers to code.
+    /// Code, however the backend refers to code: by its position in
+    /// [`Parts::codes`].
     Code(usize),
     /// Something the runtime makes from bytes of [`Statics::text`].
     Text {
@@ -93,10 +94,16 @@ pub fn plan(parts: &Parts) -> Statics {
         let at = definitions[index];
         match &part.body {
             Body::Function {
-                arity, constants, ..
+                arity,
+                constants,
+                metered,
+                ..
             } => {
-                statics.set(at, Field::Code(index));
-                statics.set(at + 1, Field::Word(*arity as u64));
+                // Without a metered form, the plain one stands in for it.
+                let plain = index * 2;
+                statics.set(at, Field::Code(plain));
+                statics.set(at + 1, Field::Code(plain + usize::from(metered.is_some())));
+                statics.set(at + 2, Field::Word(*arity as u64));
                 for (position, slot) in slots.iter().enumerate() {
                     statics.set(
                         at + DEFINITION_WORDS + position,

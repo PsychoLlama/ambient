@@ -61,7 +61,7 @@ impl Lowering {
     /// runs inside the budget it was bound inside, not the performer's:
     /// the perform costs the performer a step, whatever the handler does.
     fn answer(&mut self, ability: Slot, callee: Value, args: Vec<Value>, scope: &mut Scope) -> Op {
-        let call = Op::CallValue { callee, args };
+        let call = self.call_value(callee, args);
         if !self.metered {
             return call;
         }
@@ -254,7 +254,7 @@ impl Lowering {
         let mut args = vec![outer];
         args.extend(members.iter().map(|member| Value::Local(*member)));
         let callee = handler;
-        let mut call = Expr::Op(Op::CallValue { callee, args });
+        let mut call = Expr::Op(self.call_value(callee, args));
         for (index, member) in members.iter().enumerate().rev() {
             let tuple = Value::Local(caught);
             call = Expr::Let {

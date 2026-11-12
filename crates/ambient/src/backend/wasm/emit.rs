@@ -1,7 +1,7 @@
 //! Emitting the body of one lowered function.
 
 use ambient_runtime::layout::{
-    CLOSURE_CAPTURES, CLOSURE_DEFINITION, DEFINITION_CODE, DEFINITION_SLOTS,
+    CLOSURE_CAPTURES, CLOSURE_DEFINITION, DEFINITION_CODE, DEFINITION_METERED, DEFINITION_SLOTS,
 };
 use ambient_runtime::{
     Context, Entry, FALSE, NULL, RESUMING, SMALL_MAX, SMALL_MIN, SUSPENDING, TRUE, Word,
@@ -352,15 +352,23 @@ impl Emitter {
                 self.emit(&Instruction::Call(import(Entry::FloatNew)));
             }
             Op::Slot(slot) => self.in_definition(*slot),
-            Op::Call { slot, args } => {
+            Op::Call {
+                slot,
+                args,
+                metered,
+            } => {
                 self.emit(&Instruction::LocalGet(CONTEXT));
                 self.in_definition(*slot);
-                self.call(args);
+                self.call(args, *metered);
             }
-            Op::CallValue { callee, args } => {
+            Op::CallValue {
+                callee,
+                args,
+                metered,
+            } => {
                 self.emit(&Instruction::LocalGet(CONTEXT));
                 self.value(*callee);
-                self.call(args);
+                self.call(args, *metered);
             }
             _ => {
                 for (position, step) in op.steps().unwrap_or_default().iter().enumerate() {
@@ -400,7 +408,7 @@ impl Emitter {
 
     /// With the context and a closure on the stack: calls the closure with
     /// `args`.
-    fn call(&mut self, args: &[lir::Value]) {
+    fn call(&mut self, args: &[lir::Value], metered: bool) {
         self.emit(&Instruction::LocalTee(self.callee));
         for arg in args {
             self.value(*arg);
@@ -408,7 +416,11 @@ impl Emitter {
         // Its code: an index into the table.
         self.emit(&Instruction::LocalGet(self.callee));
         self.load(CLOSURE_DEFINITION);
-        self.load(DEFINITION_CODE);
+        self.load(if metered {
+            DEFINITION_METERED
+        } else {
+            DEFINITION_CODE
+        });
         self.emit(&Instruction::I32WrapI64);
         self.emit(&Instruction::CallIndirect {
             type_index: function_type(args.len()),
