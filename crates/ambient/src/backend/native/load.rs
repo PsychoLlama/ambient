@@ -153,7 +153,7 @@ impl Program {
             (*context).entries = self.entries.as_ptr() as u64;
             (*context).native = dispatch as *const () as u64;
             (*context).host = std::ptr::from_ref(self) as u64;
-            let result = match *words {
+            let invoke = move || match *words {
                 [w0] => std::mem::transmute::<usize, extern "C" fn(C, u64, u64) -> u64>(code)(
                     context, closure, w0,
                 ),
@@ -176,6 +176,17 @@ impl Program {
                 }
                 _ => panic!("the host can pass at most four arguments"),
             };
+            // Unwinding in this mode is the root task suspending: the
+            // others take their turns, and the entry runs again to
+            // resume it where it was.
+            let mut result = invoke();
+            while result == ambient_runtime::UNWIND
+                && (*context).mode == ambient_runtime::SUSPENDING
+            {
+                (*context).mode = ambient_runtime::RUNNING;
+                ambient_runtime::amb_schedule(context);
+                result = invoke();
+            }
             let fault = Fault::from_code((*context).fault);
             ambient_runtime::amb_context_free(context);
             if result == ambient_runtime::UNWIND {
