@@ -88,6 +88,15 @@ impl Engine<'_> {
             symbols.push(symbol);
         }
 
+        // Metering is all or nothing: a function called inside a budget
+        // may have been made anywhere, so a program that enters one is
+        // compiled metered throughout, and any other pays nothing.
+        let mut metered = false;
+        for symbol in &symbols {
+            let open = self.check(symbol)?;
+            metered |= lower(&open, false).is_ok_and(|function| function.budgets);
+        }
+
         let mut parts = Vec::new();
         let mut natives = Vec::new();
         for symbol in &symbols {
@@ -100,18 +109,18 @@ impl Engine<'_> {
                 Tree::Function(function) => Body::Function {
                     // The bindings a function is handed come first.
                     arity: function.params.len() + 1,
-                    code: self.compile(symbol, backend)?,
+                    code: self.compile_as(symbol, backend, metered)?,
                     // Lowering is cheap and has just succeeded inside
                     // `compile`, so its constants are read from it again
                     // rather than kept beside the code.
-                    constants: lower(&open)
+                    constants: lower(&open, metered)
                         .map(|function| function.constants)
                         .unwrap_or_default(),
                 },
                 Tree::Extern { params, .. } => Body::Function {
                     arity: params.len() + 1,
-                    code: self.compile(symbol, backend)?,
-                    constants: lower(&open)
+                    code: self.compile_as(symbol, backend, metered)?,
+                    constants: lower(&open, metered)
                         .map(|function| function.constants)
                         .unwrap_or_default(),
                 },

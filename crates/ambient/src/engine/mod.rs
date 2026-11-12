@@ -92,7 +92,7 @@ pub struct Engine<'a> {
     type_info: Memo<Symbol, crate::types::TypeInfo>,
     check: Memo<Symbol, crate::core::Open>,
     hash: RefCell<HashMap<Symbol, Hash>>,
-    compile: Memo<(Symbol, String), Artifact>,
+    compile: Memo<(Symbol, String, bool), Artifact>,
     /// The definitions being checked, outermost first. A comptime call
     /// makes checking re-entrant; this is how a cycle through one is seen.
     checking: RefCell<Vec<Symbol>>,

@@ -58,9 +58,10 @@ pub use object::{amb_release, amb_retain, layout, pinned_closure};
 pub use record::*;
 pub use sequence::*;
 pub use task::{
-    RESUMING, RUNNING, SUSPENDING, amb_all, amb_first, amb_frame_drop, amb_frame_load,
-    amb_frame_point, amb_frame_push, amb_frame_save, amb_group_close, amb_group_end, amb_group_new,
-    amb_schedule, amb_spawn,
+    RESUMING, RUNNING, SUSPENDING, amb_all, amb_budget_caught, amb_budget_enter, amb_budget_leave,
+    amb_charge, amb_charge_size, amb_first, amb_frame_drop, amb_frame_load, amb_frame_point,
+    amb_frame_push, amb_frame_save, amb_group_close, amb_group_end, amb_group_new, amb_schedule,
+    amb_spawn,
 };
 pub use text::*;
 
@@ -97,6 +98,9 @@ pub enum Fault {
     Cancelled = 6,
     /// A cleanup aborted to a provide outside it.
     CleanupAbort = 7,
+    /// Not a fault: a budget ran out, and what ran inside it is unwinding
+    /// to it.
+    Exhausted = 8,
 }
 
 impl Fault {
@@ -110,6 +114,7 @@ impl Fault {
             5 => Self::Native,
             6 => Self::Cancelled,
             7 => Self::CleanupAbort,
+            8 => Self::Exhausted,
             _ => Self::None,
         }
     }

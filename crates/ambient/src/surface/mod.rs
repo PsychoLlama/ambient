@@ -309,6 +309,14 @@ pub enum Expr<N = Path> {
         cleanup: Box<Expr<N>>,
         body: Box<Expr<N>>,
     },
+    /// Evaluates `body` within limits, both integers: a number of steps
+    /// and an amount of allocation. Is what it gave, or the limit that ran
+    /// out. See `spec/budgets.md`.
+    Budget {
+        steps: Box<Expr<N>>,
+        allocation: Box<Expr<N>>,
+        body: Box<Expr<N>>,
+    },
     /// Evaluates the body, and is what it gave, or the fault that ended
     /// it, as an error. See `spec/values.md`.
     Boundary(Box<Expr<N>>),

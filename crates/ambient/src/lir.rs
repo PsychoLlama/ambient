@@ -120,6 +120,19 @@ pub enum Op {
     /// ends it and is the error that describes it; if not, goes on
     /// unwinding.
     Contain,
+    /// Enters a budget of so many steps and words, both integers, and
+    /// is the budget.
+    BudgetEnter { steps: Value, words: Value },
+    /// Leaves a budget whose body completed, and is null.
+    BudgetLeave(Value),
+    /// For a budget whose body unwound: leaves it, and is the limit that
+    /// ran out if one did; if not, goes on unwinding.
+    BudgetCaught(Value),
+    /// Charges steps and words of allocation to the budgets the task is
+    /// inside, and is null. Unwinds if one runs out.
+    Charge { steps: u64, words: u64 },
+    /// Charges for an allocation about as large as a value.
+    ChargeSize(Value),
     /// A group with no tasks yet.
     Group,
     /// Starts a closure as a task of a group, and is null.
@@ -194,6 +207,9 @@ impl Op {
             | Self::First(_)
             | Self::Rethrow(_)
             | Self::Contain
+            | Self::BudgetCaught(_)
+            | Self::Charge { .. }
+            | Self::ChargeSize(_)
             | Self::GroupClose { .. }
             | Self::GroupEnd { .. }
             | Self::Cleanup(Cleanup::Failed) => true,
@@ -291,6 +307,11 @@ impl Op {
             Self::Caught(token) => vec![step(Entry::Caught, [value(token)])],
             Self::Hold
             | Self::Contain
+            | Self::BudgetEnter { .. }
+            | Self::BudgetLeave(_)
+            | Self::BudgetCaught(_)
+            | Self::Charge { .. }
+            | Self::ChargeSize(_)
             | Self::Group
             | Self::Spawn { .. }
             | Self::GroupClose { .. }
@@ -331,6 +352,15 @@ impl Op {
         match self {
             Self::Hold => vec![step(Entry::Hold, [])],
             Self::Contain => vec![step(Entry::Contain, [])],
+            Self::BudgetEnter { steps, words } => {
+                vec![step(Entry::BudgetEnter, [value(steps), value(words)])]
+            }
+            Self::BudgetLeave(budget) => vec![step(Entry::BudgetLeave, [value(budget)])],
+            Self::BudgetCaught(budget) => vec![step(Entry::BudgetCaught, [value(budget)])],
+            Self::Charge { steps, words } => {
+                vec![step(Entry::Charge, [Raw(*steps), Raw(*words)])]
+            }
+            Self::ChargeSize(sized) => vec![step(Entry::ChargeSize, [value(sized)])],
             Self::Group => vec![step(Entry::GroupNew, [])],
             Self::Spawn { group, thunk } => {
                 vec![step(Entry::Spawn, [value(group), value(thunk)])]
@@ -434,5 +464,8 @@ pub struct Function {
     /// How many slots its definition has. Its constants follow them.
     pub slots: usize,
     pub constants: Vec<Constant>,
+    /// Whether the function enters a budget: a program with one that
+    /// does is compiled metered.
+    pub budgets: bool,
     pub body: Expr,
 }

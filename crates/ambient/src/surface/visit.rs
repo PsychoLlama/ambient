@@ -126,25 +126,17 @@ impl<N> Expr<N> {
                     arg.names(visit);
                 }
             }
-            Self::Provide { bundle, body, .. } => {
-                bundle.names(visit);
-                body.names(visit);
-            }
-            Self::Observe { observer, body }
-            | Self::Cleanup {
-                cleanup: observer,
-                body,
-            } => {
-                observer.names(visit);
-                body.names(visit);
-            }
+            // These name nothing themselves.
+            Self::Provide { .. }
+            | Self::Observe { .. }
+            | Self::Cleanup { .. }
+            | Self::Budget { .. }
+            | Self::Group(_)
+            | Self::Spawn(_)
+            | Self::Boundary(_)
+            | Self::All(_)
+            | Self::First(_) => self.children(&mut |child| child.names(visit)),
             Self::AbilityId(ability) => visit(ability),
-            Self::Group(inner) | Self::Spawn(inner) | Self::Boundary(inner) => inner.names(visit),
-            Self::All(branches) | Self::First(branches) => {
-                for branch in branches {
-                    branch.names(visit);
-                }
-            }
             Self::Cell { ty, args, .. } => {
                 if let Some(ty) = ty {
                     ty.names(visit);
@@ -212,6 +204,11 @@ impl<N> Expr<N> {
             Self::Provide { bundle, body, .. } => bundle.binders() + 1 + body.binders(),
             Self::Observe { observer, body } => observer.binders() + 1 + body.binders(),
             Self::Cleanup { cleanup, body } => cleanup.binders() + body.binders(),
+            Self::Budget {
+                steps,
+                allocation,
+                body,
+            } => steps.binders() + allocation.binders() + body.binders(),
             Self::Group(inner) | Self::Spawn(inner) | Self::Boundary(inner) => inner.binders(),
             Self::All(exprs) | Self::First(exprs) | Self::Cell { args: exprs, .. } => all(exprs),
             Self::Comptime(call) => call.binders(),
@@ -280,6 +277,15 @@ impl<N> Expr<N> {
             }
             Self::All(exprs) | Self::First(exprs) | Self::Cell { args: exprs, .. } => {
                 exprs.iter().for_each(visit);
+            }
+            Self::Budget {
+                steps,
+                allocation,
+                body,
+            } => {
+                visit(steps);
+                visit(allocation);
+                visit(body);
             }
             Self::Comptime(call) | Self::Group(call) | Self::Spawn(call) | Self::Boundary(call) => {
                 visit(call);

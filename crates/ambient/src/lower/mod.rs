@@ -5,6 +5,7 @@
 //! local so that it has an owner.
 
 mod abilities;
+mod meter;
 mod patterns;
 mod resume;
 mod tasks;
@@ -27,7 +28,10 @@ pub struct Unsupported(pub &'static str);
 ///
 /// Fails if the definition is not a function, or uses a construct that is
 /// not lowered yet.
-pub fn lower(definition: &Open) -> Result<lir::Function, Unsupported> {
+///
+/// With `metered`, the function charges for what it does: see
+/// `spec/budgets.md`.
+pub fn lower(definition: &Open, metered: bool) -> Result<lir::Function, Unsupported> {
     let function = match &definition.tree {
         Tree::Function(function) => function,
         Tree::Extern { params, .. } => return Ok(native(params.len(), definition.slots.len())),
@@ -39,9 +43,13 @@ pub fn lower(definition: &Open) -> Result<lir::Function, Unsupported> {
         constants: Vec::new(),
         bindings: Value::Local(0),
         groups: Vec::new(),
+        budgets: false,
     };
     let entry = lowering.enter(function);
     let mut body = entry.wrap(lowering.expr(&function.body)?);
+    if metered {
+        body = lowering.meter(body);
+    }
     // Temporaries were numbered apart from the core tree's locals, whose
     // count was not known until now. They go after them.
     let named = lowering.binders + 1;
@@ -52,6 +60,7 @@ pub fn lower(definition: &Open) -> Result<lir::Function, Unsupported> {
         locals: named + lowering.temporaries,
         slots: definition.slots.len(),
         constants: lowering.constants,
+        budgets: lowering.budgets,
         body,
     })
 }
@@ -71,6 +80,7 @@ fn native(arity: usize, slots: usize) -> lir::Function {
         locals: arity + 2,
         slots,
         constants: vec![Constant::Native],
+        budgets: false,
         body: resume::resumable(Expr::Let {
             local: args,
             value: Box::new(Expr::Op(Op::Sequence {
@@ -102,6 +112,7 @@ fn renumber(expr: &mut Expr, base: usize) {
             | Op::Float(_)
             | Op::Slot(_)
             | Op::Token
+            | Op::Charge { .. }
             | Op::Hold
             | Op::Contain
             | Op::Group
@@ -111,6 +122,9 @@ fn renumber(expr: &mut Expr, base: usize) {
             | Op::Expire(operand)
             | Op::Caught(operand)
             | Op::Rethrow(operand)
+            | Op::BudgetLeave(operand)
+            | Op::BudgetCaught(operand)
+            | Op::ChargeSize(operand)
             | Op::All(operand)
             | Op::First(operand) => {
                 value(operand);
@@ -122,6 +136,10 @@ fn renumber(expr: &mut Expr, base: usize) {
             | Op::GroupEnd {
                 group: base,
                 held: overlay,
+            }
+            | Op::BudgetEnter {
+                steps: base,
+                words: overlay,
             }
             | Op::Merge { base, overlay } => {
                 value(base);
@@ -191,6 +209,8 @@ struct Lowering {
     bindings: Value,
     /// The groups lowering is inside of, innermost last.
     groups: Vec<Value>,
+    /// Whether the function enters a budget.
+    budgets: bool,
 }
 
 impl Lowering {
@@ -288,11 +308,10 @@ impl Lowering {
                 args,
                 returns,
             } => self.perform(*ability, args, *returns, &mut scope)?,
-            core::Expr::Cleanup { cleanup, body } => return self.cleanup(cleanup, body),
-            core::Expr::Group(body) => return self.group(body),
-            core::Expr::Boundary(body) => {
-                return Ok(Self::attempt(self.expr(body)?, Expr::Op(Op::Contain)));
-            }
+            core::Expr::Cleanup { .. }
+            | core::Expr::Group(_)
+            | core::Expr::Budget { .. }
+            | core::Expr::Boundary(_) => return self.block(expr),
             core::Expr::Spawn(thunk) => self.spawn(thunk, &mut scope)?,
             core::Expr::All(thunks) => Op::All(self.thunks(thunks, &mut scope)?),
             core::Expr::First(thunks) => Op::First(self.thunks(thunks, &mut scope)?),

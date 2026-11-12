@@ -47,7 +47,7 @@ impl Backend for Recording {
         "recording"
     }
 
-    fn compile(&self, definition: &Open) -> Result<Vec<u8>, String> {
+    fn compile(&self, definition: &Open, _metered: bool) -> Result<Vec<u8>, String> {
         *self.compiled.borrow_mut() += 1;
         Ok(definition.tree.encode())
     }

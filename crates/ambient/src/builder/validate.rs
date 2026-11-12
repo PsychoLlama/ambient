@@ -225,6 +225,13 @@ pub(super) fn check_expr(expr: &Expr) -> Result<(), BuildError> {
             check_expr(body)
         }
         Expr::AbilityId(ability) => check_path(ability),
+        Expr::Budget {
+            steps,
+            allocation,
+            body,
+        } => [steps, allocation, body]
+            .into_iter()
+            .try_for_each(|expr| check_expr(expr)),
         Expr::Group(inner) | Expr::Spawn(inner) | Expr::Boundary(inner) => check_expr(inner),
         Expr::All(branches) | Expr::First(branches) => branches.iter().try_for_each(check_expr),
         Expr::Cell { ty, args, .. } => {

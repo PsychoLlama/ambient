@@ -108,6 +108,11 @@ entries! {
     Spawn = amb_spawn, context, 2, word;
     GroupClose = amb_group_close, context, 2, word;
     GroupEnd = amb_group_end, context, 2, word;
+    BudgetEnter = amb_budget_enter, context, 2, word;
+    BudgetLeave = amb_budget_leave, context, 1, word;
+    BudgetCaught = amb_budget_caught, context, 1, word;
+    Charge = amb_charge, context, 2, word;
+    ChargeSize = amb_charge_size, context, 1, word;
     Contain = amb_contain, context, 0, word;
     Hold = amb_hold, context, 0, word;
     Rethrow = amb_rethrow, context, 1, word;

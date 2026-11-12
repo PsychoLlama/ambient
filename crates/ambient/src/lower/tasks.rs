@@ -21,7 +21,7 @@ impl Lowering {
     }
 
     /// `body`, or, if it unwinds, `recover`.
-    pub(super) fn attempt(body: Expr, recover: Expr) -> Expr {
+    fn attempt(body: Expr, recover: Expr) -> Expr {
         Expr::Try {
             body: Box::new(body),
             recover: Box::new(recover),
@@ -30,9 +30,50 @@ impl Lowering {
         }
     }
 
+    /// A block that does something on every way out of its body.
+    pub(super) fn block(&mut self, expr: &core::Expr) -> Result<Expr, Unsupported> {
+        match expr {
+            core::Expr::Cleanup { cleanup, body } => self.cleanup(cleanup, body),
+            core::Expr::Group(body) => self.group(body),
+            core::Expr::Budget {
+                steps,
+                allocation,
+                body,
+            } => self.budget(steps, allocation, body),
+            core::Expr::Boundary(body) => {
+                Ok(Self::attempt(self.expr(body)?, Expr::Op(Op::Contain)))
+            }
+            other => self.expr(other),
+        }
+    }
+
+    /// A budget's body between entering the budget and leaving it.
+    fn budget(
+        &mut self,
+        steps: &core::Expr,
+        allocation: &core::Expr,
+        body: &core::Expr,
+    ) -> Result<Expr, Unsupported> {
+        self.budgets = true;
+        let mut scope = Scope::default();
+        let steps = self.operand(steps, &mut scope)?;
+        let words = self.operand(allocation, &mut scope)?;
+        let budget = self.temporary();
+        let held = Value::Local(budget);
+        let result = self.temporary();
+        let body = Self::attempt(self.expr(body)?, Expr::Op(Op::BudgetCaught(held)));
+        let leave = self.then(
+            Expr::Op(Op::BudgetLeave(held)),
+            Expr::Op(Op::Copy(Value::Local(result))),
+        );
+        let entered = bind(result, body, leave);
+        let enter = Expr::Op(Op::BudgetEnter { steps, words });
+        Ok(scope.wrap(bind(budget, enter, entered)))
+    }
+
     /// A group's body, then a wait for the tasks spawned in it. If the
     /// body unwinds, they are cancelled and waited for all the same.
-    pub(super) fn group(&mut self, body: &core::Expr) -> Result<Expr, Unsupported> {
+    fn group(&mut self, body: &core::Expr) -> Result<Expr, Unsupported> {
         let group = Value::Local(self.temporary());
         let close = |unwinding| Expr::Op(Op::GroupClose { group, unwinding });
         let end = |held| Expr::Op(Op::GroupEnd { group, held });
@@ -67,11 +108,7 @@ impl Lowering {
         Ok(Op::Spawn { group, thunk })
     }
 
-    pub(super) fn cleanup(
-        &mut self,
-        cleanup: &core::Expr,
-        body: &core::Expr,
-    ) -> Result<Expr, Unsupported> {
+    fn cleanup(&mut self, cleanup: &core::Expr, body: &core::Expr) -> Result<Expr, Unsupported> {
         let mut scope = Scope::default();
         // The cleanup is made first, so that it exists on every way out.
         let callee = self.operand(cleanup, &mut scope)?;

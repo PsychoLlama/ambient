@@ -22,7 +22,10 @@ pub trait Backend {
     /// # Errors
     ///
     /// Returns a message if the backend cannot compile the definition.
-    fn compile(&self, definition: &Open) -> Result<Vec<u8>, String>;
+    ///
+    /// With `metered`, the code charges for what it does, as
+    /// [`crate::lower::lower`] has it.
+    fn compile(&self, definition: &Open, metered: bool) -> Result<Vec<u8>, String>;
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,7 +39,18 @@ impl Engine<'_> {
     /// Fails if the symbol is not a function, does not check, or the backend
     /// refuses it.
     pub fn compile(&self, symbol: &Symbol, backend: &dyn Backend) -> Query<Artifact> {
-        let memo_key = (symbol.clone(), backend.name().to_owned());
+        self.compile_as(symbol, backend, false)
+    }
+
+    /// A function's compiled form for one backend, metered or not. The
+    /// two are different code for one hash.
+    pub(super) fn compile_as(
+        &self,
+        symbol: &Symbol,
+        backend: &dyn Backend,
+        metered: bool,
+    ) -> Query<Artifact> {
+        let memo_key = (symbol.clone(), backend.name().to_owned(), metered);
         memo(&self.compile, &memo_key, || {
             let open = self.check(symbol)?;
             if !matches!(open.tree, Tree::Function(_) | Tree::Extern { .. }) {
@@ -45,6 +59,7 @@ impl Engine<'_> {
 
             let mut key = Hasher::new("compile");
             key.bytes(backend.name().as_bytes());
+            key.bytes(&[u8::from(metered)]);
             key.bytes(&open.tree.encode());
             for slot in &open.slots {
                 key.hash(&self.interface(slot)?.digest);
@@ -52,7 +67,7 @@ impl Engine<'_> {
 
             self.stage(Stage::Compile, symbol, key.finish(), || {
                 backend
-                    .compile(&open)
+                    .compile(&open, metered)
                     .map(Artifact)
                     .map_err(|message| Error::Backend {
                         symbol: symbol.clone(),

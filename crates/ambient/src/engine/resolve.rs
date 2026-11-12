@@ -314,23 +314,11 @@ impl Resolver<'_> {
             }
             Expr::AbilityId(ability) => Expr::AbilityId(self.ability(ability)?),
             Expr::Group(body) => Expr::Group(Box::new(self.expr(body)?)),
+            Expr::Budget { .. } | Expr::Cleanup { .. } | Expr::Cell { .. } => self.block(expr)?,
             Expr::Boundary(body) => Expr::Boundary(Box::new(self.expr(body)?)),
             Expr::Spawn(task) => Expr::Spawn(Box::new(self.expr(task)?)),
-            Expr::Cleanup { cleanup, body } => Expr::Cleanup {
-                cleanup: Box::new(self.expr(cleanup)?),
-                body: Box::new(self.expr(body)?),
-            },
             Expr::All(branches) => Expr::All(self.exprs(branches)?),
             Expr::First(branches) => Expr::First(self.exprs(branches)?),
-            Expr::Cell {
-                operation,
-                ty,
-                args,
-            } => Expr::Cell {
-                operation: *operation,
-                ty: ty.as_ref().map(|ty| self.ty(ty)).transpose()?,
-                args: self.exprs(args)?,
-            },
             Expr::Provide { bundle, only, body } => {
                 let bundle = Box::new(self.expr(bundle)?);
                 // The binder a provide holds its bundle in. It has no name.
@@ -359,6 +347,36 @@ impl Resolver<'_> {
         Ok(match key {
             Key::Field(name) => Key::Field(name.clone()),
             Key::Ability(path) => Key::Ability(self.ability(path)?),
+        })
+    }
+
+    /// A budget, a cleanup, or a cell operation: each resolves what it
+    /// holds and binds nothing.
+    fn block(&mut self, expr: &Expr) -> Result<Expr<Reference>, Error> {
+        Ok(match expr {
+            Expr::Budget {
+                steps,
+                allocation,
+                body,
+            } => Expr::Budget {
+                steps: Box::new(self.expr(steps)?),
+                allocation: Box::new(self.expr(allocation)?),
+                body: Box::new(self.expr(body)?),
+            },
+            Expr::Cleanup { cleanup, body } => Expr::Cleanup {
+                cleanup: Box::new(self.expr(cleanup)?),
+                body: Box::new(self.expr(body)?),
+            },
+            Expr::Cell {
+                operation,
+                ty,
+                args,
+            } => Expr::Cell {
+                operation: *operation,
+                ty: ty.as_ref().map(|ty| self.ty(ty)).transpose()?,
+                args: self.exprs(args)?,
+            },
+            other => self.expr(other)?,
         })
     }
 

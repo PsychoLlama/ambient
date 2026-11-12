@@ -54,9 +54,9 @@ impl Backend for Native {
         "native"
     }
 
-    fn compile(&self, definition: &Open) -> Result<Vec<u8>, String> {
-        let function =
-            lower(definition).map_err(|error| format!("{} are not compiled yet", error.0))?;
+    fn compile(&self, definition: &Open, metered: bool) -> Result<Vec<u8>, String> {
+        let function = lower(definition, metered)
+            .map_err(|error| format!("{} are not compiled yet", error.0))?;
         if function.params > MAX_ARITY {
             return Err(format!("more than {MAX_ARITY} parameters"));
         }

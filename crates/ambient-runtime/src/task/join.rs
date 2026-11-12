@@ -39,6 +39,7 @@ unsafe fn join(context: *mut Context, thunks: Word, first: bool) -> Word {
         let parent = scheduler.current;
         let join = scheduler.joins.len();
         let thunks = words(thunks);
+        let budget = scheduler.task(parent).budget;
         let mut children = Vec::new();
         for (place, thunk) in thunks.iter().enumerate() {
             amb_retain(*thunk);
@@ -46,6 +47,7 @@ unsafe fn join(context: *mut Context, thunks: Word, first: bool) -> Word {
             scheduler.tasks.push(Some(Task {
                 thunk: *thunk,
                 place: Some((join, place)),
+                budget,
                 ..Task::default()
             }));
             scheduler.queue(id);

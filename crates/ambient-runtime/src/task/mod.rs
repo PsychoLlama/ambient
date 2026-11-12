@@ -13,11 +13,15 @@
 //! Scheduling is first come, first served, on one thread, so a run is
 //! reproducible.
 
+mod budget;
 mod group;
 mod join;
 
 use std::collections::VecDeque;
 
+pub use budget::{
+    amb_budget_caught, amb_budget_enter, amb_budget_leave, amb_charge, amb_charge_size,
+};
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
 pub use join::{amb_all, amb_first};
 
@@ -62,6 +66,8 @@ struct Task {
     join: Option<usize>,
     /// The cell it is waiting on.
     cell: Option<Word>,
+    /// The innermost budget it runs inside.
+    budget: Option<usize>,
 }
 
 /// Tasks started together, and what has come of them.
@@ -94,6 +100,8 @@ pub(crate) struct Scheduler {
     joins: Vec<Option<Join>>,
     ready: VecDeque<usize>,
     current: usize,
+    /// Every budget entered, by the number compiled code knows it by.
+    budgets: Vec<budget::Budget>,
     /// Whether every task was once found waiting on something that would
     /// never happen. From then on nothing holds cancellation off.
     stalled: bool,
@@ -106,6 +114,7 @@ impl Scheduler {
             joins: Vec::new(),
             ready: VecDeque::new(),
             current: ROOT,
+            budgets: Vec::new(),
             stalled: false,
         }
     }

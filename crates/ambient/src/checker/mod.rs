@@ -393,16 +393,15 @@ impl<'a> Checker<'a> {
             Expr::Observe { observer, body } => self.observe(observer, body)?,
             Expr::Cleanup { cleanup, body } => self.cleanup(cleanup, body)?,
             Expr::Group(body) => self.group(body)?,
+            Expr::Budget {
+                steps,
+                allocation,
+                body,
+            } => self.budget(steps, allocation, body)?,
             Expr::Boundary(body) => self.boundary(body)?,
             Expr::Spawn(task) => self.spawn(task)?,
-            Expr::All(branches) => {
-                let (thunks, results) = self.tasks(branches)?;
-                (core::Expr::All(thunks), Ty::Tuple(results))
-            }
-            Expr::First(branches) => {
-                let (thunks, results) = self.tasks(branches)?;
-                (core::Expr::First(thunks), self.env.union(results))
-            }
+            Expr::All(branches) => self.join(branches, false)?,
+            Expr::First(branches) => self.join(branches, true)?,
             Expr::Cell {
                 operation,
                 ty,

@@ -26,6 +26,25 @@ fn error() -> Ty {
 }
 
 impl Checker<'_> {
+    /// A budget gives what its body does, or the limit that ran out, as
+    /// a tag.
+    pub(super) fn budget(
+        &mut self,
+        steps: &Expr<Reference>,
+        allocation: &Expr<Reference>,
+        body: &Expr<Reference>,
+    ) -> Result<(core::Expr, Ty), Error> {
+        let steps = self.check(steps, &Ty::Int)?;
+        let allocation = self.check(allocation, &Ty::Int)?;
+        let (body, ty) = self.infer(body)?;
+        let node = core::Expr::Budget {
+            steps: Box::new(steps),
+            allocation: Box::new(allocation),
+            body: Box::new(body),
+        };
+        Ok((node, self.env.union(vec![ty, Ty::Tag])))
+    }
+
     pub(super) fn boundary(&mut self, body: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {
         let (body, ty) = self.infer(body)?;
         let ty = self.env.union(vec![ty, self.env.normalize(&error())]);
@@ -36,10 +55,7 @@ impl Checker<'_> {
     /// runs as a task, and is a function that takes
     /// nothing, so it captures what it uses, bindings included, where the
     /// expression is written.
-    pub(super) fn tasks(
-        &mut self,
-        branches: &[Expr<Reference>],
-    ) -> Result<(Vec<core::Expr>, Vec<Ty>), Error> {
+    fn tasks(&mut self, branches: &[Expr<Reference>]) -> Result<(Vec<core::Expr>, Vec<Ty>), Error> {
         let mut thunks = Vec::new();
         let mut results = Vec::new();
         for branch in branches {
@@ -68,6 +84,21 @@ impl Checker<'_> {
             body: Box::new(body),
         };
         Ok((node, ty))
+    }
+
+    /// An all is the tuple of what its branches give; a first is any one
+    /// of them.
+    pub(super) fn join(
+        &mut self,
+        branches: &[Expr<Reference>],
+        first: bool,
+    ) -> Result<(core::Expr, Ty), Error> {
+        let (thunks, results) = self.tasks(branches)?;
+        Ok(if first {
+            (core::Expr::First(thunks), self.env.union(results))
+        } else {
+            (core::Expr::All(thunks), Ty::Tuple(results))
+        })
     }
 
     pub(super) fn group(&mut self, body: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {

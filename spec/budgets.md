@@ -9,6 +9,9 @@ A budget bounds how much work and allocation a body may do, and enforces the bou
 - Exhaustion unwinds the body as [cancellation](tasks.md) does: cleanups run, and the body cannot observe or intercept it.
 - Exhaustion is neither a [fault](values.md) nor an ability.
 - A charge inside a nested budget counts against every budget enclosing it.
+- The limit a budget yields is a [tag](definitions.md) of the language's own package.
+- An operation is charged before it happens, so a budget that cannot afford one never performs it.
+- TODO: a cleanup that runs because its budget ran out is charged against that budget too, so it ends at its first charge and can release nothing.
 
 ## Charges
 

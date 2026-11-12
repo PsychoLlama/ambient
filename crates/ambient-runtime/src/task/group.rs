@@ -50,11 +50,13 @@ pub unsafe extern "C" fn amb_spawn(context: *mut Context, group: Word, thunk: Wo
         members.remaining += 1;
         // A group that is already stopping starts nothing more.
         let cancelled = members.closing || members.failure.is_some();
+        let budget = scheduler.current().budget;
         amb_retain(thunk);
         scheduler.tasks.push(Some(Task {
             thunk,
             place: Some((join, place)),
             cancelled,
+            budget,
             ..Task::default()
         }));
         scheduler.queue(id);
