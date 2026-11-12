@@ -7,6 +7,7 @@
 mod abilities;
 mod patterns;
 mod resume;
+mod tasks;
 
 use ambient_runtime::{SMALL_MAX, SMALL_MIN};
 
@@ -96,11 +97,12 @@ fn renumber(expr: &mut Expr, base: usize) {
     };
     match expr {
         Expr::Op(op) => match op {
-            Op::Int(_) | Op::Float(_) | Op::Slot(_) | Op::Token => {}
+            Op::Int(_) | Op::Float(_) | Op::Slot(_) | Op::Token | Op::Hold | Op::Cleanup(_) => {}
             Op::Copy(operand)
             | Op::IsRecord(operand)
             | Op::Expire(operand)
             | Op::Caught(operand)
+            | Op::Rethrow(operand)
             | Op::All(operand)
             | Op::First(operand) => {
                 value(operand);
@@ -265,6 +267,7 @@ impl Lowering {
                 args,
                 returns,
             } => self.perform(*ability, args, *returns, &mut scope)?,
+            core::Expr::Cleanup { cleanup, body } => return self.cleanup(cleanup, body),
             core::Expr::All(thunks) => Op::All(self.thunks(thunks, &mut scope)?),
             core::Expr::First(thunks) => Op::First(self.thunks(thunks, &mut scope)?),
             core::Expr::Provide {

@@ -129,7 +129,11 @@ impl<N> Expr<N> {
                 bundle.names(visit);
                 body.names(visit);
             }
-            Self::Observe { observer, body } => {
+            Self::Observe { observer, body }
+            | Self::Cleanup {
+                cleanup: observer,
+                body,
+            } => {
                 observer.names(visit);
                 body.names(visit);
             }
@@ -205,6 +209,7 @@ impl<N> Expr<N> {
             Self::Perform { args, .. } => all(args),
             Self::Provide { bundle, body, .. } => bundle.binders() + 1 + body.binders(),
             Self::Observe { observer, body } => observer.binders() + 1 + body.binders(),
+            Self::Cleanup { cleanup, body } => cleanup.binders() + body.binders(),
             Self::All(exprs) | Self::First(exprs) | Self::Cell { args: exprs, .. } => all(exprs),
             Self::Comptime(call) => call.binders(),
             Self::Cast {
@@ -262,7 +267,11 @@ impl<N> Expr<N> {
                 visit(bundle);
                 visit(body);
             }
-            Self::Observe { observer, body } => {
+            Self::Observe { observer, body }
+            | Self::Cleanup {
+                cleanup: observer,
+                body,
+            } => {
                 visit(observer);
                 visit(body);
             }

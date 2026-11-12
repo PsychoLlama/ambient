@@ -284,18 +284,7 @@ impl Resolver<'_> {
                 left: Box::new(self.expr(left)?),
                 right: Box::new(self.expr(right)?),
             },
-            Expr::Let { name, value, body } => {
-                let value = Box::new(self.expr(value)?);
-                let scope = self.locals.len();
-                self.bind(name);
-                let body = Box::new(self.expr(body)?);
-                self.locals.truncate(scope);
-                Expr::Let {
-                    name: name.clone(),
-                    value,
-                    body,
-                }
-            }
+            Expr::Let { name, value, body } => self.let_(name, value, body)?,
             Expr::Binary {
                 operator,
                 left,
@@ -323,6 +312,10 @@ impl Resolver<'_> {
                 }
             }
             Expr::AbilityId(ability) => Expr::AbilityId(self.ability(ability)?),
+            Expr::Cleanup { cleanup, body } => Expr::Cleanup {
+                cleanup: Box::new(self.expr(cleanup)?),
+                body: Box::new(self.expr(body)?),
+            },
             Expr::All(branches) => Expr::All(self.exprs(branches)?),
             Expr::First(branches) => Expr::First(self.exprs(branches)?),
             Expr::Cell {
@@ -362,6 +355,20 @@ impl Resolver<'_> {
         Ok(match key {
             Key::Field(name) => Key::Field(name.clone()),
             Key::Ability(path) => Key::Ability(self.ability(path)?),
+        })
+    }
+
+    /// A binding, in scope for its body and not for its value.
+    fn let_(&mut self, name: &str, value: &Expr, body: &Expr) -> Result<Expr<Reference>, Error> {
+        let value = Box::new(self.expr(value)?);
+        let scope = self.locals.len();
+        self.bind(name);
+        let body = Box::new(self.expr(body)?);
+        self.locals.truncate(scope);
+        Ok(Expr::Let {
+            name: name.to_owned(),
+            value,
+            body,
         })
     }
 

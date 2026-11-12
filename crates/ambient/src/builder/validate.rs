@@ -215,7 +215,11 @@ pub(super) fn check_expr(expr: &Expr) -> Result<(), BuildError> {
             check_expr(bundle)?;
             check_expr(body)
         }
-        Expr::Observe { observer, body } => {
+        Expr::Observe { observer, body }
+        | Expr::Cleanup {
+            cleanup: observer,
+            body,
+        } => {
             check_expr(observer)?;
             check_expr(body)
         }

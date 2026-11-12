@@ -30,6 +30,7 @@
 
 mod abort;
 mod cell;
+mod cleanup;
 mod closure;
 mod entry;
 mod host;
@@ -44,6 +45,7 @@ mod text;
 
 pub use abort::*;
 pub use cell::*;
+pub use cleanup::*;
 pub use closure::*;
 pub use entry::Entry;
 pub use host::*;
@@ -90,6 +92,8 @@ pub enum Fault {
     /// sees this only when every task was waiting for something that
     /// would never happen.
     Cancelled = 6,
+    /// A cleanup aborted to a provide outside it.
+    CleanupAbort = 7,
 }
 
 impl Fault {
@@ -102,6 +106,7 @@ impl Fault {
             4 => Self::Abort,
             5 => Self::Native,
             6 => Self::Cancelled,
+            7 => Self::CleanupAbort,
             _ => Self::None,
         }
     }

@@ -105,6 +105,14 @@ pub enum Op {
     /// arguments if the unwinding was an abort to it, and goes on
     /// unwinding if not.
     Caught(Value),
+    /// For a block that unwound and has a cleanup to run: ends the
+    /// unwinding, and is it, as a value to go on with later.
+    Hold,
+    /// Goes on with an unwinding that was held.
+    Rethrow(Value),
+    /// Entering or leaving a cleanup whose block completed. Leaving one
+    /// that failed unwinds.
+    Cleanup(Cleanup),
     /// Runs each of the closures in a tuple as a task, and is the tuple of
     /// their results.
     All(Value),
@@ -118,6 +126,15 @@ pub enum Op {
         bindings: Value,
         args: Value,
     },
+}
+
+/// A moment in the cleanup of a block that completed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cleanup {
+    Enter,
+    Leave,
+    /// The cleanup unwound.
+    Failed,
 }
 
 /// One argument of a call into the runtime.
@@ -157,7 +174,9 @@ impl Op {
             | Self::Caught(_)
             | Self::Native { .. }
             | Self::All(_)
-            | Self::First(_) => true,
+            | Self::First(_)
+            | Self::Rethrow(_)
+            | Self::Cleanup(Cleanup::Failed) => true,
             Self::Primitive { operation, .. } => matches!(
                 operation,
                 Primitive::IntAdd
@@ -249,6 +268,16 @@ impl Op {
                 vec![step(Entry::Abort, [value(token), value(args)])]
             }
             Self::Caught(token) => vec![step(Entry::Caught, [value(token)])],
+            Self::Hold => vec![step(Entry::Hold, [])],
+            Self::Rethrow(held) => vec![step(Entry::Rethrow, [value(held)])],
+            Self::Cleanup(moment) => {
+                let entry = match moment {
+                    Cleanup::Enter => Entry::CleanupEnter,
+                    Cleanup::Leave => Entry::CleanupLeave,
+                    Cleanup::Failed => Entry::CleanupFailed,
+                };
+                vec![step(entry, [])]
+            }
             Self::All(thunks) => vec![step(Entry::All, [value(thunks)])],
             Self::First(thunks) => vec![step(Entry::First, [value(thunks)])],
             Self::Native {

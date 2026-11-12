@@ -13,6 +13,9 @@ A cleanup is code registered in a block to run when that block exits, by any rou
 - A cleanup runs to completion: cancellation is not delivered inside one.
 - An abort that leaves a cleanup is a fault.
 - A fault inside a cleanup does not stop the cleanups still to run.
+- A cleanup that fails while its block is unwinding does not change where the unwinding goes: the abort, cancellation, or fault that was under way continues, and the cleanup's own failure is dropped.
+- A fault in the cleanup of a block that completed unwinds from that block.
+- A cleanup that is still waiting when a program [stalls](tasks.md) is cancelled like any other code.
 
 ## Limits
 

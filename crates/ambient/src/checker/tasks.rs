@@ -1,4 +1,5 @@
-//! Tasks and cells. See `spec/tasks.md` and `spec/cells.md`.
+//! Tasks, cells, and cleanups. See `spec/tasks.md`, `spec/cells.md`, and
+//! `spec/cleanup.md`.
 
 use super::Checker;
 use crate::core::{self, Primitive};
@@ -26,6 +27,23 @@ impl Checker<'_> {
             });
         }
         Ok((thunks, results))
+    }
+
+    /// A cleanup is a function that takes nothing, made before the body
+    /// runs: it has what is bound where it is registered, whatever the
+    /// body's exit goes through. What it gives is dropped.
+    pub(super) fn cleanup(
+        &mut self,
+        cleanup: &Expr<Reference>,
+        body: &Expr<Reference>,
+    ) -> Result<(core::Expr, Ty), Error> {
+        let (cleanup, _) = self.lambda(&[], &[], cleanup, None)?;
+        let (body, ty) = self.infer(body)?;
+        let node = core::Expr::Cleanup {
+            cleanup: Box::new(cleanup),
+            body: Box::new(body),
+        };
+        Ok((node, ty))
     }
 
     pub(super) fn cell(

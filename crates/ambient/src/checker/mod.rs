@@ -387,6 +387,7 @@ impl<'a> Checker<'a> {
             Expr::Perform { ability, args } => self.perform(ability, args)?,
             Expr::Provide { bundle, only, body } => self.provide(bundle, *only, body)?,
             Expr::Observe { observer, body } => self.observe(observer, body)?,
+            Expr::Cleanup { cleanup, body } => self.cleanup(cleanup, body)?,
             Expr::All(branches) => {
                 let (thunks, results) = self.tasks(branches)?;
                 (core::Expr::All(thunks), Ty::Tuple(results))

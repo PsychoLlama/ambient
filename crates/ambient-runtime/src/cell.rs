@@ -2,7 +2,7 @@
 
 use crate::number::equal;
 use crate::object::{KIND_CELL, amb_release, amb_retain, boolean, fault, object, words};
-use crate::task::{arriving, cancelled, suspend, wait_on, wake};
+use crate::task::{arriving, interrupted, suspend, wait_on, wake};
 use crate::{Context, Fault, NULL, Word};
 
 /// A cell that holds `value`.
@@ -51,7 +51,9 @@ pub unsafe extern "C" fn amb_cell_replace(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_cell_wait(context: *mut Context, cell: Word, seen: Word) -> Word {
     unsafe {
-        if arriving(context) && cancelled(context) {
+        // Arriving or not, a cancelled task unwinds from here.
+        arriving(context);
+        if interrupted(context) {
             return fault(context, Fault::Cancelled);
         }
         if !equal(words(cell)[0], seen) {

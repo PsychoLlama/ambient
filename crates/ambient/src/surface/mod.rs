@@ -301,6 +301,12 @@ pub enum Expr<N = Path> {
         ability: N,
         args: Vec<Expr<N>>,
     },
+    /// Evaluates `body`, and then `cleanup`, however `body` ended. Is what
+    /// `body` gave. See `spec/cleanup.md`.
+    Cleanup {
+        cleanup: Box<Expr<N>>,
+        body: Box<Expr<N>>,
+    },
     /// Evaluates each expression as a task, and is the tuple of their
     /// results once every one is over.
     All(Vec<Expr<N>>),

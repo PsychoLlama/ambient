@@ -186,6 +186,15 @@ pub fn using_only(bundle: Expr, body: Expr) -> Expr {
     }
 }
 
+/// Evaluates `body`, and then `cleanup`, however `body` ended.
+#[must_use]
+pub fn cleanup(cleanup: Expr, body: Expr) -> Expr {
+    Expr::Cleanup {
+        cleanup: Box::new(cleanup),
+        body: Box::new(body),
+    }
+}
+
 /// Evaluates each expression as a task, and is the tuple of their results
 /// once every one is over.
 pub fn all(branches: impl IntoIterator<Item = Expr>) -> Expr {

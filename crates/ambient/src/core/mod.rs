@@ -149,6 +149,12 @@ pub enum Expr {
         captures: Vec<Expr>,
         bindings: Vec<Slot>,
     },
+    /// Evaluates `body`, then calls `cleanup`, a closure that takes
+    /// nothing, however `body` ended. Is what `body` gave.
+    Cleanup {
+        cleanup: Box<Expr>,
+        body: Box<Expr>,
+    },
     /// Runs each of these, closures that take nothing, as a task, and is
     /// the tuple of their results once every one is over.
     All(Vec<Expr>),

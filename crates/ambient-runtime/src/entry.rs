@@ -104,6 +104,11 @@ entries! {
     FrameDrop = amb_frame_drop, context, 0, nothing;
     All = amb_all, context, 1, word;
     First = amb_first, context, 1, word;
+    Hold = amb_hold, context, 0, word;
+    Rethrow = amb_rethrow, context, 1, word;
+    CleanupEnter = amb_cleanup_enter, context, 0, word;
+    CleanupLeave = amb_cleanup_leave, context, 0, word;
+    CleanupFailed = amb_cleanup_failed, context, 0, word;
     CellNew = amb_cell_new, plain, 1, word;
     CellRead = amb_cell_read, plain, 1, word;
     CellReplace = amb_cell_replace, context, 3, word;

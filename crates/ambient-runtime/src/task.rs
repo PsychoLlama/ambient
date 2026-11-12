@@ -44,6 +44,8 @@ struct Task {
     thunk: Word,
     started: bool,
     cancelled: bool,
+    /// How many cleanups it is inside. Cancellation waits for them.
+    masked: usize,
     /// Whether it is waiting its turn.
     queued: bool,
     /// The join it was started by, and its place there.
@@ -79,6 +81,9 @@ pub(crate) struct Scheduler {
     joins: Vec<Option<Join>>,
     ready: VecDeque<usize>,
     current: usize,
+    /// Whether every task was once found waiting on something that would
+    /// never happen. From then on nothing holds cancellation off.
+    stalled: bool,
 }
 
 impl Scheduler {
@@ -88,6 +93,7 @@ impl Scheduler {
             joins: Vec::new(),
             ready: VecDeque::new(),
             current: ROOT,
+            stalled: false,
         }
     }
 
@@ -215,9 +221,23 @@ pub(crate) unsafe fn suspend(context: *mut Context) -> Word {
     UNWIND
 }
 
-/// Whether the current task has been cancelled.
-pub(crate) unsafe fn cancelled(context: *mut Context) -> bool {
-    unsafe { scheduler(context) }.current().cancelled
+/// Whether the current task is to unwind where it is: it has been
+/// cancelled, and is not inside a cleanup.
+pub(crate) unsafe fn interrupted(context: *mut Context) -> bool {
+    let scheduler = unsafe { scheduler(context) };
+    let stalled = scheduler.stalled;
+    let task = scheduler.current();
+    task.cancelled && (task.masked == 0 || stalled)
+}
+
+/// Notes that the current task has entered a cleanup, or left one.
+pub(crate) unsafe fn mask(context: *mut Context, entering: bool) {
+    let task = unsafe { scheduler(context) }.current();
+    task.masked = if entering {
+        task.masked + 1
+    } else {
+        task.masked.saturating_sub(1)
+    };
 }
 
 /// Makes the current task wait on `cell`, or stop waiting.
@@ -265,6 +285,9 @@ unsafe fn join(context: *mut Context, thunks: Word, first: bool) -> Word {
         if arriving(context) {
             return joined(context);
         }
+        if interrupted(context) {
+            return fault(context, Fault::Cancelled);
+        }
         let scheduler = scheduler(context);
         let parent = scheduler.current;
         let join = scheduler.joins.len();
@@ -308,6 +331,10 @@ unsafe fn joined(context: *mut Context) -> Word {
         let unfinished = scheduler.joins[id]
             .as_ref()
             .is_some_and(|join| join.remaining > 0);
+        if unfinished && !interrupted(context) {
+            // It was cancelled inside a cleanup, which goes on waiting.
+            return suspend(context);
+        }
         if unfinished {
             // Only cancellation wakes a task whose tasks are not over. It
             // cannot leave before they have, so it passes it on and waits.
@@ -327,7 +354,7 @@ unsafe fn joined(context: *mut Context) -> Word {
             return fault(context, Fault::Cancelled);
         };
         let failure = match join.failure {
-            _ if scheduler.current().cancelled => Some(Fault::Cancelled as u64),
+            _ if interrupted(context) => Some(Fault::Cancelled as u64),
             Some(failure) => {
                 (*context).abort_token = failure.token;
                 (*context).abort_args = failure.args;
@@ -372,6 +399,7 @@ pub unsafe extern "C" fn amb_schedule(context: *mut Context) {
         loop {
             let scheduler = scheduler(context);
             let id = scheduler.ready.pop_front().unwrap_or_else(|| {
+                scheduler.stalled = true;
                 scheduler.task(ROOT).cancelled = true;
                 ROOT
             });
