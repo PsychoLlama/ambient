@@ -48,14 +48,26 @@ impl Body<'_, '_> {
                 env.union(vec![ty, env.normalize(&error())])
             }
             Expr::Group(body) => {
-                self.groups += 1;
+                self.groups.push(self.layers.len());
                 let ty = self.infer(body);
-                self.groups -= 1;
+                self.groups.pop();
                 ty?
             }
             Expr::Spawn(task) => {
-                if self.groups == 0 {
+                let Some(group) = self.groups.last().copied() else {
                     return shape("a task is spawned outside every group");
+                };
+                // The task may outlast anything bound inside its group.
+                if let Expr::Closure { bindings, .. } = &**task {
+                    let inside = &self.layers[group..];
+                    for ability in verifier.row(bindings)? {
+                        if inside
+                            .iter()
+                            .any(|layer| layer.abilities.contains(&ability))
+                        {
+                            return shape("a task takes what is bound inside its group");
+                        }
+                    }
                 }
                 self.thunk(task)?;
                 Ty::Null

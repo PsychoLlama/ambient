@@ -27,8 +27,9 @@ pub(super) struct Body<'v, 'a> {
     pub(super) locals: Vec<Option<Ty>>,
     /// What binds abilities here, innermost last.
     pub(super) layers: Vec<Layer>,
-    /// How many groups this is inside of.
-    pub(super) groups: usize,
+    /// The groups this is inside of, innermost last: each as how many
+    /// layers there were where it began.
+    pub(super) groups: Vec<usize>,
 }
 
 impl Verifier<'_> {
@@ -50,7 +51,7 @@ impl Verifier<'_> {
                 abilities: bound,
                 only: false,
             }],
-            groups: 0,
+            groups: Vec::new(),
         };
         body.check(&function.body, &ret)
     }

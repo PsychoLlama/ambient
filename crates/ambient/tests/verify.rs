@@ -199,6 +199,45 @@ fn a_task_spawned_outside_every_group_is_refused() {
 }
 
 #[test]
+fn a_task_that_takes_what_is_bound_inside_its_group_is_refused() {
+    // `provide ask { group { spawn(ask()) } }`: the task takes `ask`
+    // from outside its group.
+    let task = b::group(b::spawn(b::perform("ask", [])));
+    let body = b::provide([("ask", b::lambda([], b::int(7)))], task);
+    let module = b::module()
+        .define(b::ability("ask", "ask").returns(ty::int()))
+        .define(b::function("main").returns(ty::unknown()).body(body));
+    let workspace = workspace([("app", "main", module)]);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let mut open = (*engine.check(&value("main", "main")).unwrap()).clone();
+    let verified =
+        |open: &ambient::core::Open| verify(open, false, &|symbol| engine.check(symbol).ok());
+    assert_eq!(verified(&open), Ok(()));
+
+    // The same with the group outside the provide.
+    let Tree::Function(function) = &mut open.tree else {
+        panic!("not a function")
+    };
+    // The bundle is bound first; the provide is under that.
+    let mut at = &mut function.body;
+    while let Expr::Let { body, .. } = at {
+        at = body;
+    }
+    let Expr::Provide { body, .. } = at else {
+        panic!("not a provide")
+    };
+    let Expr::Group(inner) = std::mem::replace(&mut **body, Expr::Null) else {
+        panic!("not a group")
+    };
+    **body = *inner;
+    let provide = std::mem::replace(at, Expr::Null);
+    *at = Expr::Group(Box::new(provide));
+
+    assert!(matches!(verified(&open), Err(Invalid::Shape(_))));
+}
+
+#[test]
 fn only_a_root_names_a_native_handler() {
     let module = b::module()
         .define(b::ability("ask", "ask").returns(ty::int()))
