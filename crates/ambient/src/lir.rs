@@ -41,6 +41,9 @@ pub enum Constant {
     String(String),
     /// A field name, as the key records are indexed by.
     Field(String),
+    /// A type, as the descriptor a value is tested against. Its slots are
+    /// those of the definition it is a constant of.
+    Type(crate::core::Type),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,6 +80,8 @@ pub enum Op {
     IsRecord(Value),
     /// Whether a value is a tuple of exactly this length.
     IsTuple { value: Value, length: usize },
+    /// Whether a type, a [`Constant::Type`], describes a value.
+    Is { value: Value, ty: usize },
 }
 
 /// One argument of a call into the runtime.
@@ -175,6 +180,7 @@ impl Op {
                 vec![step(Entry::RecordHas, [value(subject), key(field)])]
             }
             Self::IsRecord(subject) => vec![step(Entry::RecordIs, [value(subject)])],
+            Self::Is { value: subject, ty } => vec![step(Entry::Is, [value(subject), key(ty)])],
             Self::IsTuple {
                 value: subject,
                 length,

@@ -466,3 +466,153 @@ fn overflow_typed(lambda: Expr) -> Expr {
         other => other,
     }
 }
+
+/// `fn hide(v: unknown): unknown`, so that a cast has something to do.
+fn hide() -> Definition {
+    b::function("hide")
+        .param("v", ty::unknown())
+        .returns(ty::unknown())
+        .body(b::name("v"))
+}
+
+/// Whether a value, seen as `unknown`, casts to `ty`.
+fn casts(extra: &[Definition], value: Expr, ty: Type) -> bool {
+    let hidden = b::call(b::name("hide"), [value]);
+    let body = b::match_(
+        b::cast(hidden, ty, b::string("no")),
+        [
+            (pat::string("no"), b::boolean(false)),
+            (pat::any(), b::boolean(true)),
+        ],
+    );
+    let mut definitions = extra.to_vec();
+    definitions.extend([hide(), main(ty::bool(), body)]);
+    run(definitions, &[]).unwrap() == Value::Bool(true)
+}
+
+#[test]
+fn a_cast_tests_a_value_by_its_shape() {
+    assert!(casts(&[], b::int(1), ty::int()));
+    assert!(casts(&[], b::int(i64::MAX), ty::int()));
+    assert!(!casts(&[], b::float(1.0), ty::int()));
+    assert!(casts(&[], b::float(1.0), ty::float()));
+    assert!(casts(&[], b::null(), ty::null()));
+    assert!(casts(&[], b::boolean(false), ty::bool()));
+    assert!(!casts(&[], b::int(0), ty::bool()));
+    assert!(casts(&[], b::list([]), ty::unknown()));
+}
+
+#[test]
+fn a_cast_to_a_literal_type_compares_the_value() {
+    let either = || ty::union([ty::text("a"), ty::integer(1)]);
+
+    assert!(casts(&[], b::string("a"), either()));
+    assert!(casts(&[], b::int(1), either()));
+    assert!(!casts(&[], b::string("b"), either()));
+    assert!(!casts(&[], b::int(2), either()));
+    assert!(casts(&[], b::boolean(true), ty::boolean(true)));
+    assert!(!casts(&[], b::boolean(false), ty::boolean(true)));
+}
+
+#[test]
+fn a_cast_looks_inside_structure() {
+    let named = || ty::record([("name", ty::string())]);
+    let person = b::record([("name", b::string("a")), ("age", b::int(1))]);
+
+    // More fields than asked for is fine; fewer, or the wrong type, is not.
+    assert!(casts(&[], person, named()));
+    assert!(!casts(&[], b::record([("age", b::int(1))]), named()));
+    assert!(!casts(&[], b::record([("name", b::int(1))]), named()));
+    assert!(!casts(&[], b::string("a"), named()));
+
+    let pair = || ty::tuple([ty::int(), ty::string()]);
+    assert!(casts(&[], b::tuple([b::int(1), b::string("a")]), pair()));
+    assert!(!casts(&[], b::tuple([b::int(1)]), pair()));
+    assert!(!casts(&[], b::list([b::int(1), b::string("a")]), pair()));
+
+    // A tuple is a list of its members.
+    assert!(casts(
+        &[],
+        b::list([b::int(1), b::int(2)]),
+        ty::list(ty::int())
+    ));
+    assert!(casts(
+        &[],
+        b::tuple([b::int(1), b::int(2)]),
+        ty::list(ty::int())
+    ));
+    assert!(!casts(
+        &[],
+        b::list([b::int(1), b::string("a")]),
+        ty::list(ty::int())
+    ));
+}
+
+fn chain(head: Expr, tail: Expr) -> Expr {
+    b::record([("head", head), ("tail", tail)])
+}
+
+#[test]
+fn a_cast_to_a_recursive_type_follows_the_value() {
+    let node = ty::record([("head", ty::int()), ("tail", ty::named("Items"))]);
+    let items = [b::type_("Items", ty::union([ty::null(), node]))];
+    let good = chain(b::int(1), chain(b::int(2), b::null()));
+    let bad = chain(b::int(1), chain(b::string("two"), b::null()));
+
+    assert!(casts(&items, good, ty::named("Items")));
+    assert!(casts(&items, b::null(), ty::named("Items")));
+    assert!(!casts(&items, bad, ty::named("Items")));
+    assert!(!casts(&items, b::int(1), ty::named("Items")));
+}
+
+#[test]
+fn a_cast_to_a_generic_type_applies_its_arguments() {
+    let node = ty::record([
+        ("head", ty::named("T")),
+        ("tail", ty::apply("Items", [ty::named("T")])),
+    ]);
+    let items = [b::generic_type(
+        "Items",
+        ["T"],
+        ty::union([ty::null(), node]),
+    )];
+    let numbers = || chain(b::int(1), chain(b::int(2), b::null()));
+    let of = |member| ty::apply("Items", [member]);
+
+    assert!(casts(&items, numbers(), of(ty::int())));
+    assert!(!casts(&items, numbers(), of(ty::string())));
+    assert!(casts(
+        &items,
+        numbers(),
+        of(ty::union([ty::int(), ty::string()]))
+    ));
+    // An argument that is itself an application.
+    let nested = chain(numbers(), b::null());
+    assert!(casts(&items, nested, of(of(ty::int()))));
+}
+
+#[test]
+fn a_type_test_in_a_match_picks_the_arm() {
+    let describe = b::function("describe")
+        .param("v", ty::union([ty::int(), ty::string(), ty::null()]))
+        .returns(ty::int())
+        .body(b::match_(
+            b::name("v"),
+            [
+                (
+                    pat::bind_as("n", pat::is(ty::int())),
+                    b::add(b::name("n"), b::int(1)),
+                ),
+                (pat::is(ty::null()), b::int(-1)),
+                (pat::any(), b::int(0)),
+            ],
+        ));
+    let call = |value| {
+        let main = main(ty::int(), b::call(b::name("describe"), [value]));
+        run([describe.clone(), main], &[]).unwrap()
+    };
+
+    assert_eq!(call(b::int(41)), Value::Int(42));
+    assert_eq!(call(b::null()), Value::Int(-1));
+    assert_eq!(call(b::string("a")), Value::Int(0));
+}

@@ -36,6 +36,14 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 - There is one runtime, compiled for each backend; a backend supplies none of its own.
 - Compiled code reaches the runtime and other definitions only through tables it is handed, so an [artifact](build.md) is position-independent and never patched.
 
+## Types at run time
+
+- A type a [cast](types.md) or type test names exists at run time as a descriptor: data, laid out when a program is loaded.
+- A recursive type definition has one descriptor, which the descriptors that name it refer to.
+- No value carries a type; a descriptor is consulted only where a cast is written.
+- TODO: a function value carries no signature yet, so a cast to a function type is not compiled.
+- TODO: a cast to a type parameter is not compiled; it needs the type argument passed at run time.
+
 ## Calls
 
 - Every function is called the same way, whether it is named, a lambda, or a value whose definition is unknown at the call.

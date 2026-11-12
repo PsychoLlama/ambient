@@ -72,7 +72,9 @@ fn renumber(expr: &mut Expr, base: usize) {
             Op::Record(fields) => fields.iter_mut().for_each(|(_, member)| value(member)),
             Op::Field { record, .. } => value(record),
             Op::Member { tuple, .. } => value(tuple),
-            Op::HasField { value: subject, .. } | Op::IsTuple { value: subject, .. } => {
+            Op::HasField { value: subject, .. }
+            | Op::IsTuple { value: subject, .. }
+            | Op::Is { value: subject, .. } => {
                 value(subject);
             }
         },
@@ -209,7 +211,17 @@ impl Lowering {
                 let subject = self.operand(subject, &mut scope)?;
                 return Ok(scope.wrap(self.matching(subject, arms)?));
             }
-            core::Expr::Cast { .. } => return Err(Unsupported("casts")),
+            core::Expr::Cast {
+                value,
+                ty,
+                otherwise,
+            } => {
+                let value = self.operand(value, &mut scope)?;
+                let test = self.is(value, ty)?;
+                let otherwise = self.expr(otherwise)?;
+                let kept = Expr::Op(Op::Copy(value));
+                return Ok(scope.wrap(self.branch(test, kept, otherwise)));
+            }
         };
         Ok(scope.wrap(Expr::Op(op)))
     }
@@ -351,8 +363,20 @@ impl Lowering {
                 }
                 self.all(tests)
             }
-            Pattern::Is(_) => return Err(Unsupported("type tests")),
+            Pattern::Is(ty) => Some(self.is(subject, ty)?),
         })
+    }
+
+    /// An expression that is true when `ty` describes `value`.
+    fn is(&mut self, value: Value, ty: &core::Type) -> Result<Expr, Unsupported> {
+        if mentions(ty, &|ty| matches!(ty, core::Type::Parameter(_))) {
+            return Err(Unsupported("tests against a type parameter"));
+        }
+        if mentions(ty, &|ty| matches!(ty, core::Type::Function { .. })) {
+            return Err(Unsupported("tests against a function type"));
+        }
+        let ty = self.constant(Constant::Type(ty.clone()));
+        Ok(Expr::Op(Op::Is { value, ty }))
     }
 
     /// Numbers the locals `pattern` binds, in binding order, and records
@@ -449,4 +473,21 @@ impl Scope {
                 body: Box::new(body),
             })
     }
+}
+
+/// Whether `found` holds of `ty` or of any type inside it.
+fn mentions(ty: &core::Type, found: &impl Fn(&core::Type) -> bool) -> bool {
+    use core::Type;
+    found(ty)
+        || match ty {
+            Type::Record(fields) => fields.iter().any(|(_, ty)| mentions(ty, found)),
+            Type::Tuple(members) | Type::Union(members) | Type::Reference(_, members) => {
+                members.iter().any(|ty| mentions(ty, found))
+            }
+            Type::List(member) => mentions(member, found),
+            Type::Function { params, ret } => {
+                params.iter().any(|ty| mentions(ty, found)) || mentions(ret, found)
+            }
+            _ => false,
+        }
 }

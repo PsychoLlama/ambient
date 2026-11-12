@@ -2,8 +2,7 @@
 //! process.
 
 use ambient_runtime::layout::{
-    CLOSURE_CAPTURES, CLOSURE_DEFINITION, CLOSURE_WORDS, DEFINITION_CODE, DEFINITION_SLOTS,
-    DEFINITION_WORDS,
+    CLOSURE_CAPTURES, CLOSURE_DEFINITION, DEFINITION_CODE, DEFINITION_SLOTS,
 };
 use ambient_runtime::{Context, Entry, FALSE, Fault, NULL, TRUE, Word};
 use cranelift_codegen::control::ControlPlane;
@@ -18,9 +17,10 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use memmap2::{Mmap, MmapMut};
 
 use super::MAX_ARITY;
+use super::statics::{self, Field, Make};
 use crate::core::Open;
-use crate::engine::{Backend, Parts};
-use crate::lir::{self, Arg, Constant, Expr, Op};
+use crate::engine::{Backend, Body, Parts};
+use crate::lir::{self, Arg, Expr, Op};
 use crate::lower::lower;
 use crate::value::Inspect;
 
@@ -365,69 +365,64 @@ impl Program {
     /// Fails if executable memory cannot be mapped.
     pub fn load(parts: &Parts) -> Result<Self, String> {
         let io = |error: std::io::Error| error.to_string();
+        let code_of = |index: usize| match &parts.parts[index].body {
+            Body::Function { code, .. } => code.0.as_slice(),
+            Body::Type(_) => &[],
+        };
         let mut offsets = Vec::new();
         let mut size = 0usize;
-        for part in &parts.parts {
+        for index in 0..parts.parts.len() {
             offsets.push(size);
-            size += part.code.0.len().next_multiple_of(16);
+            size += code_of(index).len().next_multiple_of(16);
         }
         let mut code = MmapMut::map_anon(size.max(1)).map_err(io)?;
-        for (part, offset) in parts.parts.iter().zip(&offsets) {
-            code[*offset..*offset + part.code.0.len()].copy_from_slice(&part.code.0);
+        for (index, offset) in offsets.iter().enumerate() {
+            let bytes = code_of(index);
+            code[*offset..*offset + bytes.len()].copy_from_slice(bytes);
         }
         let code = code.make_exec().map_err(io)?;
         let code_base = code.as_ptr() as usize;
 
-        // Each part's definition, then its closure.
-        let mut definitions = Vec::new();
-        let mut words = 0usize;
-        for part in &parts.parts {
-            definitions.push(words);
-            words += DEFINITION_WORDS + part.slots.len() + part.constants.len() + CLOSURE_WORDS;
-        }
-        let closure = |index: usize| {
-            let part = &parts.parts[index];
-            definitions[index] + DEFINITION_WORDS + part.slots.len() + part.constants.len()
-        };
-        let mut statics = vec![0u64; words.max(1)].into_boxed_slice();
-        let base = statics.as_ptr() as usize;
-        let address = |word: usize| (base + word * 8) as u64;
-        for (index, part) in parts.parts.iter().enumerate() {
-            let definition = definitions[index];
-            statics[definition] = (code_base + offsets[index]) as u64;
-            statics[definition + 1] = part.arity as u64;
-            for (slot, target) in part.slots.iter().enumerate() {
-                statics[definition + DEFINITION_WORDS + slot] =
-                    target.map_or(0, |t| address(closure(t)));
-            }
-            let constants = definition + DEFINITION_WORDS + part.slots.len();
-            for (position, constant) in part.constants.iter().enumerate() {
-                let (Constant::String(text) | Constant::Field(text)) = constant;
-                // SAFETY: the pointer and length are those of a live string.
-                statics[constants + position] = unsafe {
-                    match constant {
-                        Constant::String(_) => {
-                            ambient_runtime::amb_string_pinned(text.as_ptr(), text.len() as u64)
-                        }
-                        Constant::Field(_) => {
-                            ambient_runtime::amb_intern(text.as_ptr(), text.len() as u64)
+        let plan = statics::plan(parts);
+        let mut block = vec![0u64; plan.words.max(1)].into_boxed_slice();
+        let base = block.as_ptr() as usize;
+        for (word, field) in &plan.fields {
+            block[*word] = match *field {
+                Field::Word(value) => value,
+                Field::Address(target) => (base + target * 8) as u64,
+                Field::Code(part) => (code_base + offsets[part]) as u64,
+                Field::Text {
+                    make,
+                    offset,
+                    length,
+                } => {
+                    let text = &plan.text[offset..offset + length];
+                    // SAFETY: the pointer and length are those of a live
+                    // slice, which the runtime copies.
+                    unsafe {
+                        match make {
+                            Make::String => {
+                                ambient_runtime::amb_string_pinned(text.as_ptr(), length as u64)
+                            }
+                            Make::Field => {
+                                ambient_runtime::amb_intern(text.as_ptr(), length as u64)
+                            }
                         }
                     }
-                };
-            }
-            let at = closure(index);
-            ambient_runtime::pinned_closure(
-                &mut statics[at..at + CLOSURE_WORDS],
-                address(definition),
-            );
+                }
+            };
         }
 
+        let arity = match &parts.parts[parts.entry].body {
+            Body::Function { arity, .. } => *arity,
+            Body::Type(_) => return Err("the entry is not a function".to_owned()),
+        };
         Ok(Self {
-            entry_closure: address(closure(parts.entry)),
+            entry_closure: (base + plan.entry * 8) as u64,
             entry_code: code_base + offsets[parts.entry],
-            entry_arity: parts.parts[parts.entry].arity,
+            entry_arity: arity,
             entries: Entry::ALL.iter().map(|entry| entry.address()).collect(),
-            _statics: statics,
+            _statics: block,
             _code: code,
         })
     }

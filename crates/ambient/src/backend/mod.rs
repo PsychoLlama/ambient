@@ -10,6 +10,7 @@
 //!   definition, and the runtime through entry points.
 
 pub mod native;
+pub mod statics;
 pub mod wasm;
 
 /// The most parameters a function may take.

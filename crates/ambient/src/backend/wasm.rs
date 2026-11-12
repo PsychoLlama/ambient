@@ -7,8 +7,7 @@
 //! put together by concatenation.
 
 use ambient_runtime::layout::{
-    CLOSURE_CAPTURES, CLOSURE_DEFINITION, CLOSURE_WORDS, DEFINITION_CODE, DEFINITION_SLOTS,
-    DEFINITION_WORDS,
+    CLOSURE_CAPTURES, CLOSURE_DEFINITION, DEFINITION_CODE, DEFINITION_SLOTS,
 };
 use ambient_runtime::{Entry, FALSE, NULL, SMALL_MAX, SMALL_MIN, TRUE, Word};
 use wasm_encoder::{
@@ -19,9 +18,10 @@ use wasm_encoder::{
 };
 
 use super::MAX_ARITY;
+use super::statics::{self, Field, Make};
 use crate::core::Open;
-use crate::engine::{Backend, Parts};
-use crate::lir::{self, Arg, Constant, Expr, Op};
+use crate::engine::{Backend, Body, Parts};
+use crate::lir::{self, Arg, Expr, Op};
 use crate::lower::lower;
 
 /// The runtime as a WebAssembly module. It exports its memory and every
@@ -312,18 +312,9 @@ impl Emitter {
     }
 }
 
-/// Puts the parts of a program compiled by [`Wasm`] together as a module.
-///
-/// The module exports `init`, which lays out the program's definitions and
-/// returns the entry's closure, and `entry`, which takes a context, that
-/// closure, and the entry's arguments.
-///
-/// # Errors
-///
-/// Fails if the program is too large to index.
-pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
+/// The types and imports every module has, and the type of `init`.
+fn signatures() -> Result<(TypeSection, ImportSection, u32), String> {
     let index = |value: usize| u32::try_from(value).map_err(|error| error.to_string());
-
     let mut types = TypeSection::new();
     for arity in 0..=MAX_ARITY {
         let mut params = vec![ValType::I32, ValType::I64];
@@ -372,19 +363,46 @@ pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
     }
     let init_type = next_type + 2;
     types.ty().function([], [ValType::I64]);
+    Ok((types, imports, init_type))
+}
 
+/// Puts the parts of a program compiled by [`Wasm`] together as a module.
+///
+/// The module exports `init`, which lays out the program's definitions and
+/// returns the entry's closure, and `entry`, which takes a context, that
+/// closure, and the entry's arguments.
+///
+/// # Errors
+///
+/// Fails if the program is too large to index.
+pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
+    let index = |value: usize| u32::try_from(value).map_err(|error| error.to_string());
+
+    let (types, imports, init_type) = signatures()?;
+
+    // Functions are numbered, and tabled, in the order of their parts.
     let first = INTERN + 1;
     let mut functions = FunctionSection::new();
     let mut code = CodeSection::new();
     let mut table = Vec::new();
+    let mut positions = vec![0u64; parts.parts.len()];
     for (position, part) in parts.parts.iter().enumerate() {
-        functions.function(function_type(part.arity));
-        code.raw(&part.code.0);
-        table.push(first + index(position)?);
+        let Body::Function {
+            arity, code: body, ..
+        } = &part.body
+        else {
+            continue;
+        };
+        positions[position] = table.len() as u64;
+        functions.function(function_type(*arity));
+        code.raw(&body.0);
+        table.push(first + index(table.len())?);
     }
-    let init = first + index(parts.parts.len())?;
+    let entry = first + index(usize::try_from(positions[parts.entry]).unwrap_or(0))?;
+    let init = first + index(table.len())?;
+    let size = table.len() as u64;
     functions.function(init_type);
-    let (initializer, text) = initializer(parts)?;
+    let (initializer, text) = initializer(parts, &positions)?;
     code.function(&initializer);
     let mut data = DataSection::new();
     data.passive(text);
@@ -392,7 +410,7 @@ pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
     let mut tables = TableSection::new();
     tables.table(TableType {
         element_type: RefType::FUNCREF,
-        minimum: parts.parts.len() as u64,
+        minimum: size,
         maximum: None,
         table64: false,
         shared: false,
@@ -405,7 +423,7 @@ pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
     );
     let mut exports = ExportSection::new();
     exports.export("init", ExportKind::Func, init);
-    exports.export("entry", ExportKind::Func, first + index(parts.entry)?);
+    exports.export("entry", ExportKind::Func, entry);
 
     let mut module = Module::new();
     module
@@ -421,90 +439,31 @@ pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
     Ok(module.finish())
 }
 
-/// What `initializer` writes into one word.
-enum Field {
-    Word(u64),
-    /// The address of another word of the block being laid out.
-    Address(usize),
-    /// A constant made from bytes of the program's text.
-    Text {
-        make: u32,
-        offset: usize,
-        length: usize,
-    },
-}
-
-/// The locals of `initializer`: the address of the block of definitions,
-/// and the address the program's text was copied to.
+/// The locals of `initializer`: the address of the block the program's
+/// definitions are laid out in, and the address its text was copied to.
 const BASE: u32 = 0;
 const TEXT: u32 = 1;
 
-/// The function that lays out every definition and its closure in the
-/// runtime's memory and returns the entry's closure, with the bytes of
-/// every constant, which it copies in first.
-fn initializer(parts: &Parts) -> Result<(Function, Vec<u8>), String> {
-    let offset = |word: usize| i32::try_from(word * 8).map_err(|error| error.to_string());
+/// The function that lays out a program in the runtime's memory and
+/// returns the entry's closure, with the bytes it copies in first.
+///
+/// `positions` is each part's index in the table of functions.
+fn initializer(parts: &Parts, positions: &[u64]) -> Result<(Function, Vec<u8>), String> {
+    let small = |value: usize| i32::try_from(value).map_err(|error| error.to_string());
     let number = |value: usize| i64::try_from(value).map_err(|error| error.to_string());
-
-    // Each part's definition, then its closure, as the native loader does.
-    let mut definitions = Vec::new();
-    let mut words = 0usize;
-    for part in &parts.parts {
-        definitions.push(words);
-        words += DEFINITION_WORDS + part.slots.len() + part.constants.len() + CLOSURE_WORDS;
-    }
-    let closure = |index: usize| {
-        let part = &parts.parts[index];
-        definitions[index] + DEFINITION_WORDS + part.slots.len() + part.constants.len()
-    };
-
-    let mut text = Vec::new();
-    let mut fields = Vec::new();
-    let mut header = [0u64; CLOSURE_WORDS];
-    ambient_runtime::pinned_closure(&mut header, 0);
-    for (position, part) in parts.parts.iter().enumerate() {
-        let definition = definitions[position];
-        // The code is the function's index in the table, which is its
-        // position among the parts.
-        fields.push((definition, Field::Word(position as u64)));
-        fields.push((definition + 1, Field::Word(part.arity as u64)));
-        for (slot, target) in part.slots.iter().enumerate() {
-            let field = target.map_or(Field::Word(0), |target| Field::Address(closure(target)));
-            fields.push((definition + DEFINITION_WORDS + slot, field));
-        }
-        let constants = definition + DEFINITION_WORDS + part.slots.len();
-        for (index, constant) in part.constants.iter().enumerate() {
-            let (make, bytes) = match constant {
-                Constant::String(bytes) => (STRING_PINNED, bytes),
-                Constant::Field(bytes) => (INTERN, bytes),
-            };
-            let field = Field::Text {
-                make,
-                offset: text.len(),
-                length: bytes.len(),
-            };
-            text.extend_from_slice(bytes.as_bytes());
-            fields.push((constants + index, field));
-        }
-        let at = closure(position);
-        fields.push((at, Field::Word(header[0])));
-        fields.push((at + 1, Field::Word(header[1])));
-        fields.push((at + 2, Field::Address(definition)));
-    }
+    let plan = statics::plan(parts);
 
     let mut body = Function::new_with_locals_types([ValType::I32, ValType::I32]);
-    body.instruction(&Instruction::I64Const(number(words)?));
+    body.instruction(&Instruction::I64Const(number(plan.words)?));
     body.instruction(&Instruction::Call(WORDS));
     body.instruction(&Instruction::LocalSet(BASE));
     // The text goes into memory the runtime allocated, since the runtime
     // owns the memory.
-    body.instruction(&Instruction::I64Const(number(text.len().div_ceil(8))?));
+    body.instruction(&Instruction::I64Const(number(plan.text.len().div_ceil(8))?));
     body.instruction(&Instruction::Call(WORDS));
     body.instruction(&Instruction::LocalTee(TEXT));
     body.instruction(&Instruction::I32Const(0));
-    body.instruction(&Instruction::I32Const(
-        i32::try_from(text.len()).map_err(|error| error.to_string())?,
-    ));
+    body.instruction(&Instruction::I32Const(small(plan.text.len())?));
     body.instruction(&Instruction::MemoryInit {
         mem: 0,
         data_index: 0,
@@ -513,35 +472,40 @@ fn initializer(parts: &Parts) -> Result<(Function, Vec<u8>), String> {
     let address = |body: &mut Function, word: usize| -> Result<(), String> {
         body.instruction(&Instruction::LocalGet(BASE));
         body.instruction(&Instruction::I64ExtendI32U);
-        body.instruction(&Instruction::I64Const(i64::from(offset(word)?)));
+        body.instruction(&Instruction::I64Const(i64::from(small(word * 8)?)));
         body.instruction(&Instruction::I64Add);
         Ok(())
     };
-    for (word, field) in fields {
+    for (word, field) in &plan.fields {
         body.instruction(&Instruction::LocalGet(BASE));
-        match field {
+        match *field {
             Field::Word(value) => {
                 body.instruction(&Instruction::I64Const(value.cast_signed()));
             }
             Field::Address(target) => address(&mut body, target)?,
+            // Code is an index into the table.
+            Field::Code(part) => {
+                body.instruction(&Instruction::I64Const(positions[part].cast_signed()));
+            }
             Field::Text {
                 make,
                 offset,
                 length,
             } => {
                 body.instruction(&Instruction::LocalGet(TEXT));
-                body.instruction(&Instruction::I32Const(
-                    i32::try_from(offset).map_err(|error| error.to_string())?,
-                ));
+                body.instruction(&Instruction::I32Const(small(offset)?));
                 body.instruction(&Instruction::I32Add);
                 body.instruction(&Instruction::I64Const(number(length)?));
-                body.instruction(&Instruction::Call(make));
+                body.instruction(&Instruction::Call(match make {
+                    Make::String => STRING_PINNED,
+                    Make::Field => INTERN,
+                }));
             }
         }
-        body.instruction(&Instruction::I64Store(memory(offset(word)?)));
+        body.instruction(&Instruction::I64Store(memory(small(word * 8)?)));
     }
 
-    address(&mut body, closure(parts.entry))?;
+    address(&mut body, plan.entry)?;
     body.instruction(&Instruction::End);
-    Ok((body, text))
+    Ok((body, plan.text))
 }
