@@ -47,7 +47,7 @@ fn increment(typed: bool) -> Expr {
 fn body(open: &Open) -> &Core {
     match &open.tree {
         Tree::Function(function) => &function.body,
-        Tree::Type { .. } => panic!("not a function"),
+        _ => panic!("not a function"),
     }
 }
 

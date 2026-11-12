@@ -11,6 +11,8 @@ pub(crate) const KIND_STRING: u32 = 4;
 pub(crate) const KIND_TUPLE: u32 = 5;
 pub(crate) const KIND_LIST: u32 = 6;
 pub(crate) const KIND_RECORD: u32 = 7;
+/// Not a value: what an abort handler is bound to.
+pub(crate) const KIND_TOKEN: u32 = 8;
 
 /// The count of an object that is never reclaimed.
 pub(crate) const PINNED: u32 = u32::MAX;

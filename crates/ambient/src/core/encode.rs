@@ -1,11 +1,11 @@
 //! The canonical encoding: the bytes every hash is computed over.
 
-use super::{Expr, Pattern, Tree, Type};
+use super::{Expr, Handler, Pattern, Slot, Tree, Type};
 use crate::literal::Literal;
 
 /// The version named by every encoding. Changing the node set or the
 /// encoding means changing this, which changes every hash.
-const FORMAT: u8 = 0;
+const FORMAT: u8 = 1;
 
 impl Tree {
     /// The canonical encoding: the bytes a hash is computed over.
@@ -22,9 +22,23 @@ impl Tree {
                 out.push(1);
                 encode_types(&function.type_params, &mut out);
                 encode_types(&function.captures, &mut out);
+                encode_slots(&function.bindings, &mut out);
                 encode_types(&function.params, &mut out);
                 encode_type(&function.ret, &mut out);
+                encode_slots(&function.row, &mut out);
                 encode_expr(&function.body, &mut out);
+            }
+            Self::Ability {
+                package,
+                tag,
+                params,
+                ret,
+            } => {
+                out.push(2);
+                text(package, &mut out);
+                text(tag, &mut out);
+                encode_types(params, &mut out);
+                encode_type(ret, &mut out);
             }
         }
         out
@@ -42,12 +56,25 @@ impl Type {
 }
 
 /// The canonical encoding of a signature alone, for interface digests.
-pub(crate) fn encode_signature(type_params: &[Type], params: &[Type], ret: &Type) -> Vec<u8> {
+pub(crate) fn encode_signature(
+    type_params: &[Type],
+    params: &[Type],
+    ret: &Type,
+    row: &[Slot],
+) -> Vec<u8> {
     let mut out = vec![FORMAT];
     encode_types(type_params, &mut out);
     encode_types(params, &mut out);
     encode_type(ret, &mut out);
+    encode_slots(row, &mut out);
     out
+}
+
+fn encode_slots(slots: &[Slot], out: &mut Vec<u8>) {
+    unsigned(slots.len() as u64, out);
+    for slot in slots {
+        unsigned(slot.0 as u64, out);
+    }
 }
 
 fn encode_types(types: &[Type], out: &mut Vec<u8>) {
@@ -104,10 +131,11 @@ fn encode_type(ty: &Type, out: &mut Vec<u8>) {
             out.push(10);
             encode_type(member, out);
         }
-        Type::Function { params, ret } => {
+        Type::Function { params, ret, row } => {
             out.push(11);
             encode_types(params, out);
             encode_type(ret, out);
+            encode_slots(row, out);
         }
         Type::Union(members) => {
             out.push(12);
@@ -188,11 +216,7 @@ fn encode_expr(expr: &Expr, out: &mut Vec<u8>) {
         }
         Expr::Record(fields) => {
             out.push(5);
-            unsigned(fields.len() as u64, out);
-            for (name, value) in fields {
-                text(name, out);
-                encode_expr(value, out);
-            }
+            encode_fields(fields, out);
         }
         Expr::Tuple(members) => {
             out.push(6);
@@ -220,11 +244,7 @@ fn encode_expr(expr: &Expr, out: &mut Vec<u8>) {
         Expr::Match { subject, arms } => {
             out.push(11);
             encode_expr(subject, out);
-            unsigned(arms.len() as u64, out);
-            for (pattern, body) in arms {
-                encode_pattern(pattern, out);
-                encode_expr(body, out);
-            }
+            encode_arms(arms, out);
         }
         Expr::Cast {
             value,
@@ -244,11 +264,64 @@ fn encode_expr(expr: &Expr, out: &mut Vec<u8>) {
             slot,
             type_args,
             captures,
+            bindings,
         } => {
             out.push(14);
             unsigned(slot.0 as u64, out);
             encode_types(type_args, out);
             encode_exprs(captures, out);
+            encode_slots(bindings, out);
+        }
+        Expr::Perform {
+            ability,
+            args,
+            returns,
+        } => {
+            out.push(15);
+            unsigned(ability.0 as u64, out);
+            encode_exprs(args, out);
+            out.push(u8::from(*returns));
+        }
+        Expr::Provide {
+            handlers,
+            only,
+            body,
+        } => {
+            out.push(16);
+            out.push(u8::from(*only));
+            encode_handlers(handlers, out);
+            encode_expr(body, out);
+        }
+    }
+}
+
+fn encode_fields(fields: &[(String, Expr)], out: &mut Vec<u8>) {
+    unsigned(fields.len() as u64, out);
+    for (name, value) in fields {
+        text(name, out);
+        encode_expr(value, out);
+    }
+}
+
+fn encode_arms(arms: &[(Pattern, Expr)], out: &mut Vec<u8>) {
+    unsigned(arms.len() as u64, out);
+    for (pattern, body) in arms {
+        encode_pattern(pattern, out);
+        encode_expr(body, out);
+    }
+}
+
+fn encode_handlers(handlers: &[Handler], out: &mut Vec<u8>) {
+    unsigned(handlers.len() as u64, out);
+    for handler in handlers {
+        unsigned(handler.ability.0 as u64, out);
+        encode_expr(&handler.handler, out);
+        match handler.abort {
+            None => out.push(0),
+            Some(arity) => {
+                out.push(1);
+                unsigned(arity as u64, out);
+            }
         }
     }
 }

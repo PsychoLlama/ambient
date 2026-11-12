@@ -11,7 +11,9 @@ pub mod pat;
 pub mod ty;
 mod validate;
 
-pub use definition::{FunctionBuilder, ModuleBuilder, function, generic_type, module, type_};
+pub use definition::{
+    AbilityBuilder, FunctionBuilder, ModuleBuilder, ability, function, generic_type, module, type_,
+};
 pub use error::BuildError;
 
 use crate::literal::Literal;
@@ -103,13 +105,59 @@ pub fn lambda<'a>(
     params: impl IntoIterator<Item = (&'a str, Option<crate::surface::Type>)>,
     body: Expr,
 ) -> Expr {
+    lambda_row(params, [], body)
+}
+
+/// A lambda that takes the abilities in `row` from its caller. Any other
+/// ability it uses is captured where it is written.
+pub fn lambda_row<'a>(
+    params: impl IntoIterator<Item = (&'a str, Option<crate::surface::Type>)>,
+    row: impl IntoIterator<Item = &'a str>,
+    body: Expr,
+) -> Expr {
     Expr::Lambda {
         params: params
             .into_iter()
             .map(|(name, ty)| (name.to_owned(), ty))
             .collect(),
+        row: row.into_iter().map(Path::parse).collect(),
         body: Box::new(body),
     }
+}
+
+/// Calls the handler bound to the ability at a dotted path.
+pub fn perform(ability: &str, args: impl IntoIterator<Item = Expr>) -> Expr {
+    Expr::Perform {
+        ability: Path::parse(ability),
+        args: args.into_iter().collect(),
+    }
+}
+
+fn providing<'a>(
+    handlers: impl IntoIterator<Item = (&'a str, Expr)>,
+    only: bool,
+    body: Expr,
+) -> Expr {
+    Expr::Provide {
+        handlers: handlers
+            .into_iter()
+            .map(|(ability, handler)| (Path::parse(ability), handler))
+            .collect(),
+        only,
+        body: Box::new(body),
+    }
+}
+
+/// Binds each handler to its ability for the extent of `body`, on top of
+/// what is already bound.
+pub fn provide<'a>(handlers: impl IntoIterator<Item = (&'a str, Expr)>, body: Expr) -> Expr {
+    providing(handlers, false, body)
+}
+
+/// Binds each handler to its ability for the extent of `body`, which sees
+/// no other binding.
+pub fn provide_only<'a>(handlers: impl IntoIterator<Item = (&'a str, Expr)>, body: Expr) -> Expr {
+    providing(handlers, true, body)
 }
 
 /// Runs `call`, a call to a named function, during compilation, and

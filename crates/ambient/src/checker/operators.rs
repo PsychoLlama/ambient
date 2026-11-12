@@ -7,6 +7,26 @@ use crate::surface::{Expr, Operator, Reference};
 use crate::types::{Ty, field};
 
 impl Checker<'_> {
+    /// `value` at type `ty` if the type describes it, and `otherwise` if
+    /// not.
+    pub(super) fn cast(
+        &mut self,
+        value: &Expr<Reference>,
+        ty: &Ty,
+        otherwise: &Expr<Reference>,
+    ) -> Result<(core::Expr, Ty), Error> {
+        let (value, _) = self.infer(value)?;
+        self.well_formed(ty)?;
+        let target = self.env.normalize(ty);
+        let (otherwise, alternative) = self.infer(otherwise)?;
+        let core = core::Expr::Cast {
+            value: Box::new(value),
+            ty: self.lower(&target),
+            otherwise: Box::new(otherwise),
+        };
+        Ok((core, self.env.union(vec![target, alternative])))
+    }
+
     /// The type of field `name` of a value of type `ty`, if every such
     /// value has one.
     pub(super) fn field(&self, ty: &Ty, name: &str) -> Option<Ty> {

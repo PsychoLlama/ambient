@@ -266,6 +266,26 @@ impl Emitter<'_> {
                 self.builder.switch_to_block(join);
                 self.builder.block_params(join)[0]
             }
+            Expr::Try { body, recover } => {
+                let landing = self.builder.create_block();
+                self.builder.append_block_param(landing, I64);
+                let join = self.builder.create_block();
+                self.builder.append_block_param(join, I64);
+
+                self.unwind.push(landing);
+                let result = self.expr(body);
+                if !matches!(**body, Expr::Op(_)) {
+                    self.check(result);
+                }
+                self.unwind.pop();
+                self.builder.ins().jump(join, &[BlockArg::Value(result)]);
+
+                self.builder.switch_to_block(landing);
+                let result = self.expr(recover);
+                self.builder.ins().jump(join, &[BlockArg::Value(result)]);
+                self.builder.switch_to_block(join);
+                self.builder.block_params(join)[0]
+            }
             Expr::Fault(fault) => {
                 let code = self.constant(*fault as u64);
                 let word = self.runtime(Entry::Fault, &[code]);

@@ -2,11 +2,13 @@
 
 use std::collections::BTreeSet;
 
-use super::validate::{check_function, check_name, check_path, check_type, check_type_params};
+use super::validate::{
+    check_function, check_name, check_params, check_path, check_type, check_type_params,
+};
 use super::{BuildError, null, ty};
 use crate::surface::{
-    Definition, DefinitionKind, Expr, Function, Import, Module, Param, Path, TypeDefinition,
-    TypeParam,
+    Ability, Definition, DefinitionKind, Expr, Function, Import, Module, Param, Path,
+    TypeDefinition, TypeParam,
 };
 use crate::symbol::Namespace;
 
@@ -22,8 +24,77 @@ pub fn function(name: &str) -> FunctionBuilder {
             type_params: Vec::new(),
             params: Vec::new(),
             ret: ty::null(),
+            row: Vec::new(),
             body: null(),
         },
+    }
+}
+
+/// Starts an ability. With nothing else said it is private, takes no
+/// parameters, and returns `null`.
+///
+/// `tag` is what tells it from another ability with the same signature; it
+/// must be unique within the package.
+#[must_use]
+pub fn ability(name: &str, tag: &str) -> AbilityBuilder {
+    AbilityBuilder {
+        name: name.to_owned(),
+        public: false,
+        doc: None,
+        ability: Ability {
+            tag: tag.to_owned(),
+            params: Vec::new(),
+            ret: ty::null(),
+        },
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct AbilityBuilder {
+    name: String,
+    public: bool,
+    doc: Option<String>,
+    ability: Ability,
+}
+
+impl AbilityBuilder {
+    #[must_use]
+    pub fn public(mut self) -> Self {
+        self.public = true;
+        self
+    }
+
+    #[must_use]
+    pub fn doc(mut self, doc: &str) -> Self {
+        self.doc = Some(doc.to_owned());
+        self
+    }
+
+    #[must_use]
+    pub fn param(mut self, name: &str, ty: crate::surface::Type) -> Self {
+        self.ability.params.push(Param {
+            name: name.to_owned(),
+            ty,
+        });
+        self
+    }
+
+    /// What a perform evaluates to. An ability that returns `never` aborts.
+    #[must_use]
+    pub fn returns(mut self, ty: crate::surface::Type) -> Self {
+        self.ability.ret = ty;
+        self
+    }
+}
+
+impl From<AbilityBuilder> for Definition {
+    fn from(builder: AbilityBuilder) -> Self {
+        Definition {
+            name: builder.name,
+            public: builder.public,
+            doc: builder.doc,
+            kind: DefinitionKind::Ability(builder.ability),
+        }
     }
 }
 
@@ -129,6 +200,14 @@ impl FunctionBuilder {
         self
     }
 
+    /// Adds abilities, each a dotted path, to what the function takes from
+    /// its caller.
+    #[must_use]
+    pub fn performs<'a>(mut self, row: impl IntoIterator<Item = &'a str>) -> Self {
+        self.function.row.extend(row.into_iter().map(Path::parse));
+        self
+    }
+
     /// Finishes the function with its body.
     #[must_use]
     pub fn body(mut self, body: Expr) -> Definition {
@@ -172,8 +251,8 @@ impl ModuleBuilder {
     }
 
     #[must_use]
-    pub fn define(mut self, definition: Definition) -> Self {
-        self.definitions.push(definition);
+    pub fn define(mut self, definition: impl Into<Definition>) -> Self {
+        self.definitions.push(definition.into());
         self
     }
 
@@ -207,6 +286,11 @@ impl ModuleBuilder {
                 DefinitionKind::Function(function) => {
                     check_function(&definition.name, function)?;
                     Namespace::Value
+                }
+                DefinitionKind::Ability(ability) => {
+                    check_params(&definition.name, &ability.params)?;
+                    check_type(&ability.ret)?;
+                    Namespace::Ability
                 }
             };
             if !defined.insert((namespace, &definition.name)) {

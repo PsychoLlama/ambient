@@ -30,7 +30,7 @@ impl Program {
         let io = |error: std::io::Error| error.to_string();
         let code_of = |index: usize| match &parts.parts[index].body {
             Body::Function { code, .. } => code.0.as_slice(),
-            Body::Type(_) => &[],
+            Body::Type(_) | Body::Ability => &[],
         };
         let mut offsets = Vec::new();
         let mut size = 0usize;
@@ -78,7 +78,7 @@ impl Program {
 
         let arity = match &parts.parts[parts.entry].body {
             Body::Function { arity, .. } => *arity,
-            Body::Type(_) => return Err("the entry is not a function".to_owned()),
+            Body::Type(_) | Body::Ability => return Err("the entry is not a function".to_owned()),
         };
         Ok(Self {
             entry_closure: (base + plan.entry * 8) as u64,
@@ -103,7 +103,10 @@ impl Program {
     /// than four.
     pub fn call(&self, args: &[Word]) -> Result<Word, Fault> {
         type C = *mut Context;
-        assert_eq!(args.len(), self.entry_arity, "wrong number of arguments");
+        // The entry is handed no bindings: nothing is provided to it.
+        let mut words = vec![NULL];
+        words.extend_from_slice(args);
+        assert_eq!(words.len(), self.entry_arity, "wrong number of arguments");
         let (code, closure) = (self.entry_code, self.entry_closure);
         // SAFETY: the code was compiled by `Native` for a function of this
         // arity, with the calling convention these types spell out, and the
@@ -111,24 +114,27 @@ impl Program {
         unsafe {
             let context = ambient_runtime::amb_context_new();
             (*context).entries = self.entries.as_ptr() as u64;
-            let result = match *args {
-                [] => std::mem::transmute::<usize, extern "C" fn(C, u64) -> u64>(code)(
-                    context, closure,
+            let result = match *words {
+                [w0] => std::mem::transmute::<usize, extern "C" fn(C, u64, u64) -> u64>(code)(
+                    context, closure, w0,
                 ),
-                [a] => std::mem::transmute::<usize, extern "C" fn(C, u64, u64) -> u64>(code)(
-                    context, closure, a,
-                ),
-                [a, b] => std::mem::transmute::<usize, extern "C" fn(C, u64, u64, u64) -> u64>(
+                [w0, w1] => std::mem::transmute::<usize, extern "C" fn(C, u64, u64, u64) -> u64>(
                     code,
-                )(context, closure, a, b),
-                [a, b, c] => std::mem::transmute::<
+                )(context, closure, w0, w1),
+                [w0, w1, w2] => std::mem::transmute::<
                     usize,
                     extern "C" fn(C, u64, u64, u64, u64) -> u64,
-                >(code)(context, closure, a, b, c),
-                [a, b, c, d] => std::mem::transmute::<
+                >(code)(context, closure, w0, w1, w2),
+                [w0, w1, w2, w3] => std::mem::transmute::<
                     usize,
                     extern "C" fn(C, u64, u64, u64, u64, u64) -> u64,
-                >(code)(context, closure, a, b, c, d),
+                >(code)(context, closure, w0, w1, w2, w3),
+                [w0, w1, w2, w3, w4] => {
+                    std::mem::transmute::<
+                        usize,
+                        extern "C" fn(C, u64, u64, u64, u64, u64, u64) -> u64,
+                    >(code)(context, closure, w0, w1, w2, w3, w4)
+                }
                 _ => panic!("the host can pass at most four arguments"),
             };
             let fault = Fault::from_code((*context).fault);

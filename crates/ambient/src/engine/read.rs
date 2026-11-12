@@ -165,6 +165,7 @@ fn read(module: &Module) -> Read {
         let namespace = match definition.kind {
             DefinitionKind::Type(_) => Namespace::Type,
             DefinitionKind::Function(_) => Namespace::Value,
+            DefinitionKind::Ability(_) => Namespace::Ability,
         };
         table.0.insert(
             (namespace, definition.name.clone()),

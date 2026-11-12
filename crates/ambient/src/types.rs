@@ -30,6 +30,18 @@ pub struct Signature {
     pub type_params: Vec<Ty>,
     pub params: Vec<Ty>,
     pub ret: Ty,
+    /// The abilities it takes from its caller.
+    pub row: Vec<Symbol>,
+}
+
+/// An ability, as a perform or a handler sees it.
+#[derive(Clone, Debug)]
+pub struct AbilityInfo {
+    /// The package that declares it and its tag: its identity apart from
+    /// its signature, and what a row is ordered by.
+    pub tag: (String, String),
+    pub params: Vec<Ty>,
+    pub ret: Ty,
 }
 
 /// Everything about other definitions that checking one definition reads.
@@ -39,6 +51,8 @@ pub struct Env {
     pub types: BTreeMap<Symbol, TypeInfo>,
     /// The header of every function it refers to.
     pub functions: BTreeMap<Symbol, Signature>,
+    /// Every ability it refers to, or that a type it reaches does.
+    pub abilities: BTreeMap<Symbol, AbilityInfo>,
     /// The bound of each type parameter of the definition being checked.
     pub bounds: Vec<Ty>,
 }
@@ -71,9 +85,10 @@ pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
         Ty::Tuple(members) => Ty::Tuple(all(members)),
         Ty::Union(members) => Ty::Union(all(members)),
         Ty::List(member) => Ty::List(Box::new(substitute(member, args))),
-        Ty::Function { params, ret } => Ty::Function {
+        Ty::Function { params, ret, row } => Ty::Function {
             params: all(params),
             ret: Box::new(substitute(ret, args)),
+            row: row.clone(),
         },
         Ty::Named(Reference::Parameter(position), _) => {
             args.get(*position).cloned().unwrap_or(Ty::Never)
@@ -127,10 +142,16 @@ impl Env {
             }
             Ty::Tuple(members) => Ty::Tuple(members.iter().map(|m| self.normalize(m)).collect()),
             Ty::List(member) => Ty::List(Box::new(self.normalize(member))),
-            Ty::Function { params, ret } => Ty::Function {
-                params: params.iter().map(|p| self.normalize(p)).collect(),
-                ret: Box::new(self.normalize(ret)),
-            },
+            Ty::Function { params, ret, row } => {
+                let mut row = row.clone();
+                row.sort();
+                row.dedup();
+                Ty::Function {
+                    params: params.iter().map(|p| self.normalize(p)).collect(),
+                    ret: Box::new(self.normalize(ret)),
+                    row,
+                }
+            }
             Ty::Union(members) => self.union(members.iter().map(|m| self.normalize(m)).collect()),
             Ty::Named(Reference::Definition(symbol), args) => {
                 let args: Vec<Ty> = args.iter().map(|arg| self.normalize(arg)).collect();
@@ -254,13 +275,17 @@ impl Env {
             (Ty::Tuple(have), Ty::List(want)) => have.iter().all(|h| self.sub(h, want, assumed)),
             (Ty::List(have), Ty::List(want)) => self.sub(have, want, assumed),
             (
-                Ty::Function { params, ret },
+                Ty::Function { params, ret, row },
                 Ty::Function {
                     params: want_params,
                     ret: want_ret,
+                    row: want_row,
                 },
             ) => {
-                params.len() == want_params.len()
+                // A function that takes less from its caller can stand in
+                // for one that takes more.
+                row.iter().all(|ability| want_row.contains(ability))
+                    && params.len() == want_params.len()
                     && want_params
                         .iter()
                         .zip(params)
@@ -337,6 +362,24 @@ pub fn field<'a>(fields: &'a [(String, Ty)], name: &str) -> Option<&'a Ty> {
         .map(|(_, ty)| ty)
 }
 
+fn ability_name(ability: &Reference) -> &str {
+    match ability {
+        Reference::Definition(symbol) => &symbol.name,
+        Reference::Local(_) | Reference::Parameter(_) => "?",
+    }
+}
+
+/// The abilities a normalized row names.
+#[must_use]
+pub fn abilities(row: &[Reference]) -> Vec<Symbol> {
+    row.iter()
+        .filter_map(|ability| match ability {
+            Reference::Definition(symbol) => Some(symbol.clone()),
+            Reference::Local(_) | Reference::Parameter(_) => None,
+        })
+        .collect()
+}
+
 fn show_all(types: &[Ty], separator: &str, out: &mut String) {
     for (index, ty) in types.iter().enumerate() {
         if index > 0 {
@@ -379,10 +422,14 @@ fn show(ty: &Ty, out: &mut String) {
             show(member, out);
             out.push('>');
         }
-        Ty::Function { params, ret } => {
+        Ty::Function { params, ret, row } => {
             out.push_str("Fn(");
             show_all(params, ", ", out);
             out.push_str("): ");
+            if !row.is_empty() {
+                let names: Vec<&str> = row.iter().map(ability_name).collect();
+                let _ = write!(out, "[{}] ", names.join(", "));
+            }
             show(ret, out);
         }
         Ty::Union(members) => show_all(members, " | ", out),

@@ -8,8 +8,8 @@ use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest};
 use crate::surface::{
-    Arm, Definition, DefinitionKind, Expr, Function, Param, Path, Pattern, Reference, Type,
-    TypeDefinition, TypeParam,
+    Ability, Arm, Definition, DefinitionKind, Expr, Function, Param, Path, Pattern, Reference,
+    Type, TypeDefinition, TypeParam,
 };
 use crate::symbol::{Namespace, Symbol};
 
@@ -81,6 +81,11 @@ impl Resolver<'_> {
             DefinitionKind::Function(function) => {
                 DefinitionKind::Function(self.function(function)?)
             }
+            DefinitionKind::Ability(ability) => DefinitionKind::Ability(Ability {
+                tag: ability.tag.clone(),
+                params: self.params(&ability.params)?,
+                ret: self.ty(&ability.ret)?,
+            }),
         };
         Ok(Definition {
             name: definition.name.clone(),
@@ -108,14 +113,9 @@ impl Resolver<'_> {
                     .transpose()?,
             });
         }
-        let mut params = Vec::new();
-        for param in &function.params {
-            params.push(Param {
-                name: param.name.clone(),
-                ty: self.ty(&param.ty)?,
-            });
-        }
+        let params = self.params(&function.params)?;
         let ret = self.ty(&function.ret)?;
+        let row = self.row(&function.row)?;
         for param in &function.params {
             self.bind(&param.name);
         }
@@ -124,8 +124,30 @@ impl Resolver<'_> {
             type_params,
             params,
             ret,
+            row,
             body,
         })
+    }
+
+    fn params(&self, params: &[Param]) -> Result<Vec<Param<Reference>>, Error> {
+        params
+            .iter()
+            .map(|param| {
+                Ok(Param {
+                    name: param.name.clone(),
+                    ty: self.ty(&param.ty)?,
+                })
+            })
+            .collect()
+    }
+
+    fn ability(&self, path: &Path) -> Result<Reference, Error> {
+        self.lookup(Namespace::Ability, path)
+            .map(Reference::Definition)
+    }
+
+    fn row(&self, row: &[Path]) -> Result<Vec<Reference>, Error> {
+        row.iter().map(|path| self.ability(path)).collect()
     }
 
     fn bind(&mut self, name: &str) {
@@ -155,9 +177,10 @@ impl Resolver<'_> {
             ),
             Type::Tuple(members) => Type::Tuple(self.types(members)?),
             Type::List(member) => Type::List(Box::new(self.ty(member)?)),
-            Type::Function { params, ret } => Type::Function {
+            Type::Function { params, ret, row } => Type::Function {
                 params: self.types(params)?,
                 ret: Box::new(self.ty(ret)?),
+                row: self.row(row)?,
             },
             Type::Union(members) => Type::Union(self.types(members)?),
             Type::Named(path, args) => {
@@ -265,23 +288,16 @@ impl Resolver<'_> {
                     arms: resolved,
                 }
             }
-            Expr::Lambda { params, body } => {
-                let mut resolved = Vec::new();
-                for (name, ty) in params {
-                    let ty = ty.as_ref().map(|ty| self.ty(ty)).transpose()?;
-                    resolved.push((name.clone(), ty));
-                }
-                let scope = self.locals.len();
-                for (name, _) in params {
-                    self.bind(name);
-                }
-                let body = Box::new(self.expr(body)?);
-                self.locals.truncate(scope);
-                Expr::Lambda {
-                    params: resolved,
-                    body,
-                }
-            }
+            Expr::Perform { ability, args } => Expr::Perform {
+                ability: self.ability(ability)?,
+                args: self.exprs(args)?,
+            },
+            Expr::Provide {
+                handlers,
+                only,
+                body,
+            } => self.provide(handlers, *only, body)?,
+            Expr::Lambda { params, row, body } => self.lambda(params, row, body)?,
             Expr::Comptime(call) => Expr::Comptime(Box::new(self.expr(call)?)),
             Expr::Cast {
                 value,
@@ -292,6 +308,47 @@ impl Resolver<'_> {
                 ty: self.ty(ty)?,
                 otherwise: Box::new(self.expr(otherwise)?),
             },
+        })
+    }
+
+    fn provide(
+        &mut self,
+        handlers: &[(Path, Expr)],
+        only: bool,
+        body: &Expr,
+    ) -> Result<Expr<Reference>, Error> {
+        let mut resolved = Vec::new();
+        for (ability, handler) in handlers {
+            resolved.push((self.ability(ability)?, self.expr(handler)?));
+        }
+        Ok(Expr::Provide {
+            handlers: resolved,
+            only,
+            body: Box::new(self.expr(body)?),
+        })
+    }
+
+    fn lambda(
+        &mut self,
+        params: &[(String, Option<Type>)],
+        row: &[Path],
+        body: &Expr,
+    ) -> Result<Expr<Reference>, Error> {
+        let mut resolved = Vec::new();
+        for (name, ty) in params {
+            let ty = ty.as_ref().map(|ty| self.ty(ty)).transpose()?;
+            resolved.push((name.clone(), ty));
+        }
+        let scope = self.locals.len();
+        for (name, _) in params {
+            self.bind(name);
+        }
+        let body = Box::new(self.expr(body)?);
+        self.locals.truncate(scope);
+        Ok(Expr::Lambda {
+            params: resolved,
+            row: self.row(row)?,
+            body,
         })
     }
 

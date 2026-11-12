@@ -32,6 +32,8 @@ pub enum Body {
     },
     /// A recursive type definition, which casts test values against.
     Type(core::Type),
+    /// An ability. Nothing is laid out for one: its hash is its key.
+    Ability,
 }
 
 /// A program: exactly the definitions its entry reaches, each once.
@@ -51,6 +53,13 @@ impl Engine<'_> {
     ///
     /// Fails if anything reached does not check or does not compile.
     pub fn link(&self, entry: &Symbol, backend: &dyn Backend) -> Result<Parts, Error> {
+        // TODO: an entry runs under a target, which provides its row; until
+        // there are targets, an entry has nothing to take.
+        if let Tree::Function(function) = &self.check(entry)?.tree
+            && !function.row.is_empty()
+        {
+            return Err(Error::EntryAbilities(entry.clone()));
+        }
         let mut indices: HashMap<Hash, usize> = HashMap::new();
         let mut symbols: Vec<Symbol> = Vec::new();
         let mut pending = vec![entry.clone()];
@@ -73,7 +82,8 @@ impl Engine<'_> {
             }
             let body = match &open.tree {
                 Tree::Function(function) => Body::Function {
-                    arity: function.params.len(),
+                    // The bindings a function is handed come first.
+                    arity: function.params.len() + 1,
                     code: self.compile(symbol, backend)?,
                     // Lowering is cheap and has just succeeded inside
                     // `compile`, so its constants are read from it again
@@ -83,6 +93,7 @@ impl Engine<'_> {
                         .unwrap_or_default(),
                 },
                 Tree::Type { ty, .. } => Body::Type(ty.clone()),
+                Tree::Ability { .. } => Body::Ability,
             };
             parts.push(Part {
                 hash: self.hash(symbol)?,

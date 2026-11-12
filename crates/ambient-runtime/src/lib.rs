@@ -28,6 +28,7 @@
     clippy::missing_safety_doc
 )]
 
+mod abort;
 mod closure;
 mod entry;
 mod host;
@@ -38,6 +39,7 @@ mod record;
 mod sequence;
 mod text;
 
+pub use abort::*;
 pub use closure::*;
 pub use entry::Entry;
 pub use host::*;
@@ -69,6 +71,10 @@ pub enum Fault {
     Overflow = 1,
     /// No arm of a match was taken. Checking rules this out.
     NoMatch = 2,
+    /// An abort handler was performed after its provide had exited.
+    Expired = 3,
+    /// Not a fault: an abort is on its way to the provide that handles it.
+    Abort = 4,
 }
 
 impl Fault {
@@ -77,6 +83,8 @@ impl Fault {
         match code {
             1 => Self::Overflow,
             2 => Self::NoMatch,
+            3 => Self::Expired,
+            4 => Self::Abort,
             _ => Self::None,
         }
     }
@@ -109,6 +117,10 @@ pub struct Context {
     pub entries: u64,
     /// The [`Fault`] that started the current unwinding.
     pub fault: u64,
+    /// While an abort unwinds: the token of the handler it is going to, and
+    /// the arguments it was performed with, as a tuple this context owns.
+    pub abort_token: u64,
+    pub abort_args: u64,
 }
 
 impl Context {

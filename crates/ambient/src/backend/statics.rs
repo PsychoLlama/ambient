@@ -9,6 +9,7 @@ use ambient_runtime::layout::{CLOSURE_WORDS, DEFINITION_WORDS};
 
 use crate::core::Type;
 use crate::engine::{Body, Parts};
+use crate::hash::Hash;
 use crate::lir::Constant;
 use crate::literal::Literal;
 
@@ -70,6 +71,8 @@ pub fn plan(parts: &Parts) -> Statics {
                 roots.push(statics.words);
                 statics.words += root_size(ty);
             }
+            // Never read: an ability is reached by its key, a constant.
+            Body::Ability => roots.push(0),
         }
     }
     statics.entry = roots[parts.entry];
@@ -94,6 +97,10 @@ pub fn plan(parts: &Parts) -> Statics {
                         Constant::String(text) => statics.text(Make::String, text),
                         Constant::Field(name) => statics.text(Make::Field, name),
                         Constant::Type(ty) => Field::Address(statics.describe(ty, &slots)),
+                        Constant::Ability(slot) => {
+                            let ability = &parts.parts[part.slots[*slot]];
+                            statics.text(Make::Field, &ability_key(&ability.hash))
+                        }
                     };
                     statics.set(first + position, field);
                 }
@@ -103,9 +110,16 @@ pub fn plan(parts: &Parts) -> Statics {
                 statics.set(closure + 2, Field::Address(at));
             }
             Body::Type(ty) => statics.root(ty, &slots, at),
+            Body::Ability => {}
         }
     }
     statics
+}
+
+/// The name bindings hold an ability under. No field has a name like it,
+/// so bindings are records like any other.
+fn ability_key(hash: &Hash) -> String {
+    format!("@{hash}")
 }
 
 /// How many words a type definition's own node takes.

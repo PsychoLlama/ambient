@@ -12,12 +12,15 @@ pub unsafe extern "C" fn amb_context_new() -> *mut Context {
     Box::into_raw(Box::new(Context {
         entries: 0,
         fault: 0,
+        abort_token: 0,
+        abort_args: 0,
     }))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_context_free(context: *mut Context) {
     unsafe {
+        crate::abort::abandon(context);
         drop(Box::from_raw(context));
     }
 }

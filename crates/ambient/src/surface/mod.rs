@@ -86,6 +86,16 @@ pub struct Definition<N = Path> {
 pub enum DefinitionKind<N = Path> {
     Type(TypeDefinition<N>),
     Function(Function<N>),
+    Ability(Ability<N>),
+}
+
+/// An operation with a signature and no body. See `spec/abilities.md`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ability<N = Path> {
+    /// What tells this ability from another with the same signature.
+    pub tag: String,
+    pub params: Vec<Param<N>>,
+    pub ret: Type<N>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,6 +117,8 @@ pub struct Function<N = Path> {
     pub type_params: Vec<TypeParam<N>>,
     pub params: Vec<Param<N>>,
     pub ret: Type<N>,
+    /// The abilities it takes from its caller.
+    pub row: Vec<N>,
     pub body: Expr<N>,
 }
 
@@ -132,6 +144,8 @@ pub enum Type<N = Path> {
     Function {
         params: Vec<Type<N>>,
         ret: Box<Type<N>>,
+        /// The abilities a caller must pass.
+        row: Vec<N>,
     },
     Union(Vec<Type<N>>),
     /// A type parameter, or a type definition applied to arguments.
@@ -208,8 +222,23 @@ pub enum Expr<N = Path> {
     },
     /// A function written in place. A parameter without a type takes it
     /// from where the lambda is used.
+    /// `row` is what it takes from its caller; any other ability it uses
+    /// is captured where the lambda is written.
     Lambda {
         params: Vec<(String, Option<Type<N>>)>,
+        row: Vec<N>,
+        body: Box<Expr<N>>,
+    },
+    /// Calls the handler bound to an ability.
+    Perform {
+        ability: N,
+        args: Vec<Expr<N>>,
+    },
+    /// Binds handlers to abilities for the extent of `body`. With `only`,
+    /// the body sees no other binding.
+    Provide {
+        handlers: Vec<(N, Expr<N>)>,
+        only: bool,
         body: Box<Expr<N>>,
     },
     /// A call that runs during compilation, replaced by its result.

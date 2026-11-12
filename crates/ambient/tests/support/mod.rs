@@ -176,7 +176,12 @@ fn run_wasm(parts: &ambient::engine::Parts, args: &[i64]) -> Outcome {
     init.call(&mut guest.store, &[], &mut closure).unwrap();
     let context = guest.runtime("amb_context_new", &[]).unwrap();
 
-    let mut all = vec![context, closure[0]];
+    // The entry is handed no bindings.
+    let mut all = vec![
+        context,
+        closure[0],
+        Val::I64(ambient_runtime::NULL.cast_signed()),
+    ];
     for arg in args {
         all.push(guest.runtime("amb_int_new", &[Val::I64(*arg)]).unwrap());
     }

@@ -33,6 +33,8 @@ pub enum Type {
     Function {
         params: Vec<Type>,
         ret: Box<Type>,
+        /// Abilities, ordered by tag.
+        row: Vec<Slot>,
     },
     /// Members are ordered by their encodings, without duplicates.
     Union(Vec<Type>),
@@ -112,12 +114,40 @@ pub enum Expr {
         ty: Type,
         otherwise: Box<Expr>,
     },
-    /// A function value: a lambda's definition and the values it captures.
+    /// A function value: a lambda's definition, the values it captures, and
+    /// the abilities whose bindings it captures.
     Closure {
         slot: Slot,
         type_args: Vec<Type>,
         captures: Vec<Expr>,
+        bindings: Vec<Slot>,
     },
+    /// Calls the handler bound to an ability. If the ability does not
+    /// return, this unwinds to the provide that bound it.
+    Perform {
+        ability: Slot,
+        args: Vec<Expr>,
+        returns: bool,
+    },
+    /// Binds handlers for the extent of `body`. Handlers are evaluated in
+    /// order, outside the bindings they make. With `only`, the body sees no
+    /// other binding.
+    Provide {
+        handlers: Vec<Handler>,
+        only: bool,
+        body: Box<Expr>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Handler {
+    pub ability: Slot,
+    /// A function value. For an ability that returns, it takes no
+    /// abilities from its caller.
+    pub handler: Expr,
+    /// For an ability that does not return: how many arguments it takes.
+    /// Its handler runs at the provide, and its result is the provide's.
+    pub abort: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,8 +156,13 @@ pub struct Function {
     pub type_params: Vec<Type>,
     /// The type of each captured value. Empty unless this is a lambda.
     pub captures: Vec<Type>,
+    /// The abilities whose bindings it captured. Empty unless this is a
+    /// lambda.
+    pub bindings: Vec<Slot>,
     pub params: Vec<Type>,
     pub ret: Type,
+    /// The abilities it takes from its caller, ordered by tag.
+    pub row: Vec<Slot>,
     pub body: Expr,
 }
 
@@ -139,6 +174,13 @@ pub enum Tree {
         ty: Type,
     },
     Function(Function),
+    Ability {
+        /// The package that declares it, and its tag.
+        package: String,
+        tag: String,
+        params: Vec<Type>,
+        ret: Type,
+    },
 }
 
 /// A core definition whose slots are still symbols: what checking yields.

@@ -44,6 +44,8 @@ pub enum Constant {
     /// A type, as the descriptor a value is tested against. Its slots are
     /// those of the definition it is a constant of.
     Type(crate::core::Type),
+    /// The ability in a slot, as the key bindings are indexed by.
+    Ability(usize),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,6 +84,20 @@ pub enum Op {
     IsTuple { value: Value, length: usize },
     /// Whether a type, a [`Constant::Type`], describes a value.
     Is { value: Value, ty: usize },
+    /// A record with the fields of both, `overlay`'s where both have one.
+    /// `base` may be null, for no fields. This is how bindings are
+    /// extended.
+    Merge { base: Value, overlay: Value },
+    /// A new token: what a provide binds an abort handler to.
+    Token,
+    /// Expires a token, and is null.
+    Expire(Value),
+    /// Unwinds to the provide that holds `token`, with `args`, a tuple.
+    Abort { token: Value, args: Value },
+    /// For a provide whose body unwound: expires `token`, then is the
+    /// arguments if the unwinding was an abort to it, and goes on
+    /// unwinding if not.
+    Caught(Value),
 }
 
 /// One argument of a call into the runtime.
@@ -115,7 +131,9 @@ impl Op {
     #[must_use]
     pub fn unwinds(&self) -> bool {
         match self {
-            Self::Call { .. } | Self::CallValue { .. } => true,
+            Self::Call { .. } | Self::CallValue { .. } | Self::Abort { .. } | Self::Caught(_) => {
+                true
+            }
             Self::Primitive { operation, .. } => matches!(
                 operation,
                 Primitive::IntAdd | Primitive::IntSubtract | Primitive::IntMultiply
@@ -180,6 +198,15 @@ impl Op {
                 vec![step(Entry::RecordHas, [value(subject), key(field)])]
             }
             Self::IsRecord(subject) => vec![step(Entry::RecordIs, [value(subject)])],
+            Self::Merge { base, overlay } => {
+                vec![step(Entry::RecordMerge, [value(base), value(overlay)])]
+            }
+            Self::Token => vec![step(Entry::TokenNew, [])],
+            Self::Expire(token) => vec![step(Entry::TokenExpire, [value(token)])],
+            Self::Abort { token, args } => {
+                vec![step(Entry::Abort, [value(token), value(args)])]
+            }
+            Self::Caught(token) => vec![step(Entry::Caught, [value(token)])],
             Self::Is { value: subject, ty } => vec![step(Entry::Is, [value(subject), key(ty)])],
             Self::IsTuple {
                 value: subject,
@@ -226,12 +253,18 @@ pub enum Expr {
     },
     /// Unwinds.
     Fault(Fault),
+    /// `body`, or, if it unwinds, `recover`, which may go on unwinding.
+    Try {
+        body: Box<Expr>,
+        recover: Box<Expr>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Function {
-    /// How many parameters the function takes. They are locals `0..params`,
-    /// and are borrowed from the caller.
+    /// How many parameters the function takes, counting the bindings it is
+    /// handed, which come first. They are locals `0..params`, and are
+    /// borrowed from the caller.
     pub params: usize,
     /// How many locals the function uses, parameters included.
     pub locals: usize,

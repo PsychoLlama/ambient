@@ -52,7 +52,7 @@ fn body(definitions: impl IntoIterator<Item = Definition>) -> Result<Core, Error
     let open = Engine::new(&program(definitions), &store).check(&value("main", "main"))?;
     match &open.tree {
         Tree::Function(function) => Ok(function.body.clone()),
-        Tree::Type { .. } => panic!("not a function"),
+        _ => panic!("not a function"),
     }
 }
 

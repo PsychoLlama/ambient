@@ -74,6 +74,12 @@ pub enum Error {
     /// A definition's content depends on a comptime call that depends on
     /// the definition.
     ComptimeCycle(Symbol),
+    /// An ability is used where nothing binds it.
+    Unbound { symbol: Symbol, ability: Symbol },
+    /// A comptime call names a function that takes abilities.
+    ComptimeAbilities { symbol: Symbol, function: Symbol },
+    /// A program's entry takes abilities, and nothing provides them.
+    EntryAbilities(Symbol),
     /// A lambda parameter has no type, and nothing expects one of it.
     UntypedParameter { symbol: Symbol, name: String },
     /// A recursive generic type applies itself to something other than its
@@ -90,24 +96,14 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnknownModule(module) => write!(f, "no module `{module}`"),
-            Self::UnknownSymbol(symbol) => write!(f, "no definition `{symbol}`"),
-            Self::UnknownPackage { module, name } => {
-                write!(f, "{module}: `{name}` is not a dependency")
-            }
-            Self::UnknownImport { module, path } => {
-                write!(f, "{module}: import `{path}` names nothing")
-            }
-            Self::PrivateImport { module, path } => {
-                write!(f, "{module}: import `{path}` is private")
-            }
-            Self::DuplicateName { module, name } => {
-                write!(f, "{module}: `{name}` is bound twice")
-            }
-            Self::UnknownName { symbol, path } => {
-                write!(f, "{symbol}: `{path}` names nothing")
-            }
-            Self::PrivateName { symbol, path } => write!(f, "{symbol}: `{path}` is private"),
+            Self::UnknownModule(_)
+            | Self::UnknownSymbol(_)
+            | Self::UnknownPackage { .. }
+            | Self::UnknownImport { .. }
+            | Self::PrivateImport { .. }
+            | Self::DuplicateName { .. }
+            | Self::UnknownName { .. }
+            | Self::PrivateName { .. } => self.fmt_name(f),
             Self::Arity {
                 symbol,
                 callee,
@@ -164,6 +160,16 @@ impl fmt::Display for Error {
             Self::ComptimeCycle(symbol) => {
                 write!(f, "{symbol}: depends on a comptime call that depends on it")
             }
+            Self::Unbound { symbol, ability } => {
+                write!(f, "{symbol}: `{ability}` is not bound here")
+            }
+            Self::ComptimeAbilities { symbol, function } => write!(
+                f,
+                "{symbol}: `{function}` takes abilities, which a comptime call cannot provide"
+            ),
+            Self::EntryAbilities(symbol) => {
+                write!(f, "{symbol}: an entry cannot take abilities yet")
+            }
             Self::UntypedParameter { symbol, name } => {
                 write!(f, "{symbol}: parameter `{name}` needs a type")
             }
@@ -179,6 +185,33 @@ impl fmt::Display for Error {
             }
             Self::NotCompilable(symbol) => write!(f, "{symbol}: not a function"),
             Self::Backend { symbol, message } => write!(f, "{symbol}: {message}"),
+        }
+    }
+}
+
+impl Error {
+    /// The errors about names: what reading and resolving report.
+    fn fmt_name(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownModule(module) => write!(f, "no module `{module}`"),
+            Self::UnknownSymbol(symbol) => write!(f, "no definition `{symbol}`"),
+            Self::UnknownPackage { module, name } => {
+                write!(f, "{module}: `{name}` is not a dependency")
+            }
+            Self::UnknownImport { module, path } => {
+                write!(f, "{module}: import `{path}` names nothing")
+            }
+            Self::PrivateImport { module, path } => {
+                write!(f, "{module}: import `{path}` is private")
+            }
+            Self::DuplicateName { module, name } => {
+                write!(f, "{module}: `{name}` is bound twice")
+            }
+            Self::UnknownName { symbol, path } => {
+                write!(f, "{symbol}: `{path}` names nothing")
+            }
+            Self::PrivateName { symbol, path } => write!(f, "{symbol}: `{path}` is private"),
+            _ => Ok(()),
         }
     }
 }

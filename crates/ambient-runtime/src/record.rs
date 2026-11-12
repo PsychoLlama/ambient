@@ -66,3 +66,42 @@ pub unsafe extern "C" fn amb_record_has(value: Word, key: Word) -> Word {
 pub unsafe extern "C" fn amb_record_is(value: Word) -> Word {
     unsafe { boolean(kind(value) == KIND_RECORD) }
 }
+
+/// A record with every field of `base` and of `overlay`, taking the
+/// overlay's value where both have a field. `base` may be null, for no
+/// fields.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_record_merge(base: Word, overlay: Word) -> Word {
+    unsafe {
+        if base == NULL {
+            amb_retain(overlay);
+            return overlay;
+        }
+        // Both are ordered by key, so this is a merge of two sorted runs.
+        let (below, above) = (words(base), words(overlay));
+        let shared = below
+            .chunks(2)
+            .filter(|pair| find(overlay, pair[0]).is_some())
+            .count();
+        let length = below.len() / 2 + above.len() / 2 - shared;
+        let word = object(KIND_RECORD, length * 16);
+        let fields = words(word);
+        let (mut low, mut high) = (0, 0);
+        for pair in fields.chunks_mut(2) {
+            let from_base = high == above.len() || (low < below.len() && below[low] < above[high]);
+            let source = if from_base {
+                low += 2;
+                &below[low - 2..low]
+            } else {
+                if low < below.len() && below[low] == above[high] {
+                    low += 2;
+                }
+                high += 2;
+                &above[high - 2..high]
+            };
+            amb_retain(source[1]);
+            pair.copy_from_slice(source);
+        }
+        word
+    }
+}

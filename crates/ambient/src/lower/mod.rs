@@ -4,6 +4,7 @@
 //! match becomes tests and branches, and every intermediate value gets a
 //! local so that it has an owner.
 
+mod abilities;
 mod patterns;
 
 use ambient_runtime::{SMALL_MAX, SMALL_MIN};
@@ -32,14 +33,17 @@ pub fn lower(definition: &Open) -> Result<lir::Function, Unsupported> {
         binders: function.params.len(),
         temporaries: 0,
         constants: Vec::new(),
+        bindings: Value::Local(0),
     };
-    let mut body = lowering.expr(&function.body)?;
+    let entry = lowering.enter(function);
+    let mut body = entry.wrap(lowering.expr(&function.body)?);
     // Temporaries were numbered apart from the core tree's locals, whose
     // count was not known until now. They go after them.
-    renumber(&mut body, lowering.binders);
+    let named = lowering.binders + 1;
+    renumber(&mut body, named);
     Ok(lir::Function {
-        params: function.params.len(),
-        locals: lowering.binders + lowering.temporaries,
+        params: function.params.len() + 1,
+        locals: named + lowering.temporaries,
         slots: definition.slots.len(),
         constants: lowering.constants,
         body,
@@ -62,8 +66,21 @@ fn renumber(expr: &mut Expr, base: usize) {
     };
     match expr {
         Expr::Op(op) => match op {
-            Op::Int(_) | Op::Float(_) | Op::Slot(_) => {}
-            Op::Copy(operand) | Op::IsRecord(operand) => value(operand),
+            Op::Int(_) | Op::Float(_) | Op::Slot(_) | Op::Token => {}
+            Op::Copy(operand)
+            | Op::IsRecord(operand)
+            | Op::Expire(operand)
+            | Op::Caught(operand) => {
+                value(operand);
+            }
+            Op::Merge { base, overlay } => {
+                value(base);
+                value(overlay);
+            }
+            Op::Abort { token, args } => {
+                value(token);
+                value(args);
+            }
             Op::Call { args, .. } | Op::Primitive { args, .. } => args.iter_mut().for_each(value),
             Op::CallValue { callee, args } => {
                 value(callee);
@@ -81,6 +98,10 @@ fn renumber(expr: &mut Expr, base: usize) {
             }
         },
         Expr::Fault(_) => {}
+        Expr::Try { body, recover } => {
+            renumber(body, base);
+            renumber(recover, base);
+        }
         Expr::Let {
             local: bound,
             value: bound_value,
@@ -104,17 +125,20 @@ fn renumber(expr: &mut Expr, base: usize) {
 
 struct Lowering {
     /// How many of the core tree's locals are bound so far. A core local
-    /// keeps its number.
+    /// is numbered one past its own number: local `0` is the bindings the
+    /// function was handed.
     binders: usize,
     temporaries: usize,
     constants: Vec<Constant>,
+    /// The bindings in scope where lowering is now: a record keyed by
+    /// ability, or null where nothing is bound.
+    bindings: Value,
 }
 
 impl Lowering {
     pub(super) fn bind(&mut self) -> usize {
-        let local = self.binders;
         self.binders += 1;
-        local
+        self.binders
     }
 
     pub(super) fn temporary(&mut self) -> usize {
@@ -161,12 +185,13 @@ impl Lowering {
                 });
             }
             core::Expr::Call { callee, args } => {
+                // A callee is handed the bindings in scope, whole.
                 if let core::Expr::Reference(slot, _) = &**callee {
-                    let args = self.operands(args, &mut scope)?;
+                    let args = self.arguments(self.bindings, args, &mut scope)?;
                     Op::Call { slot: slot.0, args }
                 } else {
                     let callee = self.operand(callee, &mut scope)?;
-                    let args = self.operands(args, &mut scope)?;
+                    let args = self.arguments(self.bindings, args, &mut scope)?;
                     Op::CallValue { callee, args }
                 }
             }
@@ -174,10 +199,33 @@ impl Lowering {
                 operation: *operation,
                 args: self.operands(args, &mut scope)?,
             },
-            core::Expr::Closure { slot, captures, .. } => Op::Closure {
-                slot: slot.0,
-                captures: self.operands(captures, &mut scope)?,
-            },
+            core::Expr::Closure {
+                slot,
+                captures,
+                bindings,
+                ..
+            } => {
+                let mut captures = self.operands(captures, &mut scope)?;
+                // The bindings a lambda captures follow its values, as one
+                // record of exactly those.
+                if !bindings.is_empty() {
+                    captures.push(self.select(self.bindings, bindings, &mut scope));
+                }
+                Op::Closure {
+                    slot: slot.0,
+                    captures,
+                }
+            }
+            core::Expr::Perform {
+                ability,
+                args,
+                returns,
+            } => self.perform(*ability, args, *returns, &mut scope)?,
+            core::Expr::Provide {
+                handlers,
+                only,
+                body,
+            } => return self.provide(handlers, *only, body),
             core::Expr::Tuple(members) => Op::Sequence {
                 list: false,
                 members: self.operands(members, &mut scope)?,
@@ -265,7 +313,7 @@ impl Lowering {
             core::Expr::Literal(Literal::String(value)) => {
                 Value::Constant(self.constant(Constant::String(value.clone())))
             }
-            core::Expr::Local(number) => Value::Local(*number),
+            core::Expr::Local(number) => Value::Local(*number + 1),
             core::Expr::Captured(position) => Value::Captured(*position),
             _ => {
                 let value = self.expr(expr)?;
@@ -319,7 +367,7 @@ fn mentions(ty: &core::Type, found: &impl Fn(&core::Type) -> bool) -> bool {
                 members.iter().any(|ty| mentions(ty, found))
             }
             Type::List(member) => mentions(member, found),
-            Type::Function { params, ret } => {
+            Type::Function { params, ret, .. } => {
                 params.iter().any(|ty| mentions(ty, found)) || mentions(ret, found)
             }
             _ => false,

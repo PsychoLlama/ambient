@@ -47,29 +47,31 @@ impl Checker<'_> {
             checked[position] = Some((core, found));
         }
         for (position, arg) in args.iter().enumerate() {
-            let Expr::Lambda { params, body } = arg else {
+            if !matches!(arg, Expr::Lambda { .. }) {
                 continue;
-            };
+            }
             let so_far: Vec<Ty> = lower.iter().map(|b| self.env.union(b.clone())).collect();
             let expected = self
                 .env
                 .normalize(&substitute(&signature.params[position], &so_far));
             self.next = bases[position];
-            let (core, found) = match self.env.unfold(&expected) {
-                Ty::Function { params: hint, .. } => self.lambda(params, body, Some(&hint))?,
-                _ => self.lambda(params, body, None)?,
-            };
+            let (core, found) = self.infer_as(arg, &expected)?;
             self.collect(&signature.params[position], &found, &mut lower);
             checked[position] = Some((core, found));
         }
         self.next = base;
-        let (core_args, found): (Vec<_>, Vec<_>) = checked.into_iter().flatten().unzip();
         let type_args = self.solve(function, signature, lower)?;
-        for (param, found) in signature.params.iter().zip(&found) {
+        let mut core_args = Vec::new();
+        for (param, (core, found)) in signature.params.iter().zip(checked.into_iter().flatten()) {
             let expected = self.env.normalize(&substitute(param, &type_args));
-            if !self.env.subtype(found, &expected) {
-                return Err(self.mismatch(&expected, found));
+            let (core, found) = self.bind_row(core, found, &expected)?;
+            if !self.env.subtype(&found, &expected) {
+                return Err(self.mismatch(&expected, &found));
             }
+            core_args.push(core);
+        }
+        for ability in &signature.row {
+            self.require(ability)?;
         }
         let core = core::Expr::Call {
             callee: Box::new(self.reference(function, &type_args)),
@@ -235,5 +237,11 @@ pub(super) fn function_type(signature: &Signature, type_args: &[Ty]) -> Ty {
             .map(|param| substitute(param, type_args))
             .collect(),
         ret: Box::new(substitute(&signature.ret, type_args)),
+        row: signature
+            .row
+            .iter()
+            .cloned()
+            .map(Reference::Definition)
+            .collect(),
     }
 }

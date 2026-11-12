@@ -21,11 +21,12 @@ impl<N> Type<N> {
                 }
             }
             Self::List(member) => member.names(visit),
-            Self::Function { params, ret } => {
+            Self::Function { params, ret, row } => {
                 for ty in params {
                     ty.names(visit);
                 }
                 ret.names(visit);
+                row.iter().for_each(&mut *visit);
             }
             Self::Named(name, args) => {
                 visit(name);
@@ -90,9 +91,23 @@ impl<N> Expr<N> {
                     arm.body.names(visit);
                 }
             }
-            Self::Lambda { params, body } => {
+            Self::Lambda { params, row, body } => {
                 for ty in params.iter().filter_map(|(_, ty)| ty.as_ref()) {
                     ty.names(visit);
+                }
+                row.iter().for_each(&mut *visit);
+                body.names(visit);
+            }
+            Self::Perform { ability, args } => {
+                visit(ability);
+                for arg in args {
+                    arg.names(visit);
+                }
+            }
+            Self::Provide { handlers, body, .. } => {
+                for (ability, handler) in handlers {
+                    visit(ability);
+                    handler.names(visit);
                 }
                 body.names(visit);
             }
@@ -144,7 +159,12 @@ impl<N> Expr<N> {
                     .sum();
                 subject.binders() + arms
             }
-            Self::Lambda { params, body } => params.len() + body.binders(),
+            Self::Lambda { params, body, .. } => params.len() + body.binders(),
+            Self::Perform { args, .. } => all(args),
+            Self::Provide { handlers, body, .. } => {
+                let handlers: usize = handlers.iter().map(|(_, h)| h.binders()).sum();
+                handlers + body.binders()
+            }
             Self::Comptime(call) => call.binders(),
             Self::Cast {
                 value, otherwise, ..
@@ -192,6 +212,13 @@ impl<N> Expr<N> {
                 }
             }
             Self::Lambda { body, .. } => visit(body),
+            Self::Perform { args, .. } => args.iter().for_each(visit),
+            Self::Provide { handlers, body, .. } => {
+                for (_, handler) in handlers {
+                    visit(handler);
+                }
+                visit(body);
+            }
             Self::Comptime(call) => visit(call),
             Self::Cast {
                 value, otherwise, ..
@@ -211,6 +238,7 @@ impl<N> Function<N> {
         }
         self.params.iter().for_each(|param| param.ty.names(visit));
         self.ret.names(visit);
+        self.row.iter().for_each(visit);
     }
 }
 
@@ -222,6 +250,13 @@ impl<N> Definition<N> {
             DefinitionKind::Function(function) => {
                 function.header_names(visit);
                 function.body.names(visit);
+            }
+            DefinitionKind::Ability(ability) => {
+                ability
+                    .params
+                    .iter()
+                    .for_each(|param| param.ty.names(visit));
+                ability.ret.names(visit);
             }
         }
     }

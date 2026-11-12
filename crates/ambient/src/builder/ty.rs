@@ -78,10 +78,22 @@ pub fn record<'a>(fields: impl IntoIterator<Item = (&'a str, Type)>) -> Type {
     )
 }
 
+/// A function that takes no abilities from its caller.
 pub fn function(params: impl IntoIterator<Item = Type>, ret: Type) -> Type {
+    function_row(params, [], ret)
+}
+
+/// A function that takes the abilities in `row`, each a dotted path, from
+/// its caller.
+pub fn function_row<'a>(
+    params: impl IntoIterator<Item = Type>,
+    row: impl IntoIterator<Item = &'a str>,
+    ret: Type,
+) -> Type {
     Type::Function {
         params: params.into_iter().collect(),
         ret: Box::new(ret),
+        row: row.into_iter().map(Path::parse).collect(),
     }
 }
 

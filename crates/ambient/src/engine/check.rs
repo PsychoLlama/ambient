@@ -15,7 +15,7 @@ use crate::error::Error;
 use crate::hash::{Hash, Hasher};
 use crate::surface::{DefinitionKind, Function, Reference};
 use crate::symbol::{Namespace, Symbol};
-use crate::types::{Env, Signature, Ty, TypeInfo};
+use crate::types::{AbilityInfo, Env, Signature, Ty, TypeInfo, abilities};
 
 /// What dependents check against.
 #[derive(Debug)]
@@ -78,16 +78,56 @@ impl Engine<'_> {
         })
     }
 
-    /// Adds every type definition reachable from `roots` to `env`.
+    /// Adds every type definition and ability reachable from `roots` to
+    /// `env`, then puts what was added in normal form.
     fn gather(&self, roots: Vec<Symbol>, env: &mut Env) -> Result<(), Error> {
         let mut pending = roots;
         while let Some(symbol) = pending.pop() {
-            if env.types.contains_key(&symbol) {
-                continue;
+            match symbol.namespace {
+                Namespace::Type if !env.types.contains_key(&symbol) => {
+                    let info = self.type_info(&symbol)?;
+                    pending.extend(type_definitions(&info.ty));
+                    env.types.insert(symbol, (*info).clone());
+                }
+                Namespace::Ability if !env.abilities.contains_key(&symbol) => {
+                    let resolved = self.resolve(&symbol)?;
+                    let DefinitionKind::Ability(ability) = &resolved.definition.kind else {
+                        return Err(Error::UnknownSymbol(symbol.clone()));
+                    };
+                    pending.extend(definitions(|visit| {
+                        resolved.definition.names(&mut |name| visit(name));
+                    }));
+                    let info = AbilityInfo {
+                        tag: (symbol.module.package.0.clone(), ability.tag.clone()),
+                        params: ability.params.iter().map(|p| p.ty.clone()).collect(),
+                        ret: ability.ret.clone(),
+                    };
+                    env.abilities.insert(symbol, info);
+                }
+                _ => {}
             }
-            let info = self.type_info(&symbol)?;
-            pending.extend(type_definitions(&info.ty));
-            env.types.insert(symbol, (*info).clone());
+        }
+        // Signatures are read in normal form everywhere.
+        let abilities = std::mem::take(&mut env.abilities);
+        env.abilities = abilities
+            .into_iter()
+            .map(|(symbol, info)| {
+                let info = AbilityInfo {
+                    params: info.params.iter().map(|p| env.normalize(p)).collect(),
+                    ret: env.normalize(&info.ret),
+                    tag: info.tag,
+                };
+                (symbol, info)
+            })
+            .collect();
+        Ok(())
+    }
+
+    /// Adds the digest of everything `env` holds to `key`: what checking a
+    /// type or an ability reads.
+    fn reachable(&self, env: &Env, key: &mut Hasher) -> Result<(), Error> {
+        for reachable in env.types.keys().chain(env.abilities.keys()) {
+            key.hash(&self.resolve(reachable)?.digest);
         }
         Ok(())
     }
@@ -105,8 +145,9 @@ impl Engine<'_> {
             }
             let resolved = self.resolve(symbol)?;
             let digest = match &resolved.definition.kind {
-                // A type's interface is the type itself.
-                DefinitionKind::Type(_) => self.hash(symbol)?,
+                // A type's interface is the type itself, and an ability's
+                // the ability.
+                DefinitionKind::Type(_) | DefinitionKind::Ability(_) => self.hash(symbol)?,
                 DefinitionKind::Function(function) => {
                     let mut env = Env::default();
                     self.gather(header_definitions(function), &mut env)?;
@@ -135,9 +176,14 @@ impl Engine<'_> {
                 &function.type_params,
                 &[function.captures.clone(), function.params.clone()].concat(),
                 &function.ret,
+                &[function.bindings.clone(), function.row.clone()].concat(),
             ));
         }
-        for slot in open.slots.iter().filter(|s| s.namespace == Namespace::Type) {
+        for slot in open
+            .slots
+            .iter()
+            .filter(|s| s.namespace != Namespace::Value)
+        {
             digest.hash(&self.hash(slot)?);
         }
         Ok(Arc::new(Interface {
@@ -187,11 +233,16 @@ impl Engine<'_> {
                 // A type refers only to types, so what checking one
                 // reads is the definitions it can reach.
                 self.gather(vec![symbol.clone()], &mut env)?;
-                for reachable in env.types.keys() {
-                    key.hash(&self.resolve(reachable)?.digest);
-                }
+                self.reachable(&env, &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
                     checker::check_type(symbol, definition, &env)
+                })
+            }
+            DefinitionKind::Ability(ability) => {
+                self.gather(vec![symbol.clone()], &mut env)?;
+                self.reachable(&env, &mut key)?;
+                self.stage(Stage::Check, symbol, key.finish(), || {
+                    checker::check_ability(symbol, ability, &env)
                 })
             }
             DefinitionKind::Function(function) => {
@@ -200,7 +251,7 @@ impl Engine<'_> {
                     resolved.definition.names(&mut |name| visit(name));
                 }) {
                     match used.namespace {
-                        Namespace::Type => {
+                        Namespace::Type | Namespace::Ability => {
                             key.hash(&self.hash(&used)?);
                             types.push(used);
                         }
@@ -217,11 +268,16 @@ impl Engine<'_> {
                                         .collect(),
                                     params: header.params.iter().map(|p| p.ty.clone()).collect(),
                                     ret: header.ret.clone(),
+                                    row: {
+                                        let mut row = abilities(&header.row);
+                                        row.sort();
+                                        row.dedup();
+                                        row
+                                    },
                                 };
                                 env.functions.insert(used, signature);
                             }
                         }
-                        Namespace::Ability => {}
                     }
                 }
                 self.gather(types, &mut env)?;
@@ -238,6 +294,7 @@ impl Engine<'_> {
                                 .collect(),
                             params: signature.params.iter().map(|p| env.normalize(p)).collect(),
                             ret: env.normalize(&signature.ret),
+                            row: signature.row,
                         };
                         (symbol, signature)
                     })

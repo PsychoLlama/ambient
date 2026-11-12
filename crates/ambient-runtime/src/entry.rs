@@ -1,11 +1,12 @@
 //! The entry points: what compiled code may call, and in what order they are tabled.
 
 use crate::{
-    amb_closure_new, amb_closure_set, amb_equal, amb_fault, amb_float_add, amb_float_less,
-    amb_float_multiply, amb_float_new, amb_float_subtract, amb_int_add, amb_int_less,
-    amb_int_multiply, amb_int_new, amb_int_subtract, amb_is, amb_record_get, amb_record_has,
-    amb_record_is, amb_record_new, amb_record_set, amb_release, amb_retain, amb_sequence_get,
-    amb_sequence_is, amb_sequence_new, amb_sequence_set,
+    amb_abort, amb_caught, amb_closure_new, amb_closure_set, amb_equal, amb_fault, amb_float_add,
+    amb_float_less, amb_float_multiply, amb_float_new, amb_float_subtract, amb_int_add,
+    amb_int_less, amb_int_multiply, amb_int_new, amb_int_subtract, amb_is, amb_record_get,
+    amb_record_has, amb_record_is, amb_record_merge, amb_record_new, amb_record_set, amb_release,
+    amb_retain, amb_sequence_get, amb_sequence_is, amb_sequence_new, amb_sequence_set,
+    amb_token_expire, amb_token_new,
 };
 
 /// The entry points, in table order.
@@ -38,10 +39,15 @@ pub enum Entry {
     ClosureNew,
     ClosureSet,
     Is,
+    RecordMerge,
+    TokenNew,
+    TokenExpire,
+    Abort,
+    Caught,
 }
 
 impl Entry {
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 31] = [
         Self::Retain,
         Self::Release,
         Self::IntAdd,
@@ -68,6 +74,11 @@ impl Entry {
         Self::ClosureNew,
         Self::ClosureSet,
         Self::Is,
+        Self::RecordMerge,
+        Self::TokenNew,
+        Self::TokenExpire,
+        Self::Abort,
+        Self::Caught,
     ];
 
     /// The name the entry point is exported under.
@@ -100,6 +111,11 @@ impl Entry {
             Self::ClosureNew => "amb_closure_new",
             Self::ClosureSet => "amb_closure_set",
             Self::Is => "amb_is",
+            Self::RecordMerge => "amb_record_merge",
+            Self::TokenNew => "amb_token_new",
+            Self::TokenExpire => "amb_token_expire",
+            Self::Abort => "amb_abort",
+            Self::Caught => "amb_caught",
         }
     }
 
@@ -108,7 +124,12 @@ impl Entry {
     pub fn takes_context(self) -> bool {
         matches!(
             self,
-            Self::IntAdd | Self::IntSubtract | Self::IntMultiply | Self::Fault
+            Self::IntAdd
+                | Self::IntSubtract
+                | Self::IntMultiply
+                | Self::Fault
+                | Self::Abort
+                | Self::Caught
         )
     }
 
@@ -116,8 +137,11 @@ impl Entry {
     #[must_use]
     pub fn arity(self) -> usize {
         match self {
+            Self::TokenNew => 0,
             Self::Retain
             | Self::Release
+            | Self::TokenExpire
+            | Self::Caught
             | Self::IntNew
             | Self::FloatNew
             | Self::Fault
@@ -167,6 +191,11 @@ impl Entry {
             Self::ClosureNew => amb_closure_new as *const () as usize,
             Self::ClosureSet => amb_closure_set as *const () as usize,
             Self::Is => amb_is as *const () as usize,
+            Self::RecordMerge => amb_record_merge as *const () as usize,
+            Self::TokenNew => amb_token_new as *const () as usize,
+            Self::TokenExpire => amb_token_expire as *const () as usize,
+            Self::Abort => amb_abort as *const () as usize,
+            Self::Caught => amb_caught as *const () as usize,
         }
     }
 }

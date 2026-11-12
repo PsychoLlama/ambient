@@ -1,10 +1,31 @@
 //! Lambdas: each is a definition of its own, checked in its own frame.
 
+use super::abilities::Layer;
 use super::{Checker, Frame};
-use crate::core::{self, Open, Tree};
+use crate::core::{self, Open, Slot, Tree};
 use crate::error::Error;
 use crate::surface::{Expr, Reference};
-use crate::types::Ty;
+use crate::symbol::Symbol;
+use crate::types::{Ty, abilities};
+
+/// A definition made inside another, as the encloser refers to it.
+pub(super) struct Made {
+    slot: Slot,
+    type_args: Vec<core::Type>,
+    bindings: Vec<Slot>,
+}
+
+impl Made {
+    /// A closure over the definition and the values it captures.
+    pub(super) fn closure(self, captures: Vec<core::Expr>) -> core::Expr {
+        core::Expr::Closure {
+            slot: self.slot,
+            type_args: self.type_args,
+            captures,
+            bindings: self.bindings,
+        }
+    }
+}
 
 impl Checker<'_> {
     /// A lambda: its own definition, checked in a frame of its own.
@@ -14,6 +35,7 @@ impl Checker<'_> {
     pub(super) fn lambda(
         &mut self,
         params: &[(String, Option<Ty>)],
+        row: &[Reference],
         body: &Expr<Reference>,
         hint: Option<&[Ty]>,
     ) -> Result<(core::Expr, Ty), Error> {
@@ -34,44 +56,17 @@ impl Checker<'_> {
             });
         }
 
-        let mut path = self.frame().path.clone();
-        path.push(self.frame().lambdas.len());
-        self.frames.push(Frame {
-            path,
-            ..Frame::default()
-        });
+        self.enter(abilities(row));
         for ty in &types {
             self.bind_local(ty.clone());
         }
         let (body, ret) = self.infer(body)?;
-
-        // The lambda's own tree is lowered while its frame is current, so
-        // the slots land in its table.
-        let type_params: Vec<_> = self.env.bounds.iter().map(|ty| self.lower(ty)).collect();
-        let core_params = types.iter().map(|ty| self.lower(ty)).collect();
-        let core_ret = self.lower(&ret);
         let outer = self.frame().captures.clone();
-        let captures = outer
+        let held: Vec<Ty> = outer
             .iter()
-            .map(|number| {
-                let ty = self.types.get(number).cloned().unwrap_or(Ty::Never);
-                self.lower(&ty)
-            })
+            .map(|number| self.types.get(number).cloned().unwrap_or(Ty::Never))
             .collect();
-        let frame = self.frames.pop().unwrap_or_default();
-        let symbol = self.symbol.lambda(&frame.path);
-        let definition = Open {
-            tree: Tree::Function(core::Function {
-                type_params,
-                captures,
-                params: core_params,
-                ret: core_ret,
-                body,
-            }),
-            slots: frame.slots,
-            lambdas: frame.lambdas,
-        };
-        self.frame().lambdas.push(definition);
+        let made = self.leave(&held, &types, &ret, body);
 
         // The encloser hands over each captured value, capturing it in turn
         // if it is not its own.
@@ -80,19 +75,76 @@ impl Checker<'_> {
             .iter()
             .map(|number| self.reach(depth, *number))
             .collect();
-        // A lambda has its encloser's type parameters, at themselves.
-        let type_args = (0..self.env.bounds.len())
-            .map(core::Type::Parameter)
-            .collect();
-        let core = core::Expr::Closure {
-            slot: self.slot(&symbol),
-            type_args,
-            captures,
-        };
+        let mut row = row.to_vec();
+        row.sort();
+        row.dedup();
         let ty = Ty::Function {
             params: types,
             ret: Box::new(ret),
+            row,
         };
-        Ok((core, ty))
+        Ok((made.closure(captures), ty))
+    }
+
+    /// Starts a definition inside the current one. `row` is what it takes
+    /// from its caller.
+    pub(super) fn enter(&mut self, row: Vec<Symbol>) {
+        let mut path = self.frame().path.clone();
+        path.push(self.frame().lambdas.len());
+        self.frames.push(Frame {
+            path,
+            layers: vec![Layer {
+                abilities: row,
+                only: false,
+            }],
+            ..Frame::default()
+        });
+    }
+
+    /// Finishes the definition [`Self::enter`] started, given the types of
+    /// the values it captures, its parameters, its result, and its body.
+    pub(super) fn leave(
+        &mut self,
+        values: &[Ty],
+        params: &[Ty],
+        ret: &Ty,
+        body: core::Expr,
+    ) -> Made {
+        // The definition's own tree is lowered while its frame is current,
+        // so the slots land in its table.
+        let env = self.env;
+        let type_params = env.bounds.iter().map(|ty| self.lower(ty)).collect();
+        let captures = values.iter().map(|ty| self.lower(ty)).collect();
+        let params = params.iter().map(|ty| self.lower(ty)).collect();
+        let ret = self.lower(ret);
+        let taken = self.frame().bindings.clone();
+        let row = match self.frame().layers.first() {
+            Some(layer) => layer.abilities.clone(),
+            None => Vec::new(),
+        };
+        let bindings = self.row(&taken);
+        let row = self.row(&row);
+        let frame = self.frames.pop().unwrap_or_default();
+        let symbol = self.symbol.lambda(&frame.path);
+        self.frame().lambdas.push(Open {
+            tree: Tree::Function(core::Function {
+                type_params,
+                captures,
+                bindings,
+                params,
+                ret,
+                row,
+                body,
+            }),
+            slots: frame.slots,
+            lambdas: frame.lambdas,
+        });
+        Made {
+            slot: self.slot(&symbol),
+            // A lambda has its encloser's type parameters, at themselves.
+            type_args: (0..env.bounds.len()).map(core::Type::Parameter).collect(),
+            // The same abilities, as the encloser's slots.
+            bindings: self.row(&taken),
+        }
     }
 }

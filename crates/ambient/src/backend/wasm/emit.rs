@@ -172,6 +172,25 @@ impl Emitter {
                 self.frames.pop();
                 self.emit(&Instruction::End);
             }
+            Expr::Try { body, recover } => {
+                // The inner block is where the body's unwinding lands; the
+                // outer one is where both ways out meet.
+                self.block();
+                self.frames.push(false);
+                self.block();
+                self.frames.push(true);
+                self.expr(body);
+                if !matches!(**body, Expr::Op(_)) {
+                    self.check();
+                }
+                self.emit(&Instruction::Br(1));
+                self.frames.pop();
+                self.emit(&Instruction::End);
+                self.emit(&Instruction::Drop);
+                self.expr(recover);
+                self.frames.pop();
+                self.emit(&Instruction::End);
+            }
             Expr::Fault(fault) => {
                 self.emit(&Instruction::LocalGet(CONTEXT));
                 self.constant(*fault as u64);

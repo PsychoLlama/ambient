@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use super::BuildError;
-use crate::surface::{Expr, Function, Path, Pattern};
+use crate::surface::{Expr, Function, Param, Path, Pattern};
 
 pub(super) fn check_name(name: &str) -> Result<(), BuildError> {
     let mut chars = name.chars();
@@ -50,8 +50,15 @@ pub(super) fn check_function(name: &str, function: &Function) -> Result<(), Buil
     for bound in function.type_params.iter().filter_map(|p| p.bound.as_ref()) {
         check_type(bound)?;
     }
+    check_params(name, &function.params)?;
+    check_type(&function.ret)?;
+    function.row.iter().try_for_each(check_path)?;
+    check_expr(&function.body)
+}
+
+pub(super) fn check_params(name: &str, params: &[Param]) -> Result<(), BuildError> {
     let mut seen = BTreeSet::new();
-    for param in &function.params {
+    for param in params {
         check_name(&param.name)?;
         check_type(&param.ty)?;
         if !seen.insert(&param.name) {
@@ -61,8 +68,7 @@ pub(super) fn check_function(name: &str, function: &Function) -> Result<(), Buil
             });
         }
     }
-    check_type(&function.ret)?;
-    check_expr(&function.body)
+    Ok(())
 }
 
 pub(super) fn check_type(ty: &crate::surface::Type) -> Result<(), BuildError> {
@@ -82,8 +88,9 @@ pub(super) fn check_type(ty: &crate::surface::Type) -> Result<(), BuildError> {
         }
         Type::Tuple(members) | Type::Union(members) => members.iter().try_for_each(check_type),
         Type::List(member) => check_type(member),
-        Type::Function { params, ret } => {
+        Type::Function { params, ret, row } => {
             params.iter().try_for_each(check_type)?;
+            row.iter().try_for_each(check_path)?;
             check_type(ret)
         }
         Type::Named(path, args) => {
@@ -156,7 +163,23 @@ pub(super) fn check_expr(expr: &Expr) -> Result<(), BuildError> {
                 check_expr(&arm.body)
             })
         }
-        Expr::Lambda { params, body } => {
+        Expr::Perform { ability, args } => {
+            check_path(ability)?;
+            args.iter().try_for_each(check_expr)
+        }
+        Expr::Provide { handlers, body, .. } => {
+            let mut seen = BTreeSet::new();
+            for (ability, handler) in handlers {
+                check_path(ability)?;
+                if !seen.insert(ability) {
+                    return Err(BuildError::DuplicateHandler(ability.clone()));
+                }
+                check_expr(handler)?;
+            }
+            check_expr(body)
+        }
+        Expr::Lambda { params, row, body } => {
+            row.iter().try_for_each(check_path)?;
             let mut seen = BTreeSet::new();
             for (name, ty) in params {
                 check_name(name)?;

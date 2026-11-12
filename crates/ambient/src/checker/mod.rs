@@ -8,6 +8,7 @@
 //! other definitions is in the `Env`, which is what lets the engine key its
 //! result by content.
 
+mod abilities;
 mod comptime;
 mod generics;
 mod header;
@@ -21,10 +22,11 @@ use crate::core::{self, Open, Slot, Tree};
 use crate::error::Error;
 use crate::surface::{Expr, Function, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Env, Ty};
+use crate::types::{Env, Ty, abilities};
 use crate::value::Value;
+use abilities::Layer;
 use generics::function_type;
-pub use header::{check_type, encode_header};
+pub use header::{check_ability, check_type, encode_header};
 use header::{header, visit_types};
 
 /// Checks a function against its own header.
@@ -44,6 +46,11 @@ pub fn check_function(
     let type_params = env.bounds.iter().map(|ty| checker.lower(ty)).collect();
     let params = header.params.iter().map(|ty| checker.lower(ty)).collect();
     let ret = checker.lower(&header.ret);
+    let row = checker.row(&header.row);
+    checker.frame().layers.push(Layer {
+        abilities: header.row,
+        only: false,
+    });
     for param in header.params {
         checker.bind_local(param);
     }
@@ -53,8 +60,10 @@ pub fn check_function(
         tree: Tree::Function(core::Function {
             type_params,
             captures: Vec::new(),
+            bindings: Vec::new(),
             params,
             ret,
+            row,
             body,
         }),
         slots: frame.slots,
@@ -74,6 +83,11 @@ struct Frame {
     /// Locals of enclosing definitions that this one uses, by resolved
     /// number, in order of first use.
     captures: Vec<usize>,
+    /// What binds abilities here, innermost last: the definition's row,
+    /// then each provide checking is inside of.
+    layers: Vec<Layer>,
+    /// Abilities this definition uses that only an enclosing one binds.
+    bindings: Vec<Symbol>,
     lambdas: Vec<Open>,
 }
 
@@ -195,9 +209,10 @@ impl<'a> Checker<'a> {
                 core::Type::Tuple(members.iter().map(|m| self.lower(m)).collect())
             }
             Ty::List(member) => core::Type::List(Box::new(self.lower(member))),
-            Ty::Function { params, ret } => core::Type::Function {
+            Ty::Function { params, ret, row } => core::Type::Function {
                 params: params.iter().map(|p| self.lower(p)).collect(),
                 ret: Box::new(self.lower(ret)),
+                row: self.row(&abilities(row)),
             },
             Ty::Union(members) => {
                 let mut members: Vec<_> = members.iter().map(|m| self.lower(m)).collect();
@@ -222,37 +237,51 @@ impl<'a> Checker<'a> {
 
     /// Checks that `expr` has a subtype of `expected`.
     fn check(&mut self, expr: &Expr<Reference>, expected: &Ty) -> Result<core::Expr, Error> {
-        // A generic function used as a value takes its type arguments from
-        // the function type expected of it.
-        if let Expr::Name(Reference::Definition(function)) = expr
-            && let Some(signature) = self.generic(function)
-            && let Ty::Function { params, .. } = self.env.unfold(expected)
-            && params.len() == signature.params.len()
-        {
-            let mut lower = vec![Vec::new(); signature.type_params.len()];
-            for (param, wanted) in signature.params.iter().zip(&params) {
-                self.collect(param, wanted, &mut lower);
-            }
-            let args = self.solve(function, &signature, lower)?;
-            let found = function_type(&signature, &args);
-            if !self.env.subtype(&found, expected) {
-                return Err(self.mismatch(expected, &found));
-            }
-            return Ok(self.reference(function, &args));
-        }
-        let (core, found) = match expr {
-            // A lambda takes the types its parameters lack from the
-            // function type expected of it.
-            Expr::Lambda { params, body } => match self.env.unfold(expected) {
-                Ty::Function { params: hint, .. } => self.lambda(params, body, Some(&hint))?,
-                _ => self.lambda(params, body, None)?,
-            },
-            _ => self.infer(expr)?,
-        };
+        let (core, found) = self.infer_as(expr, expected)?;
+        let (core, found) = self.bind_row(core, found, expected)?;
         if self.env.subtype(&found, expected) {
             Ok(core)
         } else {
             Err(self.mismatch(expected, &found))
+        }
+    }
+
+    /// The core form of `expr` and its type, where `expected` may supply
+    /// what `expr` leaves out. Nothing here says the type fits.
+    fn infer_as(
+        &mut self,
+        expr: &Expr<Reference>,
+        expected: &Ty,
+    ) -> Result<(core::Expr, Ty), Error> {
+        let hint = match self.env.unfold(expected) {
+            Ty::Function { params, .. } => Some(params),
+            _ => None,
+        };
+        match (expr, hint) {
+            // A generic function used as a value takes its type arguments
+            // from the function type expected of it.
+            (Expr::Name(Reference::Definition(function)), Some(params))
+                if self
+                    .generic(function)
+                    .is_some_and(|signature| signature.params.len() == params.len()) =>
+            {
+                let Some(signature) = self.generic(function) else {
+                    return self.infer(expr);
+                };
+                let mut lower = vec![Vec::new(); signature.type_params.len()];
+                for (param, wanted) in signature.params.iter().zip(&params) {
+                    self.collect(param, wanted, &mut lower);
+                }
+                let args = self.solve(function, &signature, lower)?;
+                let found = self.env.normalize(&function_type(&signature, &args));
+                Ok((self.reference(function, &args), found))
+            }
+            // A lambda takes the types its parameters lack from the
+            // function type expected of it.
+            (Expr::Lambda { params, row, body }, hint) => {
+                self.lambda(params, row, body, hint.as_deref())
+            }
+            _ => self.infer(expr),
         }
     }
 
@@ -350,24 +379,19 @@ impl<'a> Checker<'a> {
                 right,
             } => self.binary(*operator, left, right)?,
             Expr::Match { subject, arms } => self.matching(subject, arms)?,
-            Expr::Lambda { params, body } => self.lambda(params, body, None)?,
+            Expr::Lambda { params, row, body } => self.lambda(params, row, body, None)?,
+            Expr::Perform { ability, args } => self.perform(ability, args)?,
+            Expr::Provide {
+                handlers,
+                only,
+                body,
+            } => self.provide(handlers, *only, body)?,
             Expr::Comptime(call) => self.comptime(call)?,
             Expr::Cast {
                 value,
                 ty,
                 otherwise,
-            } => {
-                let (value, _) = self.infer(value)?;
-                self.well_formed(ty)?;
-                let target = self.env.normalize(ty);
-                let (otherwise, alternative) = self.infer(otherwise)?;
-                let core = core::Expr::Cast {
-                    value: Box::new(value),
-                    ty: self.lower(&target),
-                    otherwise: Box::new(otherwise),
-                };
-                (core, self.env.union(vec![target, alternative]))
-            }
+            } => self.cast(value, ty, otherwise)?,
         })
     }
 
@@ -413,7 +437,7 @@ impl<'a> Checker<'a> {
             return self.generic_call(function, &signature, args);
         }
         let (core_callee, ty) = self.infer(callee)?;
-        let Ty::Function { params, ret } = self.env.unfold(&ty) else {
+        let Ty::Function { params, ret, row } = self.env.unfold(&ty) else {
             return Err(Error::NotCallable {
                 symbol: self.symbol.clone(),
                 found: self.env.show(&ty),
@@ -433,6 +457,7 @@ impl<'a> Checker<'a> {
                 },
             });
         }
+        self.require_all(&row)?;
         let mut core_args = Vec::new();
         for (arg, param) in args.iter().zip(&params) {
             core_args.push(self.check(arg, param)?);

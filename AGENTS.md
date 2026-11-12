@@ -12,6 +12,8 @@
 - Names, docs, and declaration order never reach a core tree or a hash.
 - A backend only translates `lir`; anything about semantics belongs in `lower.rs` or the runtime, so both backends get it.
 - Layouts and the calling convention are defined once, in `ambient-runtime`; never restate an offset in a backend.
+- Every function's first parameter is its bindings: a record keyed by ability, or null. The checker tracks what is bound (`checker/abilities.rs`); lowering only threads the record (`lower/abilities.rs`).
+- A row is ordered by tag wherever it reaches a core tree, never by name or by the order it was written in.
 - Compiled code is position-independent: it reaches definitions through slots and the runtime through entry points, never by address.
 - `core::Tree::encode` defines every hash. Changing it or the node set means bumping `FORMAT`.
 
