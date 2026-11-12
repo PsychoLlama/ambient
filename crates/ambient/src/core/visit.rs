@@ -1,7 +1,7 @@
 //! Walking core trees: what is inside an expression, and where each
 //! expression is.
 
-use super::{Expr, Pattern, Slot, Type};
+use super::{Expr, Key, Pattern, Slot, Type};
 
 impl Expr {
     /// Calls `visit` with each expression directly inside this one, in
@@ -208,6 +208,34 @@ impl Type {
             Self::List(member) | Self::Cell(member) => member.mentions_parameter(),
             Self::Function { params, ret, .. } => any(params) || ret.mentions_parameter(),
             _ => false,
+        }
+    }
+
+    /// Every slot the type names, in the order it names them.
+    #[must_use]
+    pub fn slots(&self) -> Vec<Slot> {
+        let all = |types: &[Self]| types.iter().flat_map(Self::slots).collect::<Vec<_>>();
+        match self {
+            Self::Record(fields) => fields
+                .iter()
+                .flat_map(|(key, ty)| {
+                    let key = match key {
+                        Key::Ability(slot) => Some(*slot),
+                        Key::Field(_) => None,
+                    };
+                    key.into_iter().chain(ty.slots())
+                })
+                .collect(),
+            Self::Tuple(members) | Self::Union(members) => all(members),
+            Self::Reference(slot, args) => [*slot].into_iter().chain(all(args)).collect(),
+            Self::List(member) | Self::Cell(member) => member.slots(),
+            Self::Function { params, ret, row } => {
+                let mut slots = all(params);
+                slots.extend(ret.slots());
+                slots.extend(row);
+                slots
+            }
+            _ => Vec::new(),
         }
     }
 }

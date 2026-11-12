@@ -24,6 +24,7 @@ mod operands;
 mod steps;
 
 use ambient_runtime::Fault;
+use serde::{Deserialize, Serialize};
 
 pub use steps::{Arg, Step};
 
@@ -55,7 +56,7 @@ impl Value {
 
 /// Something a definition needs that is made once, when its code is
 /// loaded, and kept as long as that code is.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Constant {
     String(String),
     /// A tag: its package and itself, as [`crate::literal::Literal::tag_text`]

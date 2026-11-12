@@ -15,7 +15,7 @@ use crate::lower::lower;
 use crate::symbol::Symbol;
 
 /// One definition of a program.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Part {
     pub hash: Hash,
     /// The part each slot refers to.
@@ -32,7 +32,7 @@ pub struct Native {
     pub tag: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Body {
     Function {
         /// How many parameters it takes.
@@ -81,7 +81,8 @@ impl Parts {
 }
 
 /// A program: exactly the definitions its entry reaches, each once.
-#[derive(Debug)]
+/// [`Parts::encode`] is its form for a host that has no compiler.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Parts {
     pub parts: Vec<Part>,
     /// The entry's position in `parts`.
