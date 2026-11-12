@@ -1,6 +1,8 @@
 //! Resolve: a surface tree and the definition tables it imports from yield
 //! symbols. See `spec/symbols.md`.
 
+mod expr;
+
 use serde::{Deserialize, Serialize};
 
 use super::scope::Scope;
@@ -8,8 +10,8 @@ use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest};
 use crate::surface::{
-    Ability, Arm, Definition, DefinitionKind, Expr, Extern, ExternKind, Function, Key, Param, Path,
-    Pattern, Reference, Target, Type, TypeDefinition, TypeParam,
+    Ability, Definition, DefinitionKind, Extern, ExternKind, Function, Param, Path, Reference,
+    Target, Type, TypeDefinition, TypeParam,
 };
 use crate::symbol::{Namespace, Symbol};
 
@@ -228,223 +230,6 @@ impl Resolver<'_> {
                 };
                 Type::Named(reference, self.types(args)?)
             }
-        })
-    }
-
-    /// Resolves a pattern and brings its binders into scope. A binder is
-    /// numbered before any that its inner pattern binds.
-    fn pattern(&mut self, pattern: &Pattern) -> Result<Pattern<Reference>, Error> {
-        Ok(match pattern {
-            Pattern::Wildcard => Pattern::Wildcard,
-            Pattern::Literal(literal) => Pattern::Literal(self.literal(literal)),
-            Pattern::Record(fields) => Pattern::Record(
-                fields
-                    .iter()
-                    .map(|(name, pattern)| Ok((name.clone(), self.pattern(pattern)?)))
-                    .collect::<Result<_, Error>>()?,
-            ),
-            Pattern::Tuple(members) => Pattern::Tuple(
-                members
-                    .iter()
-                    .map(|member| self.pattern(member))
-                    .collect::<Result<_, Error>>()?,
-            ),
-            Pattern::Is(ty) => Pattern::Is(self.ty(ty)?),
-            Pattern::Bind(name, inner) => {
-                self.bind(name);
-                Pattern::Bind(name.clone(), Box::new(self.pattern(inner)?))
-            }
-        })
-    }
-
-    fn exprs(&mut self, exprs: &[Expr]) -> Result<Vec<Expr<Reference>>, Error> {
-        exprs.iter().map(|expr| self.expr(expr)).collect()
-    }
-
-    fn expr(&mut self, expr: &Expr) -> Result<Expr<Reference>, Error> {
-        Ok(match expr {
-            Expr::Null => Expr::Null,
-            Expr::Literal(literal) => Expr::Literal(self.literal(literal)),
-            Expr::Name(path) => Expr::Name(self.name(path)?),
-            Expr::Instantiate { function, args } => Expr::Instantiate {
-                function: Reference::Definition(self.lookup(Namespace::Value, function)?),
-                args: self.types(args)?,
-            },
-            Expr::Call { callee, args } => Expr::Call {
-                callee: Box::new(self.expr(callee)?),
-                args: self.exprs(args)?,
-            },
-            Expr::Record(fields) => Expr::Record(
-                fields
-                    .iter()
-                    .map(|(key, value)| Ok((self.key(key)?, self.expr(value)?)))
-                    .collect::<Result<_, Error>>()?,
-            ),
-            Expr::Tuple(members) => Expr::Tuple(self.exprs(members)?),
-            Expr::List(members) => Expr::List(self.exprs(members)?),
-            Expr::Field { target, key } => Expr::Field {
-                target: Box::new(self.expr(target)?),
-                key: self.key(key)?,
-            },
-            Expr::Merge { left, right } => Expr::Merge {
-                left: Box::new(self.expr(left)?),
-                right: Box::new(self.expr(right)?),
-            },
-            Expr::Let { name, value, body } => self.let_(name, value, body)?,
-            Expr::Binary {
-                operator,
-                left,
-                right,
-            } => Expr::Binary {
-                operator: *operator,
-                left: Box::new(self.expr(left)?),
-                right: Box::new(self.expr(right)?),
-            },
-            Expr::Match { subject, arms } => Expr::Match {
-                subject: Box::new(self.expr(subject)?),
-                arms: self.arms(arms)?,
-            },
-            Expr::Perform { ability, args } => Expr::Perform {
-                ability: self.ability(ability)?,
-                args: self.exprs(args)?,
-            },
-            Expr::Observe { observer, body } => {
-                let observer = Box::new(self.expr(observer)?);
-                // The binder a recording holds its observer in.
-                self.next += 1;
-                Expr::Observe {
-                    observer,
-                    body: Box::new(self.expr(body)?),
-                }
-            }
-            Expr::AbilityId(ability) => Expr::AbilityId(self.ability(ability)?),
-            Expr::Group(body) => Expr::Group(Box::new(self.expr(body)?)),
-            Expr::Budget { .. } | Expr::Cleanup { .. } | Expr::Cell { .. } => self.block(expr)?,
-            Expr::Boundary(body) => Expr::Boundary(Box::new(self.expr(body)?)),
-            Expr::Spawn(task) => Expr::Spawn(Box::new(self.expr(task)?)),
-            Expr::All(branches) => Expr::All(self.exprs(branches)?),
-            Expr::First(branches) => Expr::First(self.exprs(branches)?),
-            Expr::Provide { bundle, only, body } => {
-                let bundle = Box::new(self.expr(bundle)?);
-                // The binder a provide holds its bundle in. It has no name.
-                self.next += 1;
-                Expr::Provide {
-                    bundle,
-                    only: *only,
-                    body: Box::new(self.expr(body)?),
-                }
-            }
-            Expr::Lambda { params, row, body } => self.lambda(params, row, body)?,
-            Expr::Comptime(call) => Expr::Comptime(Box::new(self.expr(call)?)),
-            Expr::Cast {
-                value,
-                ty,
-                otherwise,
-            } => Expr::Cast {
-                value: Box::new(self.expr(value)?),
-                ty: self.ty(ty)?,
-                otherwise: Box::new(self.expr(otherwise)?),
-            },
-        })
-    }
-
-    fn key(&self, key: &Key) -> Result<Key<Reference>, Error> {
-        Ok(match key {
-            Key::Field(name) => Key::Field(name.clone()),
-            Key::Ability(path) => Key::Ability(self.ability(path)?),
-        })
-    }
-
-    /// A budget, a cleanup, or a cell operation: each resolves what it
-    /// holds and binds nothing.
-    fn block(&mut self, expr: &Expr) -> Result<Expr<Reference>, Error> {
-        Ok(match expr {
-            Expr::Budget {
-                steps,
-                allocation,
-                body,
-            } => Expr::Budget {
-                steps: Box::new(self.expr(steps)?),
-                allocation: Box::new(self.expr(allocation)?),
-                body: Box::new(self.expr(body)?),
-            },
-            Expr::Cleanup { cleanup, body } => Expr::Cleanup {
-                cleanup: Box::new(self.expr(cleanup)?),
-                body: Box::new(self.expr(body)?),
-            },
-            Expr::Cell {
-                operation,
-                ty,
-                args,
-            } => Expr::Cell {
-                operation: *operation,
-                ty: ty.as_ref().map(|ty| self.ty(ty)).transpose()?,
-                args: self.exprs(args)?,
-            },
-            other => self.expr(other)?,
-        })
-    }
-
-    /// A binding, in scope for its body and not for its value.
-    fn let_(&mut self, name: &str, value: &Expr, body: &Expr) -> Result<Expr<Reference>, Error> {
-        let value = Box::new(self.expr(value)?);
-        let scope = self.locals.len();
-        self.bind(name);
-        let body = Box::new(self.expr(body)?);
-        self.locals.truncate(scope);
-        Ok(Expr::Let {
-            name: name.to_owned(),
-            value,
-            body,
-        })
-    }
-
-    /// A literal as it means here: a tag is one of this package.
-    fn literal(&self, literal: &crate::literal::Literal) -> crate::literal::Literal {
-        use crate::literal::Literal;
-        match literal {
-            Literal::Tag { tag, .. } => Literal::Tag {
-                package: self.package.to_owned(),
-                tag: tag.clone(),
-            },
-            other => other.clone(),
-        }
-    }
-
-    /// Each arm, with what its pattern binds in scope for its body.
-    fn arms(&mut self, arms: &[Arm]) -> Result<Vec<Arm<Reference>>, Error> {
-        let mut resolved = Vec::new();
-        for arm in arms {
-            let scope = self.locals.len();
-            let pattern = self.pattern(&arm.pattern)?;
-            let body = self.expr(&arm.body)?;
-            self.locals.truncate(scope);
-            resolved.push(Arm { pattern, body });
-        }
-        Ok(resolved)
-    }
-
-    fn lambda(
-        &mut self,
-        params: &[(String, Option<Type>)],
-        row: &[Path],
-        body: &Expr,
-    ) -> Result<Expr<Reference>, Error> {
-        let mut resolved = Vec::new();
-        for (name, ty) in params {
-            let ty = ty.as_ref().map(|ty| self.ty(ty)).transpose()?;
-            resolved.push((name.clone(), ty));
-        }
-        let scope = self.locals.len();
-        for (name, _) in params {
-            self.bind(name);
-        }
-        let body = Box::new(self.expr(body)?);
-        self.locals.truncate(scope);
-        Ok(Expr::Lambda {
-            params: resolved,
-            row: self.row(row)?,
-            body,
         })
     }
 
