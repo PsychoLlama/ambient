@@ -29,13 +29,18 @@
       # rides along so the editor resolves against this exact toolchain.
       rustToolchainFor =
         pkgs:
-        pkgs.fenix.stable.withComponents [
-          "cargo"
-          "clippy"
-          "rust-analyzer"
-          "rust-src"
-          "rustc"
-          "rustfmt"
+        pkgs.fenix.combine [
+          (pkgs.fenix.stable.withComponents [
+            "cargo"
+            "clippy"
+            "rust-analyzer"
+            "rust-src"
+            "rustc"
+            "rustfmt"
+          ])
+          # The runtime is also built for WebAssembly, to run beside the
+          # code the WebAssembly backend emits.
+          pkgs.fenix.targets.wasm32-unknown-unknown.stable.rust-std
         ];
 
       eachSystem = lib.flip lib.mapAttrs (

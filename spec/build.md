@@ -32,5 +32,5 @@ Compilation is a set of demand-driven queries over content-addressed inputs. Not
 ## Backends
 
 - The core tree is the only input to code generation.
-- The backends are native code and WebAssembly.
+- The [backends](backends.md) are native code and WebAssembly.
 - An artifact is keyed by what compiling read, never by its definition's hash, and never feeds a hash.

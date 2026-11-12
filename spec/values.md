@@ -35,6 +35,11 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 - Function values compare by hash and captures; handles compare by identity.
 - Operators are defined per primitive and cannot be overloaded.
 
+## Numbers
+
+- Integer addition, subtraction, and multiplication that leave the range of `int` are [faults](#faults); nothing wraps.
+- Float arithmetic follows IEEE 754 and never faults.
+
 ## Faults
 
 - A fault is a violated runtime invariant.
