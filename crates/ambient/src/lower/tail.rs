@@ -4,6 +4,11 @@
 //! The function unwinds with the call pending, and whatever called it
 //! makes the call. So every call that is not a tail call is followed
 //! by what does that, should its callee leave so.
+//!
+//! TODO: a call that is not a tail call takes stack in both backends,
+//! and recursion deeper than the stack crashes the program: wasm traps,
+//! and native code overflows. It should fault, which needs a depth the
+//! context counts and every call checks.
 
 use crate::lir::{Expr, Op, Value};
 
