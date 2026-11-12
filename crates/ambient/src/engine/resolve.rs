@@ -9,6 +9,7 @@ use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest};
 use crate::surface::{
     Arm, Definition, DefinitionKind, Expr, Function, Param, Path, Pattern, Reference, Type,
+    TypeDefinition, TypeParam,
 };
 use crate::symbol::{Namespace, Symbol};
 
@@ -45,6 +46,7 @@ impl Engine<'_> {
                 let definition = Resolver {
                     scope: &scoped.scope,
                     symbol,
+                    type_params: Vec::new(),
                     locals: Vec::new(),
                     next: 0,
                 }
@@ -59,6 +61,8 @@ impl Engine<'_> {
 struct Resolver<'a> {
     scope: &'a Scope,
     symbol: &'a Symbol,
+    /// The type parameters of the definition, by position.
+    type_params: Vec<String>,
     /// Binders in scope, innermost last, with their numbers.
     locals: Vec<(String, usize)>,
     next: usize,
@@ -67,7 +71,13 @@ struct Resolver<'a> {
 impl Resolver<'_> {
     fn definition(&mut self, definition: &Definition) -> Result<Definition<Reference>, Error> {
         let kind = match &definition.kind {
-            DefinitionKind::Type(ty) => DefinitionKind::Type(self.ty(ty)?),
+            DefinitionKind::Type(definition) => {
+                self.type_params.clone_from(&definition.params);
+                DefinitionKind::Type(TypeDefinition {
+                    params: definition.params.clone(),
+                    ty: self.ty(&definition.ty)?,
+                })
+            }
             DefinitionKind::Function(function) => {
                 DefinitionKind::Function(self.function(function)?)
             }
@@ -81,6 +91,23 @@ impl Resolver<'_> {
     }
 
     fn function(&mut self, function: &Function) -> Result<Function<Reference>, Error> {
+        // A bound may mention any type parameter of the function.
+        self.type_params = function
+            .type_params
+            .iter()
+            .map(|p| p.name.clone())
+            .collect();
+        let mut type_params = Vec::new();
+        for param in &function.type_params {
+            type_params.push(TypeParam {
+                name: param.name.clone(),
+                bound: param
+                    .bound
+                    .as_ref()
+                    .map(|bound| self.ty(bound))
+                    .transpose()?,
+            });
+        }
         let mut params = Vec::new();
         for param in &function.params {
             params.push(Param {
@@ -93,7 +120,12 @@ impl Resolver<'_> {
             self.bind(&param.name);
         }
         let body = self.expr(&function.body)?;
-        Ok(Function { params, ret, body })
+        Ok(Function {
+            type_params,
+            params,
+            ret,
+            body,
+        })
     }
 
     fn bind(&mut self, name: &str) {
@@ -128,8 +160,16 @@ impl Resolver<'_> {
                 ret: Box::new(self.ty(ret)?),
             },
             Type::Union(members) => Type::Union(self.types(members)?),
-            Type::Named(path) => {
-                Type::Named(Reference::Definition(self.lookup(Namespace::Type, path)?))
+            Type::Named(path, args) => {
+                let parameter = match path.0.as_slice() {
+                    [name] => self.type_params.iter().position(|param| param == name),
+                    _ => None,
+                };
+                let reference = match parameter {
+                    Some(position) => Reference::Parameter(position),
+                    None => Reference::Definition(self.lookup(Namespace::Type, path)?),
+                };
+                Type::Named(reference, self.types(args)?)
             }
         })
     }
@@ -169,6 +209,10 @@ impl Resolver<'_> {
             Expr::Null => Expr::Null,
             Expr::Literal(literal) => Expr::Literal(literal.clone()),
             Expr::Name(path) => Expr::Name(self.name(path)?),
+            Expr::Instantiate { function, args } => Expr::Instantiate {
+                function: Reference::Definition(self.lookup(Namespace::Value, function)?),
+                args: self.types(args)?,
+            },
             Expr::Call { callee, args } => Expr::Call {
                 callee: Box::new(self.expr(callee)?),
                 args: self.exprs(args)?,

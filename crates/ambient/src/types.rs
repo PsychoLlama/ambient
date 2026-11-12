@@ -17,6 +17,8 @@ pub type Ty = Type<Reference>;
 
 #[derive(Clone, Debug)]
 pub struct TypeInfo {
+    /// How many type parameters the definition takes.
+    pub params: usize,
     pub ty: Ty,
     /// Whether the definition can reach itself.
     pub recursive: bool,
@@ -24,6 +26,8 @@ pub struct TypeInfo {
 
 #[derive(Clone, Debug)]
 pub struct Signature {
+    /// The bound of each type parameter; `unknown` where none was written.
+    pub type_params: Vec<Ty>,
     pub params: Vec<Ty>,
     pub ret: Ty,
 }
@@ -35,6 +39,47 @@ pub struct Env {
     pub types: BTreeMap<Symbol, TypeInfo>,
     /// The header of every function it refers to.
     pub functions: BTreeMap<Symbol, Signature>,
+    /// The bound of each type parameter of the definition being checked.
+    pub bounds: Vec<Ty>,
+}
+
+/// The longest chain of assumptions a subtyping proof may build. Regular
+/// types never come near it; it is what makes an irregular one fail rather
+/// than run forever.
+const DEPTH: usize = 256;
+
+/// `ty` with each type parameter replaced by the argument in its position.
+#[must_use]
+pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
+    let all = |types: &[Ty]| types.iter().map(|ty| substitute(ty, args)).collect();
+    match ty {
+        Ty::Never
+        | Ty::Unknown
+        | Ty::Null
+        | Ty::Bool
+        | Ty::Int
+        | Ty::Float
+        | Ty::String
+        | Ty::Literal(_)
+        | Ty::Named(Reference::Local(_), _) => ty.clone(),
+        Ty::Record(fields) => Ty::Record(
+            fields
+                .iter()
+                .map(|(name, ty)| (name.clone(), substitute(ty, args)))
+                .collect(),
+        ),
+        Ty::Tuple(members) => Ty::Tuple(all(members)),
+        Ty::Union(members) => Ty::Union(all(members)),
+        Ty::List(member) => Ty::List(Box::new(substitute(member, args))),
+        Ty::Function { params, ret } => Ty::Function {
+            params: all(params),
+            ret: Box::new(substitute(ret, args)),
+        },
+        Ty::Named(Reference::Parameter(position), _) => {
+            args.get(*position).cloned().unwrap_or(Ty::Never)
+        }
+        Ty::Named(name, inner) => Ty::Named(name.clone(), all(inner)),
+    }
 }
 
 fn primitive_of(literal: &Literal) -> Ty {
@@ -71,7 +116,7 @@ impl Env {
             | Ty::Float
             | Ty::String
             | Ty::Literal(_)
-            | Ty::Named(Reference::Local(_)) => ty.clone(),
+            | Ty::Named(Reference::Local(_) | Reference::Parameter(_), _) => ty.clone(),
             Ty::Record(fields) => {
                 let mut fields: Vec<_> = fields
                     .iter()
@@ -87,10 +132,13 @@ impl Env {
                 ret: Box::new(self.normalize(ret)),
             },
             Ty::Union(members) => self.union(members.iter().map(|m| self.normalize(m)).collect()),
-            Ty::Named(Reference::Definition(symbol)) => match self.types.get(symbol) {
-                Some(info) if !info.recursive => self.normalize(&info.ty),
-                _ => ty.clone(),
-            },
+            Ty::Named(Reference::Definition(symbol), args) => {
+                let args: Vec<Ty> = args.iter().map(|arg| self.normalize(arg)).collect();
+                match self.types.get(symbol) {
+                    Some(info) if !info.recursive => self.normalize(&substitute(&info.ty, &args)),
+                    _ => Ty::Named(Reference::Definition(symbol.clone()), args),
+                }
+            }
         }
     }
 
@@ -102,13 +150,13 @@ impl Env {
         // A contractive type reaches a constructor within as many steps as
         // there are definitions.
         for _ in 0..=self.types.len() {
-            let Ty::Named(Reference::Definition(symbol)) = &ty else {
+            let Ty::Named(Reference::Definition(symbol), args) = &ty else {
                 break;
             };
             let Some(info) = self.recursive(symbol) else {
                 break;
             };
-            ty = self.normalize(&info.ty);
+            ty = self.normalize(&substitute(&info.ty, args));
         }
         ty
     }
@@ -161,10 +209,14 @@ impl Env {
         }
         match (sub, sup) {
             (Ty::Never, _) | (_, Ty::Unknown) => true,
-            (Ty::Named(Reference::Definition(_)), _) | (_, Ty::Named(Reference::Definition(_))) => {
+            (Ty::Named(Reference::Definition(_), _), _)
+            | (_, Ty::Named(Reference::Definition(_), _)) => {
                 let judgement = (sub.clone(), sup.clone());
                 if assumed.contains(&judgement) {
                     return true;
+                }
+                if assumed.len() >= DEPTH {
+                    return false;
                 }
                 let (below, above) = (self.unfold(sub), self.unfold(sup));
                 if below == *sub && above == *sup {
@@ -180,6 +232,15 @@ impl Env {
                 holds
             }
             (Ty::Union(members), _) => members.iter().all(|m| self.sub(m, sup, assumed)),
+            // A type parameter is known only by its bound.
+            (Ty::Named(Reference::Parameter(position), _), _) => {
+                let member = matches!(sup, Ty::Union(members) if members.contains(sub));
+                member
+                    || self
+                        .bounds
+                        .get(*position)
+                        .is_some_and(|bound| self.sub(bound, sup, assumed))
+            }
             (Ty::Bool, Ty::Union(_)) => self.sub(&booleans(), sup, assumed),
             (_, Ty::Union(members)) => members.iter().any(|m| self.sub(sub, m, assumed)),
             (Ty::Literal(literal), _) => primitive_of(literal) == *sup,
@@ -229,8 +290,13 @@ impl Env {
             (Ty::Never, _) | (_, Ty::Never) => true,
             // Two list types share the empty list; two function types may
             // share a function.
-            (Ty::Unknown | Ty::Named(_), _)
-            | (_, Ty::Unknown | Ty::Named(_))
+            (Ty::Named(Reference::Parameter(position), _), other)
+            | (other, Ty::Named(Reference::Parameter(position), _)) => self
+                .bounds
+                .get(*position)
+                .is_some_and(|bound| self.apart(bound, other, next)),
+            (Ty::Unknown | Ty::Named(..), _)
+            | (_, Ty::Unknown | Ty::Named(..))
             | (Ty::List(_), Ty::List(_))
             | (Ty::Function { .. }, Ty::Function { .. }) => false,
             (Ty::Union(members), other) | (other, Ty::Union(members)) => {
@@ -320,9 +386,16 @@ fn show(ty: &Ty, out: &mut String) {
             show(ret, out);
         }
         Ty::Union(members) => show_all(members, " | ", out),
-        Ty::Named(Reference::Local(number)) => {
+        Ty::Named(Reference::Local(number) | Reference::Parameter(number), _) => {
             let _ = write!(out, "T{number}");
         }
-        Ty::Named(Reference::Definition(symbol)) => out.push_str(&symbol.name),
+        Ty::Named(Reference::Definition(symbol), args) => {
+            out.push_str(&symbol.name);
+            if !args.is_empty() {
+                out.push('<');
+                show_all(args, ", ", out);
+                out.push('>');
+            }
+        }
     }
 }

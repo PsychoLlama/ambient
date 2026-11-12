@@ -8,9 +8,9 @@
 use crate::core::{self, Open, Primitive, Slot, Tree};
 use crate::error::Error;
 use crate::literal::Literal;
-use crate::surface::{Arm, Expr, Function, Operator, Pattern, Reference};
+use crate::surface::{Arm, Expr, Function, Operator, Pattern, Reference, TypeDefinition};
 use crate::symbol::Symbol;
-use crate::types::{Env, Ty, field};
+use crate::types::{Env, Signature, Ty, field, substitute};
 
 type Pat = Pattern<Reference>;
 
@@ -22,23 +22,20 @@ type Pat = Pattern<Reference>;
 pub fn check_function(
     symbol: &Symbol,
     function: &Function<Reference>,
-    env: &Env,
+    mut env: Env,
 ) -> Result<Open, Error> {
-    let mut checker = Checker::new(symbol, env);
-    let params: Vec<Ty> = function
-        .params
-        .iter()
-        .map(|param| env.normalize(&param.ty))
-        .collect();
-    let ret = env.normalize(&function.ret);
-    let core_params = params.iter().map(|ty| checker.lower(ty)).collect();
-    let core_ret = checker.lower(&ret);
-    checker.locals = params;
-    let body = checker.check(&function.body, &ret)?;
+    let header = header(symbol, function, &mut env)?;
+    let mut checker = Checker::new(symbol, &env);
+    let type_params = env.bounds.iter().map(|ty| checker.lower(ty)).collect();
+    let params = header.params.iter().map(|ty| checker.lower(ty)).collect();
+    let ret = checker.lower(&header.ret);
+    checker.locals = header.params;
+    let body = checker.check(&function.body, &header.ret)?;
     Ok(Open {
         tree: Tree::Function(core::Function {
-            params: core_params,
-            ret: core_ret,
+            type_params,
+            params,
+            ret,
             body,
         }),
         slots: checker.slots,
@@ -49,32 +46,114 @@ pub fn check_function(
 ///
 /// # Errors
 ///
-/// Fails if the type is recursive without passing through a constructor.
-pub fn check_type(symbol: &Symbol, ty: &Ty, env: &Env) -> Result<Open, Error> {
-    contractive(symbol, ty, env, &mut vec![symbol.clone()])?;
+/// Fails if the type is ill-formed: recursive without passing through a
+/// constructor, or applying itself to anything but its own parameters.
+pub fn check_type(
+    symbol: &Symbol,
+    definition: &TypeDefinition<Reference>,
+    env: &Env,
+) -> Result<Open, Error> {
+    contractive(symbol, &definition.ty, env, &mut vec![symbol.clone()])?;
     let mut checker = Checker::new(symbol, env);
-    let tree = Tree::Type(checker.lower(&env.normalize(ty)));
+    checker.well_formed(&definition.ty)?;
+    regular(symbol, &definition.ty, definition.params.len())?;
+    let ty = checker.lower(&env.normalize(&definition.ty));
     Ok(Open {
-        tree,
+        tree: Tree::Type {
+            params: definition.params.len(),
+            ty,
+        },
         slots: checker.slots,
     })
 }
 
-/// A function's header as core types, with the slots they use.
-#[must_use]
-pub fn lower_signature(
+/// The canonical encoding of a function's header, and the slots it uses.
+///
+/// # Errors
+///
+/// Fails if a type in the header is ill-formed.
+pub fn encode_header(
     symbol: &Symbol,
     function: &Function<Reference>,
-    env: &Env,
-) -> (Vec<core::Type>, core::Type, Vec<Symbol>) {
-    let mut checker = Checker::new(symbol, env);
-    let params = function
-        .params
-        .iter()
-        .map(|param| checker.lower(&env.normalize(&param.ty)))
-        .collect();
-    let ret = checker.lower(&env.normalize(&function.ret));
-    (params, ret, checker.slots)
+    mut env: Env,
+) -> Result<(Vec<u8>, Vec<Symbol>), Error> {
+    let header = header(symbol, function, &mut env)?;
+    let mut checker = Checker::new(symbol, &env);
+    let type_params: Vec<_> = env.bounds.iter().map(|ty| checker.lower(ty)).collect();
+    let params: Vec<_> = header.params.iter().map(|ty| checker.lower(ty)).collect();
+    let ret = checker.lower(&header.ret);
+    let encoding = core::encode_signature(&type_params, &params, &ret);
+    Ok((encoding, checker.slots))
+}
+
+struct Header {
+    params: Vec<Ty>,
+    ret: Ty,
+}
+
+/// Validates and normalizes a header, and records its bounds in `env`.
+fn header(symbol: &Symbol, function: &Function<Reference>, env: &mut Env) -> Result<Header, Error> {
+    let checker = Checker::new(symbol, env);
+    let mut bounds = Vec::new();
+    for param in &function.type_params {
+        bounds.push(match &param.bound {
+            Some(bound) => {
+                checker.well_formed(bound)?;
+                env.normalize(bound)
+            }
+            None => Ty::Unknown,
+        });
+    }
+    let mut params = Vec::new();
+    for param in &function.params {
+        checker.well_formed(&param.ty)?;
+        params.push(env.normalize(&param.ty));
+    }
+    checker.well_formed(&function.ret)?;
+    let ret = env.normalize(&function.ret);
+    env.bounds = bounds;
+    Ok(Header { params, ret })
+}
+
+/// Fails unless every use of `symbol` inside its own definition applies it
+/// to exactly its own parameters, in order.
+fn regular(symbol: &Symbol, ty: &Ty, params: usize) -> Result<(), Error> {
+    let mut result = Ok(());
+    visit_types(ty, &mut |ty| {
+        if let Ty::Named(Reference::Definition(name), args) = ty
+            && name == symbol
+        {
+            let own = args.len() == params
+                && args.iter().enumerate().all(|(position, arg)| {
+                    matches!(arg, Ty::Named(Reference::Parameter(p), _) if *p == position)
+                });
+            if !own {
+                result = Err(Error::IrregularType(symbol.clone()));
+            }
+        }
+    });
+    result
+}
+
+/// Calls `visit` with `ty` and every type inside it.
+fn visit_types(ty: &Ty, visit: &mut impl FnMut(&Ty)) {
+    visit(ty);
+    match ty {
+        Ty::Record(fields) => fields.iter().for_each(|(_, ty)| visit_types(ty, visit)),
+        Ty::Tuple(members) | Ty::Union(members) | Ty::Named(_, members) => {
+            for member in members {
+                visit_types(member, visit);
+            }
+        }
+        Ty::List(member) => visit_types(member, visit),
+        Ty::Function { params, ret } => {
+            for param in params {
+                visit_types(param, visit);
+            }
+            visit_types(ret, visit);
+        }
+        _ => {}
+    }
 }
 
 /// Fails if following names from `ty`, without passing through a
@@ -86,7 +165,7 @@ fn contractive(
     following: &mut Vec<Symbol>,
 ) -> Result<(), Error> {
     match ty {
-        Ty::Named(Reference::Definition(name)) => {
+        Ty::Named(Reference::Definition(name), _) => {
             if following.contains(name) {
                 return Err(Error::Uncontractive(symbol.clone()));
             }
@@ -140,8 +219,9 @@ impl<'a> Checker<'a> {
         match ty {
             Ty::Never => core::Type::Never,
             Ty::Unknown => core::Type::Unknown,
-            // TODO: a type parameter. Nothing can write one yet.
-            Ty::Null | Ty::Named(Reference::Local(_)) => core::Type::Null,
+            // Resolution never produces a local in a type.
+            Ty::Null | Ty::Named(Reference::Local(_), _) => core::Type::Null,
+            Ty::Named(Reference::Parameter(position), _) => core::Type::Parameter(*position),
             Ty::Bool => core::Type::Bool,
             Ty::Int => core::Type::Int,
             Ty::Float => core::Type::Float,
@@ -167,7 +247,10 @@ impl<'a> Checker<'a> {
                 members.dedup();
                 core::Type::Union(members)
             }
-            Ty::Named(Reference::Definition(symbol)) => core::Type::Reference(self.slot(symbol)),
+            Ty::Named(Reference::Definition(symbol), args) => {
+                let args = args.iter().map(|arg| self.lower(arg)).collect();
+                core::Type::Reference(self.slot(symbol), args)
+            }
         }
     }
 
@@ -181,6 +264,24 @@ impl<'a> Checker<'a> {
 
     /// Checks that `expr` has a subtype of `expected`.
     fn check(&mut self, expr: &Expr<Reference>, expected: &Ty) -> Result<core::Expr, Error> {
+        // A generic function used as a value takes its type arguments from
+        // the function type expected of it.
+        if let Expr::Name(Reference::Definition(function)) = expr
+            && let Some(signature) = self.generic(function)
+            && let Ty::Function { params, .. } = self.env.unfold(expected)
+            && params.len() == signature.params.len()
+        {
+            let mut lower = vec![Vec::new(); signature.type_params.len()];
+            for (param, wanted) in signature.params.iter().zip(&params) {
+                self.collect(param, wanted, &mut lower);
+            }
+            let args = self.solve(function, &signature, lower)?;
+            let found = function_type(&signature, &args);
+            if !self.env.subtype(&found, expected) {
+                return Err(self.mismatch(expected, &found));
+            }
+            return Ok(self.reference(function, &args));
+        }
         let (core, found) = self.infer(expr)?;
         if self.env.subtype(&found, expected) {
             Ok(core)
@@ -216,16 +317,22 @@ impl<'a> Checker<'a> {
                 let ty = self.locals.get(*number).cloned().unwrap_or(Ty::Never);
                 (core::Expr::Local(*number), ty)
             }
+            // Resolution never produces a type parameter as a value.
+            Expr::Name(Reference::Parameter(_)) => (core::Expr::Null, Ty::Never),
             Expr::Name(Reference::Definition(symbol)) => {
+                if self.generic(symbol).is_some() {
+                    return Err(Error::CannotInfer {
+                        symbol: self.symbol.clone(),
+                        function: symbol.clone(),
+                    });
+                }
                 let ty = match self.env.functions.get(symbol) {
-                    Some(signature) => Ty::Function {
-                        params: signature.params.clone(),
-                        ret: Box::new(signature.ret.clone()),
-                    },
+                    Some(signature) => function_type(signature, &[]),
                     None => Ty::Never,
                 };
-                (core::Expr::Reference(self.slot(symbol)), ty)
+                (self.reference(symbol, &[]), ty)
             }
+            Expr::Instantiate { function, args } => self.instantiate(function, args)?,
             Expr::Call { callee, args } => self.call(callee, args)?,
             Expr::Record(fields) => {
                 let mut cores = Vec::new();
@@ -282,6 +389,7 @@ impl<'a> Checker<'a> {
                 otherwise,
             } => {
                 let (value, _) = self.infer(value)?;
+                self.well_formed(ty)?;
                 let target = self.env.normalize(ty);
                 let (otherwise, alternative) = self.infer(otherwise)?;
                 let core = core::Expr::Cast {
@@ -294,11 +402,47 @@ impl<'a> Checker<'a> {
         })
     }
 
+    /// A generic function at type arguments that were written out.
+    fn instantiate(
+        &mut self,
+        function: &Reference,
+        args: &[Ty],
+    ) -> Result<(core::Expr, Ty), Error> {
+        let Reference::Definition(function) = function else {
+            return Ok((core::Expr::Null, Ty::Never));
+        };
+        let Some(signature) = self.env.functions.get(function) else {
+            return Ok((core::Expr::Null, Ty::Never));
+        };
+        if args.len() != signature.type_params.len() {
+            return Err(Error::TypeArguments {
+                symbol: self.symbol.clone(),
+                expected: signature.type_params.len(),
+                found: args.len(),
+            });
+        }
+        let mut normal = Vec::new();
+        for arg in args {
+            self.well_formed(arg)?;
+            normal.push(self.env.normalize(arg));
+        }
+        self.within_bounds(signature, &normal)?;
+        Ok((
+            self.reference(function, &normal),
+            function_type(signature, &normal),
+        ))
+    }
+
     fn call(
         &mut self,
         callee: &Expr<Reference>,
         args: &[Expr<Reference>],
     ) -> Result<(core::Expr, Ty), Error> {
+        if let Expr::Name(Reference::Definition(function)) = callee
+            && let Some(signature) = self.generic(function)
+        {
+            return self.generic_call(function, &signature, args);
+        }
         let (core_callee, ty) = self.infer(callee)?;
         let Ty::Function { params, ret } = self.env.unfold(&ty) else {
             return Err(Error::NotCallable {
@@ -331,11 +475,213 @@ impl<'a> Checker<'a> {
         Ok((core, *ret))
     }
 
+    /// A call to a generic function: its type arguments are whatever the
+    /// arguments require.
+    fn generic_call(
+        &mut self,
+        function: &Symbol,
+        signature: &Signature,
+        args: &[Expr<Reference>],
+    ) -> Result<(core::Expr, Ty), Error> {
+        if signature.params.len() != args.len() {
+            return Err(Error::Arity {
+                symbol: self.symbol.clone(),
+                callee: function.clone(),
+                expected: signature.params.len(),
+                found: args.len(),
+            });
+        }
+        let (core_args, found) = self.infer_all(args)?;
+        let mut lower = vec![Vec::new(); signature.type_params.len()];
+        for (param, found) in signature.params.iter().zip(&found) {
+            self.collect(param, found, &mut lower);
+        }
+        let type_args = self.solve(function, signature, lower)?;
+        for (param, found) in signature.params.iter().zip(&found) {
+            let expected = self.env.normalize(&substitute(param, &type_args));
+            if !self.env.subtype(found, &expected) {
+                return Err(self.mismatch(&expected, found));
+            }
+        }
+        let core = core::Expr::Call {
+            callee: Box::new(self.reference(function, &type_args)),
+            args: core_args,
+        };
+        let ret = self.env.normalize(&substitute(&signature.ret, &type_args));
+        Ok((core, ret))
+    }
+
+    /// The header of `function`, if it has type parameters.
+    fn generic(&self, function: &Symbol) -> Option<Signature> {
+        self.env
+            .functions
+            .get(function)
+            .filter(|signature| !signature.type_params.is_empty())
+            .cloned()
+    }
+
+    fn reference(&mut self, function: &Symbol, type_args: &[Ty]) -> core::Expr {
+        let type_args = type_args.iter().map(|arg| self.lower(arg)).collect();
+        core::Expr::Reference(self.slot(function), type_args)
+    }
+
+    /// Records what `found` requires of the type parameters in `pattern`,
+    /// a type from a generic header, for `found` to be a subtype of it.
+    ///
+    /// Only positions where a parameter must be at least some type are
+    /// read. The result is verified by subtyping afterwards, so missing a
+    /// requirement here costs an error message, never soundness.
+    fn collect(&self, pattern: &Ty, found: &Ty, lower: &mut [Vec<Ty>]) {
+        self.collect_within(pattern, found, lower, 0);
+    }
+
+    fn collect_within(&self, pattern: &Ty, found: &Ty, lower: &mut [Vec<Ty>], depth: usize) {
+        // Two different recursive types can be unfolded against each other
+        // forever; past this depth there is nothing new to learn.
+        if depth > 32 {
+            return;
+        }
+        let depth = depth + 1;
+        // The same definition on both sides: compare arguments, without
+        // unfolding either.
+        if let (
+            Ty::Named(Reference::Definition(name), patterns),
+            Ty::Named(Reference::Definition(other), args),
+        ) = (pattern, found)
+            && name == other
+        {
+            for (pattern, arg) in patterns.iter().zip(args) {
+                self.collect_within(pattern, arg, lower, depth);
+            }
+            return;
+        }
+        let found = self.env.unfold(found);
+        if let Ty::Named(Reference::Definition(_), _) = pattern {
+            let unfolded = self.env.unfold(pattern);
+            if unfolded != *pattern {
+                self.collect_within(&unfolded, &found, lower, depth);
+            }
+            return;
+        }
+        match (pattern, &found) {
+            (Ty::Named(Reference::Parameter(position), _), _) => {
+                if let Some(bounds) = lower.get_mut(*position) {
+                    bounds.push(found);
+                }
+            }
+            (_, Ty::Union(members)) if !matches!(pattern, Ty::Union(_)) => {
+                for member in members {
+                    self.collect_within(pattern, member, lower, depth);
+                }
+            }
+            (Ty::Record(fields), Ty::Record(have)) => {
+                for (name, pattern) in fields {
+                    if let Some(found) = field(have, name) {
+                        self.collect_within(pattern, found, lower, depth);
+                    }
+                }
+            }
+            (Ty::Tuple(patterns), Ty::Tuple(members)) => {
+                for (pattern, member) in patterns.iter().zip(members) {
+                    self.collect_within(pattern, member, lower, depth);
+                }
+            }
+            (Ty::List(pattern), Ty::Tuple(members)) => {
+                for member in members {
+                    self.collect_within(pattern, member, lower, depth);
+                }
+            }
+            (Ty::List(pattern), Ty::List(member)) => {
+                self.collect_within(pattern, member, lower, depth);
+            }
+            (Ty::Function { ret: pattern, .. }, Ty::Function { ret, .. }) => {
+                self.collect_within(pattern, ret, lower, depth);
+            }
+            // `T | null` against `int | null`: whatever the other members
+            // do not already accept is what the parameter must accept.
+            (Ty::Union(patterns), _) => {
+                let (parameters, rest): (Vec<&Ty>, Vec<&Ty>) = patterns
+                    .iter()
+                    .partition(|member| matches!(member, Ty::Named(Reference::Parameter(_), _)));
+                let [parameter] = parameters.as_slice() else {
+                    return;
+                };
+                let rest = self.env.union(rest.into_iter().cloned().collect());
+                let members = match &found {
+                    Ty::Union(members) => members.clone(),
+                    other => vec![other.clone()],
+                };
+                for member in members {
+                    if !self.env.subtype(&member, &rest) {
+                        self.collect_within(parameter, &member, lower, depth);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// One type argument per parameter: the least type that meets what was
+    /// collected.
+    fn solve(
+        &self,
+        function: &Symbol,
+        signature: &Signature,
+        lower: Vec<Vec<Ty>>,
+    ) -> Result<Vec<Ty>, Error> {
+        let args: Vec<Ty> = lower
+            .into_iter()
+            .map(|bounds| self.env.union(bounds))
+            .collect();
+        self.within_bounds(signature, &args)
+            .map_err(|_| Error::CannotInfer {
+                symbol: self.symbol.clone(),
+                function: function.clone(),
+            })?;
+        Ok(args)
+    }
+
+    fn within_bounds(&self, signature: &Signature, args: &[Ty]) -> Result<(), Error> {
+        for (arg, bound) in args.iter().zip(&signature.type_params) {
+            let bound = self.env.normalize(&substitute(bound, args));
+            if !self.env.subtype(arg, &bound) {
+                return Err(self.mismatch(&bound, arg));
+            }
+        }
+        Ok(())
+    }
+
+    /// Fails if a type applies a definition to the wrong number of
+    /// arguments.
+    fn well_formed(&self, ty: &Ty) -> Result<(), Error> {
+        let mut result = Ok(());
+        visit_types(ty, &mut |ty| {
+            let Ty::Named(name, args) = ty else { return };
+            let expected = match name {
+                Reference::Definition(symbol) => self.env.types.get(symbol).map(|info| info.params),
+                Reference::Local(_) | Reference::Parameter(_) => Some(0),
+            };
+            if let Some(expected) = expected
+                && expected != args.len()
+            {
+                result = Err(Error::TypeArguments {
+                    symbol: self.symbol.clone(),
+                    expected,
+                    found: args.len(),
+                });
+            }
+        });
+        result
+    }
+
     /// The type of field `name` of a value of type `ty`, if every such
     /// value has one.
     fn field(&self, ty: &Ty, name: &str) -> Option<Ty> {
         match self.env.unfold(ty) {
             Ty::Never => Some(Ty::Never),
+            Ty::Named(Reference::Parameter(position), _) => {
+                self.field(self.env.bounds.get(position)?, name)
+            }
             Ty::Record(fields) => field(&fields, name).cloned(),
             Ty::Union(members) => {
                 let fields: Option<Vec<Ty>> = members.iter().map(|m| self.field(m, name)).collect();
@@ -389,6 +735,15 @@ impl<'a> Checker<'a> {
         arms: &[Arm<Reference>],
     ) -> Result<(core::Expr, Ty), Error> {
         let (subject, mut remaining) = self.infer(subject)?;
+        for arm in arms {
+            let mut result = Ok(());
+            pattern_types(&arm.pattern, &mut |ty| {
+                if result.is_ok() {
+                    result = self.well_formed(ty);
+                }
+            });
+            result?;
+        }
         let mut core_arms = Vec::new();
         let mut results = Vec::new();
         for (index, arm) in arms.iter().enumerate() {
@@ -632,4 +987,27 @@ fn uninhabited_if_member_is(ty: Ty) -> Ty {
         _ => false,
     };
     if empty { Ty::Never } else { ty }
+}
+
+/// The type of a function with this header, at these type arguments.
+fn function_type(signature: &Signature, type_args: &[Ty]) -> Ty {
+    Ty::Function {
+        params: signature
+            .params
+            .iter()
+            .map(|param| substitute(param, type_args))
+            .collect(),
+        ret: Box::new(substitute(&signature.ret, type_args)),
+    }
+}
+
+/// Calls `visit` with every type a pattern tests against.
+fn pattern_types(pattern: &Pat, visit: &mut impl FnMut(&Ty)) {
+    match pattern {
+        Pattern::Wildcard | Pattern::Literal(_) => {}
+        Pattern::Record(fields) => fields.iter().for_each(|(_, p)| pattern_types(p, visit)),
+        Pattern::Tuple(members) => members.iter().for_each(|p| pattern_types(p, visit)),
+        Pattern::Is(ty) => visit(ty),
+        Pattern::Bind(_, inner) => pattern_types(inner, visit),
+    }
 }

@@ -10,7 +10,8 @@ use std::fmt;
 
 use crate::literal::Literal;
 use crate::surface::{
-    Arm, Definition, DefinitionKind, Expr, Function, Import, Module, Operator, Param, Path, Pattern,
+    Arm, Definition, DefinitionKind, Expr, Function, Import, Module, Operator, Param, Path,
+    Pattern, TypeDefinition, TypeParam,
 };
 use crate::symbol::Namespace;
 
@@ -26,6 +27,7 @@ pub enum BuildError {
     /// A module defines a name twice in one namespace, or imports two
     /// things under one alias.
     DuplicateDefinition(String),
+    DuplicateTypeParameter(String),
     DuplicateParameter {
         function: String,
         name: String,
@@ -44,6 +46,9 @@ impl fmt::Display for BuildError {
             Self::DuplicateDefinition(name) => write!(f, "`{name}` is defined twice"),
             Self::DuplicateParameter { function, name } => {
                 write!(f, "`{function}` has two parameters named `{name}`")
+            }
+            Self::DuplicateTypeParameter(name) => {
+                write!(f, "two type parameters are named `{name}`")
             }
             Self::DuplicateField(name) => write!(f, "a record has two fields named `{name}`"),
             Self::DuplicateBinder(name) => write!(f, "a pattern binds `{name}` twice"),
@@ -144,7 +149,12 @@ pub mod ty {
     /// A type named by a dotted path, such as `"Point"` or `"geometry.Point"`.
     #[must_use]
     pub fn named(path: &str) -> Type {
-        Type::Named(Path::parse(path))
+        Type::Named(Path::parse(path), Vec::new())
+    }
+
+    /// A generic type applied to arguments.
+    pub fn apply(path: &str, args: impl IntoIterator<Item = Type>) -> Type {
+        Type::Named(Path::parse(path), args.into_iter().collect())
     }
 }
 
@@ -302,6 +312,14 @@ pub fn name(path: &str) -> Expr {
     Expr::Name(Path::parse(path))
 }
 
+/// A generic function with its type arguments written out.
+pub fn instantiate(path: &str, args: impl IntoIterator<Item = crate::surface::Type>) -> Expr {
+    Expr::Instantiate {
+        function: Path::parse(path),
+        args: args.into_iter().collect(),
+    }
+}
+
 pub fn call(callee: Expr, args: impl IntoIterator<Item = Expr>) -> Expr {
     Expr::Call {
         callee: Box::new(callee),
@@ -345,6 +363,7 @@ pub fn function(name: &str) -> FunctionBuilder {
         public: false,
         doc: None,
         function: Function {
+            type_params: Vec::new(),
             params: Vec::new(),
             ret: ty::null(),
             body: null(),
@@ -359,7 +378,27 @@ pub fn type_(name: &str, ty: crate::surface::Type) -> Definition {
         name: name.to_owned(),
         public: false,
         doc: None,
-        kind: DefinitionKind::Type(ty),
+        kind: DefinitionKind::Type(TypeDefinition {
+            params: Vec::new(),
+            ty,
+        }),
+    }
+}
+
+/// A private type definition with type parameters.
+pub fn generic_type<'a>(
+    name: &str,
+    params: impl IntoIterator<Item = &'a str>,
+    ty: crate::surface::Type,
+) -> Definition {
+    Definition {
+        name: name.to_owned(),
+        public: false,
+        doc: None,
+        kind: DefinitionKind::Type(TypeDefinition {
+            params: params.into_iter().map(str::to_owned).collect(),
+            ty,
+        }),
     }
 }
 
@@ -396,6 +435,26 @@ impl FunctionBuilder {
     #[must_use]
     pub fn doc(mut self, doc: &str) -> Self {
         self.doc = Some(doc.to_owned());
+        self
+    }
+
+    /// Adds a type parameter with no bound.
+    #[must_use]
+    pub fn type_param(mut self, name: &str) -> Self {
+        self.function.type_params.push(TypeParam {
+            name: name.to_owned(),
+            bound: None,
+        });
+        self
+    }
+
+    /// Adds a type parameter that must be a subtype of `bound`.
+    #[must_use]
+    pub fn bounded(mut self, name: &str, bound: crate::surface::Type) -> Self {
+        self.function.type_params.push(TypeParam {
+            name: name.to_owned(),
+            bound: Some(bound),
+        });
         self
     }
 
@@ -484,8 +543,9 @@ impl ModuleBuilder {
         for definition in &self.definitions {
             check_name(&definition.name)?;
             let namespace = match &definition.kind {
-                DefinitionKind::Type(ty) => {
-                    check_type(ty)?;
+                DefinitionKind::Type(definition) => {
+                    check_type_params(definition.params.iter())?;
+                    check_type(&definition.ty)?;
                     Namespace::Type
                 }
                 DefinitionKind::Function(function) => {
@@ -532,7 +592,22 @@ fn check_fields<'a>(names: impl Iterator<Item = &'a String>) -> Result<(), Build
     Ok(())
 }
 
+fn check_type_params<'a>(names: impl Iterator<Item = &'a String>) -> Result<(), BuildError> {
+    let mut seen = BTreeSet::new();
+    for name in names {
+        check_name(name)?;
+        if !seen.insert(name) {
+            return Err(BuildError::DuplicateTypeParameter(name.clone()));
+        }
+    }
+    Ok(())
+}
+
 fn check_function(name: &str, function: &Function) -> Result<(), BuildError> {
+    check_type_params(function.type_params.iter().map(|param| &param.name))?;
+    for bound in function.type_params.iter().filter_map(|p| p.bound.as_ref()) {
+        check_type(bound)?;
+    }
     let mut seen = BTreeSet::new();
     for param in &function.params {
         check_name(&param.name)?;
@@ -569,7 +644,10 @@ fn check_type(ty: &crate::surface::Type) -> Result<(), BuildError> {
             params.iter().try_for_each(check_type)?;
             check_type(ret)
         }
-        Type::Named(path) => check_path(path),
+        Type::Named(path, args) => {
+            check_path(path)?;
+            args.iter().try_for_each(check_type)
+        }
     }
 }
 
@@ -603,6 +681,10 @@ fn check_expr(expr: &Expr) -> Result<(), BuildError> {
     match expr {
         Expr::Null | Expr::Literal(_) => Ok(()),
         Expr::Name(path) => check_path(path),
+        Expr::Instantiate { function, args } => {
+            check_path(function)?;
+            args.iter().try_for_each(check_type)
+        }
         Expr::Call { callee, args } => {
             check_expr(callee)?;
             args.iter().try_for_each(check_expr)

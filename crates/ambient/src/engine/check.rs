@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use super::{Engine, Query, Stage, memo};
 use crate::checker;
-use crate::core::{Open, encode_signature};
+use crate::core::Open;
 use crate::error::Error;
 use crate::hash::{Hash, Hasher};
 use crate::surface::{DefinitionKind, Function, Reference};
@@ -50,9 +50,10 @@ impl Engine<'_> {
     fn type_info(&self, symbol: &Symbol) -> Query<TypeInfo> {
         memo(&self.type_info, symbol, || {
             let resolved = self.resolve(symbol)?;
-            let DefinitionKind::Type(ty) = &resolved.definition.kind else {
+            let DefinitionKind::Type(definition) = &resolved.definition.kind else {
                 return Err(Error::UnknownSymbol(symbol.clone()));
             };
+            let ty = &definition.ty;
 
             let mut seen = BTreeSet::new();
             let mut pending = type_definitions(ty);
@@ -65,11 +66,12 @@ impl Engine<'_> {
                 if !seen.insert(next.clone()) {
                     continue;
                 }
-                if let DefinitionKind::Type(ty) = &self.resolve(&next)?.definition.kind {
-                    pending.extend(type_definitions(ty));
+                if let DefinitionKind::Type(definition) = &self.resolve(&next)?.definition.kind {
+                    pending.extend(type_definitions(&definition.ty));
                 }
             }
             Ok(Arc::new(TypeInfo {
+                params: definition.params.len(),
                 ty: ty.clone(),
                 recursive,
             }))
@@ -105,9 +107,9 @@ impl Engine<'_> {
                 DefinitionKind::Function(function) => {
                     let mut env = Env::default();
                     self.gather(header_definitions(function), &mut env)?;
-                    let (params, ret, slots) = checker::lower_signature(symbol, function, &env);
+                    let (encoding, slots) = checker::encode_header(symbol, function, env)?;
                     let mut digest = Hasher::new("interface");
-                    digest.bytes(&encode_signature(&params, &ret));
+                    digest.bytes(&encoding);
                     // Transparent types are already expanded into the
                     // encoding; what is left are recursive ones.
                     for slot in &slots {
@@ -133,7 +135,7 @@ impl Engine<'_> {
             key.hash(&resolved.digest);
 
             match &resolved.definition.kind {
-                DefinitionKind::Type(ty) => {
+                DefinitionKind::Type(definition) => {
                     // A type refers only to types, so what checking one
                     // reads is the definitions it can reach.
                     self.gather(vec![symbol.clone()], &mut env)?;
@@ -141,7 +143,7 @@ impl Engine<'_> {
                         key.hash(&self.resolve(reachable)?.digest);
                     }
                     self.stage(Stage::Check, symbol, key.finish(), || {
-                        checker::check_type(symbol, ty, &env)
+                        checker::check_type(symbol, definition, &env)
                     })
                 }
                 DefinitionKind::Function(function) => {
@@ -160,6 +162,11 @@ impl Engine<'_> {
                                 if let DefinitionKind::Function(header) = &header.definition.kind {
                                     types.extend(header_definitions(header));
                                     let signature = Signature {
+                                        type_params: header
+                                            .type_params
+                                            .iter()
+                                            .map(|p| p.bound.clone().unwrap_or(Ty::Unknown))
+                                            .collect(),
                                         params: header
                                             .params
                                             .iter()
@@ -180,6 +187,11 @@ impl Engine<'_> {
                         .into_iter()
                         .map(|(symbol, signature)| {
                             let signature = Signature {
+                                type_params: signature
+                                    .type_params
+                                    .iter()
+                                    .map(|bound| env.normalize(bound))
+                                    .collect(),
                                 params: signature.params.iter().map(|p| env.normalize(p)).collect(),
                                 ret: env.normalize(&signature.ret),
                             };
@@ -187,7 +199,7 @@ impl Engine<'_> {
                         })
                         .collect();
                     self.stage(Stage::Check, symbol, key.finish(), || {
-                        checker::check_function(symbol, function, &env)
+                        checker::check_function(symbol, function, env)
                     })
                 }
             }

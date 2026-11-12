@@ -86,7 +86,11 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 
 - Type and function definitions take type parameters; a bound is a subtype bound.
 - Type arguments are inferred at the use site or written explicitly.
-- A function type may itself be generic.
+- An inferred type argument is the least type the arguments require: the union of what they supply for that parameter.
+- An inferred argument that violates its bound is an error; inference never widens to the bound.
+- Inside its definition a type parameter is known only by its bound, and an unbounded one supports no operations.
+- A generic function used as a value is instantiated where it is named, from the function type expected of it.
+- TODO: a function type that is itself generic is not yet expressible; every generic function value is instantiated at one type.
 - A recursive generic type applies itself only to its own parameters, unchanged.
 - There are no conditional types, mapped types, or type operators.
 

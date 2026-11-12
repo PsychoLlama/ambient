@@ -1,0 +1,336 @@
+//! Type parameters, bounds, and generic type definitions. See
+//! `spec/types.md`.
+
+#![allow(clippy::unwrap_used)]
+
+mod support;
+
+use std::sync::Arc;
+
+use ambient::builder::{self as b, pat, ty};
+use ambient::core::Open;
+use ambient::engine::Engine;
+use ambient::error::Error;
+use ambient::store::MemoryStore;
+use ambient::surface::{Definition, Expr, Type};
+use support::{value, workspace};
+
+fn check(definitions: impl IntoIterator<Item = Definition>) -> Result<Arc<Open>, Error> {
+    let module = definitions
+        .into_iter()
+        .fold(b::module(), b::ModuleBuilder::define);
+    let workspace = workspace([("app", "main", module)]);
+    let store = MemoryStore::new();
+    Engine::new(&workspace, &store).check(&value("main", "main"))
+}
+
+fn returning(ret: Type, body: Expr) -> Definition {
+    b::function("main").returns(ret).body(body)
+}
+
+fn t() -> Type {
+    ty::named("T")
+}
+
+/// `fn id<T>(v: T): T`
+fn id() -> Definition {
+    b::function("id")
+        .type_param("T")
+        .param("v", t())
+        .returns(t())
+        .body(b::name("v"))
+}
+
+fn call(function: &str, args: impl IntoIterator<Item = Expr>) -> Expr {
+    b::call(b::name(function), args)
+}
+
+#[test]
+fn type_arguments_are_inferred_from_arguments() {
+    // The argument's own type is the answer, so nothing is lost.
+    assert!(check([id(), returning(ty::integer(1), call("id", [b::int(1)]))]).is_ok());
+    assert!(check([id(), returning(ty::string(), call("id", [b::int(1)]))]).is_err());
+}
+
+#[test]
+fn inference_looks_inside_structure() {
+    let first = b::function("first")
+        .type_param("A")
+        .type_param("B")
+        .param("p", ty::tuple([ty::named("A"), ty::named("B")]))
+        .returns(ty::named("A"))
+        .body(b::match_(
+            b::name("p"),
+            [(pat::tuple([pat::bind("a"), pat::any()]), b::name("a"))],
+        ));
+    let wrap = b::function("wrap")
+        .type_param("T")
+        .param("v", t())
+        .returns(ty::list(t()))
+        .body(b::list([b::name("v")]));
+    let pair = b::tuple([b::int(1), b::string("a")]);
+
+    assert!(
+        check([
+            first.clone(),
+            returning(ty::int(), call("first", [pair.clone()]))
+        ])
+        .is_ok()
+    );
+    assert!(check([first, returning(ty::string(), call("first", [pair]))]).is_err());
+    assert!(
+        check([
+            wrap,
+            returning(ty::list(ty::int()), call("wrap", [b::int(1)]))
+        ])
+        .is_ok()
+    );
+}
+
+#[test]
+fn a_parameter_shared_by_arguments_is_their_union() {
+    let either = b::function("either")
+        .type_param("T")
+        .param("a", t())
+        .param("b", t())
+        .returns(t())
+        .body(b::name("a"));
+    let both = call("either", [b::int(1), b::string("a")]);
+
+    assert!(
+        check([
+            either.clone(),
+            returning(ty::union([ty::int(), ty::string()]), both.clone())
+        ])
+        .is_ok()
+    );
+    assert!(check([either, returning(ty::int(), both)]).is_err());
+}
+
+#[test]
+fn a_union_with_a_parameter_takes_what_its_other_members_do_not() {
+    let or = b::function("or")
+        .type_param("T")
+        .param("v", ty::union([t(), ty::null()]))
+        .param("fallback", t())
+        .returns(t())
+        .body(b::match_(
+            b::name("v"),
+            [
+                (pat::is(ty::null()), b::name("fallback")),
+                (pat::bind("found"), b::name("found")),
+            ],
+        ));
+    let main = b::function("main")
+        .param("x", ty::union([ty::int(), ty::null()]))
+        .returns(ty::int())
+        .body(call("or", [b::name("x"), b::int(0)]));
+
+    assert!(check([or, main]).is_ok());
+}
+
+#[test]
+fn a_type_parameter_is_opaque_inside_its_function() {
+    let leak = b::function("main")
+        .type_param("T")
+        .param("v", t())
+        .returns(ty::int())
+        .body(b::name("v"));
+    let forge = b::function("main")
+        .type_param("T")
+        .param("v", ty::int())
+        .returns(t())
+        .body(b::name("v"));
+    let swap = b::function("main")
+        .type_param("A")
+        .type_param("B")
+        .param("v", ty::named("A"))
+        .returns(ty::named("B"))
+        .body(b::name("v"));
+
+    for definition in [leak, forge, swap] {
+        assert!(matches!(check([definition]), Err(Error::Mismatch { .. })));
+    }
+}
+
+fn named() -> Type {
+    ty::record([("name", ty::string())])
+}
+
+#[test]
+fn a_bound_is_what_the_body_knows_and_what_callers_must_meet() {
+    let name_of = b::function("same")
+        .bounded("T", named())
+        .param("v", t())
+        .returns(t())
+        .body(b::let_("n", b::field(b::name("v"), "name"), b::name("v")));
+    let person = b::record([("name", b::string("a")), ("age", b::int(1))]);
+    let whole = ty::record([("name", ty::string()), ("age", ty::int())]);
+
+    // The result is the argument's own type, not the bound.
+    assert!(check([name_of.clone(), returning(whole, call("same", [person]))]).is_ok());
+    assert!(matches!(
+        check([name_of, returning(ty::unknown(), call("same", [b::int(1)]))]),
+        Err(Error::CannotInfer { .. })
+    ));
+}
+
+#[test]
+fn an_unbounded_parameter_supports_nothing() {
+    let reads = b::function("main")
+        .type_param("T")
+        .param("v", t())
+        .returns(ty::unknown())
+        .body(b::field(b::name("v"), "name"));
+
+    assert!(matches!(check([reads]), Err(Error::NoField { .. })));
+}
+
+#[test]
+fn type_arguments_may_be_written_out() {
+    let at = |arg, value| returning(ty::int(), b::call(b::instantiate("id", [arg]), [value]));
+
+    assert!(check([id(), at(ty::int(), b::int(1))]).is_ok());
+    assert!(matches!(
+        check([id(), at(ty::string(), b::int(1))]),
+        Err(Error::Mismatch { .. })
+    ));
+    assert!(matches!(
+        check([
+            id(),
+            returning(ty::unknown(), b::instantiate("id", [ty::int(), ty::int()]))
+        ]),
+        Err(Error::TypeArguments {
+            expected: 1,
+            found: 2,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_generic_function_as_a_value_is_instantiated_by_what_is_expected() {
+    let wanted = ty::function([ty::int()], ty::int());
+
+    assert!(check([id(), returning(wanted, b::name("id"))]).is_ok());
+    assert!(matches!(
+        check([
+            id(),
+            returning(ty::unknown(), b::let_("f", b::name("id"), b::null()))
+        ]),
+        Err(Error::CannotInfer { .. })
+    ));
+}
+
+#[test]
+fn a_generic_type_definition_is_transparent() {
+    let boxed = b::generic_type("Box", ["T"], ty::record([("value", t())]));
+    let named = returning(
+        ty::apply("Box", [ty::int()]),
+        b::record([("value", b::int(1))]),
+    );
+    let spelled = returning(
+        ty::record([("value", ty::int())]),
+        b::record([("value", b::int(1))]),
+    );
+
+    assert_eq!(
+        check([boxed.clone(), named]).unwrap().tree,
+        check([spelled]).unwrap().tree
+    );
+    assert!(matches!(
+        check([
+            boxed,
+            returning(ty::apply("Box", [ty::int(), ty::int()]), b::null())
+        ]),
+        Err(Error::TypeArguments {
+            expected: 1,
+            found: 2,
+            ..
+        })
+    ));
+}
+
+/// `type Items<T> = null | {head: T, tail: Items<T>}`
+fn items() -> Definition {
+    let node = ty::record([("head", t()), ("tail", ty::apply("Items", [t()]))]);
+    b::generic_type("Items", ["T"], ty::union([ty::null(), node]))
+}
+
+fn items_of(member: Type) -> Type {
+    ty::apply("Items", [member])
+}
+
+#[test]
+fn a_recursive_generic_type_is_checked_by_structure() {
+    let one = b::record([("head", b::int(1)), ("tail", b::null())]);
+    let widen = b::function("main")
+        .param("x", items_of(ty::integer(1)))
+        .returns(items_of(ty::int()))
+        .body(b::name("x"));
+    let narrow = b::function("main")
+        .param("x", items_of(ty::int()))
+        .returns(items_of(ty::integer(1)))
+        .body(b::name("x"));
+
+    assert!(check([items(), returning(items_of(ty::int()), one.clone())]).is_ok());
+    assert!(check([items(), returning(items_of(ty::string()), one)]).is_err());
+    assert!(check([items(), widen]).is_ok());
+    assert!(check([items(), narrow]).is_err());
+}
+
+#[test]
+fn a_generic_function_builds_a_recursive_generic_type() {
+    let cons = b::function("cons")
+        .type_param("T")
+        .param("head", t())
+        .param("tail", items_of(t()))
+        .returns(items_of(t()))
+        .body(b::record([
+            ("head", b::name("head")),
+            ("tail", b::name("tail")),
+        ]));
+    let two = call("cons", [b::int(1), call("cons", [b::int(2), b::null()])]);
+
+    assert!(
+        check([
+            items(),
+            cons.clone(),
+            returning(items_of(ty::int()), two.clone())
+        ])
+        .is_ok()
+    );
+    assert!(check([items(), cons, returning(items_of(ty::string()), two)]).is_err());
+}
+
+#[test]
+fn a_recursive_type_applies_itself_only_to_its_own_parameters() {
+    let grows = ty::apply("Bad", [ty::tuple([t(), t()])]);
+    let bad = b::generic_type(
+        "Bad",
+        ["T"],
+        ty::union([ty::null(), ty::record([("next", grows)])]),
+    );
+    let main = b::function("main")
+        .param("x", ty::apply("Bad", [ty::int()]))
+        .returns(ty::unknown())
+        .body(b::name("x"));
+
+    assert!(matches!(check([bad, main]), Err(Error::IrregularType(_))));
+}
+
+#[test]
+fn type_parameter_names_are_not_content() {
+    let identity = |param: &str| {
+        b::function("main")
+            .type_param(param)
+            .param("v", ty::named(param))
+            .returns(ty::named(param))
+            .body(b::name("v"))
+    };
+
+    assert_eq!(
+        check([identity("T")]).unwrap().tree.encode(),
+        check([identity("Anything")]).unwrap().tree.encode(),
+    );
+}

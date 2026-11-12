@@ -36,9 +36,11 @@ pub enum Type {
     },
     /// Members are ordered by their encodings, without duplicates.
     Union(Vec<Type>),
-    /// A recursive type definition. A non-recursive one never appears: it
-    /// is replaced by its expansion.
-    Reference(Slot),
+    /// A type parameter of the enclosing definition, by position.
+    Parameter(usize),
+    /// A recursive type definition applied to arguments. A non-recursive
+    /// one never appears: it is replaced by its expansion.
+    Reference(Slot, Vec<Type>),
 }
 
 /// An operation the language defines. A primitive has no slot.
@@ -73,7 +75,8 @@ pub enum Expr {
     Null,
     Literal(Literal),
     Local(usize),
-    Reference(Slot),
+    /// A function, with an argument for each of its type parameters.
+    Reference(Slot, Vec<Type>),
     Call {
         callee: Box<Expr>,
         args: Vec<Expr>,
@@ -111,6 +114,8 @@ pub enum Expr {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Function {
+    /// The bound of each type parameter.
+    pub type_params: Vec<Type>,
     pub params: Vec<Type>,
     pub ret: Type,
     pub body: Expr,
@@ -118,7 +123,11 @@ pub struct Function {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Tree {
-    Type(Type),
+    Type {
+        /// How many type parameters the definition takes.
+        params: usize,
+        ty: Type,
+    },
     Function(Function),
 }
 
@@ -136,12 +145,14 @@ impl Tree {
     pub fn encode(&self) -> Vec<u8> {
         let mut out = vec![FORMAT];
         match self {
-            Self::Type(ty) => {
+            Self::Type { params, ty } => {
                 out.push(0);
+                unsigned(*params as u64, &mut out);
                 encode_type(ty, &mut out);
             }
             Self::Function(function) => {
                 out.push(1);
+                encode_types(&function.type_params, &mut out);
                 encode_types(&function.params, &mut out);
                 encode_type(&function.ret, &mut out);
                 encode_expr(&function.body, &mut out);
@@ -162,8 +173,9 @@ impl Type {
 }
 
 /// The canonical encoding of a signature alone, for interface digests.
-pub(crate) fn encode_signature(params: &[Type], ret: &Type) -> Vec<u8> {
+pub(crate) fn encode_signature(type_params: &[Type], params: &[Type], ret: &Type) -> Vec<u8> {
     let mut out = vec![FORMAT];
+    encode_types(type_params, &mut out);
     encode_types(params, &mut out);
     encode_type(ret, &mut out);
     out
@@ -232,9 +244,14 @@ fn encode_type(ty: &Type, out: &mut Vec<u8>) {
             out.push(12);
             encode_types(members, out);
         }
-        Type::Reference(slot) => {
+        Type::Reference(slot, args) => {
             out.push(13);
             unsigned(slot.0 as u64, out);
+            encode_types(args, out);
+        }
+        Type::Parameter(index) => {
+            out.push(14);
+            unsigned(*index as u64, out);
         }
     }
 }
@@ -290,9 +307,10 @@ fn encode_expr(expr: &Expr, out: &mut Vec<u8>) {
             out.push(2);
             unsigned(*index as u64, out);
         }
-        Expr::Reference(slot) => {
+        Expr::Reference(slot, args) => {
             out.push(3);
             unsigned(slot.0 as u64, out);
+            encode_types(args, out);
         }
         Expr::Call { callee, args } => {
             out.push(4);

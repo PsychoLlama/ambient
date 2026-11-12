@@ -38,6 +38,8 @@ pub enum Reference {
     /// A parameter or local binder, numbered in binding order within its
     /// function.
     Local(usize),
+    /// A type parameter of the enclosing definition, by position.
+    Parameter(usize),
     Definition(Symbol),
 }
 
@@ -80,12 +82,27 @@ pub struct Definition<N = Path> {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DefinitionKind<N = Path> {
-    Type(Type<N>),
+    Type(TypeDefinition<N>),
     Function(Function<N>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypeDefinition<N = Path> {
+    /// The names of its type parameters.
+    pub params: Vec<String>,
+    pub ty: Type<N>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypeParam<N = Path> {
+    pub name: String,
+    /// An upper bound on what the parameter may be instantiated with.
+    pub bound: Option<Type<N>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Function<N = Path> {
+    pub type_params: Vec<TypeParam<N>>,
     pub params: Vec<Param<N>>,
     pub ret: Type<N>,
     pub body: Expr<N>,
@@ -115,7 +132,8 @@ pub enum Type<N = Path> {
         ret: Box<Type<N>>,
     },
     Union(Vec<Type<N>>),
-    Named(N),
+    /// A type parameter, or a type definition applied to arguments.
+    Named(N, Vec<Type<N>>),
 }
 
 /// An operator. Which primitive operation it means depends on its operands.
@@ -154,6 +172,11 @@ pub enum Expr<N = Path> {
     Null,
     Literal(Literal),
     Name(N),
+    /// A generic function with its type arguments written out.
+    Instantiate {
+        function: N,
+        args: Vec<Type<N>>,
+    },
     Call {
         callee: Box<Expr<N>>,
         args: Vec<Expr<N>>,
@@ -214,7 +237,12 @@ impl<N> Type<N> {
                 }
                 ret.names(visit);
             }
-            Self::Named(name) => visit(name),
+            Self::Named(name, args) => {
+                visit(name);
+                for arg in args {
+                    arg.names(visit);
+                }
+            }
         }
     }
 }
@@ -238,6 +266,12 @@ impl<N> Expr<N> {
         match self {
             Self::Null | Self::Literal(_) => {}
             Self::Name(name) => visit(name),
+            Self::Instantiate { function, args } => {
+                visit(function);
+                for arg in args {
+                    arg.names(visit);
+                }
+            }
             Self::Call { callee, args } => {
                 callee.names(visit);
                 for arg in args {
@@ -282,6 +316,9 @@ impl<N> Expr<N> {
 impl<N> Function<N> {
     /// Calls `visit` with every name in the header, in order.
     pub fn header_names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
+        for bound in self.type_params.iter().filter_map(|p| p.bound.as_ref()) {
+            bound.names(visit);
+        }
         self.params.iter().for_each(|param| param.ty.names(visit));
         self.ret.names(visit);
     }
@@ -291,7 +328,7 @@ impl<N> Definition<N> {
     /// Calls `visit` with every name in the definition, in order.
     pub fn names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
         match &self.kind {
-            DefinitionKind::Type(ty) => ty.names(visit),
+            DefinitionKind::Type(definition) => definition.ty.names(visit),
             DefinitionKind::Function(function) => {
                 function.header_names(visit);
                 function.body.names(visit);

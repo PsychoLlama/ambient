@@ -56,6 +56,18 @@ pub enum Error {
     NotExhaustive { symbol: Symbol, remaining: String },
     /// A match arm can never be taken.
     UnreachableArm { symbol: Symbol, arm: usize },
+    /// A type or function is given the wrong number of type arguments.
+    TypeArguments {
+        symbol: Symbol,
+        expected: usize,
+        found: usize,
+    },
+    /// A generic function is used where its type arguments cannot be
+    /// worked out.
+    CannotInfer { symbol: Symbol, function: Symbol },
+    /// A recursive generic type applies itself to something other than its
+    /// own parameters.
+    IrregularType(Symbol),
     /// A recursive type that never reaches a constructor.
     Uncontractive(Symbol),
     /// Only functions compile to an artifact.
@@ -114,6 +126,24 @@ impl fmt::Display for Error {
             Self::UnreachableArm { symbol, arm } => {
                 write!(f, "{symbol}: match arm {arm} can never be taken")
             }
+            Self::TypeArguments {
+                symbol,
+                expected,
+                found,
+            } => write!(
+                f,
+                "{symbol}: expected {expected} type arguments, found {found}"
+            ),
+            Self::CannotInfer { symbol, function } => {
+                write!(
+                    f,
+                    "{symbol}: cannot infer the type arguments of `{function}`"
+                )
+            }
+            Self::IrregularType(symbol) => write!(
+                f,
+                "{symbol}: a recursive type may apply itself only to its own parameters"
+            ),
             Self::Uncontractive(symbol) => {
                 write!(
                     f,
