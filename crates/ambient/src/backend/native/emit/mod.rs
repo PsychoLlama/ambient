@@ -369,7 +369,7 @@ impl Emitter<'_> {
         match op {
             Op::Copy(value) => {
                 let word = self.value(*value);
-                if matches!(value, lir::Value::Local(_)) {
+                if value.counted() {
                     self.runtime(Entry::Retain, &[word]);
                 }
                 word

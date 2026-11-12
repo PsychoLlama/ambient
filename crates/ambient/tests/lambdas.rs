@@ -13,6 +13,7 @@ use ambient::engine::Engine;
 use ambient::error::Error;
 use ambient::store::MemoryStore;
 use ambient::surface::{Definition, Expr, Type};
+use ambient::value::Value;
 use ambient::workspace::Workspace;
 use support::{Recording, value, workspace};
 
@@ -221,4 +222,17 @@ fn a_lambda_that_calls_its_encloser_forms_a_group_with_it() {
     };
 
     assert_eq!(hash("spin"), hash("whirl"));
+}
+
+#[test]
+fn a_lambda_gives_back_what_it_captured() {
+    // The tuple is allocated, and outlives the closure that held it.
+    let thunk = b::lambda([], b::name("pair"));
+    let pair = b::tuple([b::int(1), b::int(2)]);
+    let main = returning(ty::unknown(), b::let_("pair", pair, b::call(thunk, [])));
+
+    assert_eq!(
+        support::run([main], &[]),
+        Ok(Value::Tuple(vec![Value::Int(1), Value::Int(2)]))
+    );
 }

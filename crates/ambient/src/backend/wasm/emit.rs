@@ -366,7 +366,7 @@ impl Emitter {
     fn op(&mut self, op: &Op) {
         match op {
             Op::Copy(value) => {
-                if matches!(value, lir::Value::Local(_)) {
+                if value.counted() {
                     self.value(*value);
                     self.emit(&Instruction::Call(import(Entry::Retain)));
                 }

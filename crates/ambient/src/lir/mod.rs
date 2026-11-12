@@ -43,8 +43,18 @@ pub enum Value {
     Int(i64),
 }
 
-/// Something a definition needs that is made once, when a program is
-/// loaded, and never reclaimed.
+impl Value {
+    /// Whether the operand may be an object, so that owning it takes a
+    /// reference. A constant may be: one of loaded code is reclaimed
+    /// with the last reference to it.
+    #[must_use]
+    pub fn counted(self) -> bool {
+        matches!(self, Self::Local(_) | Self::Captured(_) | Self::Constant(_))
+    }
+}
+
+/// Something a definition needs that is made once, when its code is
+/// loaded, and kept as long as that code is.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Constant {
     String(String),
