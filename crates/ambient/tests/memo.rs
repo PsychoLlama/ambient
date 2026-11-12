@@ -16,6 +16,7 @@ use ambient::error::Error;
 use ambient::literal::Literal;
 use ambient::store::MemoryStore;
 use ambient::surface::Definition;
+use ambient::symbol::{ModuleId, Symbol};
 use ambient::value::Value;
 use ambient::workspace::Workspace;
 use support::{value, workspace};
@@ -69,10 +70,26 @@ struct Built {
     checked: Vec<String>,
 }
 
-/// Checks `main` over `store`, in `world`.
+/// The ability `ask`.
+fn ask() -> Symbol {
+    ModuleId::new("app", "main").ability("ask")
+}
+
+/// The program, with its package granted `ask`.
+fn granted() -> Workspace {
+    let mut workspace = program([]);
+    workspace.grant("app", ask());
+    workspace
+}
+
+/// Checks `main` over `store`, in `world`, with `ask` granted.
 fn build(store: &MemoryStore, world: &World, verifiable: bool) -> Built {
-    let workspace = program([]);
-    let engine = Engine::new(&workspace, store)
+    build_in(&granted(), store, world, verifiable)
+}
+
+/// Checks `main` of `workspace` over `store`, in `world`.
+fn build_in(workspace: &Workspace, store: &MemoryStore, world: &World, verifiable: bool) -> Built {
+    let engine = Engine::new(workspace, store)
         .with_build(value("main", "build"), natives(world, verifiable));
     let main = engine
         .check(&value("main", "main"))
@@ -145,6 +162,39 @@ fn a_failure_is_observed_like_any_result() {
 
     assert!(matches!(failed.main, Err(Error::ComptimeFault { .. })));
     assert_eq!(fixed.main, Ok(int(7)));
+}
+
+// Grants
+
+#[test]
+fn a_comptime_call_takes_only_what_its_package_is_granted() {
+    let world = World::new(Cell::new(5));
+    let built = build_in(&program([]), &MemoryStore::new(), &world, true);
+    let ungranted = Error::Ungranted {
+        symbol: value("main", "main"),
+        ability: ask(),
+    };
+
+    assert_eq!(built.main, Err(ungranted));
+    assert!(built.ran.is_empty());
+}
+
+#[test]
+fn a_grant_checks_the_call_again() {
+    let (store, world) = (MemoryStore::new(), World::new(Cell::new(5)));
+    build_in(&program([]), &store, &world, true);
+    let granted = build(&store, &world, true);
+
+    assert_eq!(granted.main, Ok(int(5)));
+    assert!(granted.checked.contains(&MAIN.to_owned()));
+}
+
+#[test]
+fn a_granted_call_still_needs_a_build_target() {
+    let (workspace, store) = (granted(), MemoryStore::new());
+    let result = Engine::new(&workspace, &store).check(&value("main", "main"));
+
+    assert!(matches!(result, Err(Error::ComptimeAbilities(_))));
 }
 
 // Tests

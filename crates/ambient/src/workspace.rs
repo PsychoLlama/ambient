@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::builder::OWN_PACKAGE;
 use crate::surface::Module;
-use crate::symbol::{ModuleId, ModulePath, PackageId};
+use crate::symbol::{ModuleId, ModulePath, PackageId, Symbol};
 
 /// One unchanging snapshot of a program's sources.
 ///
@@ -28,6 +28,11 @@ pub trait Sources {
     /// tags are scoped by. Every snapshot of one package has the same ID,
     /// whatever a workspace calls it. See `spec/packages.md`.
     fn identity(&self, package: &PackageId) -> String;
+
+    /// The build abilities `package` is granted: what its comptime
+    /// calls may take from the build target. See "Authority" in
+    /// `spec/comptime.md`.
+    fn grants(&self, package: &PackageId) -> Vec<Symbol>;
 }
 
 /// Why a workspace refused a change.
@@ -61,6 +66,7 @@ pub struct Workspace {
     dependencies: BTreeMap<(PackageId, String), PackageId>,
     preludes: BTreeMap<PackageId, Vec<ModuleId>>,
     identities: BTreeMap<PackageId, String>,
+    grants: BTreeMap<PackageId, Vec<Symbol>>,
     /// The preludes of a package that lists none.
     shared: Vec<ModuleId>,
     /// The standard library's preludes, for when `shared` is empty too.
@@ -128,6 +134,15 @@ impl Workspace {
             .insert(PackageId(package.to_owned()), id.to_owned());
     }
 
+    /// Grants `package` a build ability: its comptime calls may take
+    /// `ability` from the build target.
+    pub fn grant(&mut self, package: &str, ability: Symbol) {
+        self.grants
+            .entry(PackageId(package.to_owned()))
+            .or_default()
+            .push(ability);
+    }
+
     /// Adds `module` to the end of the workspace's own preludes, which a
     /// package that lists none takes.
     pub fn shared_prelude(&mut self, module: ModuleId) {
@@ -185,5 +200,9 @@ impl Sources for Workspace {
 
     fn identity(&self, package: &PackageId) -> String {
         self.identities.get(package).unwrap_or(&package.0).clone()
+    }
+
+    fn grants(&self, package: &PackageId) -> Vec<Symbol> {
+        self.grants.get(package).cloned().unwrap_or_default()
     }
 }

@@ -11,7 +11,7 @@ use crate::backend::native::{Host, Native, Natives, Nowhere, Observation, Progra
 use crate::checker::Evaluate;
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest, encode as bytes};
-use crate::symbol::Symbol;
+use crate::symbol::{PackageId, Symbol};
 use crate::value::{Value, decode};
 
 /// The backend that runs code during a build, made on first use.
@@ -201,5 +201,9 @@ impl Evaluate for Engine<'_> {
             });
         }
         outcome
+    }
+
+    fn granted(&self, package: &PackageId, ability: &Symbol) -> bool {
+        self.sources.grants(package).contains(ability)
     }
 }

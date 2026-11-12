@@ -214,14 +214,15 @@ fn a_merge_has_the_fields_of_both_with_the_right_sides_types() {
     assert!(check(ret, b::merge(left, right), []).is_ok());
 }
 
-// What cannot be provided yet
+// What cannot be provided
 
 #[test]
-fn a_comptime_call_cannot_take_abilities() {
+fn a_comptime_call_takes_nothing_from_where_it_is_written() {
     let body = asking(b::comptime(b::call(b::name("twice"), [])));
     let result = check(ty::int(), body, []);
 
-    assert!(matches!(result, Err(Error::ComptimeAbilities(_))));
+    // A handler around the call is not a grant.
+    assert!(matches!(result, Err(Error::Ungranted { .. })));
 }
 
 #[test]

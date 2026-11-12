@@ -26,7 +26,7 @@ use std::collections::BTreeMap;
 use crate::core::{self, Open, Slot, Tree};
 use crate::error::Error;
 use crate::surface::{Expr, Function, Reference};
-use crate::symbol::Symbol;
+use crate::symbol::{PackageId, Symbol};
 use crate::types::{Env, Ty};
 use crate::value::Value;
 use abilities::Layer;
@@ -115,6 +115,10 @@ pub trait Evaluate {
     ///
     /// Fails if the function does not compile, or faults.
     fn evaluate(&self, function: &Symbol, args: &[Value]) -> Result<Value, Error>;
+
+    /// Whether the comptime calls of `package` may take `ability` from
+    /// the build target.
+    fn granted(&self, package: &PackageId, ability: &Symbol) -> bool;
 }
 
 struct Checker<'a> {

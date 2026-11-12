@@ -39,7 +39,6 @@ A comptime call runs an ordinary function during compilation and splices its res
 - A comptime call runs under the grants of the package that contains the call site.
 - An ungranted ability is a compile error at the call, naming the ability.
 - A comptime call with an empty row needs no grant.
-- TODO: grants are not enforced; a comptime call takes whatever the build target offers.
 
 ## Caching
 

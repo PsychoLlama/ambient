@@ -6,6 +6,7 @@ use crate::core;
 use crate::error::Error;
 use crate::literal::Literal;
 use crate::surface::{Expr, Key, Reference};
+use crate::symbol::Symbol;
 use crate::types::Ty;
 use crate::value::Value;
 
@@ -49,6 +50,17 @@ impl Checker<'_> {
         let Some(evaluator) = self.evaluator else {
             return Ok((core::Expr::Null, Ty::Never));
         };
+        // What the function takes, it takes with the authority of the
+        // package the call is written in.
+        let row = self.env.functions.get(function).map(|taken| &taken.row);
+        let package = &self.symbol.module.package;
+        let ungranted = |ability: &&Symbol| !evaluator.granted(package, ability);
+        if let Some(ability) = row.into_iter().flatten().find(ungranted) {
+            return Err(Error::Ungranted {
+                symbol: self.symbol.clone(),
+                ability: ability.clone(),
+            });
+        }
         let result = evaluator.evaluate(function, &values)?;
         splice(&result).ok_or_else(|| Error::NotSpliceable {
             symbol: self.symbol.clone(),
