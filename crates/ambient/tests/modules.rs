@@ -310,3 +310,163 @@ fn a_call_must_pass_as_many_arguments_as_the_header_declares() {
         })
     ));
 }
+
+// Re-exports
+
+/// `app`, whose module `front` re-exports `one` from `math`.
+fn fronted(main: ModuleBuilder) -> Workspace {
+    let front = b::module().export("pkg.math.one");
+    workspace([
+        ("app", "math", math()),
+        ("app", "front", front),
+        ("app", "main", main),
+    ])
+}
+
+#[test]
+fn a_re_export_is_an_alias_for_the_definition_it_names() {
+    let imported = calling(b::module().import("pkg.front.one"), "one");
+    let qualified = calling(b::module().import("pkg.front"), "front.one");
+
+    for main in [imported, qualified] {
+        assert_eq!(references(&fronted(main)).unwrap(), ["app:math.one"]);
+    }
+}
+
+#[test]
+fn a_plain_import_is_not_a_member_of_the_module_that_makes_it() {
+    let front = b::module().import("pkg.math.one");
+    let main = calling(b::module().import("pkg.front.one"), "one");
+    let modules = [
+        ("app", "math", math()),
+        ("app", "front", front),
+        ("app", "main", main),
+    ];
+
+    assert!(matches!(
+        references(&workspace(modules)),
+        Err(Error::UnknownImport { .. })
+    ));
+}
+
+#[test]
+fn a_library_module_re_exports_what_is_reached_through_its_package() {
+    let library = b::module().export("pkg.math.one");
+    let main = calling(b::module().import("lib.one"), "one");
+
+    assert_eq!(
+        references(&depending(library, main)).unwrap(),
+        ["lib:math.one"]
+    );
+}
+
+#[test]
+fn a_module_cannot_be_re_exported() {
+    let front = b::module().export("pkg.math");
+    let main = calling(b::module().import("pkg.front.one"), "one");
+    let modules = [
+        ("app", "math", math()),
+        ("app", "front", front),
+        ("app", "main", main),
+    ];
+
+    assert!(matches!(
+        references(&workspace(modules)),
+        Err(Error::ExportsModule { .. })
+    ));
+}
+
+#[test]
+fn re_exports_that_lead_back_to_their_module_are_an_error() {
+    let a = b::module().export("pkg.b.x");
+    let other = b::module().export("pkg.a.x");
+    let main = calling(b::module().import("pkg.a.x"), "x");
+    let modules = [("app", "a", a), ("app", "b", other), ("app", "main", main)];
+
+    assert!(matches!(
+        references(&workspace(modules)),
+        Err(Error::ExportCycle(_))
+    ));
+}
+
+// Preludes
+
+/// `app` with `math` as a prelude and `main` as its other module.
+fn with_prelude(main: ModuleBuilder) -> Workspace {
+    let mut workspace = workspace([("app", "math", math()), ("app", "main", main)]);
+    workspace.prelude("app", ModuleId::new("app", "math"));
+    workspace
+}
+
+#[test]
+fn a_preludes_public_definitions_are_in_scope_without_an_import() {
+    let main = calling(b::module(), "one");
+
+    assert_eq!(references(&with_prelude(main)).unwrap(), ["app:math.one"]);
+}
+
+#[test]
+fn a_preludes_private_definitions_are_not_in_scope() {
+    let main = calling(b::module(), "secret");
+
+    assert!(matches!(
+        references(&with_prelude(main)),
+        Err(Error::UnknownName { .. })
+    ));
+}
+
+#[test]
+fn a_modules_own_definitions_and_imports_shadow_a_prelude() {
+    let own =
+        calling(b::module(), "one").define(b::function("one").returns(ty::int()).body(b::int(9)));
+    let other = b::module().define(
+        b::function("one")
+            .public()
+            .returns(ty::int())
+            .body(b::int(8)),
+    );
+    let imported = calling(b::module().import("pkg.other.one"), "one");
+    let mut imports = with_prelude(imported);
+    imports
+        .set(ModuleId::new("app", "other"), other.build().unwrap())
+        .unwrap();
+
+    assert_eq!(references(&with_prelude(own)).unwrap(), ["app:main.one"]);
+    assert_eq!(references(&imports).unwrap(), ["app:other.one"]);
+}
+
+#[test]
+fn a_later_prelude_wins() {
+    let later = b::module().define(
+        b::function("one")
+            .public()
+            .returns(ty::int())
+            .body(b::int(8)),
+    );
+    let mut workspace = with_prelude(calling(b::module(), "one"));
+    workspace
+        .set(ModuleId::new("app", "later"), later.build().unwrap())
+        .unwrap();
+    workspace.prelude("app", ModuleId::new("app", "later"));
+
+    assert_eq!(references(&workspace).unwrap(), ["app:later.one"]);
+}
+
+#[test]
+fn a_prelude_from_another_package_must_be_one_it_exposes() {
+    let main = calling(b::module(), "one");
+    let prelude = |library: ModuleBuilder| {
+        let mut workspace = depending(library, main.clone());
+        workspace.prelude("app", ModuleId::new("lib", "math"));
+        references(&workspace)
+    };
+
+    assert_eq!(
+        prelude(b::module().expose("math")).unwrap(),
+        ["lib:math.one"]
+    );
+    assert!(matches!(
+        prelude(b::module()),
+        Err(Error::InternalModule { .. })
+    ));
+}

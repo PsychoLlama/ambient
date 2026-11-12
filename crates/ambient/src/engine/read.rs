@@ -1,16 +1,14 @@
 //! Read: a module's source yields its definition table and surface trees.
-//! Then, per module, the scope its definitions are resolved in.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use super::{Engine, Query, Stage, memo};
-use crate::builder::OWN_PACKAGE;
 use crate::error::Error;
 use crate::hash::{Hash, digest};
 use crate::surface::{Definition, DefinitionKind, Import, Module};
-use crate::symbol::{ModuleId, ModulePath, Namespace, Symbol};
+use crate::symbol::{ModuleId, ModulePath, Namespace};
 
 /// What a module defines, without any body.
 ///
@@ -44,20 +42,6 @@ pub struct Read {
     pub digests: Vec<Hash>,
 }
 
-/// Every name a module's definitions can use, besides their own locals.
-#[derive(Debug, Default, Serialize)]
-pub struct Scope {
-    /// The module's own definitions and the definitions it imports.
-    pub definitions: BTreeMap<(Namespace, String), Symbol>,
-    /// The modules it imports, each with its table, by alias.
-    pub modules: BTreeMap<String, (ModuleId, Table)>,
-}
-
-pub(super) struct Scoped {
-    pub scope: Scope,
-    pub digest: Hash,
-}
-
 impl Engine<'_> {
     /// A module's definition table and surface trees.
     ///
@@ -73,134 +57,6 @@ impl Engine<'_> {
             let key = digest("read", &*module);
             self.stage(Stage::Read, id, key, || Ok(read(&module)))
         })
-    }
-
-    pub(super) fn scope(&self, id: &ModuleId) -> Query<Scoped> {
-        memo(&self.scope, id, || {
-            let own = self.read(id)?;
-            let mut scope = Scope::default();
-            for (namespace, name) in own.table.0.keys() {
-                scope
-                    .definitions
-                    .insert((*namespace, name.clone()), id.symbol(*namespace, name));
-            }
-            for import in &own.imports {
-                self.import(id, import, &mut scope)?;
-            }
-            let digest = digest("scope", &scope);
-            Ok(std::sync::Arc::new(Scoped { scope, digest }))
-        })
-    }
-
-    fn import(&self, id: &ModuleId, import: &Import, scope: &mut Scope) -> Result<(), Error> {
-        let unknown = || Error::UnknownImport {
-            module: id.clone(),
-            path: import.path.clone(),
-        };
-        let duplicate = || Error::DuplicateName {
-            module: id.clone(),
-            name: import.alias.clone(),
-        };
-
-        let (first, rest) = import.path.0.split_first().ok_or_else(unknown)?;
-        let package = if first == OWN_PACKAGE {
-            id.package.clone()
-        } else {
-            self.sources
-                .dependency(&id.package, first)
-                .ok_or_else(|| Error::UnknownPackage {
-                    module: id.clone(),
-                    name: first.clone(),
-                })?
-        };
-
-        // Another package is reached only through what its library module
-        // lets out: its own definitions, and the modules it lists.
-        let own = package == id.package;
-        let library = ModuleId::library(&package);
-        let reachable = |path: &[String]| -> Result<bool, Error> {
-            if own || path.is_empty() {
-                return Ok(true);
-            }
-            if self.sources.module(&library).is_none() {
-                return Ok(false);
-            }
-            let exposes = &self.read(&library)?.exposes;
-            Ok(exposes.iter().any(|exposed| exposed.0 == path))
-        };
-        let internal = || Error::InternalModule {
-            module: id.clone(),
-            path: import.path.clone(),
-        };
-
-        let taken = scope.modules.contains_key(&import.alias)
-            || scope
-                .definitions
-                .keys()
-                .any(|(_, name)| *name == import.alias);
-
-        // A segment names a file or a directory, never both, so at most one
-        // of these two readings finds anything.
-        let whole = ModuleId {
-            package: package.clone(),
-            path: ModulePath(rest.to_vec()),
-        };
-        if self.sources.module(&whole).is_some() && !rest.is_empty() {
-            if !reachable(rest)? {
-                return Err(internal());
-            }
-            // The library module shares a scope with the top-level
-            // modules, so a name in both would have two sources.
-            if let [name] = rest
-                && self.sources.module(&library).is_some()
-                && self.read(&library)?.table.names(name)
-            {
-                return Err(Error::DuplicateName {
-                    module: library,
-                    name: name.clone(),
-                });
-            }
-            if taken {
-                return Err(duplicate());
-            }
-            let table = self.read(&whole)?.table.clone();
-            scope.modules.insert(import.alias.clone(), (whole, table));
-            return Ok(());
-        }
-
-        let (name, parent) = rest.split_last().ok_or_else(unknown)?;
-        let parent = ModuleId {
-            package,
-            path: ModulePath(parent.to_vec()),
-        };
-        if self.sources.module(&parent).is_none() {
-            return Err(unknown());
-        }
-        if !reachable(&parent.path.0)? {
-            return Err(internal());
-        }
-        let table = &self.read(&parent)?.table;
-        let mut found = false;
-        for namespace in [Namespace::Type, Namespace::Value, Namespace::Ability] {
-            let Some(entry) = table.0.get(&(namespace, name.clone())) else {
-                continue;
-            };
-            if !entry.public {
-                return Err(Error::PrivateImport {
-                    module: id.clone(),
-                    path: import.path.clone(),
-                });
-            }
-            if taken {
-                return Err(duplicate());
-            }
-            found = true;
-            scope.definitions.insert(
-                (namespace, import.alias.clone()),
-                parent.symbol(namespace, name),
-            );
-        }
-        if found { Ok(()) } else { Err(unknown()) }
     }
 }
 

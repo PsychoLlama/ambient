@@ -80,6 +80,9 @@ impl Module {
 pub struct Import {
     pub path: Path,
     pub alias: String,
+    /// Whether the module re-exports what it imports here: other
+    /// modules then reach the definition through this one too.
+    pub public: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

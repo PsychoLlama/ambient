@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::read::Scope;
+use super::scope::Scope;
 use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest};
@@ -462,18 +462,17 @@ impl Resolver<'_> {
         match path.0.as_slice() {
             [name] => self
                 .scope
-                .definitions
-                .get(&(namespace, name.clone()))
+                .find(namespace, name)
                 .cloned()
                 .ok_or_else(unknown),
             [module, name] => {
-                let (id, table) = self.scope.modules.get(module).ok_or_else(unknown)?;
-                let entry = table
+                let (_, members) = self.scope.modules.get(module).ok_or_else(unknown)?;
+                let member = members
                     .0
                     .get(&(namespace, name.clone()))
                     .ok_or_else(unknown)?;
-                if entry.public {
-                    Ok(id.symbol(namespace, name))
+                if member.public {
+                    Ok(member.symbol.clone())
                 } else {
                     Err(Error::PrivateName {
                         symbol: self.symbol.clone(),

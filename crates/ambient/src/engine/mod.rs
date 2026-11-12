@@ -28,6 +28,7 @@ mod program;
 mod read;
 mod resolve;
 mod run;
+mod scope;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -47,8 +48,9 @@ use crate::workspace::Sources;
 pub use check::Interface;
 pub use compile::{Artifact, Backend};
 pub use link::{Body, Native, Part, Parts};
-pub use read::{Entry, Read, Scope, Table};
+pub use read::{Entry, Read, Table};
 pub use resolve::Resolved;
+pub use scope::{Member, Members, Scope};
 
 /// The answer to a question: shared, or the problem that prevented it.
 pub type Query<T> = Result<Arc<T>, Error>;
@@ -86,7 +88,11 @@ pub struct Engine<'a> {
     store: &'a dyn Store,
     events: RefCell<Vec<Event>>,
     read: Memo<ModuleId, Read>,
-    scope: Memo<ModuleId, read::Scoped>,
+    scope: Memo<ModuleId, scope::Scoped>,
+    members: Memo<ModuleId, Members>,
+    /// The modules whose members are being worked out, outermost first:
+    /// how a cycle of re-exports is seen.
+    exporting: RefCell<Vec<ModuleId>>,
     resolve: Memo<Symbol, Resolved>,
     interface: Memo<Symbol, Interface>,
     type_info: Memo<Symbol, crate::types::TypeInfo>,
@@ -115,6 +121,8 @@ impl<'a> Engine<'a> {
             events: RefCell::default(),
             read: RefCell::default(),
             scope: RefCell::default(),
+            members: RefCell::default(),
+            exporting: RefCell::default(),
             resolve: RefCell::default(),
             interface: RefCell::default(),
             type_info: RefCell::default(),

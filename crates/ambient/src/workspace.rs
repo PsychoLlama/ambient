@@ -17,6 +17,9 @@ pub trait Sources {
 
     /// The package that `package` reaches under the local name `name`.
     fn dependency(&self, package: &PackageId, name: &str) -> Option<PackageId>;
+
+    /// The preludes of `package`, in the order it lists them.
+    fn preludes(&self, package: &PackageId) -> Vec<ModuleId>;
 }
 
 /// Why a workspace refused a change.
@@ -45,6 +48,7 @@ impl std::error::Error for WorkspaceError {}
 pub struct Workspace {
     modules: BTreeMap<ModuleId, Arc<Module>>,
     dependencies: BTreeMap<(PackageId, String), PackageId>,
+    preludes: BTreeMap<PackageId, Vec<ModuleId>>,
 }
 
 impl Workspace {
@@ -100,6 +104,18 @@ impl Workspace {
     }
 }
 
+impl Workspace {
+    /// Adds `module` to the end of the preludes of `package`: its public
+    /// definitions and re-exports are then in scope in every module of the
+    /// package. See `spec/modules.md`.
+    pub fn prelude(&mut self, package: &str, module: ModuleId) {
+        self.preludes
+            .entry(PackageId(package.to_owned()))
+            .or_default()
+            .push(module);
+    }
+}
+
 fn is_prefix(shorter: &ModulePath, longer: &ModulePath) -> bool {
     shorter.0.len() < longer.0.len() && longer.0.starts_with(&shorter.0)
 }
@@ -113,5 +129,9 @@ impl Sources for Workspace {
         self.dependencies
             .get(&(package.clone(), name.to_owned()))
             .cloned()
+    }
+
+    fn preludes(&self, package: &PackageId) -> Vec<ModuleId> {
+        self.preludes.get(package).cloned().unwrap_or_default()
     }
 }

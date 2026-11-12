@@ -20,6 +20,7 @@ A module is a file of definitions. Every name a module uses comes from its own d
 - A directory's members are the files and directories in it; a module's members are its definitions and the definitions it re-exports.
 - A path segment names a file or a directory, never both, so every segment has exactly one source.
 - A re-export applies to definitions only and is an [alias](symbols.md).
+- Re-exports that lead back to the module they started from are an error.
 - The [library module](packages.md) shares one scope with its package's top-level modules; a name in both is an error.
 - Whether a path's last segment is a module or a definition is decided by resolution, not by how the path is written.
 
@@ -28,6 +29,7 @@ A module is a file of definitions. Every name a module uses comes from its own d
 - A prelude is an ordinary module whose public definitions and aliases are in scope in every module of a package that lists it.
 - A package lists its preludes in order; where two define the same name, the later one wins.
 - A module's own definitions and imports shadow prelude names.
+- A prelude from another package is a module that package's [library module](packages.md) lists.
 - Preludes are set for a whole package and nowhere narrower; no module can add, remove, or reorder them.
 - A package that lists none takes its workspace's list, and a workspace that lists none takes the standard library's.
 - A platform or embedder supplies its vocabulary as a prelude, which its packages list.

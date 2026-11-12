@@ -248,6 +248,20 @@ impl ModuleBuilder {
         self.imports.push(Import {
             path: Path::parse(path),
             alias: alias.to_owned(),
+            public: false,
+        });
+        self
+    }
+
+    /// Imports a definition and re-exports it under its last segment:
+    /// other modules reach it through this one too.
+    #[must_use]
+    pub fn export(mut self, path: &str) -> Self {
+        let alias = path.rsplit('.').next().unwrap_or(path).to_owned();
+        self.imports.push(Import {
+            path: Path::parse(path),
+            alias,
+            public: true,
         });
         self
     }

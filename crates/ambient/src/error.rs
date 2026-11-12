@@ -23,6 +23,10 @@ pub enum Error {
     UnknownImport { module: ModuleId, path: Path },
     /// An import names a definition that is private to its module.
     PrivateImport { module: ModuleId, path: Path },
+    /// A module re-exports a module. Only definitions are re-exported.
+    ExportsModule { module: ModuleId, path: Path },
+    /// Modules re-export from each other in a circle.
+    ExportCycle(ModuleId),
     /// An import reaches into a module of another package that its
     /// library module does not list.
     InternalModule { module: ModuleId, path: Path },
@@ -130,6 +134,8 @@ impl fmt::Display for Error {
             | Self::UnknownImport { .. }
             | Self::PrivateImport { .. }
             | Self::InternalModule { .. }
+            | Self::ExportsModule { .. }
+            | Self::ExportCycle(_)
             | Self::DuplicateName { .. }
             | Self::UnknownName { .. }
             | Self::PrivateName { .. } => self.fmt_name(f),
@@ -235,6 +241,15 @@ impl Error {
             }
             Self::PrivateImport { module, path } => {
                 write!(f, "{module}: import `{path}` is private")
+            }
+            Self::ExportsModule { module, path } => {
+                write!(
+                    f,
+                    "{module}: `{path}` is a module, and cannot be re-exported"
+                )
+            }
+            Self::ExportCycle(module) => {
+                write!(f, "{module}: its re-exports lead back to itself")
             }
             Self::InternalModule { module, path } => write!(
                 f,
