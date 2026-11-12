@@ -390,7 +390,13 @@ impl Emitter<'_> {
                 let raw = self.constant(*bits);
                 self.entry(Entry::FloatNew, &[raw])
             }
-            Op::Slot(slot) => self.in_definition(*slot),
+            Op::Slot(slot) => {
+                // A reference to a function of loaded code is one into
+                // that code.
+                let function = self.in_definition(*slot);
+                self.runtime(Entry::Retain, &[function]);
+                function
+            }
             Op::Call {
                 slot,
                 args,

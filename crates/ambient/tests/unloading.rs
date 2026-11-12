@@ -23,7 +23,8 @@ fn giving(name: &str, body: ambient::surface::Expr) -> Definition {
 }
 
 /// A program that does nothing, and functions to load into it: those
-/// of a module it does not reach, by name.
+/// of a module it does not reach, by name, or as `f under t`, the
+/// program that runs `f` under the target `t`.
 struct Plugins {
     program: Program,
     parts: HashMap<String, (Parts, Hash)>,
@@ -39,7 +40,13 @@ impl Plugins {
         let engine = Engine::new(&workspace, &store);
         let native = Native::new().unwrap();
         let load = |name: &str| {
-            let symbol = value("plugin", name);
+            // `f under t` is the program that runs `f` under target `t`.
+            let symbol = match name.split_once(" under ") {
+                Some((entry, target)) => engine
+                    .program(&value("plugin", entry), &value("plugin", target))
+                    .unwrap(),
+                None => value("plugin", name),
+            };
             let parts = engine.link_to_load(&symbol, &native).unwrap();
             (name.to_owned(), (parts, engine.hash(&symbol).unwrap()))
         };
@@ -175,5 +182,43 @@ fn loaded_code_holds_the_loaded_code_it_calls() {
     release(outer);
 
     assert!(!plugins.has("inner") && !plugins.has("outer"));
+    assert!(plugins.clean());
+}
+
+#[test]
+fn a_host_loads_a_program_with_a_target_of_its_own() {
+    let ask: Definition = b::ability("ask", "ask").returns(ty::int()).into();
+    let answer = b::function("answer").returns(ty::int()).body(b::int(42));
+    let asks = b::function("f")
+        .performs(["ask"])
+        .returns(ty::int())
+        .body(b::perform("ask", []));
+    let world = b::target("world").bind("ask", "answer");
+    let module = [ask, answer, asks, world.into()]
+        .into_iter()
+        .fold(b::module(), ModuleBuilder::define);
+    let plugins = Plugins::new(module, ["f under world"]);
+
+    let answered = plugins.made_by("f under world");
+
+    assert_eq!(decode(answered, &mut Host), Value::Int(42));
+    assert!(!plugins.has("f under world"));
+}
+
+#[test]
+fn a_function_named_as_a_value_holds_its_code() {
+    let inner = giving("inner", b::string("made"));
+    let module = b::module()
+        .define(inner)
+        .define(giving("f", b::name("inner")));
+    let plugins = Plugins::new(module, ["f"]);
+
+    let named = plugins.made_by("f");
+    assert!(plugins.has("f"));
+    let made = plugins.program.call_value(named, &[]).unwrap();
+    release(named);
+
+    assert_eq!(decode(made, &mut Host), Value::String("made".to_owned()));
+    release(made);
     assert!(plugins.clean());
 }

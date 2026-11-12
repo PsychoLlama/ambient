@@ -384,7 +384,11 @@ impl Emitter {
                 self.constant(*bits);
                 self.emit(&Instruction::Call(import(Entry::FloatNew)));
             }
-            Op::Slot(slot) => self.in_definition(*slot),
+            Op::Slot(slot) => {
+                self.in_definition(*slot);
+                self.emit(&Instruction::Call(import(Entry::Retain)));
+                self.in_definition(*slot);
+            }
             Op::Call {
                 slot,
                 args,

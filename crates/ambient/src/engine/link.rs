@@ -132,8 +132,8 @@ impl Engine<'_> {
     ///
     /// Fails if anything reached does not check or does not compile.
     pub fn link(&self, entry: &Symbol, backend: &dyn Backend) -> Result<Parts, Error> {
-        // TODO: an entry runs under a target, which provides its row; until
-        // there are targets, an entry has nothing to take.
+        // Nothing is bound where a host calls from. An entry that takes
+        // abilities runs under a target: see [`Engine::program`].
         if let Tree::Function(function) = &self.check(entry)?.tree
             && !function.row.is_empty()
         {
@@ -146,6 +146,8 @@ impl Engine<'_> {
     /// a program that is running. Where it will be called from is not
     /// known, so every function gets a metered form, and it may take
     /// abilities: whatever calls it provides them.
+    /// A host that calls it itself provides nothing, so it loads the
+    /// function under a target, as [`Engine::program`] makes it.
     ///
     /// # Errors
     ///

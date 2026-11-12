@@ -44,6 +44,7 @@ pub unsafe extern "C" fn amb_unit_release(unit: u64) {
     }
     unsafe {
         let record = unit as usize as *mut u64;
+        debug_assert!(*record > 0, "a unit was released more than it was held");
         *record -= 1;
         if *record == 0 && *record.add(LISTED) == 0 {
             let list = *record.add(UNIT_LIST) as usize as *mut u64;
