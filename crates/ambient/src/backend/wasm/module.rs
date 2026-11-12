@@ -4,8 +4,8 @@
 use ambient_runtime::Entry;
 use wasm_encoder::{
     CodeSection, DataCountSection, DataSection, ElementSection, Elements, EntityType, ExportKind,
-    ExportSection, Function, FunctionSection, ImportSection, Instruction, MemoryType, Module,
-    RefType, TableType, TypeSection, ValType,
+    ExportSection, Function, FunctionSection, GlobalType, ImportSection, Instruction, MemoryType,
+    Module, RefType, TableType, TypeSection, ValType,
 };
 
 use super::emit::memory;
@@ -46,6 +46,16 @@ fn signatures() -> Result<(TypeSection, ImportSection, u32), String> {
             minimum: 0,
             maximum: None,
             table64: false,
+            shared: false,
+        }),
+    );
+    // The runtime's stack, where a function keeps its locals.
+    imports.import(
+        RUNTIME_MODULE,
+        "__stack_pointer",
+        EntityType::Global(GlobalType {
+            val_type: ValType::I32,
+            mutable: true,
             shared: false,
         }),
     );

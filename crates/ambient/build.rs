@@ -20,11 +20,13 @@ fn main() {
         .arg(&target)
         // Flags meant for the host build do not apply to this one. Its own
         // make the runtime's function table one a program can add its
-        // functions to, which is what lets the runtime call them.
+        // functions to, which is what lets the runtime call them, and
+        // share its stack, which is where a function keeps its locals.
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env(
             "RUSTFLAGS",
-            "-C link-arg=--export-table -C link-arg=--growable-table",
+            "-C link-arg=--export-table -C link-arg=--growable-table \
+             -C link-arg=--export=__stack_pointer",
         )
         .status();
     assert!(
