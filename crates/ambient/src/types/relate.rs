@@ -67,7 +67,6 @@ impl Env {
                 have.len() == want.len()
                     && have.iter().zip(want).all(|(h, w)| self.sub(h, w, assumed))
             }
-            (Ty::Tuple(have), Ty::List(want)) => have.iter().all(|h| self.sub(h, want, assumed)),
             (Ty::List(have), Ty::List(want)) => self.sub(have, want, assumed),
             // A cell is written as well as read, so it is the same type
             // or it is not a subtype.
@@ -136,9 +135,6 @@ impl Env {
                 .any(|(key, a)| entry(b, key).is_some_and(|b| self.apart(a, b, next))),
             (Ty::Tuple(a), Ty::Tuple(b)) => {
                 a.len() != b.len() || a.iter().zip(b).any(|(a, b)| self.apart(a, b, next))
-            }
-            (Ty::Tuple(members), Ty::List(member)) | (Ty::List(member), Ty::Tuple(members)) => {
-                members.iter().any(|m| self.apart(m, member, next))
             }
             _ => left != right,
         }

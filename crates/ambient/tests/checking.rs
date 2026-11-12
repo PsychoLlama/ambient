@@ -91,12 +91,11 @@ fn a_record_is_a_subtype_of_one_with_fewer_or_wider_fields() {
 }
 
 #[test]
-fn a_tuple_is_a_subtype_of_a_list_of_its_members() {
+fn a_tuple_is_no_list_and_no_tuple_of_another_length() {
     let pair = b::tuple([b::int(1), b::string("a")]);
     let either = ty::union([ty::int(), ty::string()]);
 
-    assert!(accepts(returning(ty::list(either), pair.clone())));
-    assert!(!accepts(returning(ty::list(ty::int()), pair.clone())));
+    assert!(!accepts(returning(ty::list(either), pair.clone())));
     assert!(!accepts(returning(ty::tuple([ty::int()]), pair)));
 }
 

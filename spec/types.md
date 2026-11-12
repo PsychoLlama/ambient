@@ -33,7 +33,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - `Cell<T>` is invariant.
 - A function type is a subtype of one with narrower parameters, a wider return type, or a larger row.
 - A literal type is a subtype of its primitive.
-- A tuple is a subtype of a list of the union of its members.
+- A tuple and a list are unrelated, whatever they hold: a tuple is so many values, each with its own type, and a list is any number of one type.
 - An intersection of records has the keys of both; an intersection with a brand adds the brand.
 - An intersection of two different shapes is `never`; there are no overloaded function types and no negation types.
 - `int` and `float` are unrelated.

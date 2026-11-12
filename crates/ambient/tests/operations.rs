@@ -291,16 +291,18 @@ fn a_slice_of_a_list_is_what_lies_between_two_positions_or_a_miss() {
 }
 
 #[test]
-fn a_tuple_is_a_list_to_every_list_operation() {
-    let pair = || b::tuple([b::int(1), b::string("two")]);
-    let results = each([
-        b::length(pair()),
-        b::get(pair(), b::int(1)),
-        b::push(pair(), b::int(3)),
-    ]);
+fn no_list_operation_takes_a_tuple() {
+    let pair = b::tuple([b::int(1), b::int(2)]);
+    let result = checks(ty::int(), b::length(pair));
 
-    let pushed = Value::List(vec![Value::Int(1), text("two"), Value::Int(3)]);
-    assert_eq!(results, [Value::Int(2), text("two"), pushed]);
+    assert!(matches!(result, Err(Error::Operands { .. })));
+}
+
+#[test]
+fn a_tuple_is_not_a_list_of_its_members() {
+    let pair = b::tuple([b::int(1), b::int(2)]);
+
+    assert!(checks(ty::list(ty::int()), pair).is_err());
 }
 
 #[test]

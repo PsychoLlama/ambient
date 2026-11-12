@@ -39,4 +39,4 @@ An operation is something the language itself does with values: arithmetic, comp
 - Pushing a value gives a list with that value after the others; its type is a list of the union of what was there and what was pushed.
 - Joining two lists gives the members of one followed by those of the other.
 - A slice takes a start and an end and gives the members between them; one whose positions are out of range or out of order misses.
-- A [tuple](types.md) is a list wherever a list is expected, and every list operation takes one.
+- No list operation takes a [tuple](types.md): its members are reached by matching.

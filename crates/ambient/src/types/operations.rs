@@ -9,12 +9,11 @@ use crate::core::Primitive;
 
 impl Env {
     /// The type of the members of a list: what `ty` is a list of, if
-    /// every value of it is a list or a tuple.
+    /// every value of it is a list.
     #[must_use]
     pub fn members(&self, ty: &Ty) -> Option<Ty> {
         match self.unfold(ty) {
             Ty::List(member) => Some(*member),
-            Ty::Tuple(members) => Some(self.union(members)),
             Ty::Union(alternatives) => {
                 let members: Option<Vec<Ty>> =
                     alternatives.iter().map(|ty| self.members(ty)).collect();

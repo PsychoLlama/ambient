@@ -236,9 +236,8 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
                 let members = if holds { &*words(value) } else { &[] };
                 return inside(holds, Inside::Members { nodes, members });
             }
-            // A tuple is a list of its members.
             d::LIST => {
-                let holds = matches!(kind(value), KIND_LIST | KIND_TUPLE);
+                let holds = kind(value) == KIND_LIST;
                 let members = if holds { &*words(value) } else { &[] };
                 let node = node(1);
                 return inside(holds, Inside::Every { node, members });

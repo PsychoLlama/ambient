@@ -285,8 +285,8 @@ fn a_match_takes_values_apart() {
 #[test]
 fn a_tuple_pattern_does_not_match_a_list() {
     let first = b::function("first")
-        .param("xs", ty::list(ty::int()))
-        .returns(ty::int())
+        .param("xs", ty::unknown())
+        .returns(ty::unknown())
         .body(b::match_(
             b::name("xs"),
             [
@@ -298,7 +298,7 @@ fn a_tuple_pattern_does_not_match_a_list() {
         run(
             [
                 first.clone(),
-                main(ty::int(), b::call(b::name("first"), [xs])),
+                main(ty::unknown(), b::call(b::name("first"), [xs])),
             ],
             &[],
         )
@@ -531,13 +531,13 @@ fn a_cast_looks_inside_structure() {
     assert!(!casts(&[], b::tuple([b::int(1)]), pair()));
     assert!(!casts(&[], b::list([b::int(1), b::string("a")]), pair()));
 
-    // A tuple is a list of its members.
+    // A tuple is not a list, whatever it holds.
     assert!(casts(
         &[],
         b::list([b::int(1), b::int(2)]),
         ty::list(ty::int())
     ));
-    assert!(casts(
+    assert!(!casts(
         &[],
         b::tuple([b::int(1), b::int(2)]),
         ty::list(ty::int())

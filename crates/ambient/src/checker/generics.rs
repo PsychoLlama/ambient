@@ -162,11 +162,6 @@ impl Checker<'_> {
                     self.collect_within(pattern, member, lower, depth);
                 }
             }
-            (Ty::List(pattern), Ty::Tuple(members)) => {
-                for member in members {
-                    self.collect_within(pattern, member, lower, depth);
-                }
-            }
             (Ty::List(pattern), Ty::List(member)) | (Ty::Cell(pattern), Ty::Cell(member)) => {
                 self.collect_within(pattern, member, lower, depth);
             }
