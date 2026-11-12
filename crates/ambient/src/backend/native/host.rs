@@ -123,8 +123,8 @@ pub(super) unsafe extern "C" fn dispatch(
         let address = usize::try_from((*context).host).unwrap_or(0);
         &*(address as *const Program)
     };
-    let args = match value::decode(args, &mut Host) {
-        Value::Tuple(args) => args,
+    let args = match &mut value::decode(args, &mut Host) {
+        Value::Tuple(args) => std::mem::take(args),
         _ => Vec::new(),
     };
     let index = usize::try_from(index).unwrap_or(usize::MAX);

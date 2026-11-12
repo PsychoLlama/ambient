@@ -40,7 +40,7 @@ fn outcome(body: Expr) -> Result<Value, Fault> {
 fn logged(body: Expr) -> (Value, Value) {
     let pair = b::tuple([b::name("result"), b::read(b::name("log"))]);
     match outcome(b::let_("result", body, pair)).unwrap() {
-        Value::Tuple(members) => (members[0].clone(), members[1].clone()),
+        Value::Tuple(ref members) => (members[0].clone(), members[1].clone()),
         other => panic!("expected a pair, got {other:?}"),
     }
 }

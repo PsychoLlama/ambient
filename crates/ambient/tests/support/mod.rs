@@ -319,12 +319,12 @@ fn native(
         store: &mut caller,
         runtime,
     };
-    let ambient::value::Value::Tuple(args) =
+    let ambient::value::Value::Tuple(ref args) =
         ambient::value::decode(args.cast_unsigned(), &mut guest)
     else {
         panic!("arguments are a tuple");
     };
-    let result = if let Ok(value) = (natives[usize::try_from(index).unwrap()].run)(&args) {
+    let result = if let Ok(value) = (natives[usize::try_from(index).unwrap()].run)(args) {
         ambient::value::encode(&value, &mut guest)
     } else {
         let code = word(ambient_runtime::Fault::Native as u64);

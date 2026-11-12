@@ -50,7 +50,7 @@ fn a_boundary_is_what_its_body_gives() {
 
 #[test]
 fn a_boundary_gives_the_fault_that_ended_its_body_as_an_error() {
-    let Value::Record(error) = evaluates(b::boundary(overflows())) else {
+    let Value::Record(ref error) = evaluates(b::boundary(overflows())) else {
         panic!("expected an error");
     };
 
@@ -110,7 +110,7 @@ fn cleanups_run_before_a_boundary_has_its_fault() {
         b::cell(ty::int(), b::int(0)),
         b::tuple([b::boundary(noted), b::read(c())]),
     );
-    let Value::Tuple(members) = evaluates(body) else {
+    let Value::Tuple(ref members) = evaluates(body) else {
         panic!("expected a pair");
     };
 
@@ -153,7 +153,7 @@ fn trace<const N: usize>(body: Expr, extra: [Definition; N]) -> Vec<(String, i64
         names.clone().find(is).unwrap_or("?").to_owned()
     };
 
-    let Value::Record(error) = run(definitions, &[]).unwrap() else {
+    let Value::Record(ref error) = run(definitions, &[]).unwrap() else {
         panic!("expected an error");
     };
     let Value::List(frames) = &error["trace"] else {

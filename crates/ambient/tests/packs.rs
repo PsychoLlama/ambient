@@ -148,10 +148,13 @@ fn function_from(program: &Workspace, named: &str) -> (Function, ambient::hash::
     let store = MemoryStore::new();
     let engine = Engine::new(program, &store);
     let outcome = run_entry(&engine, &value("main", "main"), &[], Natives::new);
-    let Ok(Value::Function(function)) = outcome else {
+    let Ok(Value::Function(ref function)) = outcome else {
         panic!("expected a function, got {outcome:?}");
     };
-    (function, engine.hash(&value("main", named)).unwrap())
+    (
+        function.clone(),
+        engine.hash(&value("main", named)).unwrap(),
+    )
 }
 
 #[test]

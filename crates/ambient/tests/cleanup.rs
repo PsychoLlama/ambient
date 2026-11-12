@@ -50,7 +50,7 @@ fn logged(body: Expr) -> (Value, Value) {
         b::tuple([b::name("result"), b::read(b::name("log"))]),
     );
     match outcome(both).unwrap() {
-        Value::Tuple(members) => (members[0].clone(), members[1].clone()),
+        Value::Tuple(ref members) => (members[0].clone(), members[1].clone()),
         other => panic!("expected a pair, got {other:?}"),
     }
 }

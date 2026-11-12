@@ -124,14 +124,37 @@ fn a_value_that_holds_a_cell_or_an_abort_handler_has_no_encoding() {
     assert_eq!(encode(&holding(Value::Token)), Err(Unsendable::Abort));
 }
 
+/// A value nested deeper than any stack.
+fn deep() -> Value {
+    (0..200_000).fold(Value::Null, |inner, _| Value::List(vec![inner]))
+}
+
 #[test]
 fn a_value_nested_deeper_than_any_stack_encodes_and_decodes() {
-    let deep = (0..200_000).fold(Value::Null, |inner, _| Value::List(vec![inner]));
+    let deep = deep();
     let bytes = encode(&deep).unwrap();
 
-    let decoded = decode(&bytes).unwrap();
+    assert_eq!(decode(&bytes).unwrap(), deep);
+}
 
-    assert_eq!(encode(&decoded).unwrap(), bytes);
-    // Dropping a value this deep recurses, so these are leaked instead.
-    std::mem::forget((deep, decoded));
+#[test]
+fn a_value_nested_deeper_than_any_stack_is_cloned_and_compared() {
+    let deep = deep();
+
+    assert_eq!(deep.clone(), deep);
+    assert_ne!(Value::List(vec![deep.clone()]), deep);
+}
+
+#[test]
+fn a_value_nested_deeper_than_any_stack_crosses_into_a_program_and_back() {
+    use ambient::backend::native::{Host, encode as into_program};
+
+    let deep = deep();
+    let live = ambient_runtime::amb_live();
+    let word = into_program(&deep);
+
+    assert_eq!(ambient::value::decode(word, &mut Host), deep);
+    // SAFETY: the word is owned here and not used again.
+    unsafe { ambient_runtime::amb_release(word) };
+    assert_eq!(ambient_runtime::amb_live(), live);
 }
