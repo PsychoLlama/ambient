@@ -11,6 +11,7 @@ A budget bounds how much work and allocation a body may do, and enforces the bou
 - A charge inside a nested budget counts against every budget enclosing it.
 - The limit a budget yields is a [tag](definitions.md) of the language's own package.
 - An operation is charged before it happens, so a budget that cannot afford one never performs it.
+- TODO: metering gives every function that can run in a budget a second compiled form and every operation a charge to define, and code that needs a budget is rare; whether budgets earn that is open.
 - TODO: a cleanup that runs because its budget ran out is charged against that budget too, so it ends at its first charge and can release nothing.
 
 ## Charges
