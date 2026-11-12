@@ -231,6 +231,7 @@ pub fn module() -> ModuleBuilder {
 pub struct ModuleBuilder {
     imports: Vec<Import>,
     definitions: Vec<Definition>,
+    exposes: Vec<Path>,
 }
 
 impl ModuleBuilder {
@@ -248,6 +249,14 @@ impl ModuleBuilder {
             path: Path::parse(path),
             alias: alias.to_owned(),
         });
+        self
+    }
+
+    /// For a library module: lets other packages reach the module at
+    /// `path` within this one, such as `"util.math"`.
+    #[must_use]
+    pub fn expose(mut self, path: &str) -> Self {
+        self.exposes.push(Path::parse(path));
         self
     }
 
@@ -274,6 +283,8 @@ impl ModuleBuilder {
                 return Err(BuildError::DuplicateDefinition(import.alias.clone()));
             }
         }
+
+        self.exposes.iter().try_for_each(check_path)?;
 
         let mut defined = BTreeSet::new();
         for definition in &self.definitions {
@@ -310,6 +321,7 @@ impl ModuleBuilder {
         Ok(Module {
             imports: self.imports,
             definitions: self.definitions,
+            exposes: self.exposes,
         })
     }
 }

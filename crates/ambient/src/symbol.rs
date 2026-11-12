@@ -26,11 +26,24 @@ pub struct ModuleId {
 
 impl ModuleId {
     /// A module from a package name and a dotted path, such as `"util.math"`.
+    /// The empty path is the package's library module.
     #[must_use]
     pub fn new(package: &str, path: &str) -> Self {
+        let segments = path.split('.').filter(|segment| !segment.is_empty());
         Self {
             package: PackageId(package.to_owned()),
-            path: ModulePath(path.split('.').map(str::to_owned).collect()),
+            path: ModulePath(segments.map(str::to_owned).collect()),
+        }
+    }
+
+    /// The library module of `package`: the one whose definitions are
+    /// reached through the package itself, and which lists the modules
+    /// other packages may reach. See `spec/packages.md`.
+    #[must_use]
+    pub fn library(package: &PackageId) -> Self {
+        Self {
+            package: package.clone(),
+            path: ModulePath(Vec::new()),
         }
     }
 

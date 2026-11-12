@@ -23,6 +23,9 @@ pub enum Error {
     UnknownImport { module: ModuleId, path: Path },
     /// An import names a definition that is private to its module.
     PrivateImport { module: ModuleId, path: Path },
+    /// An import reaches into a module of another package that its
+    /// library module does not list.
+    InternalModule { module: ModuleId, path: Path },
     /// Two things in one module's scope share a name.
     DuplicateName { module: ModuleId, name: String },
     /// A name in a definition resolves to nothing.
@@ -126,6 +129,7 @@ impl fmt::Display for Error {
             | Self::UnknownPackage { .. }
             | Self::UnknownImport { .. }
             | Self::PrivateImport { .. }
+            | Self::InternalModule { .. }
             | Self::DuplicateName { .. }
             | Self::UnknownName { .. }
             | Self::PrivateName { .. } => self.fmt_name(f),
@@ -232,6 +236,10 @@ impl Error {
             Self::PrivateImport { module, path } => {
                 write!(f, "{module}: import `{path}` is private")
             }
+            Self::InternalModule { module, path } => write!(
+                f,
+                "{module}: import `{path}` reaches a module its package does not expose"
+            ),
             Self::DuplicateName { module, name } => {
                 write!(f, "{module}: `{name}` is bound twice")
             }

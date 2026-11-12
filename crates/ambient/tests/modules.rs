@@ -66,10 +66,92 @@ fn an_alias_resolves_to_the_same_symbol() {
 #[test]
 fn a_dependency_is_reached_by_its_local_name() {
     let main = calling(b::module().import("numbers.math.one"), "one");
-    let mut workspace = workspace([("lib", "math", math()), ("app", "main", main)]);
+    let library = b::module().expose("math");
+    let modules = [
+        ("lib", "", library),
+        ("lib", "math", math()),
+        ("app", "main", main),
+    ];
+    let mut workspace = workspace(modules);
     workspace.depend("app", "numbers", "lib").unwrap();
 
     assert_eq!(references(&workspace).unwrap(), ["lib:math.one"]);
+}
+
+/// `app` depending on `lib`, whose library module is `library` and which
+/// has a module `math`; `main` is `app`'s only module.
+fn depending(library: ModuleBuilder, main: ModuleBuilder) -> Workspace {
+    let modules = [
+        ("lib", "", library),
+        ("lib", "math", math()),
+        ("app", "main", main),
+    ];
+    let mut workspace = workspace(modules);
+    workspace.depend("app", "lib", "lib").unwrap();
+    workspace
+}
+
+#[test]
+fn a_module_its_library_does_not_list_is_internal() {
+    let definition = calling(b::module().import("lib.math.one"), "one");
+    let qualifier = calling(b::module().import("lib.math"), "math.one");
+
+    for main in [definition, qualifier] {
+        assert!(matches!(
+            references(&depending(b::module(), main)),
+            Err(Error::InternalModule { .. })
+        ));
+    }
+}
+
+#[test]
+fn a_package_without_a_library_module_exposes_nothing() {
+    let main = calling(b::module().import("lib.math.one"), "one");
+    let mut workspace = workspace([("lib", "math", math()), ("app", "main", main)]);
+    workspace.depend("app", "lib", "lib").unwrap();
+
+    assert!(matches!(
+        references(&workspace),
+        Err(Error::InternalModule { .. })
+    ));
+}
+
+#[test]
+fn a_library_modules_definitions_are_reached_through_the_package() {
+    let library = b::module().define(
+        b::function("two")
+            .public()
+            .returns(ty::int())
+            .body(b::int(2)),
+    );
+    let main = calling(b::module().import("lib.two"), "two");
+
+    assert_eq!(references(&depending(library, main)).unwrap(), ["lib:.two"]);
+}
+
+#[test]
+fn a_package_reaches_its_own_modules_whether_listed_or_not() {
+    let main = calling(b::module().import("pkg.math.one"), "one");
+    let modules = [
+        ("app", "", b::module()),
+        ("app", "math", math()),
+        ("app", "main", main),
+    ];
+
+    assert_eq!(references(&workspace(modules)).unwrap(), ["app:math.one"]);
+}
+
+#[test]
+fn a_library_module_cannot_define_the_name_of_a_top_level_module() {
+    let library = b::module()
+        .expose("math")
+        .define(b::function("math").public().body(b::int(2)));
+    let main = calling(b::module().import("lib.math"), "math.one");
+
+    assert!(matches!(
+        references(&depending(library, main)),
+        Err(Error::DuplicateName { name, .. }) if name == "math"
+    ));
 }
 
 #[test]

@@ -50,6 +50,9 @@ pub enum Reference {
 pub struct Module {
     pub(crate) imports: Vec<Import>,
     pub(crate) definitions: Vec<Definition>,
+    /// For a library module: the modules of its package that other
+    /// packages may reach, by their paths within it.
+    pub(crate) exposes: Vec<Path>,
 }
 
 impl Module {
@@ -61,6 +64,11 @@ impl Module {
     #[must_use]
     pub fn definitions(&self) -> &[Definition] {
         &self.definitions
+    }
+
+    #[must_use]
+    pub fn exposes(&self) -> &[Path] {
+        &self.exposes
     }
 }
 

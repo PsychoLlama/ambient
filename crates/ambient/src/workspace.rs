@@ -63,6 +63,9 @@ impl Workspace {
             .modules
             .keys()
             .filter(|other| other.package == id.package && **other != id)
+            // The library module sits beside the top-level modules, not
+            // above them.
+            .filter(|other| !other.path.0.is_empty() && !id.path.0.is_empty())
             .any(|other| is_prefix(&other.path, &id.path) || is_prefix(&id.path, &other.path));
         if clash {
             return Err(WorkspaceError::FileAndDirectory(id));

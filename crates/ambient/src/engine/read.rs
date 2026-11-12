@@ -18,6 +18,14 @@ use crate::symbol::{ModuleId, ModulePath, Namespace, Symbol};
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Table(pub BTreeMap<(Namespace, String), Entry>);
 
+impl Table {
+    /// Whether the module defines `name`, in any namespace.
+    #[must_use]
+    pub fn names(&self, name: &str) -> bool {
+        self.0.keys().any(|(_, defined)| defined == name)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     /// Position in [`Read::definitions`].
@@ -29,6 +37,8 @@ pub struct Entry {
 pub struct Read {
     pub table: Table,
     pub imports: Vec<Import>,
+    /// The modules a library module lets other packages reach.
+    pub exposes: Vec<ModulePath>,
     pub definitions: Vec<Definition>,
     /// A digest of each definition, names included.
     pub digests: Vec<Hash>,
@@ -104,6 +114,25 @@ impl Engine<'_> {
                 })?
         };
 
+        // Another package is reached only through what its library module
+        // lets out: its own definitions, and the modules it lists.
+        let own = package == id.package;
+        let library = ModuleId::library(&package);
+        let reachable = |path: &[String]| -> Result<bool, Error> {
+            if own || path.is_empty() {
+                return Ok(true);
+            }
+            if self.sources.module(&library).is_none() {
+                return Ok(false);
+            }
+            let exposes = &self.read(&library)?.exposes;
+            Ok(exposes.iter().any(|exposed| exposed.0 == path))
+        };
+        let internal = || Error::InternalModule {
+            module: id.clone(),
+            path: import.path.clone(),
+        };
+
         let taken = scope.modules.contains_key(&import.alias)
             || scope
                 .definitions
@@ -116,7 +145,21 @@ impl Engine<'_> {
             package: package.clone(),
             path: ModulePath(rest.to_vec()),
         };
-        if self.sources.module(&whole).is_some() {
+        if self.sources.module(&whole).is_some() && !rest.is_empty() {
+            if !reachable(rest)? {
+                return Err(internal());
+            }
+            // The library module shares a scope with the top-level
+            // modules, so a name in both would have two sources.
+            if let [name] = rest
+                && self.sources.module(&library).is_some()
+                && self.read(&library)?.table.names(name)
+            {
+                return Err(Error::DuplicateName {
+                    module: library,
+                    name: name.clone(),
+                });
+            }
             if taken {
                 return Err(duplicate());
             }
@@ -132,6 +175,9 @@ impl Engine<'_> {
         };
         if self.sources.module(&parent).is_none() {
             return Err(unknown());
+        }
+        if !reachable(&parent.path.0)? {
+            return Err(internal());
         }
         let table = &self.read(&parent)?.table;
         let mut found = false;
@@ -181,6 +227,11 @@ fn read(module: &Module) -> Read {
     Read {
         table,
         imports: module.imports().to_vec(),
+        exposes: module
+            .exposes()
+            .iter()
+            .map(|path| ModulePath(path.0.clone()))
+            .collect(),
         definitions: module.definitions().to_vec(),
         digests,
     }
