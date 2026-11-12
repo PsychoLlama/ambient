@@ -72,11 +72,7 @@ impl Checker<'_> {
     /// A row as slots, ordered by tag: the one order that depends on
     /// neither names nor where the row was written.
     pub(super) fn row(&mut self, row: &[Symbol]) -> Vec<Slot> {
-        let env = self.env;
-        let tag = |ability: &Symbol| env.abilities.get(ability).map(|info| &info.tag);
-        let mut row = row.to_vec();
-        row.sort_by(|a, b| tag(a).cmp(&tag(b)).then_with(|| a.cmp(b)));
-        row.dedup();
+        let row = self.env.row(row);
         row.iter().map(|ability| self.slot(ability)).collect()
     }
 
@@ -136,6 +132,7 @@ impl Checker<'_> {
         let depth = self.frames.len().saturating_sub(1);
         let held = self.reach(depth, number);
         let entries: Vec<(TyKey, Ty)> = self
+            .env
             .ordered(&fields)
             .into_iter()
             .map(|(key, ty)| (key.clone(), ty.clone()))

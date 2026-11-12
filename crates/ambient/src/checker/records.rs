@@ -8,35 +8,10 @@ use crate::surface::{Expr, Key, Reference};
 use crate::types::{Ty, TyKey, entry};
 
 impl Checker<'_> {
-    /// The entries of a record type in the order a core tree holds them:
-    /// fields by name, then handlers by their abilities' tags. Neither
-    /// depends on what anything is called.
-    pub(super) fn ordered<'t>(&self, fields: &'t [(TyKey, Ty)]) -> Vec<(&'t TyKey, &'t Ty)> {
-        let env = self.env;
-        let handler = |key: &TyKey| matches!(key, Key::Ability(_));
-        let tag = |key: &TyKey| match key {
-            Key::Ability(Reference::Definition(ability)) => {
-                env.abilities.get(ability).map(|info| &info.tag)
-            }
-            _ => None,
-        };
-        let mut entries: Vec<_> = fields.iter().map(|(key, ty)| (key, ty)).collect();
-        entries.sort_by(|(a, _), (b, _)| {
-            (handler(a), tag(a))
-                .cmp(&(handler(b), tag(b)))
-                .then_with(|| a.cmp(b))
-        });
-        entries
-    }
-
     /// A key as a core tree holds it.
     pub(super) fn key(&mut self, key: &TyKey) -> core::Key {
-        match key {
-            Key::Ability(Reference::Definition(ability)) => core::Key::Ability(self.slot(ability)),
-            Key::Field(name) => core::Key::Field(name.clone()),
-            // Resolution only ever names an ability here.
-            Key::Ability(_) => core::Key::Field(String::new()),
-        }
+        let env = self.env;
+        env.lower_key(key, &mut |symbol| self.slot(symbol))
     }
 
     fn key_name(key: &TyKey) -> String {
@@ -95,7 +70,7 @@ impl Checker<'_> {
         key: &TyKey,
     ) -> Result<(core::Expr, Ty), Error> {
         let (core, ty) = self.infer(target)?;
-        let field = self.field(&ty, key).ok_or_else(|| Error::NoField {
+        let field = self.env.field(&ty, key).ok_or_else(|| Error::NoField {
             symbol: self.symbol.clone(),
             ty: self.env.show(&ty),
             name: Self::key_name(key),
@@ -128,6 +103,7 @@ impl Checker<'_> {
             });
         };
         let keys = self
+            .env
             .ordered(&over)
             .into_iter()
             .map(|(key, _)| key.clone())

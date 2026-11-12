@@ -6,6 +6,8 @@
 //! is transparent and is replaced by its expansion before anything looks at
 //! it.
 
+mod lower;
+mod patterns;
 mod relate;
 mod show;
 

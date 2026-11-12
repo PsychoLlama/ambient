@@ -27,7 +27,7 @@ use crate::core::{self, Open, Slot, Tree};
 use crate::error::Error;
 use crate::surface::{Expr, Function, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Env, Ty, abilities};
+use crate::types::{Env, Ty};
 use crate::value::Value;
 use abilities::Layer;
 use generics::function_type;
@@ -208,45 +208,8 @@ impl<'a> Checker<'a> {
 
     /// A normalized type as a core type.
     fn lower(&mut self, ty: &Ty) -> core::Type {
-        match ty {
-            Ty::Never => core::Type::Never,
-            Ty::Unknown => core::Type::Unknown,
-            // Resolution never produces a local in a type.
-            Ty::Null | Ty::Named(Reference::Local(_), _) => core::Type::Null,
-            Ty::Named(Reference::Parameter(position), _) => core::Type::Parameter(*position),
-            Ty::Bool => core::Type::Bool,
-            Ty::Int => core::Type::Int,
-            Ty::Float => core::Type::Float,
-            Ty::String => core::Type::String,
-            Ty::Tag => core::Type::Tag,
-            Ty::Literal(literal) => core::Type::Literal(literal.clone()),
-            Ty::Record(fields) => core::Type::Record(
-                self.ordered(fields)
-                    .into_iter()
-                    .map(|(key, ty)| (self.key(key), self.lower(ty)))
-                    .collect(),
-            ),
-            Ty::Tuple(members) => {
-                core::Type::Tuple(members.iter().map(|m| self.lower(m)).collect())
-            }
-            Ty::List(member) => core::Type::List(Box::new(self.lower(member))),
-            Ty::Cell(member) => core::Type::Cell(Box::new(self.lower(member))),
-            Ty::Function { params, ret, row } => core::Type::Function {
-                params: params.iter().map(|p| self.lower(p)).collect(),
-                ret: Box::new(self.lower(ret)),
-                row: self.row(&abilities(row)),
-            },
-            Ty::Union(members) => {
-                let mut members: Vec<_> = members.iter().map(|m| self.lower(m)).collect();
-                members.sort_by_key(core::Type::encode);
-                members.dedup();
-                core::Type::Union(members)
-            }
-            Ty::Named(Reference::Definition(symbol), args) => {
-                let args = args.iter().map(|arg| self.lower(arg)).collect();
-                core::Type::Reference(self.slot(symbol), args)
-            }
-        }
+        let env = self.env;
+        env.lower(ty, &mut |symbol| self.slot(symbol))
     }
 
     fn mismatch(&self, expected: &Ty, found: &Ty) -> Error {
