@@ -43,6 +43,7 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - [cleanup](cleanup.md): code that runs when a block exits.
 - [tasks](tasks.md): groups, tasks, suspension, scheduling, cancellation.
 - [cells](cells.md): the one mutable thing.
+- [budgets](budgets.md): deterministic limits on work and allocation.
 - [comptime](comptime.md): compile-time calls and splices.
 - [memoization](memoization.md): trace-validated caching for comptime and tests.
 - [externs](externs.md): native functions and native handlers.

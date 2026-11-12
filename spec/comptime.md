@@ -6,7 +6,7 @@ A comptime call runs an ordinary function during compilation and splices its res
 
 - A comptime call is marked at the call site; the callee is any function.
 - There is no separate class of compile-time functions.
-- An argument is an expression of [singleton type](types.md) or a closed type.
+- An argument is an expression of [singleton type](types.md), a closed type, or a closed row.
 - The result replaces the call before checking; the enclosing definition's hash covers the result, not the call.
 - A comptime call runs only when its enclosing definition is demanded by a [build](build.md).
 
@@ -16,6 +16,7 @@ A comptime call runs an ordinary function during compilation and splices its res
 - In type position the result is a type tree.
 - In module position the result is a set of definitions, forming the whole content of a generated module.
 - A generated module is the only place a comptime call creates [symbols](symbols.md); they are ordinary symbols.
+- A comptime call never adds a name to the scope it is written in; a generated module's definitions are reached by importing them, like any other module's.
 
 ## Trees as values
 

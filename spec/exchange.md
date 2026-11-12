@@ -11,6 +11,14 @@ Definitions and values move between running programs by hash. A receiver trusts 
 - An extern function in a pack resolves against the receiver's own native code by identity.
 - A pack that needs an extern the receiver lacks is rejected before any of it runs.
 
+## Receiving
+
+- Decoding a function value needs its definition, which comes from one of two places.
+- A receiver may supply the definitions it is willing to run; a hash outside that set does not decode, and nothing new enters the program.
+- Or the definition arrives in a pack and is loaded; loading adds code to a running program and is an ability.
+- A loaded definition is held by the values that refer to it and is discarded with them.
+- A loaded definition is never written to a [store](build.md).
+
 ## Values
 
 - Any [unanchored](values.md) value can be sent.
@@ -19,7 +27,7 @@ Definitions and values move between running programs by hash. A receiver trusts 
 ## Running received code
 
 - A receiver runs a received function under an only-mode [provide](handlers.md); the function reaches that bundle and nothing else.
-- A receiver that runs the function inside a [boundary](values.md) also contains its faults.
+- A receiver that runs the function inside a [boundary](values.md) and a [budget](budgets.md) also contains its faults and bounds its cost.
 - Abilities match across programs by identity: two programs mean the same ability exactly when its tag and signature agree.
 - Brands are not trusted across exchange, since received code may contain branding operations.
 - Authority therefore rests on handlers and handles, never on brands.

@@ -8,6 +8,9 @@ A module is a file of definitions. Every name a module uses comes from its own d
 - A path segment names a file or a directory, never both.
 - A definition is private to its module unless marked public, which makes it visible throughout its package.
 - An import names each definition or module it brings in; no import brings in everything a module exports.
+- A module is not a value: it cannot be passed, stored, returned, or inspected.
+- A module's name appears only in an import, in a re-export, and as the qualifier of a path to one of its definitions.
+- Every use of a module is therefore statically known, and naming a module demands none of its definitions.
 - A module path starts at the module's own package or at one of that package's [dependencies](packages.md), under the local name the package gave it.
 
 ## Preludes

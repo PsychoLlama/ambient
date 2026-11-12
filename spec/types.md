@@ -56,6 +56,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - `unknown` supports no operations.
 - A cast tests a value against a type and yields either the value at that type or its alternative branch; it is the only way down from `unknown`.
 - A cast decides by the value's [shape](values.md), so any erased type can be a cast target.
+- A cast to a type parameter is allowed; a generic function that makes one receives that type argument at runtime, and no other function does.
 - A cast never adds a brand to a value.
 - A cast to a handle type is decidable, because a handle carries the tag it was minted under.
 - Values that enter from outside the program, [received values](exchange.md) included, enter as `unknown`.

@@ -16,6 +16,7 @@ A symbol is the one canonical name of a definition within a workspace. Every oth
 
 - Imports, re-exports, and local names bound to a definition are aliases.
 - An alias resolves to exactly one symbol; chains of aliases collapse to their end.
+- A [module](modules.md) is aliased the same way, and its alias resolves to exactly one module.
 - After resolution a tree contains no aliases: every reference is a symbol.
 - Checking, diagnostics, and tools see only symbols, so behaviour never depends on the path by which a name was reached.
 - An alias has no hash and no interface.
