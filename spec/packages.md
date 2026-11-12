@@ -29,9 +29,10 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 ## Contents
 
-- A package's public interface is rooted at its single library module, which re-exports definitions and modules.
-- A re-exported module exposes its public definitions and whatever it re-exports in turn; a module no chain of re-exports reaches is internal.
-- Public paths follow re-exports, not files, so a package can move a module without changing its interface.
+- A package has a single library module, whose definitions and re-exports are reached through the package itself.
+- The library module lists the package's public modules by [path](modules.md); a module it does not list is internal.
+- A public module exposes its public definitions to dependents; nothing else leaves the package.
+- A public module is reached by the same path its own package uses, so moving one is a change of interface, made as an [edit](trees.md) across dependents.
 - A package may define any number of named entries, each a function.
 - A package declares its dependencies, its [preludes](modules.md), its [build grants](comptime.md), and its native bundles.
 - A package is distributed as source.

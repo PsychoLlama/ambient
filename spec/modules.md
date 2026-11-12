@@ -5,13 +5,23 @@ A module is a file of definitions. Every name a module uses comes from its own d
 ## Modules
 
 - A file is a module; a directory is a namespace and holds no definitions of its own.
-- A path segment names a file or a directory, never both.
 - A definition is private to its module unless marked public, which makes it visible throughout its package.
 - An import names each definition or module it brings in; no import brings in everything a module exports.
 - A module is not a value: it cannot be passed, stored, returned, or inspected.
-- A module's name appears only in an import, in a re-export, and as the qualifier of a path to one of its definitions.
+- A module's name appears only in an import, in the library module's [list of public modules](packages.md), and as the qualifier of a path to one of its definitions.
 - Every use of a module is therefore statically known, and naming a module demands none of its definitions.
-- A module path starts at the module's own package or at one of that package's [dependencies](packages.md), under the local name the package gave it.
+
+## Paths
+
+- A module has exactly one path: its package, then its file's location. No construct renames, moves, or aliases a module for another module.
+- A path means the same thing inside its package and outside it; only its first segment differs.
+- A path's first segment is the module's own package or one of that package's [dependencies](packages.md), under the local name the package gave it; nothing else can be named there, and nothing shadows it.
+- Each later segment is resolved in the directory or module named to its left, from that module's definition table alone.
+- A directory's members are the files and directories in it; a module's members are its definitions and the definitions it re-exports.
+- A path segment names a file or a directory, never both, so every segment has exactly one source.
+- A re-export applies to definitions only and is an [alias](symbols.md).
+- The [library module](packages.md) shares one scope with its package's top-level modules; a name in both is an error.
+- Whether a path's last segment is a module or a definition is decided by resolution, not by how the path is written.
 
 ## Preludes
 
