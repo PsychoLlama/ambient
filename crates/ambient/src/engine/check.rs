@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use super::{Engine, Query, Stage, memo};
 use crate::checker;
-use crate::core::Open;
+use crate::core::{self, Open, Tree};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher};
 use crate::surface::{DefinitionKind, Function, Reference};
@@ -100,6 +100,9 @@ impl Engine<'_> {
     /// check.
     pub fn interface(&self, symbol: &Symbol) -> Query<Interface> {
         memo(&self.interface, symbol, || {
+            if !symbol.lambda.is_empty() {
+                return self.lambda_interface(symbol);
+            }
             let resolved = self.resolve(symbol)?;
             let digest = match &resolved.definition.kind {
                 // A type's interface is the type itself.
@@ -122,6 +125,26 @@ impl Engine<'_> {
         })
     }
 
+    /// A lambda's interface: its header, which checking its encloser
+    /// produced.
+    fn lambda_interface(&self, symbol: &Symbol) -> Query<Interface> {
+        let open = self.check(symbol)?;
+        let mut digest = Hasher::new("interface");
+        if let Tree::Function(function) = &open.tree {
+            digest.bytes(&core::encode_signature(
+                &function.type_params,
+                &[function.captures.clone(), function.params.clone()].concat(),
+                &function.ret,
+            ));
+        }
+        for slot in open.slots.iter().filter(|s| s.namespace == Namespace::Type) {
+            digest.hash(&self.hash(slot)?);
+        }
+        Ok(Arc::new(Interface {
+            digest: digest.finish(),
+        }))
+    }
+
     /// A definition's open core tree.
     ///
     /// # Errors
@@ -129,6 +152,19 @@ impl Engine<'_> {
     /// Fails if the definition does not resolve or does not check.
     pub fn check(&self, symbol: &Symbol) -> Query<Open> {
         memo(&self.check, symbol, || {
+            if !symbol.lambda.is_empty() {
+                // A lambda is checked as part of the definition it is
+                // written in.
+                let owner = self.check(&symbol.owner())?;
+                let mut open: &Open = &owner;
+                for index in &symbol.lambda {
+                    open = open
+                        .lambdas
+                        .get(*index)
+                        .ok_or_else(|| Error::UnknownSymbol(symbol.clone()))?;
+                }
+                return Ok(Arc::new(open.clone()));
+            }
             let resolved = self.resolve(symbol)?;
             let mut env = Env::default();
             let mut key = Hasher::new("check");

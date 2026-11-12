@@ -235,6 +235,21 @@ pub fn match_(subject: Expr, arms: impl IntoIterator<Item = (Pattern, Expr)>) ->
     }
 }
 
+/// A function written in place. A parameter given no type takes it from
+/// where the lambda is used.
+pub fn lambda<'a>(
+    params: impl IntoIterator<Item = (&'a str, Option<crate::surface::Type>)>,
+    body: Expr,
+) -> Expr {
+    Expr::Lambda {
+        params: params
+            .into_iter()
+            .map(|(name, ty)| (name.to_owned(), ty))
+            .collect(),
+        body: Box::new(body),
+    }
+}
+
 /// `value` at type `ty` if the type describes it, and `otherwise` if not.
 #[must_use]
 pub fn cast(value: Expr, ty: crate::surface::Type, otherwise: Expr) -> Expr {
@@ -713,6 +728,19 @@ fn check_expr(expr: &Expr) -> Result<(), BuildError> {
                 check_pattern(&arm.pattern, &mut BTreeSet::new())?;
                 check_expr(&arm.body)
             })
+        }
+        Expr::Lambda { params, body } => {
+            let mut seen = BTreeSet::new();
+            for (name, ty) in params {
+                check_name(name)?;
+                if !seen.insert(name) {
+                    return Err(BuildError::DuplicateBinder(name.clone()));
+                }
+                if let Some(ty) = ty {
+                    check_type(ty)?;
+                }
+            }
+            check_expr(body)
         }
         Expr::Cast {
             value,

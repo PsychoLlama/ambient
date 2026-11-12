@@ -35,6 +35,8 @@ The core tree is the checked form of a definition and the only form that is hash
 - Literals: null, booleans, integers, floats, strings, bytes, and tags.
 - A local, and a reference to a definition through a slot with its type arguments.
 - A closure: a slot for the lambda's definition, the locals it captures, and the [bindings it captures](abilities.md).
+- Inside a lambda a captured value is addressed by its position among the captures, separately from the lambda's own locals.
+- A lambda has the type parameters of the definition it is written in, and a closure passes them through unchanged.
 - A call holds its callee and arguments; the bindings it passes follow from the callee's row.
 - A perform holds an ability slot and arguments.
 - Constructions of records, tuples, lists, sets, and maps; a record construction keeps the order its fields were written in, because that is their evaluation order.

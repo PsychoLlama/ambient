@@ -204,6 +204,12 @@ pub enum Expr<N = Path> {
         subject: Box<Expr<N>>,
         arms: Vec<Arm<N>>,
     },
+    /// A function written in place. A parameter without a type takes it
+    /// from where the lambda is used.
+    Lambda {
+        params: Vec<(String, Option<Type<N>>)>,
+        body: Box<Expr<N>>,
+    },
     /// `value` at type `ty` if the type describes it, and `otherwise` if not.
     Cast {
         value: Box<Expr<N>>,
@@ -300,6 +306,12 @@ impl<N> Expr<N> {
                     arm.body.names(visit);
                 }
             }
+            Self::Lambda { params, body } => {
+                for ty in params.iter().filter_map(|(_, ty)| ty.as_ref()) {
+                    ty.names(visit);
+                }
+                body.names(visit);
+            }
             Self::Cast {
                 value,
                 ty,
@@ -309,6 +321,48 @@ impl<N> Expr<N> {
                 ty.names(visit);
                 otherwise.names(visit);
             }
+        }
+    }
+}
+
+impl<N> Pattern<N> {
+    /// How many names the pattern binds.
+    #[must_use]
+    pub fn binders(&self) -> usize {
+        match self {
+            Self::Wildcard | Self::Literal(_) | Self::Is(_) => 0,
+            Self::Record(fields) => fields.iter().map(|(_, p)| p.binders()).sum(),
+            Self::Tuple(members) => members.iter().map(Self::binders).sum(),
+            Self::Bind(_, inner) => 1 + inner.binders(),
+        }
+    }
+}
+
+impl<N> Expr<N> {
+    /// How many names are bound anywhere inside the expression. Locals are
+    /// numbered in binding order, so this is how many numbers it uses.
+    #[must_use]
+    pub fn binders(&self) -> usize {
+        let all = |exprs: &[Self]| exprs.iter().map(Self::binders).sum::<usize>();
+        match self {
+            Self::Null | Self::Literal(_) | Self::Name(_) | Self::Instantiate { .. } => 0,
+            Self::Call { callee, args } => callee.binders() + all(args),
+            Self::Record(fields) => fields.iter().map(|(_, value)| value.binders()).sum(),
+            Self::Tuple(members) | Self::List(members) => all(members),
+            Self::Field { target, .. } => target.binders(),
+            Self::Let { value, body, .. } => 1 + value.binders() + body.binders(),
+            Self::Binary { left, right, .. } => left.binders() + right.binders(),
+            Self::Match { subject, arms } => {
+                let arms: usize = arms
+                    .iter()
+                    .map(|arm| arm.pattern.binders() + arm.body.binders())
+                    .sum();
+                subject.binders() + arms
+            }
+            Self::Lambda { params, body } => params.len() + body.binders(),
+            Self::Cast {
+                value, otherwise, ..
+            } => value.binders() + otherwise.binders(),
         }
     }
 }

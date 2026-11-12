@@ -265,6 +265,23 @@ impl Resolver<'_> {
                     arms: resolved,
                 }
             }
+            Expr::Lambda { params, body } => {
+                let mut resolved = Vec::new();
+                for (name, ty) in params {
+                    let ty = ty.as_ref().map(|ty| self.ty(ty)).transpose()?;
+                    resolved.push((name.clone(), ty));
+                }
+                let scope = self.locals.len();
+                for (name, _) in params {
+                    self.bind(name);
+                }
+                let body = Box::new(self.expr(body)?);
+                self.locals.truncate(scope);
+                Expr::Lambda {
+                    params: resolved,
+                    body,
+                }
+            }
             Expr::Cast {
                 value,
                 ty,

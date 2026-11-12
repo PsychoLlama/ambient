@@ -17,6 +17,8 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 - An interface is determined by the definition's header and the interfaces of the types it names, never by any body.
 - Nothing in a header is inferred: an omitted return type is `null` and an omitted row is empty.
 - A lambda's header is filled in from the context it is checked in; that is the only inference that produces an interface.
+- A lambda parameter written without a type takes it from the function type expected of the lambda; its return type is always its body's.
+- A lambda passed to a generic function is checked after the other arguments, which supply the type parameters its own parameters mention.
 
 ## Hash
 

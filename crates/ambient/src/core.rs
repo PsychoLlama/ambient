@@ -75,6 +75,8 @@ pub enum Expr {
     Null,
     Literal(Literal),
     Local(usize),
+    /// A value the enclosing lambda captured, by position.
+    Captured(usize),
     /// A function, with an argument for each of its type parameters.
     Reference(Slot, Vec<Type>),
     Call {
@@ -110,12 +112,20 @@ pub enum Expr {
         ty: Type,
         otherwise: Box<Expr>,
     },
+    /// A function value: a lambda's definition and the values it captures.
+    Closure {
+        slot: Slot,
+        type_args: Vec<Type>,
+        captures: Vec<Expr>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Function {
     /// The bound of each type parameter.
     pub type_params: Vec<Type>,
+    /// The type of each captured value. Empty unless this is a lambda.
+    pub captures: Vec<Type>,
     pub params: Vec<Type>,
     pub ret: Type,
     pub body: Expr,
@@ -137,6 +147,9 @@ pub struct Open {
     pub tree: Tree,
     /// What each slot refers to, in order of first use.
     pub slots: Vec<Symbol>,
+    /// The lambdas written in this definition, each a definition of its
+    /// own. A slot reaches one through its symbol.
+    pub lambdas: Vec<Open>,
 }
 
 impl Tree {
@@ -153,6 +166,7 @@ impl Tree {
             Self::Function(function) => {
                 out.push(1);
                 encode_types(&function.type_params, &mut out);
+                encode_types(&function.captures, &mut out);
                 encode_types(&function.params, &mut out);
                 encode_type(&function.ret, &mut out);
                 encode_expr(&function.body, &mut out);
@@ -366,6 +380,20 @@ fn encode_expr(expr: &Expr, out: &mut Vec<u8>) {
             encode_expr(value, out);
             encode_type(ty, out);
             encode_expr(otherwise, out);
+        }
+        Expr::Captured(index) => {
+            out.push(13);
+            unsigned(*index as u64, out);
+        }
+        Expr::Closure {
+            slot,
+            type_args,
+            captures,
+        } => {
+            out.push(14);
+            unsigned(slot.0 as u64, out);
+            encode_types(type_args, out);
+            encode_exprs(captures, out);
         }
     }
 }

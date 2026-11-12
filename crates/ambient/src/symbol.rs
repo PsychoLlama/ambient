@@ -40,6 +40,7 @@ impl ModuleId {
             module: self.clone(),
             namespace,
             name: name.to_owned(),
+            lambda: Vec::new(),
         }))
     }
 
@@ -83,6 +84,28 @@ pub struct SymbolData {
     pub module: ModuleId,
     pub namespace: Namespace,
     pub name: String,
+    /// Empty for a named definition. For a lambda, its position among the
+    /// lambdas of its encloser, at each level of nesting.
+    pub lambda: Vec<usize>,
+}
+
+impl Symbol {
+    /// The lambda at `path` inside this named definition.
+    #[must_use]
+    pub fn lambda(&self, path: &[usize]) -> Symbol {
+        Symbol(Arc::new(SymbolData {
+            module: self.module.clone(),
+            namespace: self.namespace,
+            name: self.name.clone(),
+            lambda: path.to_vec(),
+        }))
+    }
+
+    /// The named definition this symbol is, or is a lambda inside.
+    #[must_use]
+    pub fn owner(&self) -> Symbol {
+        self.lambda(&[])
+    }
 }
 
 impl Deref for Symbol {
@@ -95,6 +118,10 @@ impl Deref for Symbol {
 
 impl fmt::Display for Symbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{}", self.module, self.name)
+        write!(f, "{}.{}", self.module, self.name)?;
+        for index in &self.lambda {
+            write!(f, "#{index}")?;
+        }
+        Ok(())
     }
 }

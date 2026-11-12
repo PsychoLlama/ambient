@@ -65,6 +65,8 @@ pub enum Error {
     /// A generic function is used where its type arguments cannot be
     /// worked out.
     CannotInfer { symbol: Symbol, function: Symbol },
+    /// A lambda parameter has no type, and nothing expects one of it.
+    UntypedParameter { symbol: Symbol, name: String },
     /// A recursive generic type applies itself to something other than its
     /// own parameters.
     IrregularType(Symbol),
@@ -139,6 +141,9 @@ impl fmt::Display for Error {
                     f,
                     "{symbol}: cannot infer the type arguments of `{function}`"
                 )
+            }
+            Self::UntypedParameter { symbol, name } => {
+                write!(f, "{symbol}: parameter `{name}` needs a type")
             }
             Self::IrregularType(symbol) => write!(
                 f,
