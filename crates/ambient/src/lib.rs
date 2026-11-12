@@ -13,6 +13,7 @@ pub mod checker;
 pub mod core;
 pub mod engine;
 pub mod error;
+pub mod exchange;
 pub mod hash;
 pub mod lir;
 pub mod literal;

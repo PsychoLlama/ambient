@@ -16,6 +16,7 @@ postcard.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
 wasmtime.workspace = true
 
 [lints]
