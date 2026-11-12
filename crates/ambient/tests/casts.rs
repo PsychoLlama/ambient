@@ -286,3 +286,104 @@ fn a_generic_function_equals_itself_at_the_same_type_arguments() {
     assert!(equal(pair(), pair()));
     assert!(!equal(ty::int(), ty::string()));
 }
+
+/// Types of every shape, some within others: by name, as a union, by
+/// width, and through a definition that names itself.
+fn shapes() -> Vec<Type> {
+    let items = |name: &str| ty::named(name);
+    vec![
+        ty::never(),
+        ty::unknown(),
+        ty::null(),
+        ty::bool(),
+        ty::boolean(true),
+        ty::union([ty::boolean(true), ty::boolean(false)]),
+        ty::int(),
+        ty::integer(1),
+        ty::union([ty::int(), ty::null()]),
+        ty::string(),
+        ty::text("a"),
+        ty::tuple([ty::int(), ty::int()]),
+        ty::tuple([ty::integer(1), ty::int()]),
+        ty::list(ty::int()),
+        ty::record([("a", ty::int())]),
+        ty::record([("a", ty::integer(1)), ("b", ty::string())]),
+        ty::cell(ty::int()),
+        ty::cell(ty::integer(1)),
+        ty::function([ty::int()], ty::int()),
+        ty::function([ty::integer(1)], ty::unknown()),
+        items("Items"),
+        items("Others"),
+        ty::apply("Box", [ty::int()]),
+        ty::record([("value", ty::int())]),
+    ]
+}
+
+/// What [`shapes`] names: two lists of integers defined apart, and a
+/// generic record.
+fn named() -> [Definition; 3] {
+    let list = |name: &str| {
+        let node = ty::record([("head", ty::int()), ("tail", ty::named(name))]);
+        b::type_(name, ty::union([ty::null(), node]))
+    };
+    let boxed = b::generic_type("Box", ["T"], ty::record([("value", t())]));
+    [list("Items"), list("Others"), boxed]
+}
+
+#[test]
+fn a_cast_to_a_function_type_agrees_with_checking() {
+    use ambient::engine::Engine;
+    use ambient::store::MemoryStore;
+
+    let shapes = shapes();
+    let pairs = || (0..shapes.len()).flat_map(|i| (0..shapes.len()).map(move |j| (i, j)));
+    let taking = |param: usize| ty::function([shapes[param].clone()], ty::null());
+    // `fn f{i}(v: shapes[i]): null`, and for each pair a function that
+    // checks only if `f{i}` is a function that takes `shapes[j]`.
+    let functions = (0..shapes.len()).map(|i| {
+        b::function(&format!("f{i}"))
+            .param("v", shapes[i].clone())
+            .returns(ty::null())
+            .body(b::null())
+    });
+    let claims = pairs().map(|(i, j)| {
+        b::function(&format!("claim{i}_{j}"))
+            .returns(taking(j))
+            .body(b::name(&format!("f{i}")))
+    });
+    let fixed: Vec<Definition> = named().into_iter().chain(functions).collect();
+    let module = fixed.iter().cloned().chain(claims);
+    let module = module.fold(b::module(), b::ModuleBuilder::define);
+    let workspace = support::workspace([("app", "main", module)]);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+
+    // `fn row{i}(): list<unknown>` casts `f{i}` to every type: a row to
+    // a function, so that no function is large.
+    let rows = (0..shapes.len()).map(|i| {
+        let hidden = b::call(b::name("hide"), [b::name(&format!("f{i}"))]);
+        let casts = (0..shapes.len()).map(|j| b::cast(b::name("h"), taking(j), b::null()));
+        b::function(&format!("row{i}"))
+            .returns(ty::list(ty::unknown()))
+            .body(b::let_("h", hidden, b::list(casts)))
+    });
+    let calls = (0..shapes.len()).map(|i| b::call(b::name(&format!("row{i}")), []));
+    let main = b::function("main")
+        .returns(ty::unknown())
+        .body(b::list(calls));
+    let ran = run(fixed.into_iter().chain(rows).chain([hide(), main]), &[]).unwrap();
+    let Value::List(rows) = &ran else {
+        panic!("not a list")
+    };
+    let passed = |row: &Value| match row {
+        Value::List(casts) => casts.iter().map(|cast| *cast != Value::Null).collect(),
+        _ => Vec::new(),
+    };
+    let ran: Vec<bool> = rows.iter().flat_map(passed).collect();
+
+    let checked = pairs().map(|(i, j)| {
+        let claim = support::value("main", &format!("claim{i}_{j}"));
+        engine.check(&claim).is_ok()
+    });
+    assert_eq!(ran, checked.collect::<Vec<_>>());
+}
