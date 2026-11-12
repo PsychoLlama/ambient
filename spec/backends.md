@@ -47,7 +47,8 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 - A cast to a cell type passes a cell whose descriptor describes the same type as the cast's: names stand for their definitions, and a union is its members in any order.
 - A cast to a function type passes a function whose signature is [within](types.md) the cast's type, decided at run time as checking decides it.
 - A cast to a type parameter tests against the type argument.
-- TODO: every use of a generic function at type arguments makes a function value, even one called at once; a function that never consults its type arguments should not be handed them.
+- A generic function used at type arguments that mention no type parameter is one function value, made when the program is loaded.
+- TODO: a generic function is handed its type arguments even if it never consults them, which costs a function value for each use inside another generic function.
 
 ## Calls
 

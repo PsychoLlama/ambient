@@ -81,13 +81,14 @@ pub fn plan(parts: &Parts) -> Statics {
     statics.entry = roots[parts.entry];
 
     let mut header = [0u64; CLOSURE_WORDS];
-    ambient_runtime::pinned_closure(&mut header, 0);
+    ambient_runtime::pinned_closure(&mut header, 0, 0);
     for (index, part) in parts.parts.iter().enumerate() {
         let slots: Vec<Target> = part
             .slots
             .iter()
             .map(|slot| Target {
                 address: roots[*slot],
+                definition: definitions[*slot],
                 hash: parts.parts[*slot].hash,
             })
             .collect();
@@ -123,6 +124,9 @@ pub fn plan(parts: &Parts) -> Statics {
                         Constant::Field(name) => statics.text(Make::Field, name),
                         Constant::Type(ty) => Field::Address(statics.describe(ty, &slots)),
                         Constant::Types(types) => Field::Address(statics.types(types, &slots)),
+                        Constant::Instance(slot, types) => {
+                            Field::Address(statics.instance(&slots[*slot], types, &slots))
+                        }
                         Constant::Ability(slot) => {
                             statics.text(Make::Field, &ability_key(&slots[*slot].hash))
                         }
@@ -151,6 +155,8 @@ pub fn plan(parts: &Parts) -> Statics {
 struct Target {
     /// Where its closure or descriptor is.
     address: usize,
+    /// Where its definition is, if it is a function.
+    definition: usize,
     hash: Hash,
 }
 
@@ -334,6 +340,21 @@ impl Statics {
             self.set(at + 2 + position * 2, Field::Address(node));
             self.set(at + 3 + position * 2, Field::Word(ambient_runtime::NULL));
         }
+        at
+    }
+
+    /// The address of a closure that is never reclaimed, over a generic
+    /// function at type arguments.
+    fn instance(&mut self, function: &Target, types: &[Type], slots: &[Target]) -> usize {
+        let mut header = [0u64; CLOSURE_WORDS];
+        ambient_runtime::pinned_closure(&mut header, 0, 1);
+        let at = self.words;
+        self.words += CLOSURE_WORDS + 1;
+        self.set(at, Field::Word(header[0]));
+        self.set(at + 1, Field::Word(header[1]));
+        self.set(at + 2, Field::Address(function.definition));
+        let types = self.types(types, slots);
+        self.set(at + 3, Field::Address(types));
         at
     }
 

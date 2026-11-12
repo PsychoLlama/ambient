@@ -32,6 +32,14 @@ impl Lowering {
         Expr::Op(Op::Is { value, ty, scope })
     }
 
+    /// A generic function at type arguments that mention no parameter:
+    /// one closure, made when the program is loaded.
+    pub(super) fn instance(&mut self, slot: core::Slot, types: &[core::Type]) -> Option<Value> {
+        let closed = !types.is_empty() && !types.iter().any(core::Type::mentions_parameter);
+        let instance = Constant::Instance(slot.0, types.to_vec());
+        closed.then(|| Value::Constant(self.constant(instance)))
+    }
+
     /// The function in a slot, as a value: a closure that holds its type
     /// arguments, if it is generic.
     pub(super) fn reference(
@@ -42,6 +50,9 @@ impl Lowering {
     ) -> Op {
         if types.is_empty() {
             return Op::Slot(slot.0);
+        }
+        if let Some(instance) = self.instance(slot, types) {
+            return Op::Copy(instance);
         }
         Op::Closure {
             slot: slot.0,

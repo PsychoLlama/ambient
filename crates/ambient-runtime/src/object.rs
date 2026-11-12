@@ -56,11 +56,12 @@ pub mod layout {
     pub const DEFINITION_WORDS: usize = 5;
 }
 
-/// Writes the header of a closure that is never reclaimed into `words`,
-/// which must hold at least [`layout::CLOSURE_WORDS`].
-pub fn pinned_closure(words: &mut [u64], definition: u64) {
+/// Writes a closure that is never reclaimed into `words`: its header,
+/// its definition, and room for `captures` values after. `words` must
+/// hold [`layout::CLOSURE_WORDS`] and the captures.
+pub fn pinned_closure(words: &mut [u64], definition: u64, captures: usize) {
     words[0] = u64::from(PINNED) | (u64::from(KIND_CLOSURE) << 32);
-    words[1] = 8;
+    words[1] = (captures as u64 + 1) * 8;
     words[2] = definition;
 }
 

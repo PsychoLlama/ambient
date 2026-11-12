@@ -87,9 +87,11 @@ impl Expr {
                 let held = captures.len() + usize::from(!type_args.is_empty());
                 Cost::object(held + 1).and(record).and(types(type_args))
             }
-            // A generic function used at type arguments: a closure that
-            // holds them.
-            Self::Reference(_, type_args) if !type_args.is_empty() => {
+            // A generic function used at type arguments that depend on
+            // those of the function that uses it: a closure that holds
+            // them. At any others it is made once, before the program
+            // runs.
+            Self::Reference(_, type_args) if type_args.iter().any(Type::mentions_parameter) => {
                 Cost::object(2).and(types(type_args))
             }
             // The value, and the type it was made at.

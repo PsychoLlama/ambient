@@ -60,6 +60,9 @@ pub enum Constant {
     /// function used at them is made with. Their slots are those of the
     /// definition they are a constant of.
     Types(Vec<crate::core::Type>),
+    /// The generic function in a slot at type arguments that mention no
+    /// type parameter, as a value: a closure that holds them.
+    Instance(usize, Vec<crate::core::Type>),
     /// The ability in a slot, as the key bindings hold the budget its
     /// handler was bound inside under. Only metered code has these.
     AbilityBudget(usize),

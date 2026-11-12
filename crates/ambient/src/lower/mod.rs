@@ -400,6 +400,11 @@ impl Lowering {
         expr: &core::Expr,
         scope: &mut Scope,
     ) -> Result<Value, Unsupported> {
+        if let core::Expr::Reference(slot, types) = expr
+            && let Some(instance) = self.instance(*slot, types)
+        {
+            return Ok(instance);
+        }
         Ok(match expr {
             core::Expr::Null => Value::Null,
             core::Expr::Literal(Literal::Bool(value)) => Value::Bool(*value),
