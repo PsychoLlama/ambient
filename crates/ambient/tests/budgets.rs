@@ -235,7 +235,7 @@ fn charges(name: &str, body: Expr) -> usize {
     let store = ambient::store::MemoryStore::new();
     let engine = ambient::engine::Engine::new(&workspace, &store);
     let open = engine.check(&value("main", name)).unwrap();
-    let plain = ambient::lower::lower(&open, false).unwrap();
+    let plain = ambient::lower::lower(&open, &ambient::lower::Form::default()).unwrap();
 
     format!("{:?}", plain.body).matches("Charge").count()
 }

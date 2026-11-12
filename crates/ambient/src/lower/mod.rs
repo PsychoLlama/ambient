@@ -6,6 +6,7 @@
 
 mod abilities;
 mod meter;
+mod native;
 mod patterns;
 mod resume;
 mod tasks;
@@ -20,6 +21,8 @@ use crate::core::{self, Open, Tree};
 use crate::lir::{self, Constant, Expr, Op, Value};
 use crate::literal::Literal;
 
+pub use types::Form;
+
 /// A construct the backends cannot compile yet.
 ///
 /// TODO: this goes away as the lowered form grows to cover the core tree.
@@ -33,18 +36,19 @@ pub struct Unsupported(pub &'static str);
 /// Fails if the definition is not a function, or uses a construct that is
 /// not lowered yet.
 ///
-/// With `metered`, the function charges for what it does: see
-/// `spec/budgets.md`.
-pub fn lower(definition: &Open, metered: bool) -> Result<lir::Function, Unsupported> {
+/// `form` says what the tree does not: see [`Form`].
+pub fn lower(definition: &Open, form: &Form) -> Result<lir::Function, Unsupported> {
     let function = match &definition.tree {
         Tree::Function(function) => function,
-        Tree::Extern { params, .. } => return Ok(native(params.len(), definition.slots.len())),
+        Tree::Extern { params, .. } => {
+            return Ok(native::native(params.len(), definition.slots.len()));
+        }
         _ => return Err(Unsupported("definitions that are not functions")),
     };
     // Both forms of a function read one definition, so the constants of
     // the plain form come first in the metered one's, at the same places.
-    let constants = if metered {
-        lower(definition, false)?.constants
+    let constants = if form.metered {
+        lower(definition, &form.plain())?.constants
     } else {
         Vec::new()
     };
@@ -59,15 +63,16 @@ pub fn lower(definition: &Open, metered: bool) -> Result<lir::Function, Unsuppor
         constants,
         bindings: Value::Local(0),
         // They follow what it captured: values, then bindings.
-        types: if function.type_params.is_empty() {
-            Value::Null
-        } else {
+        types: if form.handed {
             let before = function.captures.len() + usize::from(!function.bindings.is_empty());
             Value::Captured(before)
+        } else {
+            Value::Null
         },
         type_params: function.type_params.len(),
+        handed: form.slots.clone(),
         groups: Vec::new(),
-        metered,
+        metered: form.metered,
     };
     let entry = lowering.enter(function);
     let mut body = entry.wrap(lowering.expr(&function.body)?);
@@ -83,38 +88,6 @@ pub fn lower(definition: &Open, metered: bool) -> Result<lir::Function, Unsuppor
         constants: lowering.constants,
         body,
     })
-}
-
-/// What an extern compiles to: its arguments, as a tuple, handed to the
-/// host with the bindings it was called with.
-fn native(arity: usize, slots: usize) -> lir::Function {
-    let args = arity + 1;
-    let members = (1..=arity).map(Value::Local).collect();
-    let call = Op::Native {
-        index: 0,
-        bindings: Value::Local(0),
-        args: Value::Local(args),
-    };
-    // The extern is where native code fails, if it does.
-    let frame = Op::Trace {
-        definition: 1,
-        position: 0,
-    };
-    let call = Lowering::attempt(Expr::Op(call), Expr::Op(frame));
-    lir::Function {
-        params: arity + 1,
-        locals: arity + 2,
-        slots,
-        constants: vec![Constant::Native, Constant::Own],
-        body: resume::resumable(Expr::Let {
-            local: args,
-            value: Box::new(Expr::Op(Op::Sequence {
-                list: false,
-                members,
-            })),
-            body: Box::new(call),
-        }),
-    }
 }
 
 /// Where temporaries are numbered from while a function is being lowered.
@@ -173,9 +146,11 @@ struct Lowering {
     /// The bindings in scope where lowering is now: a record keyed by
     /// ability, or null where nothing is bound.
     bindings: Value,
-    /// The type arguments the function was made at, which a generic
-    /// function's closure holds; null if it is not generic.
+    /// The type arguments the function was made at, which its closure
+    /// holds if it is handed them; null if it is not.
     types: Value,
+    /// Whether the function in each slot is handed its type arguments.
+    handed: Vec<bool>,
     /// How many type parameters the function has.
     type_params: usize,
     /// The groups lowering is inside of, innermost last.
@@ -449,10 +424,10 @@ impl Lowering {
         args: &[core::Expr],
         scope: &mut Scope,
     ) -> Result<Op, Unsupported> {
-        // A generic function is reached through a closure that holds its
-        // type arguments, like any function value.
+        // A function that is handed its type arguments is reached
+        // through a closure that holds them, like any function value.
         if let core::Expr::Reference(slot, types) = callee
-            && types.is_empty()
+            && !self.hands(*slot, types)
         {
             let args = self.arguments(self.bindings, args, scope)?;
             let (slot, metered) = (slot.0, self.metered);

@@ -61,7 +61,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - A type that holds a function type is not a cast target, since a function does not say what type it is; a [cell](cells.md) type is one whatever it holds.
 - A program never decides subtyping as it runs; only checking does.
 - A cast to a type parameter is allowed, and tests against the type argument, which a generic function [receives at run time](backends.md).
-- Only a function that casts to a type parameter, or makes a cell at one, needs its type arguments.
+- Only a function that casts to a type parameter, makes a cell at one, or hands one on to a function that does, needs its type arguments.
 - A cast never adds a brand to a value.
 - A cast to a handle type is decidable, because a handle carries the tag it was minted under.
 - Values that enter from outside the program, [received values](exchange.md) included, enter as `unknown`.

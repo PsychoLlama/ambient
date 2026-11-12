@@ -9,6 +9,7 @@ use super::{Engine, Query, Stage, memo};
 use crate::core::{Open, Tree};
 use crate::error::Error;
 use crate::hash::Hasher;
+use crate::lower::Form;
 use crate::symbol::Symbol;
 
 /// Turns one function into code.
@@ -25,9 +26,9 @@ pub trait Backend {
     ///
     /// Returns a message if the backend cannot compile the definition.
     ///
-    /// With `metered`, the code charges for what it does, as
+    /// `form` says what the definition's tree does not, as
     /// [`crate::lower::lower`] has it.
-    fn compile(&self, definition: &Open, metered: bool) -> Result<Vec<u8>, String>;
+    fn compile(&self, definition: &Open, form: &Form) -> Result<Vec<u8>, String>;
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,9 +60,17 @@ impl Engine<'_> {
                 return Err(Error::NotCompilable(symbol.clone()));
             }
 
+            let form = self.form(symbol, metered)?;
             let mut key = Hasher::new("compile");
             key.bytes(backend.name().as_bytes());
-            key.bytes(&[u8::from(metered)]);
+            key.bytes(&[u8::from(metered), u8::from(form.handed)]);
+            key.bytes(
+                &form
+                    .slots
+                    .iter()
+                    .map(|slot| u8::from(*slot))
+                    .collect::<Vec<_>>(),
+            );
             key.bytes(&open.tree.encode());
             for slot in &open.slots {
                 key.hash(&self.interface(slot)?.digest);
@@ -69,7 +78,7 @@ impl Engine<'_> {
 
             let compile = || {
                 backend
-                    .compile(&open, metered)
+                    .compile(&open, &form)
                     .map(Artifact)
                     .map_err(|message| Error::Backend {
                         symbol: symbol.clone(),

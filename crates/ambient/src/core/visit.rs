@@ -1,7 +1,7 @@
 //! Walking core trees: what is inside an expression, and where each
 //! expression is.
 
-use super::{Expr, Slot, Type};
+use super::{Expr, Pattern, Slot, Type};
 
 impl Expr {
     /// Calls `visit` with each expression directly inside this one, in
@@ -131,6 +131,62 @@ impl Expr {
                     _ => None,
                 });
             found.get_or_insert_with(Vec::new).extend(named);
+        }
+        found
+    }
+}
+
+/// What a function's body does with the function's type parameters as
+/// it runs.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Consults {
+    /// Whether it tests a value against a type that mentions one, or
+    /// makes a cell at such a type.
+    pub own: bool,
+    /// The slots of the generic functions it uses at type arguments
+    /// that mention one. It hands them on, if those functions need them.
+    pub through: Vec<Slot>,
+}
+
+impl Pattern {
+    /// Whether the pattern tests for a type that mentions a type
+    /// parameter.
+    fn mentions_parameter(&self) -> bool {
+        match self {
+            Self::Wildcard | Self::Literal(_) => false,
+            Self::Record(fields) => fields.iter().any(|(_, inner)| inner.mentions_parameter()),
+            Self::Tuple(members) => members.iter().any(Self::mentions_parameter),
+            Self::Is(ty) => ty.mentions_parameter(),
+            Self::Bind(inner) => inner.mentions_parameter(),
+        }
+    }
+}
+
+impl Expr {
+    /// What this, a function's body, does with the function's type
+    /// parameters. A function needs its type arguments as it runs only
+    /// for one of these. See "Types at run time" in `spec/backends.md`.
+    #[must_use]
+    pub fn consults(&self) -> Consults {
+        let mut found = Consults::default();
+        for expr in self.positions() {
+            match expr {
+                Self::Cast { ty, .. } | Self::Cell { ty, .. } => {
+                    found.own |= ty.mentions_parameter();
+                }
+                Self::Match { arms, .. } => {
+                    found.own |= arms.iter().any(|(pattern, _)| pattern.mentions_parameter());
+                }
+                Self::Reference(slot, types)
+                | Self::Closure {
+                    slot,
+                    type_args: types,
+                    ..
+                } if types.iter().any(Type::mentions_parameter) => {
+                    found.through.push(*slot);
+                }
+                _ => {}
+            }
         }
         found
     }

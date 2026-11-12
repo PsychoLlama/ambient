@@ -23,6 +23,7 @@
 mod check;
 mod compile;
 mod group;
+mod handed;
 mod link;
 mod pack;
 mod program;
@@ -105,6 +106,8 @@ pub struct Engine<'a> {
     received: RefCell<HashMap<Symbol, Arc<crate::core::Open>>>,
     hash: RefCell<HashMap<Symbol, Hash>>,
     compile: Memo<(Symbol, String, bool), Artifact>,
+    /// Whether each function asked about is handed its type arguments.
+    handed: RefCell<HashMap<Symbol, bool>>,
     /// The definitions being checked, outermost first. A comptime call
     /// makes checking re-entrant; this is how a cycle through one is seen.
     checking: RefCell<Vec<Symbol>>,
@@ -137,6 +140,7 @@ impl<'a> Engine<'a> {
             received: RefCell::default(),
             hash: RefCell::default(),
             compile: RefCell::default(),
+            handed: RefCell::default(),
             checking: RefCell::default(),
             roots: RefCell::default(),
             runner: run::Runner::default(),

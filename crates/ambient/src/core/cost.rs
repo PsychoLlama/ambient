@@ -7,7 +7,7 @@
 
 use ambient_runtime::{SMALL_MAX, SMALL_MIN, TRACE_LIMIT};
 
-use super::{Expr, Primitive, Type};
+use super::{Expr, Primitive};
 use crate::literal::Literal;
 
 /// Steps, and words of allocation.
@@ -41,17 +41,6 @@ impl Cost {
     }
 }
 
-/// Type arguments, which are made where they are used only if what they
-/// are depends on the type arguments of the function that uses them:
-/// each is a type, and what it is read in.
-fn types(args: &[Type]) -> Cost {
-    if args.iter().any(Type::mentions_parameter) {
-        Cost::object(args.len() * 2)
-    } else {
-        Cost::default()
-    }
-}
-
 impl Expr {
     /// What the node costs, not counting the nodes inside it.
     ///
@@ -74,25 +63,14 @@ impl Expr {
             // Its definition and captures, and a record of the bindings
             // it captures, each with the budget it was bound inside.
             Self::Closure {
-                type_args,
-                captures,
-                bindings,
-                ..
+                captures, bindings, ..
             } => {
                 let record = if bindings.is_empty() {
                     Cost::default()
                 } else {
                     Cost::object(bindings.len() * 4)
                 };
-                let held = captures.len() + usize::from(!type_args.is_empty());
-                Cost::object(held + 1).and(record).and(types(type_args))
-            }
-            // A generic function used at type arguments that depend on
-            // those of the function that uses it: a closure that holds
-            // them. At any others it is made once, before the program
-            // runs.
-            Self::Reference(_, type_args) if type_args.iter().any(Type::mentions_parameter) => {
-                Cost::object(2).and(types(type_args))
+                Cost::object(captures.len() + 1).and(record)
             }
             // The value, and the type it was made at.
             Self::Cell { .. } => Cost::object(3),

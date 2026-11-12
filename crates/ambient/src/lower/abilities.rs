@@ -125,8 +125,8 @@ impl Lowering {
             let keys = self.ability_keys(bindings);
             captures.push(self.select(self.bindings, &keys, scope));
         }
-        // And the type arguments of a generic one follow those.
-        if !type_args.is_empty() {
+        // And the type arguments of one that is handed them follow those.
+        if self.hands(slot, type_args) {
             captures.push(self.type_arguments(type_args, scope));
         }
         Ok(Op::Closure {

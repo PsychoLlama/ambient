@@ -42,14 +42,15 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 
 - A type a [cast](types.md) or type test names exists at run time as a descriptor: data, laid out when a program is loaded.
 - A recursive type definition has one descriptor, which the descriptors that name it refer to.
-- A generic function is handed its type arguments at run time, as descriptors. A function value over one holds them with what it captured, so calling it is no different from calling any function.
+- A generic function that needs its type arguments is handed them at run time, as descriptors. A function value over one holds them with what it captured, so calling it is no different from calling any function.
+- A function needs them if it tests a value against a type parameter, makes a cell at one, or hands one on to a function that needs it; handing them on to itself is no need.
+- Any other generic function is one function at every type argument, and is called like a function that is not generic.
 - A type argument that is itself a type parameter is handed on as what it stands for, so a function that calls itself holds nothing of its callers.
 - One value carries a type: a [cell](cells.md) keeps the descriptor of the type it was made at, read with the type arguments in force where it was made.
 - A descriptor is otherwise consulted only where a cast is written.
 - A cast to a cell type passes a cell whose descriptor describes the same type as the cast's: names stand for their definitions, and a union is its members in any order.
 - A cast to a type parameter tests against the type argument; no value passes a test for a function type, which only a type argument can ask for.
-- A generic function used at type arguments that mention no type parameter is one function value, made when the program is loaded.
-- TODO: every generic function is handed its type arguments, needed or not, which costs a function value for each use inside another generic function and keeps a function value over one from being [sent](values.md).
+- A function that needs its type arguments, used at ones that mention no type parameter, is one function value, made when the program is loaded.
 
 ## Calls
 

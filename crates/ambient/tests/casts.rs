@@ -230,17 +230,50 @@ fn no_function_passes_a_cast_to_a_type_parameter() {
     assert!(!passed(&[double()], call));
 }
 
+/// Whether `generic` used at `left` equals itself used at `right`.
+fn equal_at(generic: &str, left: Type, right: Type) -> bool {
+    let at = |ty| b::call(b::name("hide"), [b::instantiate(generic, [ty])]);
+    let main = b::function("main")
+        .returns(ty::bool())
+        .body(b::equal(at(left), at(right)));
+    run([id(), keep(), hide(), main], &[]).unwrap() == Value::Bool(true)
+}
+
 #[test]
-fn a_generic_function_equals_itself_at_the_same_type_arguments() {
-    let equal = |left: Type, right: Type| {
-        let at = |ty| b::call(b::name("hide"), [b::instantiate("id", [ty])]);
-        let main = b::function("main")
-            .returns(ty::bool())
-            .body(b::equal(at(left), at(right)));
-        run([id(), hide(), main], &[]).unwrap() == Value::Bool(true)
-    };
+fn a_function_that_needs_its_type_arguments_is_equal_only_at_the_same_ones() {
     let pair = || ty::tuple([ty::int(), ty::int()]);
 
-    assert!(equal(pair(), pair()));
-    assert!(!equal(ty::int(), ty::string()));
+    assert!(equal_at("keep", pair(), pair()));
+    assert!(!equal_at("keep", ty::int(), ty::string()));
+}
+
+#[test]
+fn a_function_that_needs_no_type_arguments_is_one_function_at_any() {
+    // Nothing `id` does depends on what it is used at.
+    assert!(equal_at("id", ty::int(), ty::string()));
+}
+
+/// What a host sees `generic`, used at `int`, to hold.
+fn held(name: &str, generic: Definition) -> Vec<Value> {
+    let made = b::call(b::name("hide"), [b::instantiate(name, [ty::int()])]);
+    let main = b::function("main").returns(ty::unknown()).body(made);
+    match &run([generic, keep(), hide(), main], &[]).unwrap() {
+        Value::Function(function) => function.captures.clone(),
+        other => panic!("not a function: {other:?}"),
+    }
+}
+
+#[test]
+fn only_a_function_that_needs_its_type_arguments_holds_them() {
+    let through = |name: &str, callee: &str| {
+        b::function(name)
+            .type_param("T")
+            .param("v", ty::unknown())
+            .returns(ty::unknown())
+            .body(b::call(b::instantiate(callee, [t()]), [b::name("v")]))
+    };
+
+    // Handing them on to itself is no need of them.
+    assert_eq!(held("again", through("again", "again")), []);
+    assert_eq!(held("kept", through("kept", "keep")), [Value::Types]);
 }

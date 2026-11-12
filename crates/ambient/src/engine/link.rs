@@ -173,7 +173,7 @@ impl Engine<'_> {
                     // `compile`, so its constants are read from it again
                     // rather than kept beside the code. Those of the
                     // metered form begin with those of the plain one.
-                    constants: lower(&open, metered)
+                    constants: lower(&open, &self.form(symbol, metered)?)
                         .map(|function| function.constants)
                         .unwrap_or_default(),
                 })

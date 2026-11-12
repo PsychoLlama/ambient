@@ -6,7 +6,38 @@ use super::{Lowering, Scope};
 use crate::core;
 use crate::lir::{Constant, Expr, Op, Value};
 
+/// What lowering a function takes besides its tree.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Form {
+    /// Whether the function charges for what it does: see
+    /// `spec/budgets.md`.
+    pub metered: bool,
+    /// Whether the function is handed its type arguments, which is to
+    /// say whether it needs them as it runs.
+    pub handed: bool,
+    /// The same of the function in each slot. A slot past the end is
+    /// one that is not.
+    pub slots: Vec<bool>,
+}
+
+impl Form {
+    /// The form of the same function that makes no charge.
+    #[must_use]
+    pub fn plain(&self) -> Self {
+        Self {
+            metered: false,
+            ..self.clone()
+        }
+    }
+}
+
 impl Lowering {
+    /// Whether a use of the function in `slot` at `types` hands it type
+    /// arguments: it is generic, and it needs them.
+    pub(super) fn hands(&self, slot: core::Slot, types: &[core::Type]) -> bool {
+        !types.is_empty() && self.handed.get(slot.0).copied().unwrap_or(false)
+    }
+
     /// What a type written in the function being lowered is read in:
     /// the function's type arguments if the type mentions a parameter,
     /// and nothing if not.
@@ -35,20 +66,20 @@ impl Lowering {
     /// A generic function at type arguments that mention no parameter:
     /// one closure, made when the program is loaded.
     pub(super) fn instance(&mut self, slot: core::Slot, types: &[core::Type]) -> Option<Value> {
-        let closed = !types.is_empty() && !types.iter().any(core::Type::mentions_parameter);
+        let closed = self.hands(slot, types) && !types.iter().any(core::Type::mentions_parameter);
         let instance = Constant::Instance(slot.0, types.to_vec());
         closed.then(|| Value::Constant(self.constant(instance)))
     }
 
     /// The function in a slot, as a value: a closure that holds its type
-    /// arguments, if it is generic.
+    /// arguments, if it is handed them.
     pub(super) fn reference(
         &mut self,
         slot: core::Slot,
         types: &[core::Type],
         scope: &mut Scope,
     ) -> Op {
-        if types.is_empty() {
+        if !self.hands(slot, types) {
             return Op::Slot(slot.0);
         }
         if let Some(instance) = self.instance(slot, types) {

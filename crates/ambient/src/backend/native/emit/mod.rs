@@ -19,7 +19,7 @@ use crate::backend::MAX_ARITY;
 use crate::core::Open;
 use crate::engine::Backend;
 use crate::lir::{self, Arg, Expr, Op};
-use crate::lower::lower;
+use crate::lower::{Form, lower};
 
 mod resume;
 
@@ -55,9 +55,9 @@ impl Backend for Native {
         "native"
     }
 
-    fn compile(&self, definition: &Open, metered: bool) -> Result<Vec<u8>, String> {
-        let function = lower(definition, metered)
-            .map_err(|error| format!("{} are not compiled yet", error.0))?;
+    fn compile(&self, definition: &Open, form: &Form) -> Result<Vec<u8>, String> {
+        let function =
+            lower(definition, form).map_err(|error| format!("{} are not compiled yet", error.0))?;
         if function.params > MAX_ARITY {
             return Err(format!("more than {MAX_ARITY} parameters"));
         }
