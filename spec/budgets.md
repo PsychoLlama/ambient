@@ -20,7 +20,8 @@ A budget bounds how much work and allocation a body may do, and enforces the bou
 - Allocation is charged for each value constructed, by its size.
 - Charges are defined on the [core tree](trees.md), never on compiled code, so a run costs the same on every backend and machine.
 - A node is charged for before any of it is evaluated, by what the node is alone; what a backend or the runtime allocates to carry it out is not charged.
-- The allocation charge is cumulative and ignores sharing and in-place update; it bounds peak memory from above.
+- The allocation charge is cumulative and ignores sharing and in-place update; it bounds from above the memory held by the values a body makes.
+- It does not bound what a backend or the runtime allocates to carry the body out, such as the saved state of a suspended task.
 - Tasks started inside a budget draw from it together.
 
 ## Scope
