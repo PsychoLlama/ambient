@@ -14,6 +14,7 @@ pub(crate) const KIND_LIST: u32 = 6;
 pub(crate) const KIND_RECORD: u32 = 7;
 /// Not a value: what an abort handler is bound to.
 pub(crate) const KIND_TOKEN: u32 = 8;
+pub(crate) const KIND_CELL: u32 = 9;
 
 /// The count of an object that is never reclaimed.
 pub(crate) const PINNED: u32 = u32::MAX;
@@ -178,7 +179,7 @@ pub unsafe extern "C" fn amb_release(word: Word) {
                 continue;
             }
             let held = match (*header).kind {
-                KIND_TUPLE | KIND_LIST | KIND_RECORD => words(word),
+                KIND_TUPLE | KIND_LIST | KIND_RECORD | KIND_CELL => words(word),
                 // The first word is the definition, which is not a value.
                 KIND_CLOSURE => &words(word)[1..],
                 _ => &[],

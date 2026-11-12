@@ -1,9 +1,10 @@
 //! For the host: making a context and reading results.
 
 use crate::object::{
-    KIND_CLOSURE, KIND_FLOAT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TUPLE, header, int,
-    payload, words,
+    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TUPLE, header,
+    int, payload, words,
 };
+use crate::task::Scheduler;
 use crate::{Context, FALSE, Kind, NULL, TRUE, Word};
 
 /// A new context. Free it with [`amb_context_free`].
@@ -16,6 +17,8 @@ pub unsafe extern "C" fn amb_context_new() -> *mut Context {
         abort_args: 0,
         native: 0,
         host: 0,
+        mode: crate::RUNNING,
+        scheduler: Box::into_raw(Box::new(Scheduler::new())) as u64,
     }))
 }
 
@@ -23,8 +26,19 @@ pub unsafe extern "C" fn amb_context_new() -> *mut Context {
 pub unsafe extern "C" fn amb_context_free(context: *mut Context) {
     unsafe {
         crate::abort::abandon(context);
+        drop(Box::from_raw(
+            (*context).scheduler as usize as *mut Scheduler,
+        ));
         drop(Box::from_raw(context));
     }
+}
+
+/// Whether tasks are running, suspending, or resuming: what a host reads
+/// after the entry unwinds, to see whether to call [`crate::amb_schedule`]
+/// and then the entry again.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_context_mode(context: *mut Context) -> u64 {
+    unsafe { (*context).mode }
 }
 
 /// The [`Fault`] code of the last unwinding in this context.
@@ -50,6 +64,7 @@ pub unsafe extern "C" fn amb_kind(word: Word) -> u64 {
             KIND_LIST => Kind::List,
             KIND_RECORD => Kind::Record,
             KIND_CLOSURE => Kind::Function,
+            KIND_CELL => Kind::Cell,
             _ => Kind::Int,
         }
     };

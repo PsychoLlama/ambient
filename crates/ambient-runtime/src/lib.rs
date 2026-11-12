@@ -29,6 +29,7 @@
 )]
 
 mod abort;
+mod cell;
 mod closure;
 mod entry;
 mod host;
@@ -38,9 +39,11 @@ mod number;
 mod object;
 mod record;
 mod sequence;
+mod task;
 mod text;
 
 pub use abort::*;
+pub use cell::*;
 pub use closure::*;
 pub use entry::Entry;
 pub use host::*;
@@ -50,6 +53,10 @@ pub use number::*;
 pub use object::{amb_release, amb_retain, layout, pinned_closure};
 pub use record::*;
 pub use sequence::*;
+pub use task::{
+    RESUMING, RUNNING, SUSPENDING, amb_all, amb_frame_drop, amb_frame_load, amb_frame_point,
+    amb_frame_push, amb_frame_save, amb_schedule,
+};
 pub use text::*;
 
 pub type Word = u64;
@@ -79,6 +86,10 @@ pub enum Fault {
     Abort = 4,
     /// Native code reported that it failed.
     Native = 5,
+    /// Not a fault: a task is unwinding because it was cancelled. A host
+    /// sees this only when every task was waiting for something that
+    /// would never happen.
+    Cancelled = 6,
 }
 
 impl Fault {
@@ -90,6 +101,7 @@ impl Fault {
             3 => Self::Expired,
             4 => Self::Abort,
             5 => Self::Native,
+            6 => Self::Cancelled,
             _ => Self::None,
         }
     }
@@ -108,6 +120,7 @@ pub enum Kind {
     List = 6,
     Record = 7,
     Function = 8,
+    Cell = 9,
 }
 
 /// The state of one execution. Compiled code receives a pointer to it as
@@ -132,10 +145,16 @@ pub struct Context {
     pub native: u64,
     /// Whatever the host wants to find again when native code is called.
     pub host: u64,
+    /// Whether tasks are running, suspending, or resuming: see
+    /// [`RUNNING`].
+    pub mode: u64,
+    /// The tasks of this execution. Opaque to compiled code.
+    pub scheduler: u64,
 }
 
 impl Context {
     /// Byte offsets of the fields.
     pub const ENTRIES: i32 = 0;
     pub const FAULT: i32 = 8;
+    pub const MODE: i32 = 48;
 }
