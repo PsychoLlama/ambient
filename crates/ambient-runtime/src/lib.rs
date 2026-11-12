@@ -29,6 +29,7 @@
 )]
 
 use std::alloc::{Layout, alloc, dealloc};
+use std::sync::{Mutex, PoisonError};
 
 pub type Word = u64;
 
@@ -72,6 +73,11 @@ pub enum Kind {
     Bool = 1,
     Int = 2,
     Float = 3,
+    String = 4,
+    Tuple = 5,
+    List = 6,
+    Record = 7,
+    Function = 8,
 }
 
 /// The state of one execution. Compiled code receives a pointer to it as
@@ -112,10 +118,21 @@ pub enum Entry {
     IntNew,
     FloatNew,
     Fault,
+    SequenceNew,
+    SequenceSet,
+    SequenceGet,
+    SequenceIs,
+    RecordNew,
+    RecordSet,
+    RecordGet,
+    RecordHas,
+    RecordIs,
+    ClosureNew,
+    ClosureSet,
 }
 
 impl Entry {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 25] = [
         Self::Retain,
         Self::Release,
         Self::IntAdd,
@@ -130,6 +147,17 @@ impl Entry {
         Self::IntNew,
         Self::FloatNew,
         Self::Fault,
+        Self::SequenceNew,
+        Self::SequenceSet,
+        Self::SequenceGet,
+        Self::SequenceIs,
+        Self::RecordNew,
+        Self::RecordSet,
+        Self::RecordGet,
+        Self::RecordHas,
+        Self::RecordIs,
+        Self::ClosureNew,
+        Self::ClosureSet,
     ];
 
     /// The name the entry point is exported under.
@@ -150,6 +178,17 @@ impl Entry {
             Self::IntNew => "amb_int_new",
             Self::FloatNew => "amb_float_new",
             Self::Fault => "amb_fault",
+            Self::SequenceNew => "amb_sequence_new",
+            Self::SequenceSet => "amb_sequence_set",
+            Self::SequenceGet => "amb_sequence_get",
+            Self::SequenceIs => "amb_sequence_is",
+            Self::RecordNew => "amb_record_new",
+            Self::RecordSet => "amb_record_set",
+            Self::RecordGet => "amb_record_get",
+            Self::RecordHas => "amb_record_has",
+            Self::RecordIs => "amb_record_is",
+            Self::ClosureNew => "amb_closure_new",
+            Self::ClosureSet => "amb_closure_set",
         }
     }
 
@@ -166,7 +205,14 @@ impl Entry {
     #[must_use]
     pub fn arity(self) -> usize {
         match self {
-            Self::Retain | Self::Release | Self::IntNew | Self::FloatNew | Self::Fault => 1,
+            Self::Retain
+            | Self::Release
+            | Self::IntNew
+            | Self::FloatNew
+            | Self::Fault
+            | Self::RecordNew
+            | Self::RecordIs => 1,
+            Self::SequenceSet | Self::SequenceIs | Self::RecordSet | Self::ClosureSet => 3,
             _ => 2,
         }
     }
@@ -174,7 +220,10 @@ impl Entry {
     /// Whether it returns a word. The others return nothing.
     #[must_use]
     pub fn returns(self) -> bool {
-        !matches!(self, Self::Retain | Self::Release)
+        !matches!(
+            self,
+            Self::Retain | Self::Release | Self::SequenceSet | Self::RecordSet | Self::ClosureSet
+        )
     }
 
     /// The native address of the entry point.
@@ -195,6 +244,17 @@ impl Entry {
             Self::IntNew => amb_int_new as *const () as usize,
             Self::FloatNew => amb_float_new as *const () as usize,
             Self::Fault => amb_fault as *const () as usize,
+            Self::SequenceNew => amb_sequence_new as *const () as usize,
+            Self::SequenceSet => amb_sequence_set as *const () as usize,
+            Self::SequenceGet => amb_sequence_get as *const () as usize,
+            Self::SequenceIs => amb_sequence_is as *const () as usize,
+            Self::RecordNew => amb_record_new as *const () as usize,
+            Self::RecordSet => amb_record_set as *const () as usize,
+            Self::RecordGet => amb_record_get as *const () as usize,
+            Self::RecordHas => amb_record_has as *const () as usize,
+            Self::RecordIs => amb_record_is as *const () as usize,
+            Self::ClosureNew => amb_closure_new as *const () as usize,
+            Self::ClosureSet => amb_closure_set as *const () as usize,
         }
     }
 }
@@ -204,6 +264,10 @@ impl Entry {
 const KIND_INT: u32 = 1;
 const KIND_FLOAT: u32 = 2;
 const KIND_CLOSURE: u32 = 3;
+const KIND_STRING: u32 = 4;
+const KIND_TUPLE: u32 = 5;
+const KIND_LIST: u32 = 6;
+const KIND_RECORD: u32 = 7;
 
 /// The count of an object that is never reclaimed.
 const PINNED: u32 = u32::MAX;
@@ -330,19 +394,55 @@ pub unsafe extern "C" fn amb_retain(word: Word) {
 /// Gives up one reference to a value, reclaiming it if that was the last.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_release(word: Word) {
-    if !is_object(word) {
-        return;
-    }
-    unsafe {
-        let header = header(word);
-        if (*header).count == PINNED {
-            return;
+    // A value can be nested arbitrarily deep, so the values an object held
+    // are queued here, never released by recursion.
+    let mut pending = vec![word];
+    while let Some(word) = pending.pop() {
+        if !is_object(word) {
+            continue;
         }
-        (*header).count -= 1;
-        if (*header).count == 0 {
+        unsafe {
+            let header = header(word);
+            if (*header).count == PINNED {
+                continue;
+            }
+            (*header).count -= 1;
+            if (*header).count != 0 {
+                continue;
+            }
+            let held = match (*header).kind {
+                KIND_TUPLE | KIND_LIST | KIND_RECORD => words(word),
+                // The first word is the definition, which is not a value.
+                KIND_CLOSURE => &words(word)[1..],
+                _ => &[],
+            };
+            pending.extend_from_slice(held);
             let size = (*header).size as usize;
             dealloc(header.cast(), layout(size));
         }
+    }
+}
+
+/// The payload of an object, as words.
+unsafe fn words<'a>(word: Word) -> &'a mut [u64] {
+    unsafe {
+        let length = (*header(word)).size as usize / 8;
+        std::slice::from_raw_parts_mut(payload(word), length)
+    }
+}
+
+unsafe fn kind(word: Word) -> u32 {
+    if is_object(word) {
+        unsafe { (*header(word)).kind }
+    } else {
+        0
+    }
+}
+
+unsafe fn bytes<'a>(word: Word) -> &'a [u8] {
+    unsafe {
+        let length = (*header(word)).size as usize;
+        std::slice::from_raw_parts(payload(word).cast::<u8>(), length)
     }
 }
 
@@ -433,13 +533,194 @@ unsafe fn equal(left: Word, right: Word) -> bool {
     if !is_object(left) || !is_object(right) {
         return false;
     }
+    // TODO: this recurses as deep as the values nest.
     unsafe {
+        let all = |left: &[u64], right: &[u64]| {
+            left.len() == right.len() && left.iter().zip(right).all(|(l, r)| equal(*l, *r))
+        };
         match ((*header(left)).kind, (*header(right)).kind) {
             (KIND_INT, KIND_INT) => int(left) == int(right),
             // Equality is structural: a float equals itself, bit for bit.
             (KIND_FLOAT, KIND_FLOAT) => payload(left).read() == payload(right).read(),
+            (KIND_STRING, KIND_STRING) => bytes(left) == bytes(right),
+            // A record's keys are interned and kept in order, so equal
+            // records have equal keys at equal positions.
+            (KIND_TUPLE, KIND_TUPLE) | (KIND_LIST, KIND_LIST) | (KIND_RECORD, KIND_RECORD) => {
+                all(words(left), words(right))
+            }
+            (KIND_CLOSURE, KIND_CLOSURE) => {
+                let (left, right) = (words(left), words(right));
+                left[0] == right[0] && all(&left[1..], &right[1..])
+            }
             _ => false,
         }
+    }
+}
+
+// Strings
+
+/// A string that is never reclaimed, copied from `length` bytes at
+/// `pointer`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_string_pinned(pointer: *const u8, length: u64) -> Word {
+    unsafe {
+        let word = object(KIND_STRING, length as usize);
+        (*header(word)).count = PINNED;
+        std::ptr::copy_nonoverlapping(pointer, payload(word).cast::<u8>(), length as usize);
+        word
+    }
+}
+
+/// The one string with these bytes that stands for a field name. Two field
+/// names are the same name exactly when their words are equal.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_intern(pointer: *const u8, length: u64) -> Word {
+    static NAMES: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+    unsafe {
+        let name = std::slice::from_raw_parts(pointer, length as usize);
+        let mut names = NAMES.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(known) = names.iter().find(|known| bytes(**known as Word) == name) {
+            return *known as Word;
+        }
+        let word = amb_string_pinned(pointer, length);
+        names.push(word as usize);
+        word
+    }
+}
+
+// Tuples and lists
+
+/// A tuple, or a list if `list` is not zero, of `length` nulls. Fill it
+/// with [`amb_sequence_set`] before anything else sees it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_sequence_new(list: u64, length: u64) -> Word {
+    unsafe {
+        let kind = if list == 0 { KIND_TUPLE } else { KIND_LIST };
+        let word = object(kind, length as usize * 8);
+        words(word).fill(NULL);
+        word
+    }
+}
+
+/// Puts `value` at `index` of a sequence under construction.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_sequence_set(sequence: Word, index: u64, value: Word) {
+    unsafe {
+        amb_retain(value);
+        words(sequence)[index as usize] = value;
+    }
+}
+
+/// The member at `index`, which must exist.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_sequence_get(sequence: Word, index: u64) -> Word {
+    unsafe {
+        let value = words(sequence)[index as usize];
+        amb_retain(value);
+        value
+    }
+}
+
+/// Whether a value is a tuple of exactly `length` members, or, if `list`
+/// is not zero, a list of any length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_sequence_is(value: Word, list: u64, length: u64) -> Word {
+    unsafe {
+        boolean(match kind(value) {
+            KIND_TUPLE => list == 0 && words(value).len() as u64 == length,
+            KIND_LIST => list != 0,
+            _ => false,
+        })
+    }
+}
+
+// Records
+//
+// A record is its fields as (key, value) pairs, ordered by key. A key is
+// an interned string, so the order is by address: arbitrary, but the same
+// for every record in one execution.
+
+/// A record with room for `length` fields. Fill it with
+/// [`amb_record_set`] before anything else sees it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_record_new(length: u64) -> Word {
+    unsafe {
+        let word = object(KIND_RECORD, length as usize * 16);
+        words(word).fill(0);
+        word
+    }
+}
+
+/// Adds a field to a record under construction.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_record_set(record: Word, key: Word, value: Word) {
+    unsafe {
+        amb_retain(value);
+        let fields = words(record);
+        // Unfilled pairs have a zero key and sit at the end.
+        let filled = fields.chunks(2).take_while(|pair| pair[0] != 0).count();
+        let position = fields[..filled * 2]
+            .chunks(2)
+            .position(|pair| pair[0] > key)
+            .unwrap_or(filled);
+        fields.copy_within(position * 2..filled * 2, position * 2 + 2);
+        fields[position * 2] = key;
+        fields[position * 2 + 1] = value;
+    }
+}
+
+unsafe fn find(record: Word, key: Word) -> Option<Word> {
+    unsafe {
+        words(record)
+            .chunks(2)
+            .find(|pair| pair[0] == key)
+            .map(|pair| pair[1])
+    }
+}
+
+/// The field `key` of a record, which must have it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_record_get(record: Word, key: Word) -> Word {
+    unsafe {
+        let value = find(record, key).unwrap_or(NULL);
+        amb_retain(value);
+        value
+    }
+}
+
+/// Whether a value is a record with the field `key`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_record_has(value: Word, key: Word) -> Word {
+    unsafe { boolean(kind(value) == KIND_RECORD && find(value, key).is_some()) }
+}
+
+/// Whether a value is a record.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_record_is(value: Word) -> Word {
+    unsafe { boolean(kind(value) == KIND_RECORD) }
+}
+
+// Closures
+
+/// A closure over `definition` with room for `captures` values. Fill it
+/// with [`amb_closure_set`] before anything else sees it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_closure_new(definition: u64, captures: u64) -> Word {
+    unsafe {
+        let word = object(KIND_CLOSURE, (captures as usize + 1) * 8);
+        let fields = words(word);
+        fields.fill(NULL);
+        fields[0] = definition;
+        word
+    }
+}
+
+/// Puts `value` in capture `index` of a closure under construction.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_closure_set(closure: Word, index: u64, value: Word) {
+    unsafe {
+        amb_retain(value);
+        words(closure)[index as usize + 1] = value;
     }
 }
 
@@ -485,6 +766,11 @@ pub unsafe extern "C" fn amb_kind(word: Word) -> u64 {
     } else {
         match unsafe { (*header(word)).kind } {
             KIND_FLOAT => Kind::Float,
+            KIND_STRING => Kind::String,
+            KIND_TUPLE => Kind::Tuple,
+            KIND_LIST => Kind::List,
+            KIND_RECORD => Kind::Record,
+            KIND_CLOSURE => Kind::Function,
             _ => Kind::Int,
         }
     };
@@ -507,4 +793,32 @@ pub unsafe extern "C" fn amb_int_value(word: Word) -> i64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_float_bits(word: Word) -> u64 {
     unsafe { payload(word).read() }
+}
+
+/// How many members a tuple or list has, fields a record has, or bytes a
+/// string has.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_length(word: Word) -> u64 {
+    unsafe {
+        let size = (*header(word)).size;
+        match (*header(word)).kind {
+            KIND_STRING => size,
+            KIND_RECORD => size / 16,
+            _ => size / 8,
+        }
+    }
+}
+
+/// The address of a string's bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_string_bytes(word: Word) -> *const u8 {
+    unsafe { payload(word).cast() }
+}
+
+/// The word at `index` of an object's payload, borrowed: a member of a
+/// tuple or list, or, for a record, a key at an even index and its value
+/// at the next.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_word_at(word: Word, index: u64) -> Word {
+    unsafe { words(word)[index as usize] }
 }

@@ -7,20 +7,21 @@
 //! put together by concatenation.
 
 use ambient_runtime::layout::{
-    CLOSURE_DEFINITION, CLOSURE_WORDS, DEFINITION_CODE, DEFINITION_SLOTS, DEFINITION_WORDS,
+    CLOSURE_CAPTURES, CLOSURE_DEFINITION, CLOSURE_WORDS, DEFINITION_CODE, DEFINITION_SLOTS,
+    DEFINITION_WORDS,
 };
 use ambient_runtime::{Entry, FALSE, NULL, SMALL_MAX, SMALL_MIN, TRUE, Word};
 use wasm_encoder::{
-    BlockType, CodeSection, ConstExpr, ElementSection, Elements, EntityType, ExportKind,
-    ExportSection, Function, FunctionSection, ImportSection, Instruction, MemArg, MemArgTarget,
-    MemoryType, Module, RefType, TableSection, TableType, TypeSection, ValType,
+    BlockType, CodeSection, ConstExpr, DataCountSection, DataSection, ElementSection, Elements,
+    EntityType, ExportKind, ExportSection, Function, FunctionSection, ImportSection, Instruction,
+    MemArg, MemArgTarget, MemoryType, Module, RefType, TableSection, TableType, TypeSection,
+    ValType,
 };
 
 use super::MAX_ARITY;
-use super::native::entry_for;
-use crate::core::{Open, Tree};
+use crate::core::Open;
 use crate::engine::{Backend, Parts};
-use crate::lir::{self, Expr, Op};
+use crate::lir::{self, Arg, Constant, Expr, Op};
 use crate::lower::lower;
 
 /// The runtime as a WebAssembly module. It exports its memory and every
@@ -43,6 +44,10 @@ fn import(entry: Entry) -> u32 {
 // There are a handful of entry points; this cannot truncate.
 #[allow(clippy::cast_possible_truncation)]
 const WORDS: u32 = Entry::ALL.len() as u32;
+
+/// The function indices of the imports that make constants.
+const STRING_PINNED: u32 = WORDS + 1;
+const INTERN: u32 = WORDS + 2;
 
 /// The type index of a compiled function taking `arity` arguments.
 fn function_type(arity: usize) -> u32 {
@@ -69,14 +74,11 @@ impl Backend for Wasm {
     }
 
     fn compile(&self, definition: &Open) -> Result<Vec<u8>, String> {
-        let Tree::Function(function) = &definition.tree else {
-            return Err("not a function".to_owned());
-        };
-        if function.params.len() > MAX_ARITY {
+        let function =
+            lower(definition).map_err(|error| format!("{} are not compiled yet", error.0))?;
+        if function.params > MAX_ARITY {
             return Err(format!("more than {MAX_ARITY} parameters"));
         }
-        let function =
-            lower(function).map_err(|error| format!("{} are not compiled yet", error.0))?;
         let locals = u32::try_from(function.locals).map_err(|error| error.to_string())?;
 
         // Two more locals than the function has, to hold a word while it is
@@ -86,6 +88,7 @@ impl Backend for Wasm {
             body: Function::new_with_locals_types(vec![ValType::I64; declared]),
             scratch: LOCALS + locals,
             callee: LOCALS + locals + 1,
+            slots: function.slots,
             frames: Vec::new(),
         };
         emitter.block();
@@ -102,6 +105,8 @@ struct Emitter {
     body: Function,
     scratch: u32,
     callee: u32,
+    /// How many slots the definition has; its constants follow them.
+    slots: usize,
     /// The control constructs open around the current instruction,
     /// innermost last. `true` marks one that unwinding leaves through: the
     /// body of a `Let`, or of the function.
@@ -139,6 +144,11 @@ impl Emitter {
                 let local = u32::try_from(local).unwrap_or(0);
                 self.emit(&Instruction::LocalGet(LOCALS + local));
             }
+            lir::Value::Captured(position) => {
+                self.emit(&Instruction::LocalGet(CLOSURE));
+                self.load(CLOSURE_CAPTURES + i32::try_from(position * 8).unwrap_or(0));
+            }
+            lir::Value::Constant(position) => self.in_definition(self.slots + position),
             lir::Value::Null => self.constant(NULL),
             lir::Value::Bool(true) => self.constant(TRUE),
             lir::Value::Bool(false) => self.constant(FALSE),
@@ -230,38 +240,69 @@ impl Emitter {
                 self.constant(*bits);
                 self.emit(&Instruction::Call(import(Entry::FloatNew)));
             }
+            Op::Slot(slot) => self.in_definition(*slot),
             Op::Call { slot, args } => {
-                let slot = DEFINITION_SLOTS + i32::try_from(*slot * 8).unwrap_or(0);
                 self.emit(&Instruction::LocalGet(CONTEXT));
-                // The callee: a closure in a slot of this definition.
-                self.emit(&Instruction::LocalGet(CLOSURE));
-                self.load(CLOSURE_DEFINITION);
-                self.load(slot);
-                self.emit(&Instruction::LocalTee(self.callee));
-                for arg in args {
-                    self.value(*arg);
-                }
-                // Its code: an index into the table.
-                self.emit(&Instruction::LocalGet(self.callee));
-                self.load(CLOSURE_DEFINITION);
-                self.load(DEFINITION_CODE);
-                self.emit(&Instruction::I32WrapI64);
-                self.emit(&Instruction::CallIndirect {
-                    type_index: function_type(args.len()),
-                    table_index: 0,
-                });
+                self.in_definition(*slot);
+                self.call(args);
             }
-            Op::Primitive { operation, args } => {
-                let entry = entry_for(*operation);
-                if entry.takes_context() {
-                    self.emit(&Instruction::LocalGet(CONTEXT));
+            Op::CallValue { callee, args } => {
+                self.emit(&Instruction::LocalGet(CONTEXT));
+                self.value(*callee);
+                self.call(args);
+            }
+            _ => {
+                for (position, step) in op.steps().unwrap_or_default().iter().enumerate() {
+                    if step.entry.takes_context() {
+                        self.emit(&Instruction::LocalGet(CONTEXT));
+                    }
+                    for arg in &step.args {
+                        match arg {
+                            Arg::Value(value) => self.value(*value),
+                            Arg::Raw(raw) => self.constant(*raw),
+                            Arg::Object => self.emit(&Instruction::LocalGet(self.callee)),
+                            Arg::Definition(slot) => {
+                                self.in_definition(*slot);
+                                self.load(CLOSURE_DEFINITION);
+                            }
+                        }
+                    }
+                    self.emit(&Instruction::Call(import(step.entry)));
+                    // What the first call returns is the result, and what
+                    // the others fill in.
+                    if position == 0 {
+                        self.emit(&Instruction::LocalSet(self.callee));
+                    }
                 }
-                for arg in args {
-                    self.value(*arg);
-                }
-                self.emit(&Instruction::Call(import(entry)));
+                self.emit(&Instruction::LocalGet(self.callee));
             }
         }
+    }
+
+    /// Pushes the word at `position` after the fixed part of this
+    /// definition: a slot, or past the slots a constant.
+    fn in_definition(&mut self, position: usize) {
+        self.emit(&Instruction::LocalGet(CLOSURE));
+        self.load(CLOSURE_DEFINITION);
+        self.load(DEFINITION_SLOTS + i32::try_from(position * 8).unwrap_or(0));
+    }
+
+    /// With the context and a closure on the stack: calls the closure with
+    /// `args`.
+    fn call(&mut self, args: &[lir::Value]) {
+        self.emit(&Instruction::LocalTee(self.callee));
+        for arg in args {
+            self.value(*arg);
+        }
+        // Its code: an index into the table.
+        self.emit(&Instruction::LocalGet(self.callee));
+        self.load(CLOSURE_DEFINITION);
+        self.load(DEFINITION_CODE);
+        self.emit(&Instruction::I32WrapI64);
+        self.emit(&Instruction::CallIndirect {
+            type_index: function_type(args.len()),
+            table_index: 0,
+        });
     }
 
     /// Replaces the address on the stack with the word at `offset` from it.
@@ -323,10 +364,16 @@ pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
     }
     types.ty().function([ValType::I64], [ValType::I32]);
     imports.import(RUNTIME_MODULE, "amb_words", EntityType::Function(next_type));
-    let init_type = next_type + 1;
+    types
+        .ty()
+        .function([ValType::I32, ValType::I64], [ValType::I64]);
+    for name in ["amb_string_pinned", "amb_intern"] {
+        imports.import(RUNTIME_MODULE, name, EntityType::Function(next_type + 1));
+    }
+    let init_type = next_type + 2;
     types.ty().function([], [ValType::I64]);
 
-    let first = WORDS + 1;
+    let first = INTERN + 1;
     let mut functions = FunctionSection::new();
     let mut code = CodeSection::new();
     let mut table = Vec::new();
@@ -337,7 +384,10 @@ pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
     }
     let init = first + index(parts.parts.len())?;
     functions.function(init_type);
-    code.function(&initializer(parts)?);
+    let (initializer, text) = initializer(parts)?;
+    code.function(&initializer);
+    let mut data = DataSection::new();
+    data.passive(text);
 
     let mut tables = TableSection::new();
     tables.table(TableType {
@@ -365,7 +415,9 @@ pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
         .section(&tables)
         .section(&exports)
         .section(&elements)
-        .section(&code);
+        .section(&DataCountSection { count: 1 })
+        .section(&code)
+        .section(&data);
     Ok(module.finish())
 }
 
@@ -374,74 +426,122 @@ enum Field {
     Word(u64),
     /// The address of another word of the block being laid out.
     Address(usize),
+    /// A constant made from bytes of the program's text.
+    Text {
+        make: u32,
+        offset: usize,
+        length: usize,
+    },
 }
 
-/// The local of `initializer` that holds the address of the block.
+/// The locals of `initializer`: the address of the block of definitions,
+/// and the address the program's text was copied to.
 const BASE: u32 = 0;
+const TEXT: u32 = 1;
 
 /// The function that lays out every definition and its closure in the
-/// runtime's memory and returns the entry's closure.
-fn initializer(parts: &Parts) -> Result<Function, String> {
+/// runtime's memory and returns the entry's closure, with the bytes of
+/// every constant, which it copies in first.
+fn initializer(parts: &Parts) -> Result<(Function, Vec<u8>), String> {
     let offset = |word: usize| i32::try_from(word * 8).map_err(|error| error.to_string());
+    let number = |value: usize| i64::try_from(value).map_err(|error| error.to_string());
 
     // Each part's definition, then its closure, as the native loader does.
     let mut definitions = Vec::new();
     let mut words = 0usize;
     for part in &parts.parts {
         definitions.push(words);
-        words += DEFINITION_WORDS + part.slots.len() + CLOSURE_WORDS;
+        words += DEFINITION_WORDS + part.slots.len() + part.constants.len() + CLOSURE_WORDS;
     }
-    let closure =
-        |part: usize| definitions[part] + DEFINITION_WORDS + parts.parts[part].slots.len();
-
-    let mut body = Function::new_with_locals_types([ValType::I32]);
-    body.instruction(&Instruction::I64Const(
-        i64::try_from(words).map_err(|error| error.to_string())?,
-    ));
-    body.instruction(&Instruction::Call(WORDS));
-    body.instruction(&Instruction::LocalSet(BASE));
-
-    let store = |body: &mut Function, word: usize, field: Field| -> Result<(), String> {
-        body.instruction(&Instruction::LocalGet(BASE));
-        match field {
-            Field::Word(value) => {
-                body.instruction(&Instruction::I64Const(value.cast_signed()));
-            }
-            Field::Address(target) => {
-                body.instruction(&Instruction::LocalGet(BASE));
-                body.instruction(&Instruction::I64ExtendI32U);
-                body.instruction(&Instruction::I64Const(i64::from(offset(target)?)));
-                body.instruction(&Instruction::I64Add);
-            }
-        }
-        body.instruction(&Instruction::I64Store(memory(offset(word)?)));
-        Ok(())
+    let closure = |index: usize| {
+        let part = &parts.parts[index];
+        definitions[index] + DEFINITION_WORDS + part.slots.len() + part.constants.len()
     };
 
+    let mut text = Vec::new();
+    let mut fields = Vec::new();
     let mut header = [0u64; CLOSURE_WORDS];
     ambient_runtime::pinned_closure(&mut header, 0);
     for (position, part) in parts.parts.iter().enumerate() {
         let definition = definitions[position];
         // The code is the function's index in the table, which is its
         // position among the parts.
-        store(&mut body, definition, Field::Word(position as u64))?;
-        store(&mut body, definition + 1, Field::Word(part.arity as u64))?;
+        fields.push((definition, Field::Word(position as u64)));
+        fields.push((definition + 1, Field::Word(part.arity as u64)));
         for (slot, target) in part.slots.iter().enumerate() {
             let field = target.map_or(Field::Word(0), |target| Field::Address(closure(target)));
-            store(&mut body, definition + DEFINITION_WORDS + slot, field)?;
+            fields.push((definition + DEFINITION_WORDS + slot, field));
+        }
+        let constants = definition + DEFINITION_WORDS + part.slots.len();
+        for (index, constant) in part.constants.iter().enumerate() {
+            let (make, bytes) = match constant {
+                Constant::String(bytes) => (STRING_PINNED, bytes),
+                Constant::Field(bytes) => (INTERN, bytes),
+            };
+            let field = Field::Text {
+                make,
+                offset: text.len(),
+                length: bytes.len(),
+            };
+            text.extend_from_slice(bytes.as_bytes());
+            fields.push((constants + index, field));
         }
         let at = closure(position);
-        store(&mut body, at, Field::Word(header[0]))?;
-        store(&mut body, at + 1, Field::Word(header[1]))?;
-        store(&mut body, at + 2, Field::Address(definition))?;
+        fields.push((at, Field::Word(header[0])));
+        fields.push((at + 1, Field::Word(header[1])));
+        fields.push((at + 2, Field::Address(definition)));
     }
 
-    body.instruction(&Instruction::LocalGet(BASE));
-    body.instruction(&Instruction::I64ExtendI32U);
-    body.instruction(&Instruction::I64Const(i64::from(offset(closure(
-        parts.entry,
-    ))?)));
-    body.instruction(&Instruction::I64Add);
+    let mut body = Function::new_with_locals_types([ValType::I32, ValType::I32]);
+    body.instruction(&Instruction::I64Const(number(words)?));
+    body.instruction(&Instruction::Call(WORDS));
+    body.instruction(&Instruction::LocalSet(BASE));
+    // The text goes into memory the runtime allocated, since the runtime
+    // owns the memory.
+    body.instruction(&Instruction::I64Const(number(text.len().div_ceil(8))?));
+    body.instruction(&Instruction::Call(WORDS));
+    body.instruction(&Instruction::LocalTee(TEXT));
+    body.instruction(&Instruction::I32Const(0));
+    body.instruction(&Instruction::I32Const(
+        i32::try_from(text.len()).map_err(|error| error.to_string())?,
+    ));
+    body.instruction(&Instruction::MemoryInit {
+        mem: 0,
+        data_index: 0,
+    });
+
+    let address = |body: &mut Function, word: usize| -> Result<(), String> {
+        body.instruction(&Instruction::LocalGet(BASE));
+        body.instruction(&Instruction::I64ExtendI32U);
+        body.instruction(&Instruction::I64Const(i64::from(offset(word)?)));
+        body.instruction(&Instruction::I64Add);
+        Ok(())
+    };
+    for (word, field) in fields {
+        body.instruction(&Instruction::LocalGet(BASE));
+        match field {
+            Field::Word(value) => {
+                body.instruction(&Instruction::I64Const(value.cast_signed()));
+            }
+            Field::Address(target) => address(&mut body, target)?,
+            Field::Text {
+                make,
+                offset,
+                length,
+            } => {
+                body.instruction(&Instruction::LocalGet(TEXT));
+                body.instruction(&Instruction::I32Const(
+                    i32::try_from(offset).map_err(|error| error.to_string())?,
+                ));
+                body.instruction(&Instruction::I32Add);
+                body.instruction(&Instruction::I64Const(number(length)?));
+                body.instruction(&Instruction::Call(make));
+            }
+        }
+        body.instruction(&Instruction::I64Store(memory(offset(word)?)));
+    }
+
+    address(&mut body, closure(parts.entry))?;
     body.instruction(&Instruction::End);
-    Ok(body)
+    Ok((body, text))
 }

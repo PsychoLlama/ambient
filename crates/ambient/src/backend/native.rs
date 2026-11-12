@@ -2,7 +2,8 @@
 //! process.
 
 use ambient_runtime::layout::{
-    CLOSURE_DEFINITION, CLOSURE_WORDS, DEFINITION_CODE, DEFINITION_SLOTS, DEFINITION_WORDS,
+    CLOSURE_CAPTURES, CLOSURE_DEFINITION, CLOSURE_WORDS, DEFINITION_CODE, DEFINITION_SLOTS,
+    DEFINITION_WORDS,
 };
 use ambient_runtime::{Context, Entry, FALSE, Fault, NULL, TRUE, Word};
 use cranelift_codegen::control::ControlPlane;
@@ -17,9 +18,9 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use memmap2::{Mmap, MmapMut};
 
 use super::MAX_ARITY;
-use crate::core::{Open, Primitive, Tree};
+use crate::core::Open;
 use crate::engine::{Backend, Parts};
-use crate::lir::{self, Expr, Op};
+use crate::lir::{self, Arg, Constant, Expr, Op};
 use crate::lower::lower;
 use crate::value::Inspect;
 
@@ -56,14 +57,11 @@ impl Backend for Native {
     }
 
     fn compile(&self, definition: &Open) -> Result<Vec<u8>, String> {
-        let Tree::Function(function) = &definition.tree else {
-            return Err("not a function".to_owned());
-        };
-        if function.params.len() > MAX_ARITY {
+        let function =
+            lower(definition).map_err(|error| format!("{} are not compiled yet", error.0))?;
+        if function.params > MAX_ARITY {
             return Err(format!("more than {MAX_ARITY} parameters"));
         }
-        let function =
-            lower(function).map_err(|error| format!("{} are not compiled yet", error.0))?;
 
         let mut signature = Signature::new(self.isa.default_call_conv());
         signature.params = vec![AbiParam::new(I64); function.params + 2];
@@ -95,6 +93,7 @@ impl Backend for Native {
             context: params[0],
             closure: params[1],
             locals,
+            slots: function.slots,
             unwind: vec![exit],
             builder,
         };
@@ -126,6 +125,8 @@ struct Emitter<'a> {
     context: Val,
     closure: Val,
     locals: Vec<Variable>,
+    /// How many slots the definition has; its constants follow them.
+    slots: usize,
     /// Where unwinding goes from here: the end of each enclosing `Let`,
     /// innermost last, each taking the result as its parameter.
     unwind: Vec<cranelift_codegen::ir::Block>,
@@ -156,11 +157,35 @@ impl Emitter<'_> {
     fn value(&mut self, value: lir::Value) -> Val {
         match value {
             lir::Value::Local(local) => self.builder.use_var(self.locals[local]),
+            lir::Value::Captured(position) => {
+                let offset = CLOSURE_CAPTURES + i32::try_from(position * 8).unwrap_or(0);
+                self.load(self.closure, offset)
+            }
+            lir::Value::Constant(position) => self.in_definition(self.slots + position),
             lir::Value::Null => self.constant(NULL),
             lir::Value::Bool(true) => self.constant(TRUE),
             lir::Value::Bool(false) => self.constant(FALSE),
             lir::Value::Int(value) => self.builder.ins().iconst(I64, (value << 1) | 1),
         }
+    }
+
+    /// The word at `position` after the fixed part of this definition: a
+    /// slot, or past the slots a constant.
+    fn in_definition(&mut self, position: usize) -> Val {
+        let definition = self.load(self.closure, CLOSURE_DEFINITION);
+        let offset = DEFINITION_SLOTS + i32::try_from(position * 8).unwrap_or(0);
+        self.load(definition, offset)
+    }
+
+    /// Calls the function a closure refers to.
+    fn call(&mut self, callee: Val, args: &[lir::Value]) -> Val {
+        let definition = self.load(callee, CLOSURE_DEFINITION);
+        let code = self.load(definition, DEFINITION_CODE);
+        let mut all = vec![self.context, callee];
+        all.extend(args.iter().map(|arg| self.value(*arg)));
+        let signature = self.signature(all.len(), true);
+        let call = self.builder.ins().call_indirect(signature, code, &all);
+        self.builder.inst_results(call)[0]
     }
 
     /// Calls an entry point of the runtime, through the context's table.
@@ -276,21 +301,37 @@ impl Emitter<'_> {
                 let raw = self.constant(*bits);
                 self.entry(Entry::FloatNew, &[raw])
             }
+            Op::Slot(slot) => self.in_definition(*slot),
             Op::Call { slot, args } => {
-                let definition = self.load(self.closure, CLOSURE_DEFINITION);
-                let offset = DEFINITION_SLOTS + i32::try_from(*slot * 8).unwrap_or(0);
-                let callee = self.load(definition, offset);
-                let callee_definition = self.load(callee, CLOSURE_DEFINITION);
-                let code = self.load(callee_definition, DEFINITION_CODE);
-                let mut all = vec![self.context, callee];
-                all.extend(args.iter().map(|arg| self.value(*arg)));
-                let signature = self.signature(all.len(), true);
-                let call = self.builder.ins().call_indirect(signature, code, &all);
-                self.builder.inst_results(call)[0]
+                let callee = self.in_definition(*slot);
+                self.call(callee, args)
             }
-            Op::Primitive { operation, args } => {
-                let args: Vec<Val> = args.iter().map(|arg| self.value(*arg)).collect();
-                self.entry(entry_for(*operation), &args)
+            Op::CallValue { callee, args } => {
+                let callee = self.value(*callee);
+                self.call(callee, args)
+            }
+            _ => {
+                let mut object = self.context;
+                for (position, step) in op.steps().unwrap_or_default().iter().enumerate() {
+                    let args: Vec<Val> = step
+                        .args
+                        .iter()
+                        .map(|arg| match arg {
+                            Arg::Value(value) => self.value(*value),
+                            Arg::Raw(raw) => self.constant(*raw),
+                            Arg::Object => object,
+                            Arg::Definition(slot) => {
+                                let closure = self.in_definition(*slot);
+                                self.load(closure, CLOSURE_DEFINITION)
+                            }
+                        })
+                        .collect();
+                    let result = self.runtime(step.entry, &args);
+                    if position == 0 {
+                        object = result.unwrap_or(object);
+                    }
+                }
+                object
             }
         }
     }
@@ -301,22 +342,6 @@ impl Emitter<'_> {
         self.runtime(entry, args)
             .or(fallback)
             .unwrap_or(self.context)
-    }
-}
-
-/// The entry point that performs a primitive operation.
-#[must_use]
-pub fn entry_for(operation: Primitive) -> Entry {
-    match operation {
-        Primitive::IntAdd => Entry::IntAdd,
-        Primitive::IntSubtract => Entry::IntSubtract,
-        Primitive::IntMultiply => Entry::IntMultiply,
-        Primitive::IntLess => Entry::IntLess,
-        Primitive::FloatAdd => Entry::FloatAdd,
-        Primitive::FloatSubtract => Entry::FloatSubtract,
-        Primitive::FloatMultiply => Entry::FloatMultiply,
-        Primitive::FloatLess => Entry::FloatLess,
-        Primitive::Equal => Entry::Equal,
     }
 }
 
@@ -358,10 +383,12 @@ impl Program {
         let mut words = 0usize;
         for part in &parts.parts {
             definitions.push(words);
-            words += DEFINITION_WORDS + part.slots.len() + CLOSURE_WORDS;
+            words += DEFINITION_WORDS + part.slots.len() + part.constants.len() + CLOSURE_WORDS;
         }
-        let closure =
-            |index: usize| definitions[index] + DEFINITION_WORDS + parts.parts[index].slots.len();
+        let closure = |index: usize| {
+            let part = &parts.parts[index];
+            definitions[index] + DEFINITION_WORDS + part.slots.len() + part.constants.len()
+        };
         let mut statics = vec![0u64; words.max(1)].into_boxed_slice();
         let base = statics.as_ptr() as usize;
         let address = |word: usize| (base + word * 8) as u64;
@@ -372,6 +399,21 @@ impl Program {
             for (slot, target) in part.slots.iter().enumerate() {
                 statics[definition + DEFINITION_WORDS + slot] =
                     target.map_or(0, |t| address(closure(t)));
+            }
+            let constants = definition + DEFINITION_WORDS + part.slots.len();
+            for (position, constant) in part.constants.iter().enumerate() {
+                let (Constant::String(text) | Constant::Field(text)) = constant;
+                // SAFETY: the pointer and length are those of a live string.
+                statics[constants + position] = unsafe {
+                    match constant {
+                        Constant::String(_) => {
+                            ambient_runtime::amb_string_pinned(text.as_ptr(), text.len() as u64)
+                        }
+                        Constant::Field(_) => {
+                            ambient_runtime::amb_intern(text.as_ptr(), text.len() as u64)
+                        }
+                    }
+                };
             }
             let at = closure(index);
             ambient_runtime::pinned_closure(
@@ -459,5 +501,24 @@ impl Inspect for Host {
     fn float_bits(&mut self, word: Word) -> u64 {
         // SAFETY: `decode` asks only for what `kind` reported.
         unsafe { ambient_runtime::amb_float_bits(word) }
+    }
+
+    fn length(&mut self, word: Word) -> u64 {
+        // SAFETY: `decode` asks only about objects.
+        unsafe { ambient_runtime::amb_length(word) }
+    }
+
+    fn word_at(&mut self, word: Word, index: u64) -> Word {
+        // SAFETY: `decode` stays within the length it was told.
+        unsafe { ambient_runtime::amb_word_at(word, index) }
+    }
+
+    fn string(&mut self, word: Word) -> Vec<u8> {
+        // SAFETY: the word is a string, and its bytes are as long as its
+        // length says.
+        unsafe {
+            let length = usize::try_from(ambient_runtime::amb_length(word)).unwrap_or(0);
+            std::slice::from_raw_parts(ambient_runtime::amb_string_bytes(word), length).to_vec()
+        }
     }
 }

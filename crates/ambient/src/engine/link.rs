@@ -8,6 +8,8 @@ use super::{Artifact, Backend, Engine};
 use crate::core::Tree;
 use crate::error::Error;
 use crate::hash::Hash;
+use crate::lir::Constant;
+use crate::lower::lower;
 use crate::symbol::Symbol;
 
 /// One compiled function of a program.
@@ -20,6 +22,8 @@ pub struct Part {
     /// The part each slot refers to. `None` for a slot that is not a
     /// function.
     pub slots: Vec<Option<usize>>,
+    /// What the function needs made when the program is loaded.
+    pub constants: Vec<Constant>,
 }
 
 /// A program: exactly the functions its entry reaches, each once.
@@ -77,6 +81,12 @@ impl Engine<'_> {
                 arity,
                 code: self.compile(symbol, backend)?,
                 slots,
+                // Lowering is cheap and has just succeeded inside
+                // `compile`, so its constants are read from it again
+                // rather than kept beside the code.
+                constants: lower(&open)
+                    .map(|function| function.constants)
+                    .unwrap_or_default(),
             });
         }
         let entry = indices.get(&self.hash(entry)?).copied().unwrap_or(0);

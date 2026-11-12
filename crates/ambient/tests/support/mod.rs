@@ -131,6 +131,29 @@ impl ambient::value::Inspect for Guest {
     fn float_bits(&mut self, word: u64) -> u64 {
         self.word("amb_float_bits", word)
     }
+
+    fn length(&mut self, word: u64) -> u64 {
+        self.word("amb_length", word)
+    }
+
+    fn word_at(&mut self, word: u64, index: u64) -> u64 {
+        let args = [word, index].map(|arg| wasmtime::Val::I64(arg.cast_signed()));
+        self.runtime("amb_word_at", &args)
+            .unwrap()
+            .unwrap_i64()
+            .cast_unsigned()
+    }
+
+    fn string(&mut self, word: u64) -> Vec<u8> {
+        let length = usize::try_from(self.length(word)).unwrap();
+        let pointer = self.runtime(
+            "amb_string_bytes",
+            &[wasmtime::Val::I64(word.cast_signed())],
+        );
+        let start = usize::try_from(pointer.unwrap().unwrap_i32()).unwrap();
+        let memory = self.runtime.get_memory(&mut self.store, "memory").unwrap();
+        memory.data(&self.store)[start..start + length].to_vec()
+    }
 }
 
 fn run_wasm(parts: &ambient::engine::Parts, args: &[i64]) -> Outcome {

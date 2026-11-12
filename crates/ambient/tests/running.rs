@@ -156,3 +156,313 @@ fn a_fault_unwinds_through_bindings() {
         Err(Fault::Overflow)
     );
 }
+
+fn record<const N: usize>(fields: [(&str, Value); N]) -> Value {
+    Value::Record(
+        fields
+            .into_iter()
+            .map(|(name, value)| (name.to_owned(), value))
+            .collect(),
+    )
+}
+
+#[test]
+fn strings() {
+    assert_eq!(
+        evaluates(ty::string(), b::string("héllo")),
+        Value::String("héllo".to_owned())
+    );
+    let equal = |left, right| evaluates(ty::bool(), b::equal(b::string(left), b::string(right)));
+    assert_eq!(equal("a", "a"), Value::Bool(true));
+    assert_eq!(equal("a", "b"), Value::Bool(false));
+}
+
+#[test]
+fn tuples_and_lists() {
+    let members = || [b::int(1), b::string("a"), b::null()];
+    let decoded = || vec![Value::Int(1), Value::String("a".to_owned()), Value::Null];
+
+    assert_eq!(
+        evaluates(ty::unknown(), b::tuple(members())),
+        Value::Tuple(decoded())
+    );
+    assert_eq!(
+        evaluates(ty::unknown(), b::list(members())),
+        Value::List(decoded())
+    );
+    // A tuple and a list are different shapes, whatever they hold.
+    let mixed = b::equal(b::tuple([b::int(1)]), b::list([b::int(1)]));
+    assert_eq!(evaluates(ty::bool(), mixed), Value::Bool(false));
+}
+
+#[test]
+fn records() {
+    let point = || b::record([("x", b::int(1)), ("y", b::string("a"))]);
+
+    assert_eq!(
+        evaluates(ty::unknown(), point()),
+        record([("x", Value::Int(1)), ("y", Value::String("a".to_owned()))]),
+    );
+    assert_eq!(
+        evaluates(ty::string(), b::field(point(), "y")),
+        Value::String("a".to_owned())
+    );
+    // The order fields were written in is not part of the value.
+    let swapped = b::record([("y", b::string("a")), ("x", b::int(1))]);
+    assert_eq!(
+        evaluates(ty::bool(), b::equal(point(), swapped)),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn nested_values_are_built_and_released() {
+    let inner = b::list([
+        b::int(i64::MAX),
+        b::float(0.5),
+        b::tuple([b::string("deep")]),
+    ]);
+    let body = b::let_(
+        "kept",
+        b::record([("items", inner)]),
+        b::field(b::name("kept"), "items"),
+    );
+
+    assert_eq!(
+        evaluates(ty::unknown(), body),
+        Value::List(vec![
+            Value::Int(i64::MAX),
+            Value::Float(0.5),
+            Value::Tuple(vec![Value::String("deep".to_owned())]),
+        ]),
+    );
+}
+
+#[test]
+fn a_match_takes_values_apart() {
+    let shape = ty::union([
+        ty::record([("kind", ty::text("square")), ("side", ty::int())]),
+        ty::record([
+            ("kind", ty::text("rectangle")),
+            ("size", ty::tuple([ty::int(), ty::int()])),
+        ]),
+    ]);
+    let area = b::function("area")
+        .param("shape", shape)
+        .returns(ty::int())
+        .body(b::match_(
+            b::name("shape"),
+            [
+                (
+                    pat::record([("kind", pat::string("square")), ("side", pat::bind("s"))]),
+                    b::multiply(b::name("s"), b::name("s")),
+                ),
+                (
+                    pat::record([("size", pat::tuple([pat::bind("w"), pat::bind("h")]))]),
+                    b::multiply(b::name("w"), b::name("h")),
+                ),
+            ],
+        ));
+    let call = |shape| {
+        run(
+            [
+                area.clone(),
+                main(ty::int(), b::call(b::name("area"), [shape])),
+            ],
+            &[],
+        )
+    };
+
+    let square = b::record([("kind", b::string("square")), ("side", b::int(3))]);
+    let rectangle = b::record([
+        ("kind", b::string("rectangle")),
+        ("size", b::tuple([b::int(2), b::int(5)])),
+    ]);
+    assert_eq!(call(square).unwrap(), Value::Int(9));
+    assert_eq!(call(rectangle).unwrap(), Value::Int(10));
+}
+
+#[test]
+fn a_tuple_pattern_does_not_match_a_list() {
+    let first = b::function("first")
+        .param("xs", ty::list(ty::int()))
+        .returns(ty::int())
+        .body(b::match_(
+            b::name("xs"),
+            [
+                (pat::tuple([pat::bind("a"), pat::any()]), b::name("a")),
+                (pat::any(), b::int(-1)),
+            ],
+        ));
+    let call = |xs| {
+        run(
+            [
+                first.clone(),
+                main(ty::int(), b::call(b::name("first"), [xs])),
+            ],
+            &[],
+        )
+    };
+
+    assert_eq!(
+        call(b::tuple([b::int(7), b::int(8)])).unwrap(),
+        Value::Int(7)
+    );
+    assert_eq!(
+        call(b::list([b::int(7), b::int(8)])).unwrap(),
+        Value::Int(-1)
+    );
+}
+
+#[test]
+fn recursive_data() {
+    let node = ty::record([("head", ty::int()), ("tail", ty::named("Items"))]);
+    let items = b::type_("Items", ty::union([ty::null(), node]));
+    // `fn build(n: int): Items`, the numbers from `n` down to 1.
+    let build = b::function("build")
+        .param("n", ty::int())
+        .returns(ty::named("Items"))
+        .body(b::match_(
+            b::name("n"),
+            [
+                (pat::int(0), b::null()),
+                (
+                    pat::any(),
+                    b::record([
+                        ("head", b::name("n")),
+                        (
+                            "tail",
+                            b::call(b::name("build"), [b::subtract(b::name("n"), b::int(1))]),
+                        ),
+                    ]),
+                ),
+            ],
+        ));
+    let sum = b::function("sum")
+        .param("items", ty::named("Items"))
+        .returns(ty::int())
+        .body(b::match_(
+            b::name("items"),
+            [
+                (
+                    pat::record([("head", pat::bind("h")), ("tail", pat::bind("t"))]),
+                    b::add(b::name("h"), b::call(b::name("sum"), [b::name("t")])),
+                ),
+                (pat::any(), b::int(0)),
+            ],
+        ));
+    let total = b::call(b::name("sum"), [b::call(b::name("build"), [b::int(2000)])]);
+
+    assert_eq!(
+        run([items, build, sum, main(ty::int(), total)], &[]).unwrap(),
+        Value::Int(2_001_000)
+    );
+}
+
+#[test]
+fn function_values() {
+    let double = b::function("double")
+        .param("n", ty::int())
+        .returns(ty::int())
+        .body(b::multiply(b::name("n"), b::int(2)));
+    let apply = b::function("apply")
+        .param("f", ty::function([ty::int()], ty::int()))
+        .param("v", ty::int())
+        .returns(ty::int())
+        .body(b::call(b::name("f"), [b::name("v")]));
+    let named = b::call(b::name("apply"), [b::name("double"), b::int(21)]);
+    let lambda = b::lambda([("x", None)], b::add(b::name("x"), b::int(1)));
+    let written = b::call(b::name("apply"), [lambda, b::int(41)]);
+
+    assert_eq!(
+        run([double.clone(), apply.clone(), main(ty::int(), named)], &[]).unwrap(),
+        Value::Int(42)
+    );
+    assert_eq!(
+        run([apply, main(ty::int(), written)], &[]).unwrap(),
+        Value::Int(42)
+    );
+    assert_eq!(
+        evaluates(ty::unknown(), b::lambda([], b::null())),
+        Value::Function
+    );
+    let same = b::equal(b::name("double"), b::name("double"));
+    assert_eq!(
+        run([double, main(ty::bool(), same)], &[]).unwrap(),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn closures_capture_values() {
+    let adder = b::function("adder")
+        .param("n", ty::int())
+        .returns(ty::function([ty::int()], ty::int()))
+        .body(b::lambda([("x", None)], b::add(b::name("x"), b::name("n"))));
+    let call = b::call(b::call(b::name("adder"), [b::int(2)]), [b::int(40)]);
+    assert_eq!(
+        run([adder, main(ty::int(), call)], &[]).unwrap(),
+        Value::Int(42)
+    );
+
+    // A capture that passes through a lambda in between.
+    let thunk = |ret| ty::function([], ret);
+    let later = b::function("later")
+        .param("v", ty::string())
+        .returns(thunk(thunk(ty::string())))
+        .body(b::lambda([], b::lambda([], b::name("v"))));
+    let call = b::call(
+        b::call(b::call(b::name("later"), [b::string("kept")]), []),
+        [],
+    );
+    assert_eq!(
+        run([later, main(ty::string(), call)], &[]).unwrap(),
+        Value::String("kept".to_owned())
+    );
+}
+
+#[test]
+fn generic_functions_run_on_any_value() {
+    let apply = b::function("apply")
+        .type_param("T")
+        .type_param("U")
+        .param("v", ty::named("T"))
+        .param("f", ty::function([ty::named("T")], ty::named("U")))
+        .returns(ty::named("U"))
+        .body(b::call(b::name("f"), [b::name("v")]));
+    let pair = b::lambda([("x", None)], b::tuple([b::name("x"), b::name("x")]));
+    let call = b::call(b::name("apply"), [b::string("a"), pair]);
+    let twice = Value::Tuple(vec![Value::String("a".to_owned()); 2]);
+
+    assert_eq!(run([apply, main(ty::unknown(), call)], &[]).unwrap(), twice);
+}
+
+#[test]
+fn a_fault_inside_a_closure_unwinds_through_its_caller() {
+    let overflow = b::lambda([("x", None)], b::add(b::name("x"), b::int(i64::MAX)));
+    let body = b::let_(
+        "held",
+        b::list([b::string("a")]),
+        b::let_(
+            "f",
+            overflow_typed(overflow),
+            b::call(b::name("f"), [b::int(1)]),
+        ),
+    );
+
+    assert_eq!(run([main(ty::int(), body)], &[]), Err(Fault::Overflow));
+}
+
+/// A lambda needs a parameter type when nothing expects one of it.
+fn overflow_typed(lambda: Expr) -> Expr {
+    match lambda {
+        ambient::surface::Expr::Lambda { params, body } => ambient::surface::Expr::Lambda {
+            params: params
+                .into_iter()
+                .map(|(name, _)| (name, Some(ty::int())))
+                .collect(),
+            body,
+        },
+        other => other,
+    }
+}
