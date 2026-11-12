@@ -40,7 +40,7 @@ mod native;
 mod number;
 mod object;
 mod record;
-mod same;
+mod relate;
 mod sequence;
 mod task;
 mod text;

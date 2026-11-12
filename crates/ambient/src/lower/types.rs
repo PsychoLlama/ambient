@@ -7,8 +7,7 @@ use crate::lir::{Constant, Expr, Op, Value};
 
 impl Lowering {
     /// The type a cell made at `ty` keeps, as a constant. Nothing at run
-    /// time knows a type parameter or a function's type, so a cell made
-    /// at one keeps none, and passes no cast to a cell type.
+    /// time knows a type parameter, so a cell made at one keeps none, and passes no cast to a cell type.
     pub(super) fn made_at(&mut self, ty: &core::Type) -> Option<usize> {
         testable(ty)
             .is_ok()
@@ -27,9 +26,6 @@ impl Lowering {
 fn testable(ty: &core::Type) -> Result<(), Unsupported> {
     if mentions(ty, &|ty| matches!(ty, core::Type::Parameter(_))) {
         return Err(Unsupported("tests against a type parameter"));
-    }
-    if mentions(ty, &|ty| matches!(ty, core::Type::Function { .. })) {
-        return Err(Unsupported("tests against a function type"));
     }
     Ok(())
 }

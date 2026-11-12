@@ -97,6 +97,7 @@ pub fn plan(parts: &Parts) -> Statics {
                 arity,
                 constants,
                 metered,
+                signature,
                 ..
             } => {
                 // Without a metered form, the plain one stands in for it.
@@ -106,6 +107,8 @@ pub fn plan(parts: &Parts) -> Statics {
                 statics.set(at + 2, Field::Word(*arity as u64));
                 let hash = statics.text(Make::String, &part.hash.to_string());
                 statics.set(at + 3, hash);
+                let signature = statics.describe(signature, &slots);
+                statics.set(at + 4, Field::Address(signature));
                 for (position, slot) in slots.iter().enumerate() {
                     statics.set(
                         at + DEFINITION_WORDS + position,
@@ -177,8 +180,8 @@ fn node_size(ty: &Type) -> usize {
         | Type::Int
         | Type::Float
         | Type::String
-        | Type::Tag
-        | Type::Function { .. } => 1,
+        | Type::Tag => 1,
+        Type::Function { params, row, .. } => 4 + params.len() + row.len(),
         Type::Literal(_) => 3,
         Type::Record(fields) => 2 + fields.len() * 2,
         Type::Tuple(members) | Type::Union(members) => 2 + members.len(),
@@ -241,8 +244,18 @@ impl Statics {
             Type::Float => tag(self, d::FLOAT),
             Type::String => tag(self, d::STRING),
             Type::Tag => tag(self, d::TAG),
-            // No value is known to be one of these: see the runtime.
-            Type::Function { .. } => tag(self, d::FUNCTION),
+            Type::Function { params, ret, row } => {
+                tag(self, d::FUNCTION);
+                self.children(params, slots, at + 1);
+                let after = at + 2 + params.len();
+                let ret = self.describe(ret, slots);
+                self.set(after, Field::Address(ret));
+                self.set(after + 1, Field::Word(row.len() as u64));
+                for (position, slot) in row.iter().enumerate() {
+                    let key = self.text(Make::Field, &ability_key(&slots[slot.0].hash));
+                    self.set(after + 2 + position, key);
+                }
+            }
             Type::Literal(literal) => {
                 tag(self, d::LITERAL);
                 let (kind, payload) = match literal {

@@ -1,5 +1,6 @@
 //! Closures, and starting a fault.
 
+use crate::object::layout::DEFINITION_SIGNATURE;
 use crate::object::{KIND_CLOSURE, amb_retain, fault, object, words};
 use crate::{Context, Fault, NULL, Word};
 
@@ -22,6 +23,14 @@ pub unsafe extern "C" fn amb_closure_set(closure: Word, index: u64, value: Word)
     unsafe {
         amb_retain(value);
         words(closure)[index as usize + 1] = value;
+    }
+}
+
+/// The descriptor of the type of a closure's function, or zero.
+pub(crate) unsafe fn signature(closure: Word) -> u64 {
+    unsafe {
+        let definition = words(closure)[0] as usize as *const u64;
+        definition.add(DEFINITION_SIGNATURE as usize / 8).read()
     }
 }
 

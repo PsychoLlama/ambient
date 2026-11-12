@@ -43,6 +43,9 @@ pub enum Body {
         metered: Option<Arc<Artifact>>,
         /// What the function needs made when the program is loaded.
         constants: Vec<Constant>,
+        /// Its type, which a cast to a function type compares. Its slots
+        /// are the definition's.
+        signature: core::Type,
     },
     /// A recursive type definition, which casts test values against.
     Type(core::Type),
@@ -160,9 +163,15 @@ impl Engine<'_> {
             }
             let metered = metered.contains(&self.hash(symbol)?);
             // The bindings a function is handed come first.
-            let function = |arity: usize| -> Result<Body, Error> {
-                Ok(Body::Function {
-                    arity: arity + 1,
+            let function = |params: &[core::Type], ret, row: &[core::Slot]| {
+                let signature = core::Type::Function {
+                    params: params.to_vec(),
+                    ret: Box::new(Clone::clone(ret)),
+                    row: row.to_vec(),
+                };
+                Ok::<Body, Error>(Body::Function {
+                    arity: params.len() + 1,
+                    signature,
                     code: self.compile_as(symbol, backend, false)?,
                     metered: if metered {
                         Some(self.compile_as(symbol, backend, true)?)
@@ -179,8 +188,10 @@ impl Engine<'_> {
                 })
             };
             let body = match &open.tree {
-                Tree::Function(tree) => function(tree.params.len())?,
-                Tree::Extern { params, .. } => function(params.len())?,
+                Tree::Function(tree) => function(&tree.params, &tree.ret, &tree.row)?,
+                Tree::Extern {
+                    params, ret, row, ..
+                } => function(params, ret, row)?,
                 Tree::Type { ty, .. } => Body::Type(ty.clone()),
                 Tree::Ability { .. } | Tree::Target { .. } => Body::Inert,
             };

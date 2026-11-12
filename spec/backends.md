@@ -40,10 +40,11 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 
 - A type a [cast](types.md) or type test names exists at run time as a descriptor: data, laid out when a program is loaded.
 - A recursive type definition has one descriptor, which the descriptors that name it refer to.
-- No value carries a type but a [cell](cells.md), which keeps the descriptor of the type it was made at; a descriptor is otherwise consulted only where a cast is written.
+- Two values carry a type: a [cell](cells.md) keeps the descriptor of the type it was made at, and a function's definition holds the descriptor of its signature. A descriptor is otherwise consulted only where a cast is written.
 - A cast to a cell type passes a cell whose descriptor describes the same type as the cast's: names stand for their definitions, and a union is its members in any order.
-- TODO: a cell made at a type that mentions a type parameter or a function type keeps no descriptor, and passes no cast to a cell type.
-- TODO: a function value carries no signature yet, so a cast to a function type is not compiled.
+- A cast to a function type passes a function whose signature is [within](types.md) the cast's type, decided at run time as checking decides it.
+- TODO: a cell made at a type that mentions a type parameter keeps no descriptor, and passes no cast to a cell type.
+- TODO: a generic function's signature mentions its type parameters, which nothing knows at run time, so it passes no cast to a function type.
 - TODO: a cast to a type parameter is not compiled; it needs the type argument passed at run time.
 
 ## Calls

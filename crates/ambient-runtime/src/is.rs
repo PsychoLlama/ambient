@@ -1,12 +1,13 @@
 //! Type tests: whether a descriptor describes a value.
 
 use crate::cell::made_at;
+use crate::closure::signature;
 use crate::object::{
-    KIND_CELL, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE,
-    boolean, bytes, int, kind, payload, words,
+    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG,
+    KIND_TUPLE, boolean, bytes, int, kind, payload, words,
 };
 use crate::record::find;
-use crate::same::Types;
+use crate::relate::Types;
 use crate::{FALSE, NULL, TRUE, Word};
 
 /// The layout of a type descriptor: what a cast tests a value against.
@@ -37,6 +38,8 @@ pub mod descriptor {
     pub const TUPLE: u64 = 9;
     /// Then the member's node.
     pub const LIST: u64 = 10;
+    /// Then a count and that many parameter nodes, the result's node, a
+    /// count, and that many keys: the abilities it performs.
     pub const FUNCTION: u64 = 11;
     /// Then a count, and that many nodes.
     pub const UNION: u64 = 12;
@@ -268,8 +271,13 @@ unsafe fn look(value: Word, ty: u64, scope: Option<usize>, scopes: &mut Vec<Scop
                     && made_at(value) != 0
                     && Types::new(scopes).same((made_at(value), None), (node(1), scope))
             }
-            // TODO: a function value carries no signature yet, so nothing
-            // is known to be a function of a given type.
+            // A function is of the type its definition's signature says,
+            // and of any that type is within.
+            d::FUNCTION => {
+                kind(value) == KIND_CLOSURE
+                    && signature(value) != 0
+                    && Types::new(scopes).within((signature(value), None), (ty as u64, scope))
+            }
             _ => false,
         })
     }
