@@ -2,9 +2,11 @@
 
 use crate::object::layout::{DEFINITION_HASH, DEFINITION_TYPE};
 use crate::object::{KIND_CLOSURE, amb_retain, bytes, fault, object, words};
+use crate::unit::{self, amb_unit_retain};
 use crate::{Context, Fault, NULL, Word};
 
-/// A closure over `definition` with room for `captures` values. Fill it
+/// A closure over `definition` with room for `captures` values, which
+/// holds the definition's unit. Fill it
 /// with [`amb_closure_set`] before anything else sees it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_closure_new(definition: u64, captures: u64) -> Word {
@@ -13,6 +15,7 @@ pub unsafe extern "C" fn amb_closure_new(definition: u64, captures: u64) -> Word
         let fields = words(word);
         fields.fill(NULL);
         fields[0] = definition;
+        amb_unit_retain(unit::of(definition));
         word
     }
 }

@@ -34,7 +34,6 @@ Definitions and values move between running programs by hash. A receiver trusts 
 - A receiver may supply the definitions it is willing to run; a hash outside that set does not decode, and nothing new enters the program.
 - Or the definition is loaded, as compiled code or from a pack; loading adds code to a running program and is an ability.
 - A loaded definition is held by the values that refer to it and is discarded with them.
-- TODO: a loaded definition is kept until its program is dropped; cells, type arguments, and function values made by it all point into it, and nothing counts them yet.
 - A definition the program already has is not loaded again: one hash is one definition.
 - A loaded definition is never written to a [store](build.md).
 

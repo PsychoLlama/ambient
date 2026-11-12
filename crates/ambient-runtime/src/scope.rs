@@ -2,8 +2,9 @@
 //! node that mentions one is read. See `spec/backends.md`.
 
 use crate::is::descriptor as d;
-use crate::object::{KIND_SCOPE, PINNED, amb_retain, object, words};
+use crate::object::{KIND_SCOPE, amb_retain, fixed, object, words};
 use crate::same::Types;
+use crate::unit::{self, amb_unit_retain};
 use crate::{NULL, Word};
 
 /// Where the type parameters a node mentions are found.
@@ -58,10 +59,11 @@ pub(crate) unsafe fn argument(scopes: &[Scope], env: Env, position: usize) -> Op
     }
 }
 
-/// Writes the header of type arguments that are never reclaimed into
-/// `words`: `count` of them, each a node and then null, follow it.
-pub fn pinned_scope(words: &mut [u64], count: usize) {
-    words[0] = u64::from(PINNED) | (u64::from(KIND_SCOPE) << 32);
+/// Writes the header of type arguments for a block into `words`:
+/// `count` of them, each a node and then null, follow it. `loaded` is as
+/// [`crate::fixed_closure`] takes it.
+pub fn fixed_scope(words: &mut [u64], count: usize, loaded: bool) {
+    words[0] = fixed(loaded) | (u64::from(KIND_SCOPE) << 32);
     words[1] = count as u64 * 16;
 }
 
@@ -78,6 +80,7 @@ pub unsafe extern "C" fn amb_scope_new(count: u64) -> Word {
 
 /// Makes type argument `index` the type `node` describes, read in
 /// `within`: the type arguments of the function this runs in, or null.
+/// The type arguments hold the node's unit.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_scope_set(scope: Word, index: u64, node: u64, within: Word) {
     unsafe {
@@ -90,6 +93,7 @@ pub unsafe extern "C" fn amb_scope_set(scope: Word, index: u64, node: u64, withi
             (node, within) = (entries[position * 2], entries[position * 2 + 1]);
         }
         amb_retain(within);
+        amb_unit_retain(unit::of(node));
         let entries = words(scope);
         entries[index as usize * 2] = node;
         entries[index as usize * 2 + 1] = within;

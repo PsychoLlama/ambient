@@ -6,26 +6,21 @@ use std::collections::{HashMap, HashSet};
 
 use ambient_runtime::{Context, Entry, Fault, NULL, Word};
 
-use memmap2::{Mmap, MmapMut};
-
 use super::host::{Host, Natives, Observation, Offered, dispatch};
-use crate::backend::statics::{self, Base, Field, Known, Make, Place};
+use super::unit::{Unit, map};
+use crate::backend::statics::{self, Base, Field, Known, Place};
 use crate::engine::{Body, Native, Part, Parts};
 use crate::hash::Hash;
 use crate::value::{self, Value};
 
-/// What one load brought: code, and the block of words it reads.
-struct Unit {
-    /// Held so that the code stays mapped.
-    _code: Mmap,
-    /// Every definition and its closure. Held so that they stay put.
-    _statics: Box<[u64]>,
-}
-
 /// A program loaded into this process, ready to call. More can be
 /// loaded into it while it lives: see [`Program::add`].
 pub struct Program {
-    units: RefCell<Vec<Unit>>,
+    /// What each load brought, by the address of its block.
+    units: RefCell<HashMap<u64, Unit>>,
+    /// The first of the units nothing refers to, which the runtime
+    /// keeps up to date: see [`Self::reclaim`].
+    unused: Box<UnsafeCell<u64>>,
     /// Where each definition it has is, by hash.
     known: RefCell<HashMap<Hash, Known>>,
     /// The functions among them that have a metered form.
@@ -54,6 +49,13 @@ impl Drop for Program {
         // SAFETY: the word is the one every call's context was given.
         // No call is running, so nothing reads a cell after this.
         unsafe { ambient_runtime::amb_cells_drop(self.cells.get()) }
+        // A unit that goes gives up the units it refers into, which may
+        // be gone already when every unit goes.
+        let mut units = self.units.borrow_mut();
+        for unit in units.values_mut() {
+            unit.holds.clear();
+        }
+        units.clear();
     }
 }
 
@@ -68,6 +70,7 @@ impl Program {
     pub fn load(parts: &Parts, natives: &Natives) -> Result<Self, String> {
         let program = Self {
             units: RefCell::default(),
+            unused: Box::default(),
             known: RefCell::default(),
             metered: RefCell::default(),
             entries: Entry::ALL.iter().map(|entry| entry.address()).collect(),
@@ -79,25 +82,61 @@ impl Program {
             error: RefCell::default(),
             cells: Box::default(),
         };
-        program.entry.set(program.add(parts, natives)?);
+        program.entry.set(program.place(parts, natives, false)?);
         Ok(program)
     }
 
     /// Loads more into the program: the parts of a function and what it
     /// reaches, as [`crate::engine::Engine::link_to_load`] makes them.
-    /// Returns the function, a value that lives as long as the program.
+    /// Returns the function, a value the caller owns.
     ///
     /// A part the program has already, by hash, is not loaded again;
-    /// what is loaded uses the one that is there. What is loaded stays
-    /// until the program is dropped.
+    /// what is loaded uses the one that is there. What is loaded is held
+    /// by the values that refer to it: the function returned, closures
+    /// over its definitions, cells and type arguments made at its
+    /// types. Once there are none it is dropped, no sooner than the
+    /// next load or the end of a call.
     ///
     /// # Errors
     ///
     /// Fails if `natives` lacks an extern the parts reach, or executable
     /// memory cannot be mapped. Nothing is loaded then.
     pub fn add(&self, parts: &Parts, natives: &Natives) -> Result<Word, String> {
+        self.reclaim();
+        self.place(parts, natives, true)
+    }
+
+    /// Drops what was loaded and nothing refers to any more, and
+    /// whatever only that referred to. Every load begins with this and
+    /// every call ends with it.
+    pub fn reclaim(&self) {
+        loop {
+            let mut unused = false;
+            // SAFETY: the word is the list every unit was given.
+            let unit =
+                unsafe { ambient_runtime::amb_unit_next(self.unused.get(), &raw mut unused) };
+            if unit == 0 {
+                break;
+            }
+            let gone = unused.then(|| self.units.borrow_mut().remove(&unit));
+            let Some(gone) = gone.flatten() else {
+                continue;
+            };
+            let mut known = self.known.borrow_mut();
+            for hash in &gone.hashes {
+                // A later unit may have brought the definition again.
+                if known.get(hash).is_some_and(|known| known.unit == unit) {
+                    known.remove(hash);
+                    self.metered.borrow_mut().remove(hash);
+                }
+            }
+        }
+    }
+
+    /// Lays out a block for `parts` and maps their code: as a unit if
+    /// `loaded`, and for good if not. Returns the entry, owned.
+    fn place(&self, parts: &Parts, natives: &Natives, loaded: bool) -> Result<Word, String> {
         let offered = natives.resolve(&parts.natives)?;
-        let io = |error: std::io::Error| error.to_string();
         let wants_metered =
             |part: &Part| matches!(&part.body, Body::Function { metered, .. } if metered.is_some());
         // A function that is here without the metered form these parts
@@ -117,33 +156,26 @@ impl Program {
             &Base {
                 known: &known,
                 natives: self.natives.borrow().len(),
+                loaded,
             },
         );
-
-        let codes = parts.codes();
-        let code_of = |index: usize| match plan.placed[index / 2] {
-            Some(_) => codes[index].map_or(&[][..], |(_, code)| &code.0),
-            None => &[][..],
-        };
-        let mut offsets = Vec::new();
-        let mut size = 0usize;
-        for index in 0..codes.len() {
-            offsets.push(size);
-            size += code_of(index).len().next_multiple_of(16);
-        }
-        let mut code = MmapMut::map_anon(size.max(1)).map_err(io)?;
-        for (index, offset) in offsets.iter().enumerate() {
-            let bytes = code_of(index);
-            code[*offset..*offset + bytes.len()].copy_from_slice(bytes);
-        }
-        let code = code.make_exec().map_err(io)?;
+        let (code, offsets) = map(parts, &plan)?;
         let code_base = code.as_ptr() as usize;
 
-        let mut block = vec![0u64; plan.words.max(1)].into_boxed_slice();
-        let base = block.as_ptr() as usize;
+        let block = Box::into_raw(vec![0u64; plan.words.max(1)].into_boxed_slice());
+        let base = block.cast::<u64>() as usize;
         let address = |word: usize| (base + word * 8) as u64;
+        let mut unit = Unit {
+            _code: code,
+            statics: block,
+            strings: Vec::new(),
+            holds: Vec::new(),
+            hashes: Vec::new(),
+        };
+        // SAFETY: each word written is one of the block's.
+        let write = |word: usize, value: u64| unsafe { block.cast::<u64>().add(word).write(value) };
         for (word, field) in &plan.fields {
-            block[*word] = match *field {
+            let value = match *field {
                 Field::Word(value) => value,
                 Field::Address(target) => address(target),
                 Field::Code(code) => (code_base + offsets[code]) as u64,
@@ -151,34 +183,33 @@ impl Program {
                     make,
                     offset,
                     length,
-                } => {
-                    let text = &plan.text[offset..offset + length];
-                    // SAFETY: the pointer and length are those of a live
-                    // slice, which the runtime copies.
-                    unsafe {
-                        match make {
-                            Make::String => {
-                                ambient_runtime::amb_string_pinned(text.as_ptr(), length as u64)
-                            }
-                            Make::Field => {
-                                ambient_runtime::amb_intern(text.as_ptr(), length as u64)
-                            }
-                            Make::Tag => ambient_runtime::amb_tag(text.as_ptr(), length as u64),
-                        }
-                    }
-                }
+                } => unit.text(make, &plan.text[offset..offset + length], loaded),
             };
+            write(*word, value);
+        }
+        let record = if loaded { address(0) } else { 0 };
+        if loaded {
+            write(ambient_runtime::UNIT_LIST, self.unused.get() as u64);
         }
 
         for (part, placed) in parts.parts.iter().zip(&plan.placed) {
             let Some((root, definition)) = *placed else {
+                // What the block refers to elsewhere, it holds.
+                let held = known(&part.hash).map_or(0, |known| known.unit);
+                if held != 0 && !unit.holds.contains(&held) {
+                    // SAFETY: the unit is one of the program's.
+                    unsafe { ambient_runtime::amb_unit_retain(held) };
+                    unit.holds.push(held);
+                }
                 continue;
             };
             let known = Known {
                 root: address(root),
                 definition: address(definition),
+                unit: record,
             };
             self.known.borrow_mut().insert(part.hash, known);
+            unit.hashes.push(part.hash);
             if wants_metered(part) {
                 self.metered.borrow_mut().insert(part.hash);
             }
@@ -187,22 +218,38 @@ impl Program {
         self.externs
             .borrow_mut()
             .extend(parts.natives.iter().cloned());
-        self.units.borrow_mut().push(Unit {
-            _code: code,
-            _statics: block,
-        });
-        match plan.entry {
-            Some(Place::Here(word)) => Ok(address(word)),
-            Some(Place::There(closure)) => Ok(closure),
-            None => Err("the parts have no entry".to_owned()),
+        self.units.borrow_mut().insert(address(0), unit);
+        let entry = match plan.entry {
+            Some(Place::Here(word)) => address(word),
+            Some(Place::There(closure)) => closure,
+            None => return Err("the parts have no entry".to_owned()),
+        };
+        // SAFETY: the entry is a closure and the record a unit's. The
+        // unit is held while the entry is taken, so that one the entry
+        // is not in joins the units to drop.
+        unsafe {
+            ambient_runtime::amb_unit_retain(record);
+            ambient_runtime::amb_retain(entry);
+            ambient_runtime::amb_unit_release(record);
         }
+        Ok(entry)
     }
 
     /// A function the program has, by the hash of its definition: a
-    /// value that lives as long as the program.
+    /// value the caller owns.
     #[must_use]
     pub fn function(&self, hash: &Hash) -> Option<Word> {
-        self.known.borrow().get(hash).map(|known| known.root)
+        let root = self.known.borrow().get(hash).map(|known| known.root)?;
+        // SAFETY: the root is a closure of a unit not yet dropped.
+        unsafe { ambient_runtime::amb_retain(root) };
+        Some(root)
+    }
+
+    /// Whether the program has a definition, by its hash. One that was
+    /// loaded is there while a value refers to it.
+    #[must_use]
+    pub fn has(&self, hash: &Hash) -> bool {
+        self.known.borrow().contains_key(hash)
     }
 
     /// Where the definition of a function the program has is.
@@ -339,6 +386,7 @@ impl Program {
                 });
             *self.error.borrow_mut() = error;
             ambient_runtime::amb_context_free(context);
+            self.reclaim();
             if result == ambient_runtime::UNWIND {
                 Err(fault)
             } else {

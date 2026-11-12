@@ -82,7 +82,11 @@ impl Loading {
         let natives = Natives::new().with("app", "fetch", move |_| {
             let running: Rc<OnceCell<Program>> = running.upgrade().ok_or("no program")?;
             let program = running.get().ok_or("no program")?;
-            program.add(&loaded.0, &Natives::new())?;
+            let function = program.add(&loaded.0, &Natives::new())?;
+            // SAFETY: the function is owned here. What was loaded stays
+            // until the next load, and by then the value returned is a
+            // closure that holds it.
+            unsafe { amb_release(function) };
             Ok(Value::Function(Function {
                 definition: Some(loaded.1),
                 captures: Vec::new(),
@@ -117,9 +121,10 @@ impl Loading {
 fn a_function_loaded_while_a_program_runs_is_called() {
     let loading = Loading::local(double(), fetched(int_to_int(), 21));
 
-    assert!(loading.program().function(&loading.plugin.1).is_none());
+    assert!(!loading.program().has(&loading.plugin.1));
     assert_eq!(loading.run(), Ok(Value::Int(42)));
-    assert!(loading.program().function(&loading.plugin.1).is_some());
+    // Nothing the call left refers to it.
+    assert!(!loading.program().has(&loading.plugin.1));
 }
 
 #[test]
@@ -153,9 +158,6 @@ fn what_is_loaded_twice_is_there_once() {
     let loading = Loading::local(double(), b::equal(fetch(), fetch()));
 
     assert_eq!(loading.run(), Ok(Value::Bool(true)));
-    let first = loading.program().function(&loading.plugin.1);
-    assert_eq!(loading.run(), Ok(Value::Bool(true)));
-    assert_eq!(loading.program().function(&loading.plugin.1), first);
 }
 
 #[test]

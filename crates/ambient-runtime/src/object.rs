@@ -3,7 +3,8 @@
 use std::alloc::{Layout, alloc, dealloc};
 use std::cell::Cell;
 
-use crate::{Context, FALSE, Fault, SMALL_MAX, SMALL_MIN, TRUE, UNWIND, Word};
+use crate::unit::{self, amb_unit_release, amb_unit_retain};
+use crate::{Context, FALSE, Fault, NULL, SMALL_MAX, SMALL_MIN, TRUE, UNWIND, Word};
 
 pub(crate) const KIND_INT: u32 = 1;
 pub(crate) const KIND_FLOAT: u32 = 2;
@@ -22,6 +23,15 @@ pub(crate) const KIND_SCOPE: u32 = 12;
 
 /// The count of an object that is never reclaimed.
 pub(crate) const PINNED: u32 = u32::MAX;
+/// The count of an object in a block of a unit: a reference to it is a
+/// reference into the unit. See [`crate::unit`].
+pub(crate) const LOADED: u32 = u32::MAX - 1;
+
+/// The count an object laid out in a block has: one that is never
+/// reclaimed, or, in a block of a unit, one that counts for the unit.
+pub(crate) fn fixed(loaded: bool) -> u64 {
+    u64::from(if loaded { LOADED } else { PINNED })
+}
 
 /// The layout of a closure and of the definition it refers to, for
 /// compiled code. Every field is one word; offsets are in bytes.
@@ -29,7 +39,8 @@ pub(crate) const PINNED: u32 = u32::MAX;
 /// A closure is an object whose payload is its definition and then its
 /// captures. A definition is not an object: it is the code, the code
 /// compiled to run inside a budget, the arity, its hash, the name of its
-/// type, and then one closure per slot.
+/// type, and then one closure per slot. The word before it names its
+/// unit: see [`crate::unit`].
 pub mod layout {
     /// From a closure to its definition.
     pub const CLOSURE_DEFINITION: i32 = 16;
@@ -57,11 +68,12 @@ pub mod layout {
     pub const DEFINITION_WORDS: usize = 5;
 }
 
-/// Writes a closure that is never reclaimed into `words`: its header,
-/// its definition, and room for `captures` values after. `words` must
-/// hold [`layout::CLOSURE_WORDS`] and the captures.
-pub fn pinned_closure(words: &mut [u64], definition: u64, captures: usize) {
-    words[0] = u64::from(PINNED) | (u64::from(KIND_CLOSURE) << 32);
+/// Writes a closure for a block into `words`: its header, its
+/// definition, and room for `captures` values after. `words` must hold
+/// [`layout::CLOSURE_WORDS`] and the captures. With `loaded`, the block
+/// is a unit's, and the word before the closure names it.
+pub fn fixed_closure(words: &mut [u64], definition: u64, captures: usize, loaded: bool) {
+    words[0] = fixed(loaded) | (u64::from(KIND_CLOSURE) << 32);
     words[1] = (captures as u64 + 1) * 8;
     words[2] = definition;
 }
@@ -170,8 +182,10 @@ pub unsafe extern "C" fn amb_retain(word: Word) {
     if is_object(word) {
         unsafe {
             let header = header(word);
-            if (*header).count != PINNED {
-                (*header).count += 1;
+            match (*header).count {
+                PINNED => {}
+                LOADED => amb_unit_retain(unit::of(word)),
+                _ => (*header).count += 1,
             }
         }
     }
@@ -189,8 +203,13 @@ pub unsafe extern "C" fn amb_release(word: Word) {
         }
         unsafe {
             let header = header(word);
-            if (*header).count == PINNED {
-                continue;
+            match (*header).count {
+                PINNED => continue,
+                LOADED => {
+                    amb_unit_release(unit::of(word));
+                    continue;
+                }
+                _ => {}
             }
             (*header).count -= 1;
             if (*header).count != 0 {
@@ -202,14 +221,24 @@ pub unsafe extern "C" fn amb_release(word: Word) {
                 // under is the type the cell was made at.
                 KIND_CELL => {
                     crate::cell::unlink(word);
+                    amb_unit_release(unit::of(words(word)[2]));
                     &words(word)[..2]
                 }
                 // The first word is the definition, which is not a value.
-                KIND_CLOSURE => &words(word)[1..],
+                KIND_CLOSURE => {
+                    amb_unit_release(unit::of(words(word)[0]));
+                    &words(word)[1..]
+                }
                 // Each argument is a node, which is not a value, and the
                 // type arguments it is read in.
                 KIND_SCOPE => {
-                    pending.extend(words(word).iter().skip(1).step_by(2));
+                    for entry in words(word).chunks(2) {
+                        // An argument never set holds no node.
+                        if entry[0] != NULL {
+                            amb_unit_release(unit::of(entry[0]));
+                        }
+                        pending.push(entry[1]);
+                    }
                     &[]
                 }
                 _ => &[],

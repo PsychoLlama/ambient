@@ -4,6 +4,7 @@
 mod emit;
 mod host;
 mod load;
+mod unit;
 
 pub use emit::Native;
 pub use host::{Host, Inside, NativeFn, Natives, Observation, Offered, encode};

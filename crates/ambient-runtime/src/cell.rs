@@ -4,12 +4,14 @@ use crate::number::equal;
 use crate::object::{KIND_CELL, amb_release, amb_retain, boolean, fault, object, words};
 use crate::scope::{At, Env};
 use crate::task::{arriving, interrupted, suspend, wait_on, wake};
+use crate::unit::{self, amb_unit_retain};
 use crate::{Context, Fault, NULL, Word};
 
 /// A cell that holds `value`, made at the type `ty` describes, a
 /// descriptor's address, read in `scope`: the type arguments of the
 /// function that makes it, or null. The cell keeps both, which is what
-/// lets a cast tell what the cell may hold.
+/// lets a cast tell what the cell may hold, and holds the descriptor's
+/// unit.
 ///
 /// If the host keeps the program's cells, the cell joins them.
 #[unsafe(no_mangle)]
@@ -23,6 +25,7 @@ pub unsafe extern "C" fn amb_cell_new(
         let word = object(KIND_CELL, 40);
         amb_retain(value);
         amb_retain(scope);
+        amb_unit_retain(unit::of(ty));
         let fields = words(word);
         (fields[0], fields[1], fields[2]) = (value, scope, ty);
         (fields[BACK], fields[NEXT]) = (0, 0);

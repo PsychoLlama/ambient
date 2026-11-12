@@ -46,6 +46,7 @@ mod sequence;
 mod task;
 mod text;
 mod trace;
+mod unit;
 
 pub use abort::*;
 pub use boundary::*;
@@ -57,9 +58,9 @@ pub use host::*;
 pub use is::{amb_is, descriptor};
 pub use native::*;
 pub use number::*;
-pub use object::{amb_release, amb_retain, layout, pinned_closure};
+pub use object::{amb_release, amb_retain, fixed_closure, layout};
 pub use record::*;
-pub use scope::{amb_scope_new, amb_scope_set, pinned_scope};
+pub use scope::{amb_scope_new, amb_scope_set, fixed_scope};
 pub use sequence::*;
 pub use task::{
     LIMITS, RESUMING, RUNNING, SUSPENDING, amb_all, amb_budget_back, amb_budget_caught,
@@ -70,6 +71,7 @@ pub use task::{
 };
 pub use text::*;
 pub use trace::{TRACE_LIMIT, amb_trace};
+pub use unit::*;
 
 pub type Word = u64;
 

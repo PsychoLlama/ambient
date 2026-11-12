@@ -3,16 +3,25 @@
 //!
 //! Both backends load a program the same way, so the layout is planned
 //! here once. A backend only has to write each [`Field`] where it says.
+//!
+//! A block loaded into a program that is running is a unit
+//! (`ambient_runtime::UNIT_WORDS`): it begins with the unit's record,
+//! and a word that names the unit goes before whatever can be referred
+//! to from outside the block. In a program's first block that word is
+//! zero.
 
-use ambient_runtime::descriptor as d;
+use ambient_runtime::UNIT_WORDS;
 use ambient_runtime::layout::{CLOSURE_WORDS, DEFINITION_WORDS};
 
+mod descriptors;
+
+use descriptors::root_size;
+
 use super::identity;
-use crate::core::{Key, Type};
+use crate::core::Type;
 use crate::engine::{Body, Parts};
 use crate::hash::Hash;
 use crate::lir::Constant;
-use crate::literal::Literal;
 
 /// What goes in one word.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,11 +68,13 @@ impl Place {
 }
 
 /// A definition a program already has: where its closure or descriptor
-/// is, and where its definition is if it is a function.
+/// is, where its definition is if it is a function, and the unit both
+/// are in, or zero.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Known {
     pub root: u64,
     pub definition: u64,
+    pub unit: u64,
 }
 
 /// The program a block is planned for, if it is not the program's first.
@@ -73,6 +84,8 @@ pub struct Base<'a> {
     pub known: &'a dyn Fn(&Hash) -> Option<Known>,
     /// How many externs it has: the block's own are numbered after them.
     pub natives: usize,
+    /// Whether the block is a unit: one reclaimed before the program is.
+    pub loaded: bool,
 }
 
 fn unknown(_: &Hash) -> Option<Known> {
@@ -86,6 +99,7 @@ impl Base<'_> {
         Base {
             known: &unknown,
             natives: 0,
+            loaded: false,
         }
     }
 }
@@ -104,18 +118,24 @@ pub struct Statics {
     /// Where each part that was laid out is: its closure or descriptor,
     /// and its definition. Nothing for a part the program had.
     pub placed: Vec<Option<(usize, usize)>>,
+    /// Whether the block is a unit, and so begins with its record.
+    pub loaded: bool,
 }
 
 /// Plans the block for a program, or for what is added to one.
 #[must_use]
 pub fn plan(parts: &Parts, base: &Base) -> Statics {
-    let mut statics = Statics::default();
+    let mut statics = Statics {
+        loaded: base.loaded,
+        words: if base.loaded { UNIT_WORDS } else { 0 },
+        ..Statics::default()
+    };
 
     let (definitions, roots) = statics.reserve(parts, base);
     statics.entry = Some(roots[parts.entry]);
 
     let mut header = [0u64; CLOSURE_WORDS];
-    ambient_runtime::pinned_closure(&mut header, 0, 0);
+    ambient_runtime::fixed_closure(&mut header, 0, 0, base.loaded);
     for (index, part) in parts.parts.iter().enumerate() {
         let slots: Vec<Target> = part
             .slots
@@ -157,7 +177,7 @@ pub fn plan(parts: &Parts, base: &Base) -> Statics {
                         Constant::String(text) => statics.text(Make::String, text),
                         Constant::Tag(text) => statics.text(Make::Tag, text),
                         Constant::Field(name) => statics.text(Make::Field, name),
-                        Constant::Type(ty) => statics.describe(ty, &slots).field(),
+                        Constant::Type(ty) => statics.constant(ty, &slots).field(),
                         Constant::Types(types) => Field::Address(statics.types(types, &slots)),
                         Constant::Instance(slot, types) => {
                             Field::Address(statics.instance(&slots[*slot], types, &slots))
@@ -202,37 +222,6 @@ fn ability_key(hash: &Hash) -> String {
     format!("@{hash}")
 }
 
-/// How many words a type definition's own node takes.
-fn root_size(ty: &Type) -> usize {
-    match ty {
-        // A definition that is only another's name gets a node of its own
-        // to be found at.
-        Type::Reference(_, args) if args.is_empty() => 2,
-        _ => node_size(ty),
-    }
-}
-
-/// How many words a type's node takes, not counting the nodes it refers
-/// to.
-fn node_size(ty: &Type) -> usize {
-    match ty {
-        Type::Never
-        | Type::Unknown
-        | Type::Null
-        | Type::Bool
-        | Type::Int
-        | Type::Float
-        | Type::String
-        | Type::Tag => 1,
-        Type::Function { params, row, .. } => 5 + params.len() + row.len(),
-        Type::Literal(_) => 3,
-        Type::Record(fields) => 2 + fields.len() * 2,
-        Type::Tuple(members) | Type::Union(members) => 2 + members.len(),
-        Type::List(_) | Type::Cell(_) | Type::Parameter(_) => 2,
-        Type::Reference(_, args) => 3 + args.len(),
-    }
-}
-
 impl Statics {
     /// Makes room for each part the program lacks, and says where each
     /// part's definition and its closure or descriptor are. These are
@@ -254,13 +243,14 @@ impl Statics {
                 self.placed.push(None);
                 continue;
             }
-            let at = self.words;
+            let at = self.held();
             definitions.push(Place::Here(at));
             let root = match &part.body {
                 Body::Function { constants, .. } => {
-                    let definition = DEFINITION_WORDS + part.slots.len() + constants.len();
-                    self.words += definition + CLOSURE_WORDS;
-                    at + definition
+                    self.words += DEFINITION_WORDS + part.slots.len() + constants.len();
+                    let closure = self.held();
+                    self.words += CLOSURE_WORDS;
+                    closure
                 }
                 Body::Type(ty) => {
                     self.words += root_size(ty);
@@ -273,6 +263,25 @@ impl Statics {
             self.placed.push(Some((root, at)));
         }
         (definitions, roots)
+    }
+
+    /// Makes room for the word that names the block's unit, and says
+    /// where what it precedes begins.
+    fn held(&mut self) -> usize {
+        if self.loaded {
+            self.set(self.words, Field::Address(0));
+        }
+        self.words += 1;
+        self.words
+    }
+
+    /// The address of a descriptor something outside the block may
+    /// keep: a cell made at the type, or type arguments.
+    fn constant(&mut self, ty: &Type, slots: &[Target]) -> Place {
+        if !matches!(ty, Type::Reference(_, args) if args.is_empty()) {
+            self.held();
+        }
+        self.describe(ty, slots)
     }
 
     fn set(&mut self, word: usize, field: Field) {
@@ -298,145 +307,29 @@ impl Statics {
         }
     }
 
-    /// Writes a type definition's node at the place reserved for it.
-    fn root(&mut self, ty: &Type, slots: &[Target], at: usize) {
-        if let Type::Reference(slot, args) = ty
-            && args.is_empty()
-        {
-            self.set(at, Field::Word(d::ALIAS));
-            self.set(at + 1, slots[slot.0].address.field());
-        } else {
-            self.node(ty, slots, at);
-        }
-    }
-
-    /// The address of a descriptor for `ty`, adding one if `ty` is not
-    /// already a definition's.
-    fn describe(&mut self, ty: &Type, slots: &[Target]) -> Place {
-        if let Type::Reference(slot, args) = ty
-            && args.is_empty()
-        {
-            return slots[slot.0].address;
-        }
-        let at = self.words;
-        self.words += node_size(ty);
-        self.node(ty, slots, at);
-        Place::Here(at)
-    }
-
-    /// Writes the node for `ty` at `at`, and the nodes it refers to after
-    /// everything written so far.
-    fn node(&mut self, ty: &Type, slots: &[Target], at: usize) {
-        let tag = |statics: &mut Self, tag| statics.set(at, Field::Word(tag));
-        match ty {
-            Type::Never => tag(self, d::NEVER),
-            Type::Unknown => tag(self, d::UNKNOWN),
-            Type::Null => tag(self, d::NULL),
-            Type::Bool => tag(self, d::BOOL),
-            Type::Int => tag(self, d::INT),
-            Type::Float => tag(self, d::FLOAT),
-            Type::String => tag(self, d::STRING),
-            Type::Tag => tag(self, d::TAG),
-            Type::Function { params, ret, row } => {
-                tag(self, d::FUNCTION);
-                self.children(params, slots, at + 1);
-                let after = at + 2 + params.len();
-                let ret = self.describe(ret, slots);
-                self.set(after, ret.field());
-                self.set(after + 1, Field::Word(row.len() as u64));
-                for (position, slot) in row.iter().enumerate() {
-                    let key = self.text(Make::Field, &ability_key(&slots[slot.0].hash));
-                    self.set(after + 2 + position, key);
-                }
-                let name = self.type_name(ty, slots);
-                self.set(after + 2 + row.len(), name);
-            }
-            Type::Literal(literal) => {
-                tag(self, d::LITERAL);
-                let (kind, payload) = match literal {
-                    Literal::Bool(value) => (d::LITERAL_BOOL, Field::Word(u64::from(*value))),
-                    Literal::Int(value) => (d::LITERAL_INT, Field::Word(value.cast_unsigned())),
-                    Literal::Float(bits) => (d::LITERAL_FLOAT, Field::Word(*bits)),
-                    Literal::String(text) => (d::LITERAL_STRING, self.text(Make::String, text)),
-                    Literal::Tag { package, tag } => {
-                        let text = Literal::tag_text(package, tag);
-                        (d::LITERAL_TAG, self.text(Make::Tag, &text))
-                    }
-                };
-                self.set(at + 1, Field::Word(kind));
-                self.set(at + 2, payload);
-            }
-            Type::Record(fields) => {
-                tag(self, d::RECORD);
-                self.set(at + 1, Field::Word(fields.len() as u64));
-                for (position, (key, ty)) in fields.iter().enumerate() {
-                    let key = match key {
-                        Key::Field(name) => self.text(Make::Field, name),
-                        Key::Ability(slot) => {
-                            self.text(Make::Field, &ability_key(&slots[slot.0].hash))
-                        }
-                    };
-                    self.set(at + 2 + position * 2, key);
-                    let child = self.describe(ty, slots);
-                    self.set(at + 3 + position * 2, child.field());
-                }
-            }
-            Type::Tuple(members) | Type::Union(members) => {
-                tag(
-                    self,
-                    if matches!(ty, Type::Tuple(_)) {
-                        d::TUPLE
-                    } else {
-                        d::UNION
-                    },
-                );
-                self.children(members, slots, at + 1);
-            }
-            Type::List(member) => {
-                tag(self, d::LIST);
-                let child = self.describe(member, slots);
-                self.set(at + 1, child.field());
-            }
-            Type::Cell(member) => {
-                tag(self, d::CELL);
-                let child = self.describe(member, slots);
-                self.set(at + 1, child.field());
-            }
-            Type::Parameter(position) => {
-                tag(self, d::PARAMETER);
-                self.set(at + 1, Field::Word(*position as u64));
-            }
-            Type::Reference(slot, args) => {
-                tag(self, d::APPLY);
-                self.set(at + 1, slots[slot.0].address.field());
-                self.children(args, slots, at + 2);
-            }
-        }
-    }
-
-    /// The address of type arguments that are never reclaimed: an
-    /// object that holds a descriptor for each, read in nothing.
+    /// The address of type arguments laid out in the block: an object
+    /// that holds a descriptor for each, read in nothing.
     fn types(&mut self, types: &[Type], slots: &[Target]) -> usize {
         let mut header = [0u64; 2];
-        ambient_runtime::pinned_scope(&mut header, types.len());
-        let at = self.words;
+        ambient_runtime::fixed_scope(&mut header, types.len(), self.loaded);
+        let at = self.held();
         self.words += header.len() + types.len() * 2;
         self.set(at, Field::Word(header[0]));
         self.set(at + 1, Field::Word(header[1]));
         for (position, ty) in types.iter().enumerate() {
-            let node = self.describe(ty, slots);
+            let node = self.constant(ty, slots);
             self.set(at + 2 + position * 2, node.field());
             self.set(at + 3 + position * 2, Field::Word(ambient_runtime::NULL));
         }
         at
     }
 
-    /// The address of a closure that is never reclaimed, over a generic
+    /// The address of a closure laid out in the block, over a generic
     /// function at type arguments.
     fn instance(&mut self, function: &Target, types: &[Type], slots: &[Target]) -> usize {
         let mut header = [0u64; CLOSURE_WORDS];
-        ambient_runtime::pinned_closure(&mut header, 0, 1);
-        let at = self.words;
+        ambient_runtime::fixed_closure(&mut header, 0, 1, self.loaded);
+        let at = self.held();
         self.words += CLOSURE_WORDS + 1;
         self.set(at, Field::Word(header[0]));
         self.set(at + 1, Field::Word(header[1]));
@@ -444,15 +337,5 @@ impl Statics {
         let types = self.types(types, slots);
         self.set(at + 3, Field::Address(types));
         at
-    }
-
-    /// Writes a count at `at` and then the address of a descriptor for
-    /// each type.
-    fn children(&mut self, types: &[Type], slots: &[Target], at: usize) {
-        self.set(at, Field::Word(types.len() as u64));
-        for (position, ty) in types.iter().enumerate() {
-            let child = self.describe(ty, slots);
-            self.set(at + 1 + position, child.field());
-        }
     }
 }
