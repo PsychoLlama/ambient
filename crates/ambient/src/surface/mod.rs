@@ -307,6 +307,12 @@ pub enum Expr<N = Path> {
         cleanup: Box<Expr<N>>,
         body: Box<Expr<N>>,
     },
+    /// Evaluates the body, and is what it gave once every task it spawned
+    /// is over. See `spec/tasks.md`.
+    Group(Box<Expr<N>>),
+    /// Starts an expression as a task of the group it is written in, and
+    /// is null.
+    Spawn(Box<Expr<N>>),
     /// Evaluates each expression as a task, and is the tuple of their
     /// results once every one is over.
     All(Vec<Expr<N>>),

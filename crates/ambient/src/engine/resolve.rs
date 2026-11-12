@@ -312,6 +312,8 @@ impl Resolver<'_> {
                 }
             }
             Expr::AbilityId(ability) => Expr::AbilityId(self.ability(ability)?),
+            Expr::Group(body) => Expr::Group(Box::new(self.expr(body)?)),
+            Expr::Spawn(task) => Expr::Spawn(Box::new(self.expr(task)?)),
             Expr::Cleanup { cleanup, body } => Expr::Cleanup {
                 cleanup: Box::new(self.expr(cleanup)?),
                 body: Box::new(self.expr(body)?),

@@ -13,10 +13,12 @@
 //! Scheduling is first come, first served, on one thread, so a run is
 //! reproducible.
 
+mod group;
 mod join;
 
 use std::collections::VecDeque;
 
+pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
 pub use join::{amb_all, amb_first};
 
 use crate::object::{amb_release, words};
@@ -49,6 +51,9 @@ struct Task {
     cancelled: bool,
     /// How many cleanups it is inside. Cancellation waits for them.
     masked: usize,
+    /// How many groups it is in the body of have a task that failed. It
+    /// unwinds to the outermost of them as if cancelled.
+    disturbed: usize,
     /// Whether it is waiting its turn.
     queued: bool,
     /// The join it was started by, and its place there.
@@ -70,6 +75,11 @@ struct Join {
     first: bool,
     /// The place of the first to be over with a result.
     winner: Option<usize>,
+    /// Whether this is a group: its starter runs on, and what its tasks
+    /// give is dropped.
+    group: bool,
+    /// Whether its tasks have been told to stop.
+    closing: bool,
 }
 
 /// How a task ended, if not with a value: what the context held.
@@ -136,7 +146,11 @@ impl Scheduler {
         let Some(join) = self.joins[join].as_mut() else {
             return;
         };
-        join.results[place] = result.unwrap_or(NULL);
+        if join.group {
+            unsafe { amb_release(result.unwrap_or(NULL)) };
+        } else {
+            join.results[place] = result.unwrap_or(NULL);
+        }
         join.remaining -= 1;
         let parent = join.parent;
         let remaining = join.remaining;
@@ -230,7 +244,7 @@ pub(crate) unsafe fn interrupted(context: *mut Context) -> bool {
     let scheduler = unsafe { scheduler(context) };
     let stalled = scheduler.stalled;
     let task = scheduler.current();
-    task.cancelled && (task.masked == 0 || stalled)
+    (task.cancelled || task.disturbed > 0) && (task.masked == 0 || stalled)
 }
 
 /// Notes that the current task has entered a cleanup, or left one.
@@ -328,10 +342,16 @@ unsafe fn ended(context: *mut Context, id: usize, result: Word) {
         match join {
             Some(join) if !cancelled && join.failure.is_none() => {
                 join.failure = Some(failure);
+                let disturbs = join.group.then_some(join.parent);
                 for sibling in join.children.clone() {
                     if sibling != id && scheduler.tasks[sibling].is_some() {
                         scheduler.cancel(sibling);
                     }
+                }
+                // The starter of a group is in its body, and leaves it.
+                if let Some(parent) = disturbs {
+                    scheduler.task(parent).disturbed += 1;
+                    scheduler.queue(parent);
                 }
             }
             _ => amb_release(failure.args),

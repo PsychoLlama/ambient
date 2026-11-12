@@ -4,43 +4,12 @@
 
 mod support;
 
-use ambient::builder::{self as b, pat, ty};
+use ambient::builder::{self as b, ty};
 use ambient::surface::{Definition, Expr};
 use ambient::value::Value;
 use ambient_runtime::Fault;
 use support::run;
-
-/// `first`, then `second`.
-fn then(first: Expr, second: Expr) -> Expr {
-    b::let_("unused", first, second)
-}
-
-/// `fn note(log: Cell<int>, entry: int): null`, which adds to a log.
-/// Lists cannot be appended to yet, so the log is a number and an entry
-/// is its next digit.
-fn note() -> Definition {
-    let log = || b::name("log");
-    let shifted = b::add(b::multiply(b::read(log()), b::int(10)), b::name("entry"));
-    b::function("note")
-        .param("log", ty::cell(ty::int()))
-        .param("entry", ty::int())
-        .returns(ty::null())
-        .body(then(b::replace(log(), b::read(log()), shifted), b::null()))
-}
-
-/// `fn until(c: Cell<int>, want: int): int`, which waits until the cell
-/// holds `want`.
-fn until() -> Definition {
-    let again = b::call(b::name("until"), [b::name("c"), b::name("want")]);
-    let waits = then(b::wait(b::name("c"), b::name("seen")), again);
-    let arms = [(pat::boolean(true), b::name("seen")), (pat::any(), waits)];
-    let held = b::match_(b::equal(b::name("seen"), b::name("want")), arms);
-    b::function("until")
-        .param("c", ty::cell(ty::int()))
-        .param("want", ty::int())
-        .returns(ty::int())
-        .body(b::let_("seen", b::read(b::name("c")), held))
-}
+use support::tasks::{note, then, until};
 
 /// `ability fail(): never`
 fn fail() -> Definition {

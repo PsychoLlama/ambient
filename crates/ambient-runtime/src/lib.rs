@@ -57,7 +57,8 @@ pub use record::*;
 pub use sequence::*;
 pub use task::{
     RESUMING, RUNNING, SUSPENDING, amb_all, amb_first, amb_frame_drop, amb_frame_load,
-    amb_frame_point, amb_frame_push, amb_frame_save, amb_schedule,
+    amb_frame_point, amb_frame_push, amb_frame_save, amb_group_close, amb_group_end, amb_group_new,
+    amb_schedule, amb_spawn,
 };
 pub use text::*;
 

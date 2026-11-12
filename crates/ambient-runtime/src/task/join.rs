@@ -59,6 +59,8 @@ unsafe fn join(context: *mut Context, thunks: Word, first: bool) -> Word {
             failure: None,
             first,
             winner: None,
+            group: false,
+            closing: false,
         }));
         scheduler.current().join = Some(join);
         if thunks.is_empty() && !first {

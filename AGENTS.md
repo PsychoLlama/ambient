@@ -18,7 +18,8 @@
 - A program is `Engine::program(entry, target)`: a root function the engine writes (`engine/program.rs`) and then checks, hashes, and compiles like any other.
 - Compiled code reaches native code only through `amb_native` and an index the loader fills in; a host supplies `Natives` by package and tag.
 - A task suspends by unwinding with the context's mode set, and resumes by its functions being called again (`lower/resume.rs`, `ambient-runtime/src/task.rs`). A host that sees the entry unwind while suspending calls `amb_schedule` and the entry again.
-- A task's body is a closure that takes nothing; the checker makes one for each branch (`checker/tasks.rs`), so tasks need nothing of their own in lowering or a backend.
+- A task's body is a closure that takes nothing; the checker makes one for each branch, spawn, and cleanup (`checker/tasks.rs`), so they capture locals and bindings as any closure does.
+- Whatever must happen on every way out of a block (cleanups, closing a group) is lowered as a `Try` whose recovery holds the unwinding, does the work, and rethrows (`lower/tasks.rs`).
 - Compiled code is position-independent: it reaches definitions through slots and the runtime through entry points, never by address.
 - `core::Tree::encode` defines every hash. Changing it or the node set means bumping `FORMAT`.
 

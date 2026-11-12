@@ -2,9 +2,11 @@
 //! `spec/cleanup.md`.
 
 use super::Checker;
+use super::abilities::Layer;
 use crate::core::{self, Primitive};
 use crate::error::Error;
 use crate::surface::{CellOp, Expr, Reference};
+use crate::symbol::Symbol;
 use crate::types::Ty;
 
 impl Checker<'_> {
@@ -44,6 +46,52 @@ impl Checker<'_> {
             body: Box::new(body),
         };
         Ok((node, ty))
+    }
+
+    pub(super) fn group(&mut self, body: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {
+        let depth = self.frame().layers.len();
+        self.frame().groups.push(depth);
+        let body = self.infer(body);
+        self.frame().groups.pop();
+        let (body, ty) = body?;
+        Ok((core::Expr::Group(Box::new(body)), ty))
+    }
+
+    /// A spawn starts a task in the group it is written in. The task may
+    /// outlast anything bound inside the group, so it is checked as if
+    /// written where the group begins, and may use nothing bound since.
+    pub(super) fn spawn(&mut self, task: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {
+        let symbol = self.symbol.clone();
+        let Some(depth) = self.frame().groups.last().copied() else {
+            return Err(Error::SpawnOutsideGroup(symbol));
+        };
+        let inside = self.frame().layers.split_off(depth);
+        // What is bound inside the group. A recording there stands
+        // between the task and everything.
+        let bound: Vec<Symbol> = inside
+            .iter()
+            .flat_map(|layer| layer.abilities.clone())
+            .collect();
+        let recorded = inside.iter().any(|layer| layer.seen.is_some());
+        self.frame().layers.push(Layer {
+            abilities: Vec::new(),
+            only: inside.iter().any(|layer| layer.only),
+            seen: Some(Vec::new()),
+        });
+        let thunk = self.lambda(&[], &[], task, None);
+        let used = self.frame().layers.pop().and_then(|layer| layer.seen);
+        self.frame().layers.extend(inside);
+
+        let inner = |ability: &Symbol| recorded || bound.contains(ability);
+        let refused = |ability: Symbol| Error::SpawnBinding { symbol, ability };
+        match thunk {
+            Err(Error::Unbound { ability, .. }) if inner(&ability) => Err(refused(ability)),
+            Err(error) => Err(error),
+            Ok((thunk, _)) => match used.unwrap_or_default().into_iter().find(inner) {
+                Some(ability) => Err(refused(ability)),
+                None => Ok((core::Expr::Spawn(Box::new(thunk)), Ty::Null)),
+            },
+        }
     }
 
     pub(super) fn cell(

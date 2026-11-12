@@ -10,40 +10,7 @@ use ambient::surface::{Definition, Expr, Type};
 use ambient::value::Value;
 use ambient_runtime::Fault;
 use support::run;
-
-/// `first`, then `second`.
-fn then(first: Expr, second: Expr) -> Expr {
-    b::let_("unused", first, second)
-}
-
-/// `fn until(c: Cell<int>, want: int): int`, which waits until the cell
-/// holds `want` and then gives it.
-fn until() -> Definition {
-    let again = b::call(b::name("until"), [b::name("c"), b::name("want")]);
-    let waits = then(b::wait(b::name("c"), b::name("seen")), again);
-    let arms = [(pat::boolean(true), b::name("seen")), (pat::any(), waits)];
-    let held = b::match_(b::equal(b::name("seen"), b::name("want")), arms);
-    b::function("until")
-        .param("c", ty::cell(ty::int()))
-        .param("want", ty::int())
-        .returns(ty::int())
-        .body(b::let_("seen", b::read(b::name("c")), held))
-}
-
-/// `fn set(c: Cell<int>, value: int): null`, which tries until it has put
-/// the value in.
-fn set() -> Definition {
-    let again = b::call(b::name("set"), [b::name("c"), b::name("value")]);
-    let replaced = b::replace(b::name("c"), b::read(b::name("c")), b::name("value"));
-    b::function("set")
-        .param("c", ty::cell(ty::int()))
-        .param("value", ty::int())
-        .returns(ty::null())
-        .body(b::match_(
-            replaced,
-            [(pat::boolean(true), b::null()), (pat::any(), again)],
-        ))
-}
+use support::tasks::{set, then, until};
 
 /// `fn deep(c: Cell<int>, n: int): int`, which waits for the cell to hold
 /// one under `n` calls of itself, and counts them.

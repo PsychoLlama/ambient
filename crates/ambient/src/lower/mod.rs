@@ -38,6 +38,7 @@ pub fn lower(definition: &Open) -> Result<lir::Function, Unsupported> {
         temporaries: 0,
         constants: Vec::new(),
         bindings: Value::Local(0),
+        groups: Vec::new(),
     };
     let entry = lowering.enter(function);
     let mut body = entry.wrap(lowering.expr(&function.body)?);
@@ -97,7 +98,13 @@ fn renumber(expr: &mut Expr, base: usize) {
     };
     match expr {
         Expr::Op(op) => match op {
-            Op::Int(_) | Op::Float(_) | Op::Slot(_) | Op::Token | Op::Hold | Op::Cleanup(_) => {}
+            Op::Int(_)
+            | Op::Float(_)
+            | Op::Slot(_)
+            | Op::Token
+            | Op::Hold
+            | Op::Group
+            | Op::Cleanup(_) => {}
             Op::Copy(operand)
             | Op::IsRecord(operand)
             | Op::Expire(operand)
@@ -107,10 +114,19 @@ fn renumber(expr: &mut Expr, base: usize) {
             | Op::First(operand) => {
                 value(operand);
             }
-            Op::Merge { base, overlay } => {
+            Op::Spawn {
+                group: base,
+                thunk: overlay,
+            }
+            | Op::GroupEnd {
+                group: base,
+                held: overlay,
+            }
+            | Op::Merge { base, overlay } => {
                 value(base);
                 value(overlay);
             }
+            Op::GroupClose { group, .. } => value(group),
             Op::Abort { token, args } => {
                 value(token);
                 value(args);
@@ -172,6 +188,8 @@ struct Lowering {
     /// The bindings in scope where lowering is now: a record keyed by
     /// ability, or null where nothing is bound.
     bindings: Value,
+    /// The groups lowering is inside of, innermost last.
+    groups: Vec<Value>,
 }
 
 impl Lowering {
@@ -268,6 +286,8 @@ impl Lowering {
                 returns,
             } => self.perform(*ability, args, *returns, &mut scope)?,
             core::Expr::Cleanup { cleanup, body } => return self.cleanup(cleanup, body),
+            core::Expr::Group(body) => return self.group(body),
+            core::Expr::Spawn(thunk) => self.spawn(thunk, &mut scope)?,
             core::Expr::All(thunks) => Op::All(self.thunks(thunks, &mut scope)?),
             core::Expr::First(thunks) => Op::First(self.thunks(thunks, &mut scope)?),
             core::Expr::Provide {

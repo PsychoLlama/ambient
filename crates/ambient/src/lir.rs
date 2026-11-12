@@ -113,6 +113,16 @@ pub enum Op {
     /// Entering or leaving a cleanup whose block completed. Leaving one
     /// that failed unwinds.
     Cleanup(Cleanup),
+    /// A group with no tasks yet.
+    Group,
+    /// Starts a closure as a task of a group, and is null.
+    Spawn { group: Value, thunk: Value },
+    /// Waits for the tasks of a group, cancelling them first if the
+    /// group's body unwound.
+    GroupClose { group: Value, unwinding: bool },
+    /// Ends a group whose tasks are over: unwinds if one failed, or with
+    /// the unwinding `held`, which the body left by, if it is not null.
+    GroupEnd { group: Value, held: Value },
     /// Runs each of the closures in a tuple as a task, and is the tuple of
     /// their results.
     All(Value),
@@ -176,6 +186,8 @@ impl Op {
             | Self::All(_)
             | Self::First(_)
             | Self::Rethrow(_)
+            | Self::GroupClose { .. }
+            | Self::GroupEnd { .. }
             | Self::Cleanup(Cleanup::Failed) => true,
             Self::Primitive { operation, .. } => matches!(
                 operation,
@@ -197,7 +209,8 @@ impl Op {
             | Self::CallValue { .. }
             | Self::Native { .. }
             | Self::All(_)
-            | Self::First(_) => true,
+            | Self::First(_)
+            | Self::GroupClose { .. } => true,
             Self::Primitive { operation, .. } => matches!(operation, Primitive::CellWait),
             _ => false,
         }
@@ -268,18 +281,15 @@ impl Op {
                 vec![step(Entry::Abort, [value(token), value(args)])]
             }
             Self::Caught(token) => vec![step(Entry::Caught, [value(token)])],
-            Self::Hold => vec![step(Entry::Hold, [])],
-            Self::Rethrow(held) => vec![step(Entry::Rethrow, [value(held)])],
-            Self::Cleanup(moment) => {
-                let entry = match moment {
-                    Cleanup::Enter => Entry::CleanupEnter,
-                    Cleanup::Leave => Entry::CleanupLeave,
-                    Cleanup::Failed => Entry::CleanupFailed,
-                };
-                vec![step(entry, [])]
-            }
-            Self::All(thunks) => vec![step(Entry::All, [value(thunks)])],
-            Self::First(thunks) => vec![step(Entry::First, [value(thunks)])],
+            Self::Hold
+            | Self::Group
+            | Self::Spawn { .. }
+            | Self::GroupClose { .. }
+            | Self::GroupEnd { .. }
+            | Self::Rethrow(_)
+            | Self::Cleanup(_)
+            | Self::All(_)
+            | Self::First(_) => self.task_steps(),
             Self::Native {
                 index,
                 bindings,
@@ -301,6 +311,40 @@ impl Op {
                 )]
             }
         })
+    }
+}
+
+impl Op {
+    /// The steps of an operation on tasks, groups, or cleanups.
+    fn task_steps(&self) -> Vec<Step> {
+        use Arg::Raw;
+        let value = |value: &Value| Arg::Value(*value);
+        match self {
+            Self::Hold => vec![step(Entry::Hold, [])],
+            Self::Group => vec![step(Entry::GroupNew, [])],
+            Self::Spawn { group, thunk } => {
+                vec![step(Entry::Spawn, [value(group), value(thunk)])]
+            }
+            Self::GroupClose { group, unwinding } => {
+                let unwinding = Raw(u64::from(*unwinding));
+                vec![step(Entry::GroupClose, [value(group), unwinding])]
+            }
+            Self::GroupEnd { group, held } => {
+                vec![step(Entry::GroupEnd, [value(group), value(held)])]
+            }
+            Self::Rethrow(held) => vec![step(Entry::Rethrow, [value(held)])],
+            Self::Cleanup(moment) => {
+                let entry = match moment {
+                    Cleanup::Enter => Entry::CleanupEnter,
+                    Cleanup::Leave => Entry::CleanupLeave,
+                    Cleanup::Failed => Entry::CleanupFailed,
+                };
+                vec![step(entry, [])]
+            }
+            Self::All(thunks) => vec![step(Entry::All, [value(thunks)])],
+            Self::First(thunks) => vec![step(Entry::First, [value(thunks)])],
+            _ => Vec::new(),
+        }
     }
 }
 

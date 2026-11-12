@@ -186,6 +186,19 @@ pub fn using_only(bundle: Expr, body: Expr) -> Expr {
     }
 }
 
+/// Evaluates `body`, and is what it gave once every task it spawned is
+/// over.
+#[must_use]
+pub fn group(body: Expr) -> Expr {
+    Expr::Group(Box::new(body))
+}
+
+/// Starts `task` as a task of the group it is written in.
+#[must_use]
+pub fn spawn(task: Expr) -> Expr {
+    Expr::Spawn(Box::new(task))
+}
+
 /// Evaluates `body`, and then `cleanup`, however `body` ended.
 #[must_use]
 pub fn cleanup(cleanup: Expr, body: Expr) -> Expr {

@@ -94,6 +94,12 @@ pub enum Error {
     GenericEntry(Symbol),
     /// An ability is used where nothing binds it.
     Unbound { symbol: Symbol, ability: Symbol },
+    /// A spawn is written outside any group, or inside a function inside
+    /// one.
+    SpawnOutsideGroup(Symbol),
+    /// A spawned task uses an ability bound inside its group, which may
+    /// be over before the task is.
+    SpawnBinding { symbol: Symbol, ability: Symbol },
     /// A comptime call names a function that takes abilities, and the
     /// build has no target to provide them.
     ComptimeAbilities(Symbol),
@@ -188,6 +194,8 @@ impl fmt::Display for Error {
             Self::NotBundle { .. }
             | Self::DuplicateHandler { .. }
             | Self::Unbound { .. }
+            | Self::SpawnOutsideGroup(_)
+            | Self::SpawnBinding { .. }
             | Self::ComptimeAbilities(_)
             | Self::EntryAbilities(_) => self.fmt_ability(f),
             Self::UntypedParameter { symbol, name } => {
@@ -249,6 +257,16 @@ impl Error {
             Self::Unbound { symbol, ability } => {
                 write!(f, "{symbol}: `{ability}` is not bound here")
             }
+            Self::SpawnOutsideGroup(symbol) => {
+                write!(
+                    f,
+                    "{symbol}: a spawn must be written in the body of a group"
+                )
+            }
+            Self::SpawnBinding { symbol, ability } => write!(
+                f,
+                "{symbol}: a spawned task cannot use `{ability}`, which is bound inside its group"
+            ),
             Self::ComptimeAbilities(function) => write!(
                 f,
                 "`{function}` takes abilities, and the build has no target to provide them"

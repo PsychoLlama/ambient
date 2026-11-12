@@ -1,5 +1,5 @@
-//! Cleanups: a closure called on every way out of a block. See
-//! `spec/cleanup.md`.
+//! Cleanups and groups: what a block does on every way out of it. See
+//! `spec/cleanup.md` and `spec/tasks.md`.
 
 use super::{Lowering, Scope, Unsupported};
 use crate::core;
@@ -28,6 +28,43 @@ impl Lowering {
             // Filled in once the function's points are numbered.
             recovering: (0, 0),
         }
+    }
+
+    /// A group's body, then a wait for the tasks spawned in it. If the
+    /// body unwinds, they are cancelled and waited for all the same.
+    pub(super) fn group(&mut self, body: &core::Expr) -> Result<Expr, Unsupported> {
+        let group = Value::Local(self.temporary());
+        let close = |unwinding| Expr::Op(Op::GroupClose { group, unwinding });
+        let end = |held| Expr::Op(Op::GroupEnd { group, held });
+
+        self.groups.push(group);
+        let body = self.expr(body);
+        self.groups.pop();
+
+        let held = self.temporary();
+        let unwound = self.then(close(true), end(Value::Local(held)));
+        let unwound = bind(held, Expr::Op(Op::Hold), unwound);
+
+        let result = self.temporary();
+        let completed = self.then(end(Value::Null), Expr::Op(Op::Copy(Value::Local(result))));
+        let completed = self.then(close(false), completed);
+
+        let body = bind(result, Self::attempt(body?, unwound), completed);
+        let Value::Local(local) = group else {
+            return Ok(body);
+        };
+        Ok(bind(local, Expr::Op(Op::Group), body))
+    }
+
+    /// Checking put every spawn inside a group.
+    pub(super) fn spawn(
+        &mut self,
+        thunk: &core::Expr,
+        scope: &mut Scope,
+    ) -> Result<Op, Unsupported> {
+        let thunk = self.operand(thunk, scope)?;
+        let group = self.groups.last().copied().unwrap_or(Value::Null);
+        Ok(Op::Spawn { group, thunk })
     }
 
     pub(super) fn cleanup(

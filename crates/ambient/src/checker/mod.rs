@@ -95,6 +95,9 @@ struct Frame {
     /// What binds abilities here, innermost last: the definition's row,
     /// then each provide checking is inside of.
     layers: Vec<Layer>,
+    /// How many layers there were where each group checking is inside of
+    /// began, innermost last.
+    groups: Vec<usize>,
     /// Abilities this definition uses that only an enclosing one binds.
     bindings: Vec<Symbol>,
     lambdas: Vec<Open>,
@@ -388,6 +391,8 @@ impl<'a> Checker<'a> {
             Expr::Provide { bundle, only, body } => self.provide(bundle, *only, body)?,
             Expr::Observe { observer, body } => self.observe(observer, body)?,
             Expr::Cleanup { cleanup, body } => self.cleanup(cleanup, body)?,
+            Expr::Group(body) => self.group(body)?,
+            Expr::Spawn(task) => self.spawn(task)?,
             Expr::All(branches) => {
                 let (thunks, results) = self.tasks(branches)?;
                 (core::Expr::All(thunks), Ty::Tuple(results))

@@ -155,6 +155,12 @@ pub enum Expr {
         cleanup: Box<Expr>,
         body: Box<Expr>,
     },
+    /// Evaluates the body, and is what it gave once every task spawned in
+    /// it is over.
+    Group(Box<Expr>),
+    /// Starts a closure that takes nothing as a task of the innermost
+    /// group around it, and is null.
+    Spawn(Box<Expr>),
     /// Runs each of these, closures that take nothing, as a task, and is
     /// the tuple of their results once every one is over.
     All(Vec<Expr>),

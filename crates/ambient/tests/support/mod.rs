@@ -3,6 +3,8 @@
 
 #![allow(dead_code, clippy::unwrap_used)]
 
+pub mod tasks;
+
 use std::cell::RefCell;
 
 use ambient::backend::native::{Natives, Offered};
