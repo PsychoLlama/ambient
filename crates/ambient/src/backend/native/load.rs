@@ -111,15 +111,12 @@ impl Program {
     /// every call ends with it.
     pub fn reclaim(&self) {
         loop {
-            let mut unused = false;
             // SAFETY: the word is the list every unit was given.
-            let unit =
-                unsafe { ambient_runtime::amb_unit_next(self.unused.get(), &raw mut unused) };
+            let unit = unsafe { ambient_runtime::amb_unit_take(self.unused.get()) };
             if unit == 0 {
                 break;
             }
-            let gone = unused.then(|| self.units.borrow_mut().remove(&unit));
-            let Some(gone) = gone.flatten() else {
+            let Some(gone) = self.units.borrow_mut().remove(&unit) else {
                 continue;
             };
             let mut known = self.known.borrow_mut();

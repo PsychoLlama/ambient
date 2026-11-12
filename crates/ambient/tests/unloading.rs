@@ -1,5 +1,5 @@
-//! How long loaded code stays in a native program. See "Receiving" in
-//! `spec/exchange.md`.
+//! How long loaded code stays in a program, on every backend. See
+//! "Receiving" in `spec/exchange.md`.
 
 #![allow(clippy::unwrap_used)]
 
@@ -8,13 +8,14 @@ mod support;
 use std::collections::HashMap;
 
 use ambient::backend::native::{Host, Native, Natives, Program};
+use ambient::backend::wasm;
 use ambient::builder::{self as b, ModuleBuilder, ty};
-use ambient::engine::{Engine, Parts};
+use ambient::engine::{Backend, Engine, Parts};
 use ambient::hash::Hash;
 use ambient::store::MemoryStore;
 use ambient::surface::Definition;
-use ambient::value::{Value, decode};
-use ambient_runtime::{Word, amb_int_new, amb_live, amb_release};
+use ambient::value::{Construct, Value, decode};
+use ambient_runtime::{amb_int_new, amb_live, amb_release};
 use support::value;
 
 /// A function of no parameters that gives `body`.
@@ -22,106 +23,187 @@ fn giving(name: &str, body: ambient::surface::Expr) -> Definition {
     b::function(name).returns(ty::unknown()).body(body)
 }
 
-/// A program that does nothing, and functions to load into it: those
-/// of a module it does not reach, by name, or as `f under t`, the
-/// program that runs `f` under the target `t`.
-struct Plugins {
+/// A program that does nothing, running on one backend, and functions
+/// to load into it: those of a module it does not reach, by name, or
+/// as `f under t`, the program that runs `f` under the target `t`.
+trait Plugins {
+    /// Loads a function, which the caller owns.
+    fn add(&mut self, name: &str) -> u64;
+    /// Whether the program has a function once what nothing refers to
+    /// is dropped.
+    fn has(&mut self, name: &str) -> bool;
+    /// Calls a function value with integers; the caller owns the result.
+    fn call(&mut self, function: u64, args: &[i64]) -> u64;
+    /// What a word is, giving it up.
+    fn take(&mut self, word: u64) -> Value;
+    /// Whether everything made since the program was loaded is gone.
+    fn clean(&mut self) -> bool;
+
+    fn release(&mut self, word: u64) {
+        self.take(word);
+    }
+
+    /// Loads a function, calls it, and lets go of it: what it gave is
+    /// all that is left of the load.
+    fn made_by(&mut self, name: &str) -> u64 {
+        let function = self.add(name);
+        let made = self.call(function, &[]);
+        self.release(function);
+        made
+    }
+}
+
+/// The program and what to load into it, for one backend: `Code` is
+/// what that backend's host loads.
+struct Loaded<Program, Code> {
     program: Program,
-    parts: HashMap<String, (Parts, Hash)>,
+    parts: HashMap<String, (Code, Hash)>,
     /// How many objects were live before anything was loaded.
     live: u64,
 }
 
-impl Plugins {
-    fn new<const N: usize>(module: ModuleBuilder, names: [&str; N]) -> Self {
-        let main = b::module().define(giving("main", b::null()));
-        let workspace = support::workspace([("app", "main", main), ("app", "plugin", module)]);
-        let store = MemoryStore::new();
-        let engine = Engine::new(&workspace, &store);
-        let native = Native::new().unwrap();
-        let load = |name: &str| {
-            // `f under t` is the program that runs `f` under target `t`.
-            let symbol = match name.split_once(" under ") {
-                Some((entry, target)) => engine
-                    .program(&value("plugin", entry), &value("plugin", target))
-                    .unwrap(),
-                None => value("plugin", name),
-            };
-            let parts = engine.link_to_load(&symbol, &native).unwrap();
-            (name.to_owned(), (parts, engine.hash(&symbol).unwrap()))
+/// Compiles `main`, which does nothing, and each of `names` in the
+/// module beside it, with one backend.
+fn compiled<const N: usize>(
+    module: ModuleBuilder,
+    names: [&str; N],
+    backend: &dyn Backend,
+) -> (Parts, HashMap<String, (Parts, Hash)>) {
+    let main = b::module().define(giving("main", b::null()));
+    let workspace = support::workspace([("app", "main", main), ("app", "plugin", module)]);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let load = |name: &str| {
+        let symbol = match name.split_once(" under ") {
+            Some((entry, target)) => engine
+                .program(&value("plugin", entry), &value("plugin", target))
+                .unwrap(),
+            None => value("plugin", name),
         };
-        let parts = names.into_iter().map(load).collect();
-        let entry = engine.link(&value("main", "main"), &native).unwrap();
-        let program = Program::load(&entry, &Natives::new()).unwrap();
-        Self {
-            program,
-            parts,
-            live: amb_live(),
-        }
-    }
+        let parts = engine.link_to_load(&symbol, backend).unwrap();
+        (name.to_owned(), (parts, engine.hash(&symbol).unwrap()))
+    };
+    let parts = names.into_iter().map(load).collect();
+    (engine.link(&value("main", "main"), backend).unwrap(), parts)
+}
 
-    /// Loads a function, which the caller owns.
-    fn add(&self, name: &str) -> Word {
+type Natively = Loaded<Program, Parts>;
+type InWasm = Loaded<wasm::Program, Vec<u8>>;
+
+/// The same program and plugins on every backend.
+fn plugins<const N: usize>(module: &ModuleBuilder, names: [&str; N]) -> Vec<Box<dyn Plugins>> {
+    let (main, parts) = compiled(module.clone(), names, &Native::new().unwrap());
+    let program = Program::load(&main, &Natives::new()).unwrap();
+    let native = Natively {
+        program,
+        parts,
+        live: amb_live(),
+    };
+    let (main, parts) = compiled(module.clone(), names, &wasm::Wasm);
+    let main = wasm::open_module(&main).unwrap();
+    let mut program = wasm::Program::load(&main, &Natives::new()).unwrap();
+    let live = program.live();
+    let unit = |(name, (parts, hash)): (String, (Parts, Hash))| {
+        (name, (wasm::unit(&parts).unwrap(), hash))
+    };
+    let wasm = InWasm {
+        program,
+        parts: parts.into_iter().map(unit).collect(),
+        live,
+    };
+    vec![Box::new(native), Box::new(wasm)]
+}
+
+impl Plugins for Natively {
+    fn add(&mut self, name: &str) -> u64 {
         self.program
             .add(&self.parts[name].0, &Natives::new())
             .unwrap()
     }
 
-    /// Whether the program has a function once what nothing refers to
-    /// is dropped.
-    fn has(&self, name: &str) -> bool {
+    fn has(&mut self, name: &str) -> bool {
         self.program.reclaim();
         self.program.has(&self.parts[name].1)
     }
 
-    /// Loads a function, calls it, and lets go of it: what it gave is
-    /// all that is left of the load.
-    fn made_by(&self, name: &str) -> Word {
-        let function = self.add(name);
-        let made = self.program.call_value(function, &[]).unwrap();
-        release(function);
-        made
+    fn call(&mut self, function: u64, args: &[i64]) -> u64 {
+        // SAFETY: making an integer has no preconditions.
+        let args: Vec<u64> = args
+            .iter()
+            .map(|arg| unsafe { amb_int_new(*arg) })
+            .collect();
+        self.program.call_value(function, &args).unwrap()
     }
 
-    /// Whether everything made since the program was loaded is gone.
-    fn clean(&self) -> bool {
+    fn take(&mut self, word: u64) -> Value {
+        let value = decode(word, &mut Host);
+        // SAFETY: the word is owned by the caller and not used again.
+        unsafe { amb_release(word) };
+        value
+    }
+
+    fn clean(&mut self) -> bool {
         self.program.reclaim();
         amb_live() == self.live
     }
 }
 
-fn release(word: Word) {
-    // SAFETY: the word is owned by the caller and not used again.
-    unsafe { amb_release(word) };
+impl Plugins for InWasm {
+    fn add(&mut self, name: &str) -> u64 {
+        self.program
+            .add(&self.parts[name].0, &Natives::new())
+            .unwrap()
+    }
+
+    fn has(&mut self, name: &str) -> bool {
+        self.program.reclaim();
+        self.program.has(&self.parts[name].1)
+    }
+
+    fn call(&mut self, function: u64, args: &[i64]) -> u64 {
+        let guest = self.program.guest();
+        let args: Vec<u64> = args.iter().map(|arg| Construct::int(guest, *arg)).collect();
+        self.program.call_value(function, &args).unwrap()
+    }
+
+    fn take(&mut self, word: u64) -> Value {
+        let value = decode(word, self.program.guest());
+        self.program.guest().release(word);
+        value
+    }
+
+    fn clean(&mut self) -> bool {
+        self.program.reclaim();
+        self.program.live() == self.live
+    }
 }
 
 #[test]
 fn loaded_code_goes_with_the_function_it_was_loaded_for() {
-    let plugins = Plugins::new(b::module().define(giving("f", b::string("made"))), ["f"]);
+    let module = b::module().define(giving("f", b::string("made")));
+    for mut plugins in plugins(&module, ["f"]) {
+        let function = plugins.add("f");
+        assert!(plugins.has("f"));
+        plugins.release(function);
 
-    let function = plugins.add("f");
-    assert!(plugins.has("f"));
-    release(function);
-
-    assert!(!plugins.has("f"));
-    assert!(plugins.clean());
+        assert!(!plugins.has("f"));
+        assert!(plugins.clean());
+    }
 }
 
 #[test]
 fn a_closure_holds_the_code_it_runs() {
     let adder = b::lambda([("n", Some(ty::int()))], b::add(b::name("n"), b::int(1)));
-    let plugins = Plugins::new(b::module().define(giving("f", adder)), ["f"]);
+    let module = b::module().define(giving("f", adder));
+    for mut plugins in plugins(&module, ["f"]) {
+        let closure = plugins.made_by("f");
+        assert!(plugins.has("f"));
+        let sum = plugins.call(closure, &[4]);
+        plugins.release(closure);
 
-    let closure = plugins.made_by("f");
-    assert!(plugins.has("f"));
-    // SAFETY: making an integer has no preconditions.
-    let sum = plugins
-        .program
-        .call_value(closure, &[unsafe { amb_int_new(4) }]);
-    release(closure);
-
-    assert_eq!(decode(sum.unwrap(), &mut Host), Value::Int(5));
-    assert!(!plugins.has("f"));
+        assert_eq!(plugins.take(sum), Value::Int(5));
+        assert!(!plugins.has("f"));
+    }
 }
 
 #[test]
@@ -129,14 +211,14 @@ fn a_cell_holds_the_type_it_was_made_at() {
     let point = b::type_("Point", ty::record([("x", ty::int())]));
     let made = b::cell(ty::named("Point"), b::record([("x", b::int(1))]));
     let module = b::module().define(point).define(giving("f", made));
-    let plugins = Plugins::new(module, ["f"]);
+    for mut plugins in plugins(&module, ["f"]) {
+        let cell = plugins.made_by("f");
+        assert!(plugins.has("f"));
+        plugins.release(cell);
 
-    let cell = plugins.made_by("f");
-    assert!(plugins.has("f"));
-    release(cell);
-
-    assert!(!plugins.has("f"));
-    assert!(plugins.clean());
+        assert!(!plugins.has("f"));
+        assert!(plugins.clean());
+    }
 }
 
 #[test]
@@ -148,41 +230,42 @@ fn a_cell_holds_the_type_arguments_it_was_made_under() {
         .body(b::cell(ty::named("T"), b::name("x")));
     let cell = b::call(b::name("make"), [b::int(1)]);
     let module = b::module().define(make).define(giving("f", cell));
-    let plugins = Plugins::new(module, ["f"]);
+    for mut plugins in plugins(&module, ["f"]) {
+        let cell = plugins.made_by("f");
+        assert!(plugins.has("f"));
+        plugins.release(cell);
 
-    let cell = plugins.made_by("f");
-    assert!(plugins.has("f"));
-    release(cell);
-
-    assert!(!plugins.has("f"));
-    assert!(plugins.clean());
+        assert!(!plugins.has("f"));
+        assert!(plugins.clean());
+    }
 }
 
 #[test]
 fn a_string_outlives_the_code_it_was_written_in() {
-    let plugins = Plugins::new(b::module().define(giving("f", b::string("made"))), ["f"]);
+    let module = b::module().define(giving("f", b::string("made")));
+    for mut plugins in plugins(&module, ["f"]) {
+        let string = plugins.made_by("f");
+        assert!(!plugins.has("f"));
 
-    let string = plugins.made_by("f");
-    assert!(!plugins.has("f"));
-
-    assert_eq!(decode(string, &mut Host), Value::String("made".to_owned()));
-    release(string);
-    assert!(plugins.clean());
+        assert_eq!(plugins.take(string), Value::String("made".to_owned()));
+        assert!(plugins.clean());
+    }
 }
 
 #[test]
 fn loaded_code_holds_the_loaded_code_it_calls() {
     let inner = giving("inner", b::string("made"));
     let outer = giving("outer", b::call(b::name("inner"), []));
-    let plugins = Plugins::new(b::module().define(inner).define(outer), ["inner", "outer"]);
+    let module = b::module().define(inner).define(outer);
+    for mut plugins in plugins(&module, ["inner", "outer"]) {
+        let (inner, outer) = (plugins.add("inner"), plugins.add("outer"));
+        plugins.release(inner);
+        assert!(plugins.has("inner"));
+        plugins.release(outer);
 
-    let (inner, outer) = (plugins.add("inner"), plugins.add("outer"));
-    release(inner);
-    assert!(plugins.has("inner"));
-    release(outer);
-
-    assert!(!plugins.has("inner") && !plugins.has("outer"));
-    assert!(plugins.clean());
+        assert!(!plugins.has("inner") && !plugins.has("outer"));
+        assert!(plugins.clean());
+    }
 }
 
 #[test]
@@ -197,12 +280,12 @@ fn a_host_loads_a_program_with_a_target_of_its_own() {
     let module = [ask, answer, asks, world.into()]
         .into_iter()
         .fold(b::module(), ModuleBuilder::define);
-    let plugins = Plugins::new(module, ["f under world"]);
+    for mut plugins in plugins(&module, ["f under world"]) {
+        let answered = plugins.made_by("f under world");
 
-    let answered = plugins.made_by("f under world");
-
-    assert_eq!(decode(answered, &mut Host), Value::Int(42));
-    assert!(!plugins.has("f under world"));
+        assert_eq!(plugins.take(answered), Value::Int(42));
+        assert!(!plugins.has("f under world"));
+    }
 }
 
 #[test]
@@ -211,14 +294,13 @@ fn a_function_named_as_a_value_holds_its_code() {
     let module = b::module()
         .define(inner)
         .define(giving("f", b::name("inner")));
-    let plugins = Plugins::new(module, ["f"]);
+    for mut plugins in plugins(&module, ["f"]) {
+        let named = plugins.made_by("f");
+        assert!(plugins.has("f"));
+        let made = plugins.call(named, &[]);
+        plugins.release(named);
 
-    let named = plugins.made_by("f");
-    assert!(plugins.has("f"));
-    let made = plugins.program.call_value(named, &[]).unwrap();
-    release(named);
-
-    assert_eq!(decode(made, &mut Host), Value::String("made".to_owned()));
-    release(made);
-    assert!(plugins.clean());
+        assert_eq!(plugins.take(made), Value::String("made".to_owned()));
+        assert!(plugins.clean());
+    }
 }

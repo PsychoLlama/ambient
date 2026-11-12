@@ -1,0 +1,217 @@
+//! The runtime instantiated in a WebAssembly engine, and how a host
+//! reads and makes values in it.
+
+use wasmtime::{AsContextMut, Caller, Instance, Val};
+
+use crate::backend::native::Offered;
+use crate::value::{self, Construct, Inspect, Value};
+
+/// What a WebAssembly host keeps where native code can reach it: the
+/// runtime, once it is instantiated, and the native code for each
+/// extern of the program.
+#[derive(Default)]
+pub struct State {
+    pub(super) runtime: Option<Instance>,
+    pub(super) natives: Vec<Offered>,
+}
+
+/// The runtime, reached through a store or through the caller of a
+/// host function.
+pub struct Guest<S> {
+    pub(super) store: S,
+    pub(super) runtime: Instance,
+}
+
+/// What a trap in the runtime is to a host: the end, as a crash in
+/// native code would be.
+pub(super) fn must<T, E: std::fmt::Display>(result: Result<T, E>, what: &str) -> T {
+    match result {
+        Ok(value) => value,
+        Err(error) => panic!("{what}: {error}"),
+    }
+}
+
+pub(super) fn word(value: u64) -> Val {
+    Val::I64(value.cast_signed())
+}
+
+fn as_word(value: Option<Val>) -> u64 {
+    match value {
+        Some(Val::I64(word)) => word.cast_unsigned(),
+        Some(Val::I32(address)) => u64::from(address.cast_unsigned()),
+        _ => 0,
+    }
+}
+
+impl<S: AsContextMut> Guest<S> {
+    /// Calls a runtime export.
+    pub(super) fn runtime(&mut self, name: &str, args: &[Val]) -> Option<Val> {
+        let Some(function) = self.runtime.get_func(&mut self.store, name) else {
+            panic!("the runtime has no `{name}`");
+        };
+        let mut results = vec![Val::I64(0); function.ty(&self.store).results().len()];
+        must(function.call(&mut self.store, args, &mut results), name);
+        results.into_iter().next()
+    }
+
+    /// Calls a runtime export that takes words, and returns a word or
+    /// an address.
+    pub(super) fn words(&mut self, name: &str, args: &[u64]) -> u64 {
+        let args: Vec<Val> = args.iter().copied().map(word).collect();
+        as_word(self.runtime(name, &args))
+    }
+
+    /// Calls a runtime export that takes an address first.
+    pub(super) fn at(&mut self, name: &str, address: u64, args: &[u64]) -> u64 {
+        let mut all = vec![Val::I32(u32::try_from(address).unwrap_or(0).cast_signed())];
+        all.extend(args.iter().copied().map(word));
+        as_word(self.runtime(name, &all))
+    }
+
+    /// The runtime's memory.
+    fn memory(&mut self) -> wasmtime::Memory {
+        match self.runtime.get_memory(&mut self.store, "memory") {
+            Some(memory) => memory,
+            None => panic!("the runtime has no memory"),
+        }
+    }
+
+    /// The word at an address.
+    pub(super) fn read(&mut self, address: u64) -> u64 {
+        let mut bytes = [0u8; 8];
+        let start = usize::try_from(address).unwrap_or(usize::MAX);
+        let memory = self.memory();
+        must(
+            memory.read(&mut self.store, start, &mut bytes),
+            "reading memory",
+        );
+        u64::from_le_bytes(bytes)
+    }
+
+    /// Copies `bytes` into the runtime's memory and calls `name` with
+    /// their address and length.
+    fn with_bytes(&mut self, name: &str, bytes: &[u8]) -> u64 {
+        let room = bytes.len().div_ceil(8).max(1) as u64;
+        let address = self.words("amb_words", &[room]);
+        let memory = self.memory();
+        let start = usize::try_from(address).unwrap_or(usize::MAX);
+        must(
+            memory.write(&mut self.store, start, bytes),
+            "writing memory",
+        );
+        let result = self.at(name, address, &[bytes.len() as u64]);
+        self.at("amb_words_free", address, &[room]);
+        result
+    }
+}
+
+impl<S: AsContextMut> Inspect for Guest<S> {
+    fn kind(&mut self, word: u64) -> u64 {
+        self.words("amb_kind", &[word])
+    }
+
+    fn int(&mut self, word: u64) -> i64 {
+        self.words("amb_int_value", &[word]).cast_signed()
+    }
+
+    fn float_bits(&mut self, word: u64) -> u64 {
+        self.words("amb_float_bits", &[word])
+    }
+
+    fn definition(&mut self, word: u64) -> u64 {
+        self.words("amb_closure_hash", &[word])
+    }
+
+    fn length(&mut self, word: u64) -> u64 {
+        self.words("amb_length", &[word])
+    }
+
+    fn word_at(&mut self, word: u64, index: u64) -> u64 {
+        self.words("amb_word_at", &[word, index])
+    }
+
+    fn string(&mut self, value: u64) -> Vec<u8> {
+        let length = usize::try_from(self.length(value)).unwrap_or(0);
+        let start = usize::try_from(self.words("amb_string_bytes", &[value])).unwrap_or(0);
+        let memory = self.memory();
+        memory.data(&self.store)[start..start + length].to_vec()
+    }
+}
+
+impl<S: AsContextMut> Construct for Guest<S> {
+    fn int(&mut self, value: i64) -> u64 {
+        self.words("amb_int_new", &[value.cast_unsigned()])
+    }
+
+    fn float(&mut self, bits: u64) -> u64 {
+        self.words("amb_float_new", &[bits])
+    }
+
+    fn string(&mut self, bytes: &[u8]) -> u64 {
+        self.with_bytes("amb_string_new", bytes)
+    }
+
+    fn key(&mut self, name: &[u8]) -> u64 {
+        self.with_bytes("amb_intern", name)
+    }
+
+    fn tag(&mut self, text: &[u8]) -> u64 {
+        self.with_bytes("amb_tag", text)
+    }
+
+    fn sequence(&mut self, list: bool, length: u64) -> u64 {
+        self.words("amb_sequence_new", &[u64::from(list), length])
+    }
+
+    fn sequence_set(&mut self, sequence: u64, index: u64, value: u64) {
+        self.words("amb_sequence_set", &[sequence, index, value]);
+    }
+
+    fn record(&mut self, length: u64) -> u64 {
+        self.words("amb_record_new", &[length])
+    }
+
+    fn record_set(&mut self, record: u64, key: u64, value: u64) {
+        self.words("amb_record_set", &[record, key, value]);
+    }
+
+    fn release(&mut self, word: u64) {
+        self.words("amb_release", &[word]);
+    }
+}
+
+/// The host's side of `amb_native`: runs the native code for the extern
+/// at `index` and hands back its result, or reports a fault.
+pub(super) fn native(
+    mut caller: Caller<'_, State>,
+    context: i32,
+    index: i64,
+    _bindings: i64,
+    args: i64,
+) -> i64 {
+    let Some(runtime) = caller.data().runtime else {
+        panic!("native code ran before the runtime was there");
+    };
+    let natives = std::mem::take(&mut caller.data_mut().natives);
+    let mut guest = Guest {
+        store: &mut caller,
+        runtime,
+    };
+    let decoded = value::decode(args.cast_unsigned(), &mut guest);
+    let args: &[Value] = match &decoded {
+        Value::Tuple(args) => args,
+        _ => &[],
+    };
+    let offered = usize::try_from(index)
+        .ok()
+        .and_then(|index| natives.get(index));
+    let result = if let Some(Ok(value)) = offered.map(|offered| (offered.run)(args)) {
+        value::encode(&value, &mut guest)
+    } else {
+        let code = word(ambient_runtime::Fault::Native as u64);
+        guest.runtime("amb_fault", &[Val::I32(context), code]);
+        ambient_runtime::UNWIND
+    };
+    caller.data_mut().natives = natives;
+    result.cast_signed()
+}

@@ -84,3 +84,11 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 - No backend's exception mechanism is used, so unwinding behaves identically everywhere and [cleanups](cleanup.md) are ordinary code.
 - A provide binds each abort handler to a token of its own; a perform unwinds to the provide that holds the token, and every provide it passes lets it through.
 - A token expires when its provide exits, however it exits; performing through an expired token is the [fault](handlers.md).
+
+## Loading
+
+- Code is [loaded](exchange.md) on both backends, and held and discarded the same way.
+- Loaded code is self-contained: the same bytes load into any program, and use whatever definitions that program already has, by hash.
+- A program that accepts loads says where its definitions are; one that does not pays nothing for the feature.
+- In WebAssembly loaded code is one more module over the program's memory and table, and the host links it; the runtime keeps no registry.
+- A host discards loaded code when the runtime says nothing refers to it, not at the moment the last reference goes.

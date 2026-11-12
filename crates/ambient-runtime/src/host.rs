@@ -83,10 +83,19 @@ pub unsafe extern "C" fn amb_kind(word: Word) -> u64 {
     kind as u64
 }
 
-/// Room for `count` words that is never reclaimed, zeroed.
+/// Room for `count` words, zeroed, kept until [`amb_words_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_words(count: u64) -> *mut u64 {
     Box::leak(vec![0u64; count as usize].into_boxed_slice()).as_mut_ptr()
+}
+
+/// Gives back room [`amb_words`] made, of `count` words, that nothing
+/// refers to any more: the block of a unit that is being reclaimed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_words_free(words: *mut u64, count: u64) {
+    let slice = std::ptr::slice_from_raw_parts_mut(words, count as usize);
+    // SAFETY: the words are a box `amb_words` leaked.
+    drop(unsafe { Box::from_raw(slice) });
 }
 
 /// The integer a value holds. The value must be an integer.

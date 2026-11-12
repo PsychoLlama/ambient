@@ -5,13 +5,24 @@
 //! functions never refer to each other by index, only through closures in
 //! memory, so each function's body is compiled on its own and a module is
 //! put together by concatenation.
+//!
+//! Code is loaded into a program that is running as one more module, a
+//! [`unit`], instantiated over the same memory and table. What the
+//! program has already reaches it as imports, by hash, so the module is
+//! the same bytes whatever program loads it.
 
 mod emit;
+mod guest;
+mod host;
+mod layout;
 mod module;
+mod resume;
 
 use ambient_runtime::Entry;
 pub use emit::Wasm;
-pub use module::module;
+pub use guest::{Guest, State};
+pub use host::Program;
+pub use module::{HOST_MODULE, KNOWN_MODULE, module, open_module, unit};
 
 /// The runtime as a WebAssembly module. It exports its memory and every
 /// entry point; instantiate it first and give its exports to the program's
@@ -35,6 +46,15 @@ pub(super) const WORDS: u32 = Entry::ALL.len() as u32;
 pub(super) const STRING_PINNED: u32 = WORDS + 1;
 pub(super) const INTERN: u32 = WORDS + 2;
 pub(super) const TAG: u32 = WORDS + 3;
+/// The function indices of the imports only a unit calls: to make a
+/// string it holds a reference to, to give back its block, and to hold
+/// and let go of itself.
+pub(super) const STRING_NEW: u32 = WORDS + 4;
+pub(super) const WORDS_FREE: u32 = WORDS + 5;
+pub(super) const UNIT_RETAIN: u32 = WORDS + 6;
+pub(super) const UNIT_RELEASE: u32 = WORDS + 7;
+/// The first function a module defines: every import comes before it.
+pub(super) const FIRST: u32 = WORDS + 8;
 
 /// The type index of a compiled function taking `arity` arguments.
 pub(super) fn function_type(arity: usize) -> u32 {

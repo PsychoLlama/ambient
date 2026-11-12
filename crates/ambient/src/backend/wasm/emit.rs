@@ -3,9 +3,7 @@
 use ambient_runtime::layout::{
     CLOSURE_CAPTURES, CLOSURE_DEFINITION, DEFINITION_CODE, DEFINITION_METERED, DEFINITION_SLOTS,
 };
-use ambient_runtime::{
-    Context, Entry, FALSE, NULL, RESUMING, SMALL_MAX, SMALL_MIN, SUSPENDING, TRUE, Word,
-};
+use ambient_runtime::{Entry, FALSE, NULL, SMALL_MAX, SMALL_MIN, TRUE, Word};
 use wasm_encoder::{BlockType, Function, Instruction, MemArg, MemArgTarget, ValType};
 
 use super::{function_type, import};
@@ -27,13 +25,13 @@ pub(super) fn memory(offset: i32) -> MemArg {
     }
 }
 
-const CONTEXT: u32 = 0;
+pub(super) const CONTEXT: u32 = 0;
 const CLOSURE: u32 = 1;
 /// The first parameter of the lowered function.
-const PARAMS: u32 = 2;
+pub(super) const PARAMS: u32 = 2;
 /// The runtime's stack pointer, the one global a module imports: a
 /// function keeps its locals in a frame it takes from that stack.
-const STACK: u32 = 0;
+pub(super) const STACK: u32 = 0;
 
 impl Backend for Wasm {
     fn name(&self) -> &'static str {
@@ -94,34 +92,34 @@ impl Backend for Wasm {
     }
 }
 
-struct Emitter {
-    body: Function,
+pub(super) struct Emitter {
+    pub(super) body: Function,
     /// How many locals the lowered function has, and how many of them
     /// are its parameters.
-    locals: u32,
-    params: u32,
+    pub(super) locals: u32,
+    pub(super) params: u32,
     /// The bytes its locals take on the stack.
-    size: i32,
+    pub(super) size: i32,
     /// Where its locals are: an address.
-    frame: u32,
-    scratch: u32,
-    callee: u32,
+    pub(super) frame: u32,
+    pub(super) scratch: u32,
+    pub(super) callee: u32,
     /// The point a function that is resuming is going back to, and `-1`
     /// in one that is not.
-    target: u32,
+    pub(super) target: u32,
     /// The first of three locals a suspending function puts its frame
     /// in: the point it is at, and its definition and position.
-    saved: u32,
+    pub(super) saved: u32,
     /// How many slots the definition has; its constants follow them.
-    slots: usize,
+    pub(super) slots: usize,
     /// The control constructs open around the current instruction,
     /// innermost last. `true` marks one that unwinding leaves through: the
     /// body of a `Let`, or of the function.
-    frames: Vec<bool>,
+    pub(super) frames: Vec<bool>,
 }
 
 impl Emitter {
-    fn emit(&mut self, instruction: &Instruction) {
+    pub(super) fn emit(&mut self, instruction: &Instruction) {
         self.body.instruction(instruction);
     }
 
@@ -129,13 +127,13 @@ impl Emitter {
         self.emit(&Instruction::Block(BlockType::Result(ValType::I64)));
     }
 
-    fn constant(&mut self, word: Word) {
+    pub(super) fn constant(&mut self, word: Word) {
         self.emit(&Instruction::I64Const(word.cast_signed()));
     }
 
     /// How many constructs a branch must leave to reach the innermost one
     /// unwinding leaves through.
-    fn unwind_depth(&self) -> u32 {
+    pub(super) fn unwind_depth(&self) -> u32 {
         let inside = self
             .frames
             .iter()
@@ -145,7 +143,7 @@ impl Emitter {
         u32::try_from(inside).unwrap_or(0)
     }
 
-    fn value(&mut self, value: lir::Value) {
+    pub(super) fn value(&mut self, value: lir::Value) {
         match value {
             lir::Value::Local(local) => self.local(local),
             lir::Value::Captured(position) => {
@@ -161,13 +159,13 @@ impl Emitter {
     }
 
     /// Pushes a local of the lowered function.
-    fn local(&mut self, local: usize) {
+    pub(super) fn local(&mut self, local: usize) {
         self.emit(&Instruction::LocalGet(self.frame));
         self.emit(&Instruction::I64Load(memory(Self::offset(local))));
     }
 
     /// Puts the word on the stack in a local of the lowered function.
-    fn set_local(&mut self, local: usize) {
+    pub(super) fn set_local(&mut self, local: usize) {
         self.emit(&Instruction::LocalSet(self.scratch));
         self.emit(&Instruction::LocalGet(self.frame));
         self.emit(&Instruction::LocalGet(self.scratch));
@@ -199,125 +197,6 @@ impl Emitter {
         self.frames.pop();
         self.emit(&Instruction::End);
         self.emit(&Instruction::LocalGet(self.scratch));
-    }
-
-    /// Pushes the context's mode.
-    fn mode(&mut self) {
-        self.emit(&Instruction::LocalGet(CONTEXT));
-        self.emit(&Instruction::I64Load(memory(Context::MODE)));
-    }
-
-    /// Calls an entry point that takes the context and what is on the
-    /// stack after it.
-    fn frame(&mut self, entry: Entry) {
-        self.emit(&Instruction::Call(import(entry)));
-    }
-
-    /// What a function does first: it makes room for its locals, and if
-    /// its task is resuming, it takes them back and notes where it was.
-    fn enter(&mut self) {
-        self.emit(&Instruction::GlobalGet(STACK));
-        self.emit(&Instruction::I32Const(self.size));
-        self.emit(&Instruction::I32Sub);
-        self.emit(&Instruction::LocalTee(self.frame));
-        self.emit(&Instruction::GlobalSet(STACK));
-        self.emit(&Instruction::I64Const(-1));
-        self.emit(&Instruction::LocalSet(self.target));
-        self.mode();
-        self.constant(RESUMING);
-        self.emit(&Instruction::I64Eq);
-        self.emit(&Instruction::If(BlockType::Empty));
-        self.emit(&Instruction::LocalGet(CONTEXT));
-        self.frame(Entry::FramePoint);
-        self.emit(&Instruction::LocalSet(self.target));
-        for local in 0..self.locals {
-            self.emit(&Instruction::LocalGet(CONTEXT));
-            self.constant(u64::from(local));
-            self.frame(Entry::FrameLoad);
-            self.set_local(local as usize);
-        }
-        self.emit(&Instruction::LocalGet(CONTEXT));
-        self.frame(Entry::FrameDrop);
-        self.emit(&Instruction::Else);
-        // Its parameters are the first of its locals.
-        for param in 0..self.params {
-            self.emit(&Instruction::LocalGet(PARAMS + param));
-            self.set_local(param as usize);
-        }
-        self.emit(&Instruction::End);
-    }
-
-    /// Pushes whether the point being resumed to is one of `points`:
-    /// first, and one past last.
-    fn resuming_to(&mut self, points: (usize, usize)) {
-        self.emit(&Instruction::LocalGet(self.target));
-        self.constant(points.0 as u64);
-        self.emit(&Instruction::I64GeS);
-        self.emit(&Instruction::LocalGet(self.target));
-        self.constant(points.1 as u64);
-        self.emit(&Instruction::I64LtS);
-        self.emit(&Instruction::I32And);
-    }
-
-    /// An operation the task may suspend in. Leaves one word on the
-    /// stack.
-    fn point(&mut self, point: usize, op: &Op, frame: Option<(usize, usize)>) {
-        // A function that was going back to this point is there.
-        self.resuming_to((point, point + 1));
-        self.emit(&Instruction::If(BlockType::Empty));
-        self.emit(&Instruction::I64Const(-1));
-        self.emit(&Instruction::LocalSet(self.target));
-        self.emit(&Instruction::End);
-
-        self.op(op);
-        self.emit(&Instruction::LocalTee(self.scratch));
-        self.emit(&Instruction::I64Eqz);
-        self.emit(&Instruction::If(BlockType::Empty));
-        self.frames.push(false);
-        // It unwound. If the task is suspending, this function keeps its
-        // locals for later and leaves at once; if not, it unwinds.
-        self.mode();
-        self.constant(SUSPENDING);
-        self.emit(&Instruction::I64Eq);
-        self.emit(&Instruction::If(BlockType::Empty));
-        self.constant(point as u64);
-        self.emit(&Instruction::LocalSet(self.saved));
-        let (definition, position) = match frame {
-            Some((definition, position)) => (lir::Value::Constant(definition), position),
-            None => (lir::Value::Null, 0),
-        };
-        self.value(definition);
-        self.emit(&Instruction::LocalSet(self.saved + 1));
-        self.constant(position as u64);
-        self.emit(&Instruction::LocalSet(self.saved + 2));
-        // Past this `if` and every construct open around it is the
-        // function's outermost block.
-        let depth = u32::try_from(self.frames.len()).unwrap_or(0) + 1;
-        self.emit(&Instruction::Br(depth));
-        self.emit(&Instruction::End);
-        self.emit(&Instruction::I64Const(0));
-        self.emit(&Instruction::Br(self.unwind_depth()));
-        self.frames.pop();
-        self.emit(&Instruction::End);
-        self.emit(&Instruction::LocalGet(self.scratch));
-    }
-
-    /// What every point leaves for to suspend: the function keeps its
-    /// frame and its locals, and returns. Every point shares it, so a
-    /// function's code grows with its points and not with their product
-    /// with its locals.
-    fn save(&mut self) {
-        self.emit(&Instruction::LocalGet(CONTEXT));
-        for word in 0..3 {
-            self.emit(&Instruction::LocalGet(self.saved + word));
-        }
-        self.frame(Entry::FramePush);
-        for local in 0..self.locals {
-            self.emit(&Instruction::LocalGet(CONTEXT));
-            self.local(local as usize);
-            self.frame(Entry::FrameSave);
-        }
-        self.emit(&Instruction::I64Const(0));
     }
 
     /// Leaves one word on the stack.
@@ -419,7 +298,7 @@ impl Emitter {
         }
     }
 
-    fn op(&mut self, op: &Op) {
+    pub(super) fn op(&mut self, op: &Op) {
         match op {
             Op::Copy(value) => {
                 if value.counted() {

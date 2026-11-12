@@ -55,18 +55,23 @@ pub unsafe extern "C" fn amb_unit_release(unit: u64) {
     }
 }
 
-/// Takes the first unit from a host's list, and says whether nothing
-/// refers to it still. Zero if the list is empty.
+/// Takes from a host's list a unit nothing refers to, for the host to
+/// reclaim. Zero once the list holds none. A unit that was referred to
+/// again since it joined the list leaves it and is kept.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_unit_next(list: *mut u64, unused: *mut bool) -> u64 {
+pub unsafe extern "C" fn amb_unit_take(list: *mut u64) -> u64 {
     unsafe {
-        let unit = *list;
-        if unit != 0 {
+        loop {
+            let unit = *list;
+            if unit == 0 {
+                return 0;
+            }
             let record = unit as usize as *mut u64;
             *list = *record.add(UNIT_NEXT);
             *record.add(LISTED) = 0;
-            *unused = *record == 0;
+            if *record == 0 {
+                return unit;
+            }
         }
-        unit
     }
 }
