@@ -4,9 +4,11 @@
 //! match becomes tests and branches, and every intermediate value gets a
 //! local so that it has an owner.
 
-use ambient_runtime::{Fault, SMALL_MAX, SMALL_MIN};
+mod patterns;
 
-use crate::core::{self, Open, Pattern, Primitive, Tree};
+use ambient_runtime::{SMALL_MAX, SMALL_MIN};
+
+use crate::core::{self, Open, Tree};
 use crate::lir::{self, Constant, Expr, Op, Value};
 use crate::literal::Literal;
 
@@ -100,17 +102,6 @@ fn renumber(expr: &mut Expr, base: usize) {
     }
 }
 
-/// What a pattern binds, and where in the subject each binding is found.
-enum Plan {
-    Nothing,
-    /// Binds the subject to a local, then goes on inside it.
-    Bind(usize, Box<Plan>),
-    /// Goes on inside fields, each a constant.
-    Record(Vec<(usize, Plan)>),
-    /// Goes on inside members, each a position.
-    Tuple(Vec<(usize, Plan)>),
-}
-
 struct Lowering {
     /// How many of the core tree's locals are bound so far. A core local
     /// keeps its number.
@@ -120,13 +111,13 @@ struct Lowering {
 }
 
 impl Lowering {
-    fn bind(&mut self) -> usize {
+    pub(super) fn bind(&mut self) -> usize {
         let local = self.binders;
         self.binders += 1;
         local
     }
 
-    fn temporary(&mut self) -> usize {
+    pub(super) fn temporary(&mut self) -> usize {
         let local = TEMPORARY + self.temporaries;
         self.temporaries += 1;
         local
@@ -142,11 +133,11 @@ impl Lowering {
             })
     }
 
-    fn field(&mut self, name: &str) -> usize {
+    pub(super) fn field(&mut self, name: &str) -> usize {
         self.constant(Constant::Field(name.to_owned()))
     }
 
-    fn expr(&mut self, expr: &core::Expr) -> Result<Expr, Unsupported> {
+    pub(super) fn expr(&mut self, expr: &core::Expr) -> Result<Expr, Unsupported> {
         let mut scope = Scope::default();
         let op = match expr {
             core::Expr::Null => Op::Copy(Value::Null),
@@ -226,34 +217,8 @@ impl Lowering {
         Ok(scope.wrap(Expr::Op(op)))
     }
 
-    fn matching(
-        &mut self,
-        subject: Value,
-        arms: &[(Pattern, core::Expr)],
-    ) -> Result<Expr, Unsupported> {
-        // Binders are numbered in arm order, so the arms are lowered in
-        // order. The chain is then built from the last arm back, so that
-        // each arm's failure is the arms after it.
-        let mut lowered = Vec::new();
-        for (pattern, body) in arms {
-            let test = self.test(pattern, subject)?;
-            let plan = self.plan(pattern);
-            let body = self.expr(body)?;
-            lowered.push((test, plan, body));
-        }
-        let mut chain = Expr::Fault(Fault::NoMatch);
-        for (test, plan, body) in lowered.into_iter().rev() {
-            let body = self.extract(plan, subject, body);
-            chain = match test {
-                None => body,
-                Some(test) => self.branch(test, body, chain),
-            };
-        }
-        Ok(chain)
-    }
-
     /// `then` if `test` is true, `otherwise` if not.
-    fn branch(&mut self, test: Expr, then: Expr, otherwise: Expr) -> Expr {
+    pub(super) fn branch(&mut self, test: Expr, then: Expr, otherwise: Expr) -> Expr {
         let condition = self.temporary();
         Expr::Let {
             local: condition,
@@ -268,7 +233,7 @@ impl Lowering {
 
     /// An expression that is true when every test is, stopping at the
     /// first that is not.
-    fn all(&mut self, tests: Vec<Expr>) -> Option<Expr> {
+    pub(super) fn all(&mut self, tests: Vec<Expr>) -> Option<Expr> {
         let mut tests = tests.into_iter().rev();
         let last = tests.next()?;
         Some(tests.fold(last, |rest, test| {
@@ -286,7 +251,11 @@ impl Lowering {
 
     /// `expr` as an operand. Anything that is not already a value is
     /// evaluated into a temporary that `scope` will own.
-    fn operand(&mut self, expr: &core::Expr, scope: &mut Scope) -> Result<Value, Unsupported> {
+    pub(super) fn operand(
+        &mut self,
+        expr: &core::Expr,
+        scope: &mut Scope,
+    ) -> Result<Value, Unsupported> {
         Ok(match expr {
             core::Expr::Null => Value::Null,
             core::Expr::Literal(Literal::Bool(value)) => Value::Bool(*value),
@@ -307,68 +276,8 @@ impl Lowering {
         })
     }
 
-    /// An expression that is true when `pattern` matches `subject`; `None`
-    /// if it always does.
-    fn test(&mut self, pattern: &Pattern, subject: Value) -> Result<Option<Expr>, Unsupported> {
-        Ok(match pattern {
-            Pattern::Wildcard => None,
-            Pattern::Bind(inner) => self.test(inner, subject)?,
-            Pattern::Literal(literal) => {
-                let mut scope = Scope::default();
-                let literal = self.operand(&core::Expr::Literal(literal.clone()), &mut scope)?;
-                Some(scope.wrap(Expr::Op(Op::Primitive {
-                    operation: Primitive::Equal,
-                    args: vec![subject, literal],
-                })))
-            }
-            Pattern::Record(fields) => {
-                let mut tests = vec![Expr::Op(Op::IsRecord(subject))];
-                for (name, pattern) in fields {
-                    let key = self.field(name);
-                    tests.push(Expr::Op(Op::HasField {
-                        value: subject,
-                        key,
-                    }));
-                    let member = self.temporary();
-                    if let Some(test) = self.test(pattern, Value::Local(member))? {
-                        tests.push(Expr::Let {
-                            local: member,
-                            value: Box::new(Expr::Op(Op::Field {
-                                record: subject,
-                                key,
-                            })),
-                            body: Box::new(test),
-                        });
-                    }
-                }
-                self.all(tests)
-            }
-            Pattern::Tuple(patterns) => {
-                let mut tests = vec![Expr::Op(Op::IsTuple {
-                    value: subject,
-                    length: patterns.len(),
-                })];
-                for (index, pattern) in patterns.iter().enumerate() {
-                    let member = self.temporary();
-                    if let Some(test) = self.test(pattern, Value::Local(member))? {
-                        tests.push(Expr::Let {
-                            local: member,
-                            value: Box::new(Expr::Op(Op::Member {
-                                tuple: subject,
-                                index,
-                            })),
-                            body: Box::new(test),
-                        });
-                    }
-                }
-                self.all(tests)
-            }
-            Pattern::Is(ty) => Some(self.is(subject, ty)?),
-        })
-    }
-
     /// An expression that is true when `ty` describes `value`.
-    fn is(&mut self, value: Value, ty: &core::Type) -> Result<Expr, Unsupported> {
+    pub(super) fn is(&mut self, value: Value, ty: &core::Type) -> Result<Expr, Unsupported> {
         if mentions(ty, &|ty| matches!(ty, core::Type::Parameter(_))) {
             return Err(Unsupported("tests against a type parameter"));
         }
@@ -378,92 +287,17 @@ impl Lowering {
         let ty = self.constant(Constant::Type(ty.clone()));
         Ok(Expr::Op(Op::Is { value, ty }))
     }
-
-    /// Numbers the locals `pattern` binds, in binding order, and records
-    /// where each is found.
-    fn plan(&mut self, pattern: &Pattern) -> Plan {
-        match pattern {
-            Pattern::Wildcard | Pattern::Literal(_) | Pattern::Is(_) => Plan::Nothing,
-            Pattern::Bind(inner) => {
-                let local = self.bind();
-                Plan::Bind(local, Box::new(self.plan(inner)))
-            }
-            Pattern::Record(fields) => {
-                let mut plans = Vec::new();
-                for (name, pattern) in fields {
-                    let plan = self.plan(pattern);
-                    if !matches!(plan, Plan::Nothing) {
-                        plans.push((self.field(name), plan));
-                    }
-                }
-                if plans.is_empty() {
-                    Plan::Nothing
-                } else {
-                    Plan::Record(plans)
-                }
-            }
-            Pattern::Tuple(patterns) => {
-                let mut plans = Vec::new();
-                for (index, pattern) in patterns.iter().enumerate() {
-                    let plan = self.plan(pattern);
-                    if !matches!(plan, Plan::Nothing) {
-                        plans.push((index, plan));
-                    }
-                }
-                if plans.is_empty() {
-                    Plan::Nothing
-                } else {
-                    Plan::Tuple(plans)
-                }
-            }
-        }
-    }
-
-    /// `body` with everything `plan` binds bound, taken from `subject`,
-    /// which the pattern is known to match.
-    fn extract(&mut self, plan: Plan, subject: Value, body: Expr) -> Expr {
-        match plan {
-            Plan::Nothing => body,
-            Plan::Bind(local, inner) => Expr::Let {
-                local,
-                value: Box::new(Expr::Op(Op::Copy(subject))),
-                body: Box::new(self.extract(*inner, subject, body)),
-            },
-            Plan::Record(fields) => fields.into_iter().rev().fold(body, |body, (key, plan)| {
-                let member = self.temporary();
-                Expr::Let {
-                    local: member,
-                    value: Box::new(Expr::Op(Op::Field {
-                        record: subject,
-                        key,
-                    })),
-                    body: Box::new(self.extract(plan, Value::Local(member), body)),
-                }
-            }),
-            Plan::Tuple(members) => members.into_iter().rev().fold(body, |body, (index, plan)| {
-                let member = self.temporary();
-                Expr::Let {
-                    local: member,
-                    value: Box::new(Expr::Op(Op::Member {
-                        tuple: subject,
-                        index,
-                    })),
-                    body: Box::new(self.extract(plan, Value::Local(member), body)),
-                }
-            }),
-        }
-    }
 }
 
 /// Temporaries waiting to be bound around the expression that uses them.
 #[derive(Default)]
 struct Scope {
-    bindings: Vec<(usize, Expr)>,
+    pub(super) bindings: Vec<(usize, Expr)>,
 }
 
 impl Scope {
     /// `body` inside a `Let` for each temporary, the first outermost.
-    fn wrap(self, body: Expr) -> Expr {
+    pub(super) fn wrap(self, body: Expr) -> Expr {
         self.bindings
             .into_iter()
             .rev()
