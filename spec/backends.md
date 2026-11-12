@@ -49,8 +49,19 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 - Every function is called the same way, whether it is named, a lambda, or a value whose definition is unknown at the call.
 - A call through a [slot](core.md) reads the slot at run time, so replacing what a slot refers to recompiles nothing.
 
+## Bindings
+
+- A call hands the callee the caller's [bindings](abilities.md) whole, as one value; the callee reads the abilities in its row from them.
+- Passing bindings therefore costs one word per call, whatever the row, and a perform costs one lookup and a call.
+- A [provide](handlers.md) makes new bindings for its body: the enclosing ones overlaid with its bundle, or in only-mode the bundle alone.
+- Code under an only-mode provide is therefore never handed anything outside the bundle, checked or not.
+- A closure holds exactly the bindings it captured, never the whole set they were taken from, so a function value's content does not depend on where it was made.
+- A handler for a returning ability is called with no bindings; what it needs was bound where it was provided.
+
 ## Unwinding
 
 - Unwinding is compiled as ordinary control flow: every call yields a value or a signal to unwind, and the caller checks.
 - A [fault](values.md), an [abort](handlers.md), and a cancellation all unwind this way.
 - No backend's exception mechanism is used, so unwinding behaves identically everywhere and [cleanups](cleanup.md) are ordinary code.
+- A provide binds each abort handler to a token of its own; a perform unwinds to the provide that holds the token, and every provide it passes lets it through.
+- A token expires when its provide exits, however it exits; performing through an expired token is the [fault](handlers.md).

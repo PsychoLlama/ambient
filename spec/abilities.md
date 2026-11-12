@@ -10,6 +10,7 @@ An ability is an operation that code may perform but does not implement. Abiliti
 - Abilities are static: they are defined in modules and never created at runtime.
 - An ability is not a value; it appears only in rows, in performs, and as a [bundle](handlers.md) key.
 - An ability's signature may be generic, but an ability takes no type parameters of its own.
+- TODO: a generic ability cannot be handled until [generic function types](types.md) can be written.
 
 ## Rows
 
