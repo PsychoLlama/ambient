@@ -4,9 +4,9 @@
 use super::Checker;
 use crate::core::{self, Slot};
 use crate::error::Error;
-use crate::surface::{Expr, Reference};
+use crate::surface::{Expr, Key, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Ty, abilities};
+use crate::types::{Ty, TyKey, abilities};
 
 /// Abilities bound for part of a definition: by its row, or by a provide.
 pub(super) struct Layer {
@@ -101,30 +101,53 @@ impl Checker<'_> {
         Ok((core, info.ret))
     }
 
-    /// A provide: handlers are checked where the provide is written, and
-    /// the body where they are bound.
+    /// A provide: the bundle is evaluated and its handlers bound where the
+    /// provide is written, and the body is checked where they are bound.
     pub(super) fn provide(
         &mut self,
-        handlers: &[(Reference, Expr<Reference>)],
+        bundle: &Expr<Reference>,
         only: bool,
         body: &Expr<Reference>,
     ) -> Result<(core::Expr, Ty), Error> {
+        let (bundle, ty) = self.infer(bundle)?;
+        let not_bundle = Error::NotBundle {
+            symbol: self.symbol.clone(),
+            found: self.env.show(&ty),
+        };
+        let Ty::Record(fields) = self.env.unfold(&ty) else {
+            return Err(not_bundle);
+        };
+        // The bundle is held in a local while its handlers are read. Only
+        // what its type lists is bound, whatever else it holds.
+        let number = self.next;
+        self.bind_local(ty);
+        let depth = self.frames.len().saturating_sub(1);
+        let held = self.reach(depth, number);
+        let entries: Vec<(TyKey, Ty)> = self
+            .ordered(&fields)
+            .into_iter()
+            .map(|(key, ty)| (key.clone(), ty.clone()))
+            .collect();
+
         let mut bound = Vec::new();
-        let mut core_handlers = Vec::new();
+        let mut handlers = Vec::new();
         // What the provide may evaluate to besides its body: the result of
         // each handler that aborts to it.
         let mut results = Vec::new();
-        for (ability, handler) in handlers {
-            let Reference::Definition(ability) = ability else {
-                continue;
+        for (key, found) in entries {
+            let Key::Ability(Reference::Definition(ability)) = &key else {
+                return Err(not_bundle);
             };
             let Some(info) = self.env.abilities.get(ability).cloned() else {
                 continue;
             };
+            let read = core::Expr::Field {
+                target: Box::new(held.clone()),
+                key: self.key(&key),
+            };
             let (handler, abort) = if info.ret == Ty::Never {
-                let (handler, ret) = self.abort_handler(handler, &info.params)?;
-                results.push(ret);
-                (handler, Some(info.params.len()))
+                results.push(self.abort_handler(&found, &info.params)?);
+                (read, Some(info.params.len()))
             } else {
                 // Bound in place: whatever the handler takes from its
                 // caller it takes here, so a perform passes it nothing.
@@ -133,9 +156,13 @@ impl Checker<'_> {
                     ret: Box::new(info.ret.clone()),
                     row: Vec::new(),
                 };
-                (self.check(handler, &expected)?, None)
+                let (handler, found) = self.bind_row(read, found, &expected)?;
+                if !self.env.subtype(&found, &expected) {
+                    return Err(self.mismatch(&expected, &found));
+                }
+                (handler, None)
             };
-            core_handlers.push(core::Handler {
+            handlers.push(core::Handler {
                 ability: self.slot(ability),
                 handler,
                 abort,
@@ -151,34 +178,34 @@ impl Checker<'_> {
         self.frame().layers.pop();
         let (body, ty) = body?;
         results.push(ty);
-        let core = core::Expr::Provide {
-            handlers: core_handlers,
+        let provide = core::Expr::Provide {
+            handlers,
             only,
             body: Box::new(body),
+        };
+        let core = core::Expr::Let {
+            value: Box::new(bundle),
+            body: Box::new(provide),
         };
         Ok((core, self.env.union(results)))
     }
 
-    /// A handler for an ability that does not return. It runs at the
-    /// provide, so it may take any ability bound there and return anything.
-    fn abort_handler(
-        &mut self,
-        handler: &Expr<Reference>,
-        params: &[Ty],
-    ) -> Result<(core::Expr, Ty), Error> {
+    /// What a handler of type `found`, for an ability that does not
+    /// return, makes its provide evaluate to. It runs at the provide, so
+    /// it may take any ability bound there and return anything.
+    fn abort_handler(&mut self, found: &Ty, params: &[Ty]) -> Result<Ty, Error> {
         let expected = Ty::Function {
             params: params.to_vec(),
             ret: Box::new(Ty::Unknown),
             row: Vec::new(),
         };
-        let (core, found) = self.infer_as(handler, &expected)?;
         let Ty::Function {
             params: takes,
             ret,
             row,
-        } = self.env.unfold(&found)
+        } = self.env.unfold(found)
         else {
-            return Err(self.mismatch(&expected, &found));
+            return Err(self.mismatch(&expected, found));
         };
         let fits = takes.len() == params.len()
             && params
@@ -186,10 +213,10 @@ impl Checker<'_> {
                 .zip(&takes)
                 .all(|(given, taken)| self.env.subtype(given, taken));
         if !fits {
-            return Err(self.mismatch(&expected, &found));
+            return Err(self.mismatch(&expected, found));
         }
         self.require_all(&row)?;
-        Ok((core, *ret))
+        Ok(*ret)
     }
 
     /// A function value at the row expected of it. Abilities it takes

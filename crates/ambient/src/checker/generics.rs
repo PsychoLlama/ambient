@@ -5,7 +5,7 @@ use crate::core;
 use crate::error::Error;
 use crate::surface::{Expr, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Signature, Ty, field, substitute};
+use crate::types::{Signature, Ty, entry, substitute};
 
 impl Checker<'_> {
     /// A call to a generic function: its type arguments are whatever the
@@ -151,8 +151,8 @@ impl Checker<'_> {
                 }
             }
             (Ty::Record(fields), Ty::Record(have)) => {
-                for (name, pattern) in fields {
-                    if let Some(found) = field(have, name) {
+                for (key, pattern) in fields {
+                    if let Some(found) = entry(have, key) {
                         self.collect_within(pattern, found, lower, depth);
                     }
                 }

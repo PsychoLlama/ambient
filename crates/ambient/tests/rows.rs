@@ -159,6 +159,61 @@ fn a_provide_has_the_type_of_its_body_or_of_a_handler_that_aborts() {
     assert!(check(ty::int(), body(), [fail.into()]).is_err());
 }
 
+// Bundles
+
+#[test]
+fn a_provide_takes_a_record_of_handlers_and_nothing_else() {
+    let not_a_record = b::using(b::int(1), b::null());
+    let has_a_field = b::using(b::record([("ask", answers(b::int(1)))]), b::null());
+
+    assert!(matches!(
+        check(ty::null(), not_a_record, []),
+        Err(Error::NotBundle { .. })
+    ));
+    assert!(matches!(
+        check(ty::null(), has_a_field, []),
+        Err(Error::NotBundle { .. })
+    ));
+}
+
+#[test]
+fn a_bundle_holds_one_handler_for_an_ability_however_it_is_named() {
+    // `ask` and `abilities.ask` are one ability.
+    let abilities = module([ability("ask").public()]);
+    let twice = b::bundle([
+        ("ask", answers(b::int(1))),
+        ("abilities.ask", answers(b::int(2))),
+    ]);
+    let main = b::module()
+        .import("pkg.abilities")
+        .import("pkg.abilities.ask")
+        .define(b::function("main").body(b::using(twice, b::null())));
+    let workspace = workspace([("app", "abilities", abilities), ("app", "main", main)]);
+    let store = MemoryStore::new();
+    let result = Engine::new(&workspace, &store).check(&value("main", "main"));
+
+    assert!(
+        matches!(result, Err(Error::DuplicateHandler { .. })),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn only_records_merge() {
+    let result = check(ty::unknown(), b::merge(b::int(1), b::record([])), []);
+
+    assert!(matches!(result, Err(Error::Operands { .. })));
+}
+
+#[test]
+fn a_merge_has_the_fields_of_both_with_the_right_sides_types() {
+    let left = b::record([("a", b::int(1)), ("b", b::int(2))]);
+    let right = b::record([("b", b::string("two"))]);
+    let ret = ty::record([("a", ty::int()), ("b", ty::string())]);
+
+    assert!(check(ret, b::merge(left, right), []).is_ok());
+}
+
 // What cannot be provided yet
 
 #[test]
@@ -242,6 +297,29 @@ fn an_abilitys_name_is_not_content_and_its_tag_is() {
     // Renamed so that it sorts after the other ability.
     assert_eq!(original, with(tagged("zz", "first"), ["zz", "z"]));
     assert_ne!(original, with(tagged("a", "other"), ["a", "z"]));
+}
+
+#[test]
+fn the_order_and_names_of_a_bundles_handlers_are_not_content() {
+    let handler = || ty::function([], ty::int());
+    let user = |first: &str, second: &str| {
+        b::function("user")
+            .param(
+                "handlers",
+                ty::bundle([(first, handler()), (second, handler())]),
+            )
+            .body(b::null())
+    };
+    let original = hash_of(
+        "user",
+        [tagged("a", "first"), tagged("z", "z"), user("a", "z")],
+    );
+    let renamed = hash_of(
+        "user",
+        [tagged("zz", "first"), tagged("z", "z"), user("z", "zz")],
+    );
+
+    assert_eq!(original, renamed);
 }
 
 #[test]

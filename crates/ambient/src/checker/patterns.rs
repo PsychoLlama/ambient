@@ -5,7 +5,7 @@ use super::Checker;
 use crate::core;
 use crate::error::Error;
 use crate::literal::Literal;
-use crate::surface::{Arm, Expr, Pattern, Reference};
+use crate::surface::{Arm, Expr, Key, Pattern, Reference};
 use crate::types::{Ty, field};
 
 type Pat = Pattern<Reference>;
@@ -98,8 +98,8 @@ impl Checker<'_> {
                     // A field the type does not mention may still be there.
                     let have = field(&fields, name).cloned().unwrap_or(Ty::Unknown);
                     let narrowed = self.narrow(&have, pattern)?;
-                    fields.retain(|(field, _)| field != name);
-                    fields.push((name.clone(), narrowed));
+                    fields.retain(|(key, _)| !key.is_field(name));
+                    fields.push((Key::Field(name.clone()), narrowed));
                 }
                 fields.sort_by(|(a, _), (b, _)| a.cmp(b));
                 Some(Ty::Record(fields))
@@ -186,7 +186,7 @@ impl Checker<'_> {
                 let fields = fields
                     .iter()
                     .map(|(field, ty)| {
-                        let ty = if field == name {
+                        let ty = if field.is_field(name) {
                             self.remainder(ty, pattern)
                         } else {
                             ty.clone()
@@ -229,7 +229,8 @@ impl Checker<'_> {
                 patterns
                     .iter()
                     .map(|(name, pattern)| {
-                        let member = self.field(&ty, name).unwrap_or(Ty::Unknown);
+                        let key = Key::Field(name.clone());
+                        let member = self.field(&ty, &key).unwrap_or(Ty::Unknown);
                         (name.clone(), self.bind(&member, pattern))
                     })
                     .collect(),

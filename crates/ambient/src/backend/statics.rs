@@ -7,7 +7,7 @@
 use ambient_runtime::descriptor as d;
 use ambient_runtime::layout::{CLOSURE_WORDS, DEFINITION_WORDS};
 
-use crate::core::Type;
+use crate::core::{Key, Type};
 use crate::engine::{Body, Parts};
 use crate::hash::Hash;
 use crate::lir::Constant;
@@ -80,7 +80,14 @@ pub fn plan(parts: &Parts) -> Statics {
     let mut header = [0u64; CLOSURE_WORDS];
     ambient_runtime::pinned_closure(&mut header, 0);
     for (index, part) in parts.parts.iter().enumerate() {
-        let slots: Vec<usize> = part.slots.iter().map(|slot| roots[*slot]).collect();
+        let slots: Vec<Target> = part
+            .slots
+            .iter()
+            .map(|slot| Target {
+                address: roots[*slot],
+                hash: parts.parts[*slot].hash,
+            })
+            .collect();
         let at = definitions[index];
         match &part.body {
             Body::Function {
@@ -89,7 +96,10 @@ pub fn plan(parts: &Parts) -> Statics {
                 statics.set(at, Field::Code(index));
                 statics.set(at + 1, Field::Word(*arity as u64));
                 for (position, slot) in slots.iter().enumerate() {
-                    statics.set(at + DEFINITION_WORDS + position, Field::Address(*slot));
+                    statics.set(
+                        at + DEFINITION_WORDS + position,
+                        Field::Address(slot.address),
+                    );
                 }
                 let first = at + DEFINITION_WORDS + slots.len();
                 for (position, constant) in constants.iter().enumerate() {
@@ -98,8 +108,7 @@ pub fn plan(parts: &Parts) -> Statics {
                         Constant::Field(name) => statics.text(Make::Field, name),
                         Constant::Type(ty) => Field::Address(statics.describe(ty, &slots)),
                         Constant::Ability(slot) => {
-                            let ability = &parts.parts[part.slots[*slot]];
-                            statics.text(Make::Field, &ability_key(&ability.hash))
+                            statics.text(Make::Field, &ability_key(&slots[*slot].hash))
                         }
                     };
                     statics.set(first + position, field);
@@ -114,6 +123,13 @@ pub fn plan(parts: &Parts) -> Statics {
         }
     }
     statics
+}
+
+/// What a slot of the definition being laid out refers to.
+struct Target {
+    /// Where its closure or descriptor is.
+    address: usize,
+    hash: Hash,
 }
 
 /// The name bindings hold an ability under. No field has a name like it,
@@ -168,12 +184,12 @@ impl Statics {
     }
 
     /// Writes a type definition's node at the place reserved for it.
-    fn root(&mut self, ty: &Type, slots: &[usize], at: usize) {
+    fn root(&mut self, ty: &Type, slots: &[Target], at: usize) {
         if let Type::Reference(slot, args) = ty
             && args.is_empty()
         {
             self.set(at, Field::Word(d::ALIAS));
-            self.set(at + 1, Field::Address(slots[slot.0]));
+            self.set(at + 1, Field::Address(slots[slot.0].address));
         } else {
             self.node(ty, slots, at);
         }
@@ -181,11 +197,11 @@ impl Statics {
 
     /// The address of a descriptor for `ty`, adding one if `ty` is not
     /// already a definition's.
-    fn describe(&mut self, ty: &Type, slots: &[usize]) -> usize {
+    fn describe(&mut self, ty: &Type, slots: &[Target]) -> usize {
         if let Type::Reference(slot, args) = ty
             && args.is_empty()
         {
-            return slots[slot.0];
+            return slots[slot.0].address;
         }
         let at = self.words;
         self.words += node_size(ty);
@@ -195,7 +211,7 @@ impl Statics {
 
     /// Writes the node for `ty` at `at`, and the nodes it refers to after
     /// everything written so far.
-    fn node(&mut self, ty: &Type, slots: &[usize], at: usize) {
+    fn node(&mut self, ty: &Type, slots: &[Target], at: usize) {
         let tag = |statics: &mut Self, tag| statics.set(at, Field::Word(tag));
         match ty {
             Type::Never => tag(self, d::NEVER),
@@ -220,8 +236,13 @@ impl Statics {
             Type::Record(fields) => {
                 tag(self, d::RECORD);
                 self.set(at + 1, Field::Word(fields.len() as u64));
-                for (position, (name, ty)) in fields.iter().enumerate() {
-                    let key = self.text(Make::Field, name);
+                for (position, (key, ty)) in fields.iter().enumerate() {
+                    let key = match key {
+                        Key::Field(name) => self.text(Make::Field, name),
+                        Key::Ability(slot) => {
+                            self.text(Make::Field, &ability_key(&slots[slot.0].hash))
+                        }
+                    };
                     self.set(at + 2 + position * 2, key);
                     let child = self.describe(ty, slots);
                     self.set(at + 3 + position * 2, Field::Address(child));
@@ -249,7 +270,7 @@ impl Statics {
             }
             Type::Reference(slot, args) => {
                 tag(self, d::APPLY);
-                self.set(at + 1, Field::Address(slots[slot.0]));
+                self.set(at + 1, Field::Address(slots[slot.0].address));
                 self.children(args, slots, at + 2);
             }
         }
@@ -257,7 +278,7 @@ impl Statics {
 
     /// Writes a count at `at` and then the address of a descriptor for
     /// each type.
-    fn children(&mut self, types: &[Type], slots: &[usize], at: usize) {
+    fn children(&mut self, types: &[Type], slots: &[Target], at: usize) {
         self.set(at, Field::Word(types.len() as u64));
         for (position, ty) in types.iter().enumerate() {
             let child = self.describe(ty, slots);

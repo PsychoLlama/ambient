@@ -17,7 +17,7 @@ pub use definition::{
 pub use error::BuildError;
 
 use crate::literal::Literal;
-use crate::surface::{Arm, Expr, Operator, Path, Pattern};
+use crate::surface::{Arm, Expr, Key, Operator, Path, Pattern};
 
 /// The first segment of a path into the module's own package.
 pub const OWN_PACKAGE: &str = "pkg";
@@ -133,31 +133,65 @@ pub fn perform(ability: &str, args: impl IntoIterator<Item = Expr>) -> Expr {
     }
 }
 
-fn providing<'a>(
-    handlers: impl IntoIterator<Item = (&'a str, Expr)>,
-    only: bool,
-    body: Expr,
-) -> Expr {
-    Expr::Provide {
-        handlers: handlers
+/// A record keyed by abilities, each a dotted path, with a handler for
+/// each.
+pub fn bundle<'a>(handlers: impl IntoIterator<Item = (&'a str, Expr)>) -> Expr {
+    Expr::Record(
+        handlers
             .into_iter()
-            .map(|(ability, handler)| (Path::parse(ability), handler))
+            .map(|(ability, handler)| (Key::Ability(Path::parse(ability)), handler))
             .collect(),
-        only,
+    )
+}
+
+/// The handler a bundle holds for the ability at a dotted path.
+#[must_use]
+pub fn handler(bundle: Expr, ability: &str) -> Expr {
+    Expr::Field {
+        target: Box::new(bundle),
+        key: Key::Ability(Path::parse(ability)),
+    }
+}
+
+/// A record with the fields of both, `right`'s where both have one.
+#[must_use]
+pub fn merge(left: Expr, right: Expr) -> Expr {
+    Expr::Merge {
+        left: Box::new(left),
+        right: Box::new(right),
+    }
+}
+
+/// Binds the handlers in `bundle` for the extent of `body`, on top of what
+/// is already bound.
+#[must_use]
+pub fn using(bundle: Expr, body: Expr) -> Expr {
+    Expr::Provide {
+        bundle: Box::new(bundle),
+        only: false,
         body: Box::new(body),
     }
 }
 
-/// Binds each handler to its ability for the extent of `body`, on top of
-/// what is already bound.
-pub fn provide<'a>(handlers: impl IntoIterator<Item = (&'a str, Expr)>, body: Expr) -> Expr {
-    providing(handlers, false, body)
+/// Binds the handlers in `bundle` for the extent of `body`, which sees no
+/// other binding.
+#[must_use]
+pub fn using_only(bundle: Expr, body: Expr) -> Expr {
+    Expr::Provide {
+        bundle: Box::new(bundle),
+        only: true,
+        body: Box::new(body),
+    }
 }
 
-/// Binds each handler to its ability for the extent of `body`, which sees
-/// no other binding.
+/// [`using`] a bundle written in place.
+pub fn provide<'a>(handlers: impl IntoIterator<Item = (&'a str, Expr)>, body: Expr) -> Expr {
+    using(bundle(handlers), body)
+}
+
+/// [`using_only`] a bundle written in place.
 pub fn provide_only<'a>(handlers: impl IntoIterator<Item = (&'a str, Expr)>, body: Expr) -> Expr {
-    providing(handlers, true, body)
+    using_only(bundle(handlers), body)
 }
 
 /// Runs `call`, a call to a named function, during compilation, and
@@ -203,7 +237,7 @@ pub fn record<'a>(fields: impl IntoIterator<Item = (&'a str, Expr)>) -> Expr {
     Expr::Record(
         fields
             .into_iter()
-            .map(|(name, value)| (name.to_owned(), value))
+            .map(|(name, value)| (Key::Field(name.to_owned()), value))
             .collect(),
     )
 }
@@ -212,7 +246,7 @@ pub fn record<'a>(fields: impl IntoIterator<Item = (&'a str, Expr)>) -> Expr {
 pub fn field(target: Expr, name: &str) -> Expr {
     Expr::Field {
         target: Box::new(target),
-        name: name.to_owned(),
+        key: Key::Field(name.to_owned()),
     }
 }
 

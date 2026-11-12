@@ -1,11 +1,11 @@
 //! The canonical encoding: the bytes every hash is computed over.
 
-use super::{Expr, Handler, Pattern, Slot, Tree, Type};
+use super::{Expr, Handler, Key, Pattern, Slot, Tree, Type};
 use crate::literal::Literal;
 
 /// The version named by every encoding. Changing the node set or the
 /// encoding means changing this, which changes every hash.
-const FORMAT: u8 = 1;
+const FORMAT: u8 = 2;
 
 impl Tree {
     /// The canonical encoding: the bytes a hash is computed over.
@@ -118,8 +118,8 @@ fn encode_type(ty: &Type, out: &mut Vec<u8>) {
         Type::Record(fields) => {
             out.push(8);
             unsigned(fields.len() as u64, out);
-            for (name, ty) in fields {
-                text(name, out);
+            for (key, ty) in fields {
+                encode_key(key, out);
                 encode_type(ty, out);
             }
         }
@@ -226,10 +226,19 @@ fn encode_expr(expr: &Expr, out: &mut Vec<u8>) {
             out.push(7);
             encode_exprs(members, out);
         }
-        Expr::Field { target, name } => {
+        Expr::Field { target, key } => {
             out.push(8);
             encode_expr(target, out);
-            text(name, out);
+            encode_key(key, out);
+        }
+        Expr::Merge { left, right, keys } => {
+            out.push(17);
+            encode_expr(left, out);
+            encode_expr(right, out);
+            unsigned(keys.len() as u64, out);
+            for key in keys {
+                encode_key(key, out);
+            }
         }
         Expr::Let { value, body } => {
             out.push(9);
@@ -260,6 +269,15 @@ fn encode_expr(expr: &Expr, out: &mut Vec<u8>) {
             out.push(13);
             unsigned(*index as u64, out);
         }
+        Expr::Closure { .. } | Expr::Perform { .. } | Expr::Provide { .. } => {
+            encode_binding(expr, out);
+        }
+    }
+}
+
+/// The nodes that have to do with abilities.
+fn encode_binding(expr: &Expr, out: &mut Vec<u8>) {
+    match expr {
         Expr::Closure {
             slot,
             type_args,
@@ -292,13 +310,27 @@ fn encode_expr(expr: &Expr, out: &mut Vec<u8>) {
             encode_handlers(handlers, out);
             encode_expr(body, out);
         }
+        _ => {}
     }
 }
 
-fn encode_fields(fields: &[(String, Expr)], out: &mut Vec<u8>) {
+fn encode_key(key: &Key, out: &mut Vec<u8>) {
+    match key {
+        Key::Field(name) => {
+            out.push(0);
+            text(name, out);
+        }
+        Key::Ability(slot) => {
+            out.push(1);
+            unsigned(slot.0 as u64, out);
+        }
+    }
+}
+
+fn encode_fields(fields: &[(Key, Expr)], out: &mut Vec<u8>) {
     unsigned(fields.len() as u64, out);
-    for (name, value) in fields {
-        text(name, out);
+    for (key, value) in fields {
+        encode_key(key, out);
         encode_expr(value, out);
     }
 }

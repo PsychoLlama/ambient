@@ -22,6 +22,8 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - An expression of static type `T` evaluates only to values `T` describes.
 - No construct weakens that for convenience; where a sound rule and an ergonomic one conflict, the sound one wins.
 - An operation that can miss, such as a lookup or an index, includes the miss in its type.
+- A record merge takes from its second operand only the keys that operand's type lists.
+- A key a record holds beyond its type therefore never replaces one of the first operand's with a value of unknown type.
 
 ## Subtyping
 

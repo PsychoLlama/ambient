@@ -15,6 +15,7 @@ mod header;
 mod lambda;
 mod operators;
 mod patterns;
+mod records;
 
 use std::collections::BTreeMap;
 
@@ -200,9 +201,9 @@ impl<'a> Checker<'a> {
             Ty::String => core::Type::String,
             Ty::Literal(literal) => core::Type::Literal(literal.clone()),
             Ty::Record(fields) => core::Type::Record(
-                fields
-                    .iter()
-                    .map(|(name, ty)| (name.clone(), self.lower(ty)))
+                self.ordered(fields)
+                    .into_iter()
+                    .map(|(key, ty)| (self.key(key), self.lower(ty)))
                     .collect(),
             ),
             Ty::Tuple(members) => {
@@ -330,17 +331,8 @@ impl<'a> Checker<'a> {
             }
             Expr::Instantiate { function, args } => self.instantiate(function, args)?,
             Expr::Call { callee, args } => self.call(callee, args)?,
-            Expr::Record(fields) => {
-                let mut cores = Vec::new();
-                let mut types = Vec::new();
-                for (name, value) in fields {
-                    let (core, ty) = self.infer(value)?;
-                    cores.push((name.clone(), core));
-                    types.push((name.clone(), ty));
-                }
-                types.sort_by(|(a, _), (b, _)| a.cmp(b));
-                (core::Expr::Record(cores), Ty::Record(types))
-            }
+            Expr::Record(fields) => self.record(fields)?,
+            Expr::Merge { left, right } => self.merge(left, right)?,
             Expr::Tuple(members) => {
                 let (cores, types) = self.infer_all(members)?;
                 (core::Expr::Tuple(cores), Ty::Tuple(types))
@@ -350,19 +342,7 @@ impl<'a> Checker<'a> {
                 let member = self.env.union(types);
                 (core::Expr::List(cores), Ty::List(Box::new(member)))
             }
-            Expr::Field { target, name } => {
-                let (core, ty) = self.infer(target)?;
-                let field = self.field(&ty, name).ok_or_else(|| Error::NoField {
-                    symbol: self.symbol.clone(),
-                    ty: self.env.show(&ty),
-                    name: name.clone(),
-                })?;
-                let core = core::Expr::Field {
-                    target: Box::new(core),
-                    name: name.clone(),
-                };
-                (core, field)
-            }
+            Expr::Field { target, key } => self.read(target, key)?,
             Expr::Let { value, body, .. } => {
                 let (value, ty) = self.infer(value)?;
                 self.bind_local(ty);
@@ -381,11 +361,7 @@ impl<'a> Checker<'a> {
             Expr::Match { subject, arms } => self.matching(subject, arms)?,
             Expr::Lambda { params, row, body } => self.lambda(params, row, body, None)?,
             Expr::Perform { ability, args } => self.perform(ability, args)?,
-            Expr::Provide {
-                handlers,
-                only,
-                body,
-            } => self.provide(handlers, *only, body)?,
+            Expr::Provide { bundle, only, body } => self.provide(bundle, *only, body)?,
             Expr::Comptime(call) => self.comptime(call)?,
             Expr::Cast {
                 value,

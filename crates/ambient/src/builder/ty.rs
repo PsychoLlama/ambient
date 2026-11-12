@@ -1,7 +1,7 @@
 //! Type constructors.
 
 use crate::literal::Literal;
-use crate::surface::{Path, Type};
+use crate::surface::{Key, Path, Type};
 
 #[must_use]
 pub fn never() -> Type {
@@ -73,7 +73,18 @@ pub fn record<'a>(fields: impl IntoIterator<Item = (&'a str, Type)>) -> Type {
     Type::Record(
         fields
             .into_iter()
-            .map(|(name, ty)| (name.to_owned(), ty))
+            .map(|(name, ty)| (Key::Field(name.to_owned()), ty))
+            .collect(),
+    )
+}
+
+/// A record keyed by abilities, each a dotted path, with the type of its
+/// handler.
+pub fn bundle<'a>(handlers: impl IntoIterator<Item = (&'a str, Type)>) -> Type {
+    Type::Record(
+        handlers
+            .into_iter()
+            .map(|(ability, ty)| (Key::Ability(Path::parse(ability)), ty))
             .collect(),
     )
 }

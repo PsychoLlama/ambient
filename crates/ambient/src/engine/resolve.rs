@@ -8,7 +8,7 @@ use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest};
 use crate::surface::{
-    Ability, Arm, Definition, DefinitionKind, Expr, Function, Param, Path, Pattern, Reference,
+    Ability, Arm, Definition, DefinitionKind, Expr, Function, Key, Param, Path, Pattern, Reference,
     Type, TypeDefinition, TypeParam,
 };
 use crate::symbol::{Namespace, Symbol};
@@ -172,7 +172,7 @@ impl Resolver<'_> {
             Type::Record(fields) => Type::Record(
                 fields
                     .iter()
-                    .map(|(name, ty)| Ok((name.clone(), self.ty(ty)?)))
+                    .map(|(key, ty)| Ok((self.key(key)?, self.ty(ty)?)))
                     .collect::<Result<_, Error>>()?,
             ),
             Type::Tuple(members) => Type::Tuple(self.types(members)?),
@@ -243,14 +243,18 @@ impl Resolver<'_> {
             Expr::Record(fields) => Expr::Record(
                 fields
                     .iter()
-                    .map(|(name, value)| Ok((name.clone(), self.expr(value)?)))
+                    .map(|(key, value)| Ok((self.key(key)?, self.expr(value)?)))
                     .collect::<Result<_, Error>>()?,
             ),
             Expr::Tuple(members) => Expr::Tuple(self.exprs(members)?),
             Expr::List(members) => Expr::List(self.exprs(members)?),
-            Expr::Field { target, name } => Expr::Field {
+            Expr::Field { target, key } => Expr::Field {
                 target: Box::new(self.expr(target)?),
-                name: name.clone(),
+                key: self.key(key)?,
+            },
+            Expr::Merge { left, right } => Expr::Merge {
+                left: Box::new(self.expr(left)?),
+                right: Box::new(self.expr(right)?),
             },
             Expr::Let { name, value, body } => {
                 let value = Box::new(self.expr(value)?);
@@ -292,11 +296,16 @@ impl Resolver<'_> {
                 ability: self.ability(ability)?,
                 args: self.exprs(args)?,
             },
-            Expr::Provide {
-                handlers,
-                only,
-                body,
-            } => self.provide(handlers, *only, body)?,
+            Expr::Provide { bundle, only, body } => {
+                let bundle = Box::new(self.expr(bundle)?);
+                // The binder a provide holds its bundle in. It has no name.
+                self.next += 1;
+                Expr::Provide {
+                    bundle,
+                    only: *only,
+                    body: Box::new(self.expr(body)?),
+                }
+            }
             Expr::Lambda { params, row, body } => self.lambda(params, row, body)?,
             Expr::Comptime(call) => Expr::Comptime(Box::new(self.expr(call)?)),
             Expr::Cast {
@@ -311,20 +320,10 @@ impl Resolver<'_> {
         })
     }
 
-    fn provide(
-        &mut self,
-        handlers: &[(Path, Expr)],
-        only: bool,
-        body: &Expr,
-    ) -> Result<Expr<Reference>, Error> {
-        let mut resolved = Vec::new();
-        for (ability, handler) in handlers {
-            resolved.push((self.ability(ability)?, self.expr(handler)?));
-        }
-        Ok(Expr::Provide {
-            handlers: resolved,
-            only,
-            body: Box::new(self.expr(body)?),
+    fn key(&self, key: &Key) -> Result<Key<Reference>, Error> {
+        Ok(match key {
+            Key::Field(name) => Key::Field(name.clone()),
+            Key::Ability(path) => Key::Ability(self.ability(path)?),
         })
     }
 

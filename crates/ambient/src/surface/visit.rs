@@ -1,6 +1,14 @@
 //! Walking surface trees: the names in one, and how many binders it has.
 
-use super::{Definition, DefinitionKind, Expr, Function, Pattern, Type};
+use super::{Definition, DefinitionKind, Expr, Function, Key, Pattern, Type};
+
+impl<N> Key<N> {
+    fn names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
+        if let Self::Ability(ability) = self {
+            visit(ability);
+        }
+    }
+}
 
 impl<N> Type<N> {
     /// Calls `visit` with every name in the type, in order.
@@ -14,7 +22,12 @@ impl<N> Type<N> {
             | Self::Float
             | Self::String
             | Self::Literal(_) => {}
-            Self::Record(fields) => fields.iter().for_each(|(_, ty)| ty.names(visit)),
+            Self::Record(fields) => {
+                for (key, ty) in fields {
+                    key.names(visit);
+                    ty.names(visit);
+                }
+            }
             Self::Tuple(members) | Self::Union(members) => {
                 for ty in members {
                     ty.names(visit);
@@ -69,18 +82,26 @@ impl<N> Expr<N> {
                     arg.names(visit);
                 }
             }
-            Self::Record(fields) => fields.iter().for_each(|(_, value)| value.names(visit)),
+            Self::Record(fields) => {
+                for (key, value) in fields {
+                    key.names(visit);
+                    value.names(visit);
+                }
+            }
             Self::Tuple(members) | Self::List(members) => {
                 for member in members {
                     member.names(visit);
                 }
             }
-            Self::Field { target, .. } => target.names(visit),
+            Self::Field { target, key } => {
+                target.names(visit);
+                key.names(visit);
+            }
             Self::Let { value, body, .. } => {
                 value.names(visit);
                 body.names(visit);
             }
-            Self::Binary { left, right, .. } => {
+            Self::Binary { left, right, .. } | Self::Merge { left, right } => {
                 left.names(visit);
                 right.names(visit);
             }
@@ -104,11 +125,8 @@ impl<N> Expr<N> {
                     arg.names(visit);
                 }
             }
-            Self::Provide { handlers, body, .. } => {
-                for (ability, handler) in handlers {
-                    visit(ability);
-                    handler.names(visit);
-                }
+            Self::Provide { bundle, body, .. } => {
+                bundle.names(visit);
                 body.names(visit);
             }
             Self::Comptime(call) => call.names(visit),
@@ -151,7 +169,9 @@ impl<N> Expr<N> {
             Self::Tuple(members) | Self::List(members) => all(members),
             Self::Field { target, .. } => target.binders(),
             Self::Let { value, body, .. } => 1 + value.binders() + body.binders(),
-            Self::Binary { left, right, .. } => left.binders() + right.binders(),
+            Self::Binary { left, right, .. } | Self::Merge { left, right } => {
+                left.binders() + right.binders()
+            }
             Self::Match { subject, arms } => {
                 let arms: usize = arms
                     .iter()
@@ -161,10 +181,7 @@ impl<N> Expr<N> {
             }
             Self::Lambda { params, body, .. } => params.len() + body.binders(),
             Self::Perform { args, .. } => all(args),
-            Self::Provide { handlers, body, .. } => {
-                let handlers: usize = handlers.iter().map(|(_, h)| h.binders()).sum();
-                handlers + body.binders()
-            }
+            Self::Provide { bundle, body, .. } => bundle.binders() + 1 + body.binders(),
             Self::Comptime(call) => call.binders(),
             Self::Cast {
                 value, otherwise, ..
@@ -201,7 +218,7 @@ impl<N> Expr<N> {
                 visit(value);
                 visit(body);
             }
-            Self::Binary { left, right, .. } => {
+            Self::Binary { left, right, .. } | Self::Merge { left, right } => {
                 visit(left);
                 visit(right);
             }
@@ -213,10 +230,8 @@ impl<N> Expr<N> {
             }
             Self::Lambda { body, .. } => visit(body),
             Self::Perform { args, .. } => args.iter().for_each(visit),
-            Self::Provide { handlers, body, .. } => {
-                for (_, handler) in handlers {
-                    visit(handler);
-                }
+            Self::Provide { bundle, body, .. } => {
+                visit(bundle);
                 visit(body);
             }
             Self::Comptime(call) => visit(call),

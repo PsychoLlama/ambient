@@ -21,7 +21,7 @@ pub enum BuildError {
     DuplicateField(String),
     /// A comptime call must be a call to a function by name.
     ComptimeNotCall,
-    /// One provide binds an ability twice.
+    /// One record holds two handlers for an ability.
     DuplicateHandler(Path),
     /// One pattern binds a name twice.
     DuplicateBinder(String),
@@ -44,7 +44,7 @@ impl fmt::Display for BuildError {
             Self::ComptimeNotCall => {
                 write!(f, "a comptime call must call a function by name")
             }
-            Self::DuplicateHandler(path) => write!(f, "a provide binds `{path}` twice"),
+            Self::DuplicateHandler(path) => write!(f, "a record has two handlers for `{path}`"),
             Self::DuplicateBinder(name) => write!(f, "a pattern binds `{name}` twice"),
             Self::ImportTooShort(path) => write!(f, "import `{path}` names only a package"),
         }

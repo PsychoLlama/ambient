@@ -20,7 +20,8 @@ impl Lowering {
             return scope;
         }
         // Both: what it captured, and from what it was handed, its row.
-        let passed = self.select(Value::Local(0), &function.row, &mut scope);
+        let row = self.ability_keys(&function.row);
+        let passed = self.select(Value::Local(0), &row, &mut scope);
         self.bindings = self.bound(
             Op::Merge {
                 base: captured,
@@ -38,20 +39,64 @@ impl Lowering {
         Value::Local(local)
     }
 
-    fn key(&mut self, ability: Slot) -> usize {
+    fn ability_key(&mut self, ability: Slot) -> usize {
         self.constant(Constant::Ability(ability.0))
     }
 
-    /// A record of exactly the bindings for `abilities`, taken from
-    /// `source`.
-    pub(super) fn select(&mut self, source: Value, abilities: &[Slot], scope: &mut Scope) -> Value {
+    pub(super) fn ability_keys(&mut self, abilities: &[Slot]) -> Vec<usize> {
+        abilities
+            .iter()
+            .map(|ability| self.ability_key(*ability))
+            .collect()
+    }
+
+    /// A record of exactly `keys`, each a constant, taken from `source`,
+    /// which has them.
+    pub(super) fn select(&mut self, source: Value, keys: &[usize], scope: &mut Scope) -> Value {
         let mut fields = Vec::new();
-        for ability in abilities {
-            let key = self.key(*ability);
-            let record = source;
+        for key in keys {
+            let (record, key) = (source, *key);
             fields.push((key, self.bound(Op::Field { record, key }, scope)));
         }
         self.bound(Op::Record(fields), scope)
+    }
+
+    pub(super) fn closure(
+        &mut self,
+        slot: Slot,
+        captures: &[core::Expr],
+        bindings: &[Slot],
+        scope: &mut Scope,
+    ) -> Result<Op, Unsupported> {
+        let mut captures = self.operands(captures, scope)?;
+        // The bindings a lambda captures follow its values, as one record
+        // of exactly those.
+        if !bindings.is_empty() {
+            let keys = self.ability_keys(bindings);
+            captures.push(self.select(self.bindings, &keys, scope));
+        }
+        Ok(Op::Closure {
+            slot: slot.0,
+            captures,
+        })
+    }
+
+    pub(super) fn merge(
+        &mut self,
+        left: &core::Expr,
+        right: &core::Expr,
+        keys: &[core::Key],
+        scope: &mut Scope,
+    ) -> Result<Op, Unsupported> {
+        let base = self.operand(left, scope)?;
+        let mut overlay = self.operand(right, scope)?;
+        // A record written in place holds exactly its keys. Any other is
+        // cut down to the keys it is known to hold.
+        if !matches!(right, core::Expr::Record(_)) {
+            let keys: Vec<usize> = keys.iter().map(|key| self.key(key)).collect();
+            overlay = self.select(overlay, &keys, scope);
+        }
+        Ok(Op::Merge { base, overlay })
     }
 
     /// The arguments of a call: the bindings the callee is handed, then
@@ -76,7 +121,7 @@ impl Lowering {
         returns: bool,
         scope: &mut Scope,
     ) -> Result<Op, Unsupported> {
-        let key = self.key(ability);
+        let key = self.ability_key(ability);
         let record = self.bindings;
         let binding = self.bound(Op::Field { record, key }, scope);
         if returns {
@@ -109,7 +154,7 @@ impl Lowering {
         let mut aborts = Vec::new();
         for handler in handlers {
             let value = self.operand(&handler.handler, &mut scope)?;
-            let key = self.key(handler.ability);
+            let key = self.ability_key(handler.ability);
             match handler.abort {
                 None => fields.push((key, value)),
                 Some(arity) => {

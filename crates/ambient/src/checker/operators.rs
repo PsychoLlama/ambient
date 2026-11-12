@@ -4,7 +4,7 @@ use super::Checker;
 use crate::core::{self, Primitive};
 use crate::error::Error;
 use crate::surface::{Expr, Operator, Reference};
-use crate::types::{Ty, field};
+use crate::types::{Ty, TyKey, entry};
 
 impl Checker<'_> {
     /// `value` at type `ty` if the type describes it, and `otherwise` if
@@ -27,17 +27,17 @@ impl Checker<'_> {
         Ok((core, self.env.union(vec![target, alternative])))
     }
 
-    /// The type of field `name` of a value of type `ty`, if every such
-    /// value has one.
-    pub(super) fn field(&self, ty: &Ty, name: &str) -> Option<Ty> {
+    /// The type under `key` of a value of type `ty`, if every such value
+    /// has one.
+    pub(super) fn field(&self, ty: &Ty, key: &TyKey) -> Option<Ty> {
         match self.env.unfold(ty) {
             Ty::Never => Some(Ty::Never),
             Ty::Named(Reference::Parameter(position), _) => {
-                self.field(self.env.bounds.get(position)?, name)
+                self.field(self.env.bounds.get(position)?, key)
             }
-            Ty::Record(fields) => field(&fields, name).cloned(),
+            Ty::Record(fields) => entry(&fields, key).cloned(),
             Ty::Union(members) => {
-                let fields: Option<Vec<Ty>> = members.iter().map(|m| self.field(m, name)).collect();
+                let fields: Option<Vec<Ty>> = members.iter().map(|m| self.field(m, key)).collect();
                 fields.map(|fields| self.env.union(fields))
             }
             _ => None,

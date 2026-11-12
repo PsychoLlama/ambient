@@ -161,6 +161,14 @@ impl Lowering {
         self.constant(Constant::Field(name.to_owned()))
     }
 
+    /// The constant a record is indexed by for `key`.
+    pub(super) fn key(&mut self, key: &core::Key) -> usize {
+        match key {
+            core::Key::Field(name) => self.field(name),
+            core::Key::Ability(slot) => self.constant(Constant::Ability(slot.0)),
+        }
+    }
+
     pub(super) fn expr(&mut self, expr: &core::Expr) -> Result<Expr, Unsupported> {
         let mut scope = Scope::default();
         let op = match expr {
@@ -204,18 +212,7 @@ impl Lowering {
                 captures,
                 bindings,
                 ..
-            } => {
-                let mut captures = self.operands(captures, &mut scope)?;
-                // The bindings a lambda captures follow its values, as one
-                // record of exactly those.
-                if !bindings.is_empty() {
-                    captures.push(self.select(self.bindings, bindings, &mut scope));
-                }
-                Op::Closure {
-                    slot: slot.0,
-                    captures,
-                }
-            }
+            } => self.closure(*slot, captures, bindings, &mut scope)?,
             core::Expr::Perform {
                 ability,
                 args,
@@ -236,16 +233,17 @@ impl Lowering {
             },
             core::Expr::Record(fields) => {
                 let mut lowered = Vec::new();
-                for (name, value) in fields {
+                for (key, value) in fields {
                     let value = self.operand(value, &mut scope)?;
-                    lowered.push((self.field(name), value));
+                    lowered.push((self.key(key), value));
                 }
                 Op::Record(lowered)
             }
-            core::Expr::Field { target, name } => Op::Field {
+            core::Expr::Field { target, key } => Op::Field {
                 record: self.operand(target, &mut scope)?,
-                key: self.field(name),
+                key: self.key(key),
             },
+            core::Expr::Merge { left, right, keys } => self.merge(left, right, keys, &mut scope)?,
             core::Expr::Match { subject, arms } => {
                 let subject = self.operand(subject, &mut scope)?;
                 return Ok(scope.wrap(self.matching(subject, arms)?));

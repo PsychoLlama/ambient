@@ -25,6 +25,7 @@ A handler is an ordinary function value bound to an [ability](abilities.md) by a
 - A bundle is built, merged, passed, returned, and inspected with ordinary record operations.
 - Precedence between handlers is decided by how bundles are merged; a provide has no ordering.
 - A bundle binds each ability at most once.
+- A provide binds exactly the abilities its bundle's type lists; a handler the type does not mention is not bound.
 
 ## Abort
 

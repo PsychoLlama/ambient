@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use super::BuildError;
-use crate::surface::{Expr, Function, Param, Path, Pattern};
+use crate::surface::{Expr, Function, Key, Param, Path, Pattern};
 
 pub(super) fn check_name(name: &str) -> Result<(), BuildError> {
     let mut chars = name.chars();
@@ -27,6 +27,24 @@ pub(super) fn check_fields<'a>(names: impl Iterator<Item = &'a String>) -> Resul
         check_name(name)?;
         if !seen.insert(name) {
             return Err(BuildError::DuplicateField(name.clone()));
+        }
+    }
+    Ok(())
+}
+
+/// The keys of a record or a record type: each once.
+fn check_keys<'a>(keys: impl Iterator<Item = &'a Key>) -> Result<(), BuildError> {
+    let mut seen = BTreeSet::new();
+    for key in keys {
+        match key {
+            Key::Field(name) => check_name(name)?,
+            Key::Ability(path) => check_path(path)?,
+        }
+        if !seen.insert(key) {
+            return Err(match key {
+                Key::Field(name) => BuildError::DuplicateField(name.clone()),
+                Key::Ability(path) => BuildError::DuplicateHandler(path.clone()),
+            });
         }
     }
     Ok(())
@@ -83,7 +101,7 @@ pub(super) fn check_type(ty: &crate::surface::Type) -> Result<(), BuildError> {
         | Type::String
         | Type::Literal(_) => Ok(()),
         Type::Record(fields) => {
-            check_fields(fields.iter().map(|(name, _)| name))?;
+            check_keys(fields.iter().map(|(key, _)| key))?;
             fields.iter().try_for_each(|(_, ty)| check_type(ty))
         }
         Type::Tuple(members) | Type::Union(members) => members.iter().try_for_each(check_type),
@@ -139,12 +157,12 @@ pub(super) fn check_expr(expr: &Expr) -> Result<(), BuildError> {
             args.iter().try_for_each(check_expr)
         }
         Expr::Record(fields) => {
-            check_fields(fields.iter().map(|(name, _)| name))?;
+            check_keys(fields.iter().map(|(key, _)| key))?;
             fields.iter().try_for_each(|(_, value)| check_expr(value))
         }
         Expr::Tuple(members) | Expr::List(members) => members.iter().try_for_each(check_expr),
-        Expr::Field { target, name } => {
-            check_name(name)?;
+        Expr::Field { target, key } => {
+            check_keys(std::iter::once(key))?;
             check_expr(target)
         }
         Expr::Let { name, value, body } => {
@@ -152,7 +170,7 @@ pub(super) fn check_expr(expr: &Expr) -> Result<(), BuildError> {
             check_expr(value)?;
             check_expr(body)
         }
-        Expr::Binary { left, right, .. } => {
+        Expr::Binary { left, right, .. } | Expr::Merge { left, right } => {
             check_expr(left)?;
             check_expr(right)
         }
@@ -167,15 +185,8 @@ pub(super) fn check_expr(expr: &Expr) -> Result<(), BuildError> {
             check_path(ability)?;
             args.iter().try_for_each(check_expr)
         }
-        Expr::Provide { handlers, body, .. } => {
-            let mut seen = BTreeSet::new();
-            for (ability, handler) in handlers {
-                check_path(ability)?;
-                if !seen.insert(ability) {
-                    return Err(BuildError::DuplicateHandler(ability.clone()));
-                }
-                check_expr(handler)?;
-            }
+        Expr::Provide { bundle, body, .. } => {
+            check_expr(bundle)?;
             check_expr(body)
         }
         Expr::Lambda { params, row, body } => {

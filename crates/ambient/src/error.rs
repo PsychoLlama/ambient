@@ -74,6 +74,10 @@ pub enum Error {
     /// A definition's content depends on a comptime call that depends on
     /// the definition.
     ComptimeCycle(Symbol),
+    /// A provide is given something that is not a record of handlers.
+    NotBundle { symbol: Symbol, found: String },
+    /// A record holds two handlers for one ability.
+    DuplicateHandler { symbol: Symbol, ability: Symbol },
     /// An ability is used where nothing binds it.
     Unbound { symbol: Symbol, ability: Symbol },
     /// A comptime call names a function that takes abilities.
@@ -159,6 +163,12 @@ impl fmt::Display for Error {
             }
             Self::ComptimeCycle(symbol) => {
                 write!(f, "{symbol}: depends on a comptime call that depends on it")
+            }
+            Self::NotBundle { symbol, found } => {
+                write!(f, "{symbol}: `{found}` is not a record of handlers")
+            }
+            Self::DuplicateHandler { symbol, ability } => {
+                write!(f, "{symbol}: two handlers for `{ability}`")
             }
             Self::Unbound { symbol, ability } => {
                 write!(f, "{symbol}: `{ability}` is not bound here")

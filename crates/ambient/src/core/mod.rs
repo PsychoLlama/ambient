@@ -16,6 +16,14 @@ pub(crate) use encode::encode_signature;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Slot(pub usize);
 
+/// What a record is keyed by.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Key {
+    Field(String),
+    /// The handler for an ability.
+    Ability(Slot),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Type {
     Never,
@@ -26,8 +34,9 @@ pub enum Type {
     Float,
     String,
     Literal(Literal),
-    /// Fields are ordered by name.
-    Record(Vec<(String, Type)>),
+    /// Fields come first, ordered by name; then handlers, ordered by
+    /// their abilities' tags.
+    Record(Vec<(Key, Type)>),
     Tuple(Vec<Type>),
     List(Box<Type>),
     Function {
@@ -87,12 +96,20 @@ pub enum Expr {
     },
     /// Fields keep the order they were written in: it is their evaluation
     /// order.
-    Record(Vec<(String, Expr)>),
+    Record(Vec<(Key, Expr)>),
     Tuple(Vec<Expr>),
     List(Vec<Expr>),
     Field {
         target: Box<Expr>,
-        name: String,
+        key: Key,
+    },
+    /// `left` with each of `keys` taken from `right` instead. The keys
+    /// are those `right` is known to have: anything else it holds is left
+    /// behind, because nothing is known of its type.
+    Merge {
+        left: Box<Expr>,
+        right: Box<Expr>,
+        keys: Vec<Key>,
     },
     /// Binds the next local to `value` for the extent of `body`.
     Let {

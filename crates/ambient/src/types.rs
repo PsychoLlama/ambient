@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use crate::literal::Literal;
-use crate::surface::{Reference, Type};
+use crate::surface::{Key, Reference, Type};
 use crate::symbol::Symbol;
 
 pub type Ty = Type<Reference>;
@@ -79,7 +79,7 @@ pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
         Ty::Record(fields) => Ty::Record(
             fields
                 .iter()
-                .map(|(name, ty)| (name.clone(), substitute(ty, args)))
+                .map(|(key, ty)| (key.clone(), substitute(ty, args)))
                 .collect(),
         ),
         Ty::Tuple(members) => Ty::Tuple(all(members)),
@@ -135,7 +135,7 @@ impl Env {
             Ty::Record(fields) => {
                 let mut fields: Vec<_> = fields
                     .iter()
-                    .map(|(name, ty)| (name.clone(), self.normalize(ty)))
+                    .map(|(key, ty)| (key.clone(), self.normalize(ty)))
                     .collect();
                 fields.sort_by(|(a, _), (b, _)| a.cmp(b));
                 Ty::Record(fields)
@@ -265,8 +265,8 @@ impl Env {
             (Ty::Bool, Ty::Union(_)) => self.sub(&booleans(), sup, assumed),
             (_, Ty::Union(members)) => members.iter().any(|m| self.sub(sub, m, assumed)),
             (Ty::Literal(literal), _) => primitive_of(literal) == *sup,
-            (Ty::Record(have), Ty::Record(want)) => want.iter().all(|(name, want)| {
-                field(have, name).is_some_and(|have| self.sub(have, want, assumed))
+            (Ty::Record(have), Ty::Record(want)) => want.iter().all(|(key, want)| {
+                entry(have, key).is_some_and(|have| self.sub(have, want, assumed))
             }),
             (Ty::Tuple(have), Ty::Tuple(want)) => {
                 have.len() == want.len()
@@ -333,7 +333,7 @@ impl Env {
             }
             (Ty::Record(a), Ty::Record(b)) => a
                 .iter()
-                .any(|(name, a)| field(b, name).is_some_and(|b| self.apart(a, b, next))),
+                .any(|(key, a)| entry(b, key).is_some_and(|b| self.apart(a, b, next))),
             (Ty::Tuple(a), Ty::Tuple(b)) => {
                 a.len() != b.len() || a.iter().zip(b).any(|(a, b)| self.apart(a, b, next))
             }
@@ -353,12 +353,24 @@ impl Env {
     }
 }
 
+/// What a normalized record type is keyed by.
+pub type TyKey = Key<Reference>;
+
 /// The type of the field `name` among `fields`.
 #[must_use]
-pub fn field<'a>(fields: &'a [(String, Ty)], name: &str) -> Option<&'a Ty> {
+pub fn field<'a>(fields: &'a [(TyKey, Ty)], name: &str) -> Option<&'a Ty> {
     fields
         .iter()
-        .find(|(field, _)| field == name)
+        .find(|(key, _)| key.is_field(name))
+        .map(|(_, ty)| ty)
+}
+
+/// The type under `key` among `fields`.
+#[must_use]
+pub fn entry<'a>(fields: &'a [(TyKey, Ty)], key: &TyKey) -> Option<&'a Ty> {
+    fields
+        .iter()
+        .find(|(found, _)| found == key)
         .map(|(_, ty)| ty)
 }
 
@@ -403,11 +415,14 @@ fn show(ty: &Ty, out: &mut String) {
         }
         Ty::Record(fields) => {
             out.push('{');
-            for (index, (name, ty)) in fields.iter().enumerate() {
+            for (index, (key, ty)) in fields.iter().enumerate() {
                 if index > 0 {
                     out.push_str(", ");
                 }
-                let _ = write!(out, "{name}: ");
+                let _ = match key {
+                    Key::Field(name) => write!(out, "{name}: "),
+                    Key::Ability(ability) => write!(out, "[{}]: ", ability_name(ability)),
+                };
                 show(ty, out);
             }
             out.push('}');

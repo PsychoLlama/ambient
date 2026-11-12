@@ -128,6 +128,23 @@ pub struct Param<N = Path> {
     pub ty: Type<N>,
 }
 
+/// What a record is keyed by.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum Key<N = Path> {
+    Field(String),
+    /// The handler for an ability. A record keyed only by abilities is a
+    /// bundle.
+    Ability(N),
+}
+
+impl<N> Key<N> {
+    /// Whether this is the field `name`.
+    #[must_use]
+    pub fn is_field(&self, name: &str) -> bool {
+        matches!(self, Self::Field(field) if field == name)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Type<N = Path> {
     Never,
@@ -138,7 +155,7 @@ pub enum Type<N = Path> {
     Float,
     String,
     Literal(Literal),
-    Record(Vec<(String, Type<N>)>),
+    Record(Vec<(Key<N>, Type<N>)>),
     Tuple(Vec<Type<N>>),
     List(Box<Type<N>>),
     Function {
@@ -197,12 +214,17 @@ pub enum Expr<N = Path> {
         callee: Box<Expr<N>>,
         args: Vec<Expr<N>>,
     },
-    Record(Vec<(String, Expr<N>)>),
+    Record(Vec<(Key<N>, Expr<N>)>),
     Tuple(Vec<Expr<N>>),
     List(Vec<Expr<N>>),
     Field {
         target: Box<Expr<N>>,
-        name: String,
+        key: Key<N>,
+    },
+    /// A record with the fields of both, `right`'s where both have one.
+    Merge {
+        left: Box<Expr<N>>,
+        right: Box<Expr<N>>,
     },
     /// Binds `name` to `value` for the extent of `body`.
     Let {
@@ -234,10 +256,13 @@ pub enum Expr<N = Path> {
         ability: N,
         args: Vec<Expr<N>>,
     },
-    /// Binds handlers to abilities for the extent of `body`. With `only`,
-    /// the body sees no other binding.
+    /// Binds the handlers in `bundle` for the extent of `body`. With
+    /// `only`, the body sees no other binding.
+    ///
+    /// A provide counts as one binder, numbered after those in `bundle`:
+    /// it holds the bundle while the handlers are read from it.
     Provide {
-        handlers: Vec<(N, Expr<N>)>,
+        bundle: Box<Expr<N>>,
         only: bool,
         body: Box<Expr<N>>,
     },

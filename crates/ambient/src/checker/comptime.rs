@@ -5,7 +5,7 @@ use super::Checker;
 use crate::core;
 use crate::error::Error;
 use crate::literal::Literal;
-use crate::surface::{Expr, Reference};
+use crate::surface::{Expr, Key, Reference};
 use crate::types::Ty;
 use crate::value::Value;
 
@@ -72,7 +72,10 @@ fn value_of(ty: &Ty) -> Option<Value> {
         Ty::Record(fields) => Value::Record(
             fields
                 .iter()
-                .map(|(name, ty)| Some((name.clone(), value_of(ty)?)))
+                .map(|(key, ty)| match key {
+                    Key::Field(name) => Some((name.clone(), value_of(ty)?)),
+                    Key::Ability(_) => None,
+                })
                 .collect::<Option<_>>()?,
         ),
         _ => return None,
@@ -120,8 +123,8 @@ fn splice(value: &Value) -> Option<(core::Expr, Ty)> {
             let mut types = Vec::new();
             for (name, value) in fields {
                 let (expr, ty) = splice(value)?;
-                exprs.push((name.clone(), expr));
-                types.push((name.clone(), ty));
+                exprs.push((core::Key::Field(name.clone()), expr));
+                types.push((Key::Field(name.clone()), ty));
             }
             (core::Expr::Record(exprs), Ty::Record(types))
         }
