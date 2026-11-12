@@ -1,6 +1,6 @@
 # Ambient Spec
 
-Ambient is a content-addressed language with structural types and abilities, built for programs that exchange code between machines and change while they run. This spec describes a from-scratch redesign; nothing here assumes the implementation documented under `ref/`.
+Ambient is a content-addressed language with structural types and abilities, built for programs that exchange code between machines and change while they run.
 
 ## Goals
 

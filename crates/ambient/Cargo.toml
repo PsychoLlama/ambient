@@ -1,0 +1,8 @@
+[package]
+name = "ambient"
+version.workspace = true
+edition.workspace = true
+description = "The Ambient programming language"
+
+[lints]
+workspace = true

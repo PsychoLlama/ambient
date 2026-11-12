@@ -1,3 +1,0 @@
-pub fn shout(message: String): String {
-  message.to_upper()
-}

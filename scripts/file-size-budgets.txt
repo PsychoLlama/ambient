@@ -1,7 +1,0 @@
-# Ratchet budgets for oversized Rust files. Format: <path> <max-lines>.
-# Every file not listed here is capped at the default limit (1000 lines).
-# A listed budget must equal the file's current line count: growing the file
-# fails the check, and shrinking it requires lowering the budget to match.
-# The goal is for this file to become empty — never add an entry to
-# accommodate new growth; split the file instead.
-crates/ambient-engine/src/vm/tests.rs 1201

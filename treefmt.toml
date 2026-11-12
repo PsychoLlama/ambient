@@ -5,10 +5,6 @@ excludes = ["target/**", "*.lock"]
 command = "rustfmt"
 includes = ["*.rs"]
 
-[formatter.stylua]
-command = "stylua"
-includes = ["*.lua"]
-
 [formatter.nixfmt]
 command = "nixfmt"
 includes = ["*.nix"]

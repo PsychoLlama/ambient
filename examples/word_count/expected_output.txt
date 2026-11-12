@@ -1,5 +1,0 @@
-words:  17
-unique: 12
-top:    the (x4)
-repeats: dog, fox, the
-longest: quick

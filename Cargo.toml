@@ -1,40 +1,23 @@
 [workspace]
-resolver = "2"
-default-members = ["crates/ambient-cli"]
-members = [
-  "crates/ambient-core",
-  "crates/ambient-ability",
-  "crates/ambient-platform",
-  "crates/ambient-engine",
-  "crates/ambient-parser",
-  "crates/ambient-analysis",
-  "crates/ambient-lsp",
-  "crates/ambient-cli",
-]
+resolver = "3"
+members = ["crates/*"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 
 [workspace.dependencies]
-# Internal crates
-ambient-core = { path = "crates/ambient-core" }
-ambient-ability = { path = "crates/ambient-ability" }
-ambient-platform = { path = "crates/ambient-platform" }
-ambient-engine = { path = "crates/ambient-engine" }
-ambient-parser = { path = "crates/ambient-parser" }
-ambient-analysis = { path = "crates/ambient-analysis" }
-ambient-lsp = { path = "crates/ambient-lsp" }
 
-# Shared third-party dependencies. Base feature sets live here; crates that
-# need extra features (e.g. serde's `rc`) union them at the use site.
-anyhow = "1.0.100"
-blake3 = { version = "1.5.5", features = ["serde"] }
-hex = "0.4"
-include_dir = "0.7"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tempfile = "3.14"
-thiserror = "2.0.11"
-tokio = { version = "1.42" }
-uuid = { version = "1.11", features = ["v4", "serde"] }
+[workspace.lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+style = { level = "deny", priority = -1 }
+complexity = { level = "deny", priority = -1 }
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+self_named_module_files = "deny"
+# Allowed in tests; see clippy.toml.
+expect_used = "deny"
+unwrap_used = "deny"
+print_stdout = "warn"
+print_stderr = "warn"

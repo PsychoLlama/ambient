@@ -27,4 +27,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', 'flake.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
-      - run: just check
+      - run: treefmt --ci
+      - run: cargo clippy --workspace --all-targets --quiet
+      - run: ./scripts/check-file-sizes.sh
+      - run: cargo nextest run --workspace --show-progress=none --status-level=fail --cargo-quiet

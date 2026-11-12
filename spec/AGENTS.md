@@ -25,4 +25,4 @@ Terse reference material for experts. Readers know the implementation, but not t
 - Link a noun to its owning page the first time a page relies on it.
 - A new page is added to the list in `README.md` with a one-line summary.
 - Reversing a decision means editing the bullet that states it and every bullet that follows from it, not appending a correction.
-- The spec describes the redesign only. It does not reference `ref/` or the existing implementation.
+- The spec leads the implementation; it never describes or references existing code.
