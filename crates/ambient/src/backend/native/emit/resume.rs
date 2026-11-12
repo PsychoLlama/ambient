@@ -4,7 +4,7 @@
 use ambient_runtime::{Context, Entry, RESUMING, SUSPENDING};
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::types::I64;
-use cranelift_codegen::ir::{BlockArg, InstBuilder};
+use cranelift_codegen::ir::{Block, BlockArg, InstBuilder};
 
 use super::{Emitter, Val};
 use crate::lir::{self, Expr, Op};
@@ -23,10 +23,10 @@ impl Emitter<'_> {
         self.builder.switch_to_block(restore);
         let point = self.entry(Entry::FramePoint, &[]);
         self.builder.def_var(self.target, point);
-        for index in 0..self.locals.len() {
+        for index in 0..self.locals {
             let index_word = self.constant(index as u64);
             let word = self.entry(Entry::FrameLoad, &[index_word]);
-            self.builder.def_var(self.locals[index], word);
+            self.set_local(index, word);
         }
         self.runtime(Entry::FrameDrop, &[]);
         self.builder.ins().jump(start, &[]);
@@ -57,11 +57,7 @@ impl Emitter<'_> {
         self.builder.def_var(self.target, next);
 
         let word = self.op(op);
-        let (proceed, unwound, save) = (
-            self.builder.create_block(),
-            self.builder.create_block(),
-            self.builder.create_block(),
-        );
+        let (proceed, unwound) = (self.builder.create_block(), self.builder.create_block());
         self.builder.ins().brif(word, proceed, &[], unwound, &[]);
 
         // It unwound. If the task is suspending, this function keeps its
@@ -71,29 +67,55 @@ impl Emitter<'_> {
         let mode = self.load(self.context, Context::MODE);
         let suspending = self.is(mode, SUSPENDING);
         let unwinding = self.unwind.last().copied().unwrap_or(proceed);
-        let passed = [BlockArg::Value(zero)];
-        self.builder
-            .ins()
-            .brif(suspending, save, &[], unwinding, &passed);
-
-        self.builder.switch_to_block(save);
-        let at = self.constant(point as u64);
         let (definition, position) = match frame {
             Some((definition, position)) => (lir::Value::Constant(definition), position),
             None => (lir::Value::Null, 0),
         };
+        let at = [point as u64, position as u64].map(|word| self.constant(word));
         let definition = self.value(definition);
-        let position = self.constant(position as u64);
-        self.runtime(Entry::FramePush, &[at, definition, position]);
-        for index in 0..self.locals.len() {
-            let word = self.builder.use_var(self.locals[index]);
+        let saved = [at[0], definition, at[1]].map(BlockArg::Value);
+        let save = self.save_block();
+        let passed = [BlockArg::Value(zero)];
+        self.builder
+            .ins()
+            .brif(suspending, save, &saved, unwinding, &passed);
+
+        self.builder.switch_to_block(proceed);
+        word
+    }
+
+    /// The block that keeps the locals of a function whose task is
+    /// suspending. It takes the point the function is at, and the
+    /// definition and position of its frame. Every point shares it, so a
+    /// function's code grows with its points and not with their product
+    /// with its locals.
+    fn save_block(&mut self) -> Block {
+        if let Some(save) = self.save {
+            return save;
+        }
+        let save = self.builder.create_block();
+        for _ in 0..3 {
+            self.builder.append_block_param(save, I64);
+        }
+        self.save = Some(save);
+        save
+    }
+
+    /// Emits the block every point leaves through to suspend, if any
+    /// does.
+    pub(super) fn save(&mut self) {
+        let Some(save) = self.save else {
+            return;
+        };
+        self.builder.switch_to_block(save);
+        let frame = self.builder.block_params(save).to_vec();
+        self.runtime(Entry::FramePush, &frame);
+        for index in 0..self.locals {
+            let word = self.local(index);
             self.runtime(Entry::FrameSave, &[word]);
         }
         let zero = self.builder.ins().iconst(I64, 0);
         self.builder.ins().return_(&[zero]);
-
-        self.builder.switch_to_block(proceed);
-        word
     }
 
     /// The value a `Let` binds, in a function that may be resuming.
@@ -118,7 +140,7 @@ impl Emitter<'_> {
         let word = self.expr(value);
         self.builder.ins().jump(join, &[BlockArg::Value(word)]);
         self.builder.switch_to_block(skip);
-        let word = self.builder.use_var(self.locals[local]);
+        let word = self.local(local);
         self.builder.ins().jump(join, &[BlockArg::Value(word)]);
         self.builder.switch_to_block(join);
         self.builder.block_params(join)[0]

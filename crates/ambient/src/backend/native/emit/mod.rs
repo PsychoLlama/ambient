@@ -8,7 +8,8 @@ use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::types::I64;
 use cranelift_codegen::ir::{
-    AbiParam, BlockArg, Function, InstBuilder, MemFlagsData, SigRef, Signature, UserFuncName,
+    AbiParam, BlockArg, Function, InstBuilder, MemFlagsData, SigRef, Signature, StackSlot,
+    StackSlotData, StackSlotKind, UserFuncName,
 };
 use cranelift_codegen::isa::OwnedTargetIsa;
 use cranelift_codegen::settings::{self, Configurable};
@@ -72,17 +73,9 @@ impl Backend for Native {
         builder.append_block_params_for_function_params(entry);
         builder.switch_to_block(entry);
         let params = builder.block_params(entry).to_vec();
-        let locals: Vec<Variable> = (0..function.locals)
-            .map(|_| builder.declare_var(I64))
-            .collect();
-        for (local, param) in locals.iter().zip(&params[2..]) {
-            builder.def_var(*local, *param);
-        }
-        // Locals are read on unwinding paths that never assigned them.
-        let zero = builder.ins().iconst(I64, 0);
-        for local in &locals[function.params..] {
-            builder.def_var(*local, zero);
-        }
+        let size = u32::try_from(function.locals * 8).map_err(|_| "too many locals")?;
+        let frame = StackSlotData::new(StackSlotKind::ExplicitSlot, size, 3);
+        let frame = builder.create_sized_stack_slot(frame);
 
         let exit = builder.create_block();
         builder.append_block_param(exit, I64);
@@ -91,16 +84,27 @@ impl Backend for Native {
             call_conv: self.isa.default_call_conv(),
             context: params[0],
             closure: params[1],
-            locals,
+            frame,
+            locals: function.locals,
             target,
             slots: function.slots,
             unwind: vec![exit],
+            save: None,
             builder,
         };
+        for (local, param) in params[2..].iter().enumerate() {
+            emitter.set_local(local, *param);
+        }
+        // Locals are read on unwinding paths that never assigned them.
+        let zero = emitter.builder.ins().iconst(I64, 0);
+        for local in function.params..function.locals {
+            emitter.set_local(local, zero);
+        }
         emitter.enter();
         let result = emitter.expr(&function.body);
+        emitter.builder.ins().jump(exit, &[BlockArg::Value(result)]);
+        emitter.save();
         let mut builder = emitter.builder;
-        builder.ins().jump(exit, &[BlockArg::Value(result)]);
         builder.switch_to_block(exit);
         let result = builder.block_params(exit)[0];
         builder.ins().return_(&[result]);
@@ -125,7 +129,13 @@ struct Emitter<'a> {
     call_conv: cranelift_codegen::isa::CallConv,
     context: Val,
     closure: Val,
-    locals: Vec<Variable>,
+    /// Where the locals are kept: in memory, a word each. A local is
+    /// read wherever the function may suspend, so as a value it would be
+    /// live nearly everywhere, and a function with many would take the
+    /// register allocator time beyond all proportion to its size.
+    frame: StackSlot,
+    /// How many locals there are.
+    locals: usize,
     /// The point a function that is resuming is going back to, and `-1`
     /// in one that is not.
     target: Variable,
@@ -134,9 +144,24 @@ struct Emitter<'a> {
     /// Where unwinding goes from here: the end of each enclosing `Let`,
     /// innermost last, each taking the result as its parameter.
     unwind: Vec<cranelift_codegen::ir::Block>,
+    /// Where a function whose task is suspending goes to keep its locals,
+    /// once any point has needed it.
+    save: Option<cranelift_codegen::ir::Block>,
 }
 
 impl Emitter<'_> {
+    fn local(&mut self, local: usize) -> Val {
+        let offset = i32::try_from(local * 8).unwrap_or(0);
+        self.builder.ins().stack_load(I64, I64, self.frame, offset)
+    }
+
+    fn set_local(&mut self, local: usize, word: Val) {
+        let offset = i32::try_from(local * 8).unwrap_or(0);
+        self.builder
+            .ins()
+            .stack_store(I64, word, self.frame, offset);
+    }
+
     fn constant(&mut self, word: Word) -> Val {
         self.builder.ins().iconst(I64, word.cast_signed())
     }
@@ -160,7 +185,7 @@ impl Emitter<'_> {
 
     fn value(&mut self, value: lir::Value) -> Val {
         match value {
-            lir::Value::Local(local) => self.builder.use_var(self.locals[local]),
+            lir::Value::Local(local) => self.local(local),
             lir::Value::Captured(position) => {
                 let offset = CLOSURE_CAPTURES + i32::try_from(position * 8).unwrap_or(0);
                 self.load(self.closure, offset)
@@ -286,7 +311,7 @@ impl Emitter<'_> {
                 if !matches!(**value, Expr::Op(_)) {
                     self.check(word);
                 }
-                self.builder.def_var(self.locals[*local], word);
+                self.set_local(*local, word);
 
                 let done = self.builder.create_block();
                 self.builder.append_block_param(done, I64);
@@ -296,7 +321,7 @@ impl Emitter<'_> {
                 self.builder.ins().jump(done, &[BlockArg::Value(result)]);
                 self.builder.switch_to_block(done);
 
-                let owned = self.builder.use_var(self.locals[*local]);
+                let owned = self.local(*local);
                 self.runtime(Entry::Release, &[owned]);
                 self.builder.block_params(done)[0]
             }

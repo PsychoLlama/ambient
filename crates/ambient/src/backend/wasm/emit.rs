@@ -45,25 +45,33 @@ impl Backend for Wasm {
         }
         let locals = u32::try_from(function.locals).map_err(|error| error.to_string())?;
 
-        // Three more locals than the function has: to hold a word while it
-        // is tested, a callee while its arguments are pushed, and the
-        // point a resuming function is going back to.
-        let declared = function.locals - function.params + 3;
+        // Six more locals than the function has: to hold a word while it
+        // is tested, a callee while its arguments are pushed, the point a
+        // resuming function is going back to, and the three words of the
+        // frame a suspending one keeps.
+        let declared = function.locals - function.params + 6;
         let mut emitter = Emitter {
             body: Function::new_with_locals_types(vec![ValType::I64; declared]),
             locals,
             scratch: LOCALS + locals,
             callee: LOCALS + locals + 1,
             target: LOCALS + locals + 2,
+            saved: LOCALS + locals + 3,
             slots: function.slots,
             frames: Vec::new(),
         };
         emitter.enter();
+        // The outermost block is the one a point leaves to suspend: after
+        // it, the function keeps its locals.
+        emitter.emit(&Instruction::Block(BlockType::Empty));
         emitter.block();
         emitter.frames.push(true);
         emitter.expr(&function.body);
         emitter.frames.pop();
         emitter.emit(&Instruction::End);
+        emitter.emit(&Instruction::Return);
+        emitter.emit(&Instruction::End);
+        emitter.save();
         emitter.emit(&Instruction::End);
         Ok(emitter.body.into_raw_body())
     }
@@ -78,6 +86,9 @@ struct Emitter {
     /// The point a function that is resuming is going back to, and `-1`
     /// in one that is not.
     target: u32,
+    /// The first of three locals a suspending function puts its frame
+    /// in: the point it is at, and its definition and position.
+    saved: u32,
     /// How many slots the definition has; its constants follow them.
     slots: usize,
     /// The control constructs open around the current instruction,
@@ -211,14 +222,37 @@ impl Emitter {
         self.constant(SUSPENDING);
         self.emit(&Instruction::I64Eq);
         self.emit(&Instruction::If(BlockType::Empty));
-        self.emit(&Instruction::LocalGet(CONTEXT));
         self.constant(point as u64);
+        self.emit(&Instruction::LocalSet(self.saved));
         let (definition, position) = match frame {
             Some((definition, position)) => (lir::Value::Constant(definition), position),
             None => (lir::Value::Null, 0),
         };
         self.value(definition);
+        self.emit(&Instruction::LocalSet(self.saved + 1));
         self.constant(position as u64);
+        self.emit(&Instruction::LocalSet(self.saved + 2));
+        // Past this `if` and every construct open around it is the
+        // function's outermost block.
+        let depth = u32::try_from(self.frames.len()).unwrap_or(0) + 1;
+        self.emit(&Instruction::Br(depth));
+        self.emit(&Instruction::End);
+        self.emit(&Instruction::I64Const(0));
+        self.emit(&Instruction::Br(self.unwind_depth()));
+        self.frames.pop();
+        self.emit(&Instruction::End);
+        self.emit(&Instruction::LocalGet(self.scratch));
+    }
+
+    /// What every point leaves for to suspend: the function keeps its
+    /// frame and its locals, and returns. Every point shares it, so a
+    /// function's code grows with its points and not with their product
+    /// with its locals.
+    fn save(&mut self) {
+        self.emit(&Instruction::LocalGet(CONTEXT));
+        for word in 0..3 {
+            self.emit(&Instruction::LocalGet(self.saved + word));
+        }
         self.frame(Entry::FramePush);
         for local in 0..self.locals {
             self.emit(&Instruction::LocalGet(CONTEXT));
@@ -226,13 +260,6 @@ impl Emitter {
             self.frame(Entry::FrameSave);
         }
         self.emit(&Instruction::I64Const(0));
-        self.emit(&Instruction::Return);
-        self.emit(&Instruction::End);
-        self.emit(&Instruction::I64Const(0));
-        self.emit(&Instruction::Br(self.unwind_depth()));
-        self.frames.pop();
-        self.emit(&Instruction::End);
-        self.emit(&Instruction::LocalGet(self.scratch));
     }
 
     /// Leaves one word on the stack.
