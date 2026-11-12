@@ -80,6 +80,9 @@ pub enum Primitive {
     /// Suspends the task until a cell holds something other than the
     /// value given.
     CellWait,
+    /// The trace of where the task is: a frame for this node and for
+    /// each call it is inside, nearest first.
+    Capture,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

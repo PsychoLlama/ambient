@@ -72,7 +72,7 @@ impl<'a> Sink<'a> {
 
 /// The version named by every encoding. Changing the node set or the
 /// encoding means changing this, which changes every hash.
-const FORMAT: u8 = 13;
+const FORMAT: u8 = 14;
 
 impl Tree {
     /// The encoding of the tree as it is stored: slots by index.

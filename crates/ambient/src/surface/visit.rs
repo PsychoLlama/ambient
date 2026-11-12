@@ -144,6 +144,7 @@ impl<N> Expr<N> {
     pub fn children<'a>(&'a self, visit: &mut impl FnMut(&'a Self)) {
         match self {
             Self::Null
+            | Self::Trace
             | Self::Literal(_)
             | Self::Name(_)
             | Self::Instantiate { .. }

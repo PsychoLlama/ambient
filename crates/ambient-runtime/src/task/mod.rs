@@ -14,6 +14,7 @@
 //! reproducible.
 
 mod budget;
+mod capture;
 mod group;
 mod join;
 
@@ -23,6 +24,7 @@ pub use budget::{
     LIMITS, amb_budget_back, amb_budget_caught, amb_budget_current, amb_budget_enter,
     amb_budget_leave, amb_budget_switch, amb_charge, amb_charge_size,
 };
+pub use capture::amb_capture;
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
 pub use join::{amb_all, amb_first};
 
@@ -43,6 +45,11 @@ const ROOT: usize = 0;
 struct Frame {
     /// Which of its calls it was in.
     point: u64,
+    /// The hash of its definition, a string, and the position of the
+    /// call in it: what a trace says of the frame. Null and zero for a
+    /// call that has no place in the definition's core tree.
+    definition: Word,
+    position: u64,
     locals: Vec<Word>,
 }
 
@@ -70,6 +77,19 @@ struct Task {
     cell: Option<Word>,
     /// The innermost budget it runs inside.
     budget: Option<usize>,
+    /// The trace it asked for, if it suspended to have one captured.
+    capture: Capture,
+}
+
+/// Where a task is in having its trace captured.
+#[derive(Default)]
+enum Capture {
+    #[default]
+    None,
+    /// It suspended for one.
+    Asked,
+    /// One is ready for when it comes back.
+    Ready(Word),
 }
 
 /// Tasks started together, and what has come of them.
@@ -223,14 +243,21 @@ unsafe fn scheduler<'a>(context: *mut Context) -> &'a mut Scheduler {
     unsafe { &mut *((*context).scheduler as usize as *mut Scheduler) }
 }
 
-/// Starts a frame for the function that is suspending, at `point`.
+/// Starts a frame for the function that is suspending, at `point`:
+/// `position` of `definition`, a string, or null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_frame_push(context: *mut Context, point: u64) {
-    let locals = Vec::new();
-    unsafe { scheduler(context) }
-        .current()
-        .frames
-        .push(Frame { point, locals });
+pub unsafe extern "C" fn amb_frame_push(
+    context: *mut Context,
+    point: u64,
+    definition: Word,
+    position: u64,
+) {
+    unsafe { scheduler(context) }.current().frames.push(Frame {
+        point,
+        definition,
+        position,
+        locals: Vec::new(),
+    });
 }
 
 /// Adds a local to the frame being made. The frame takes the local's
@@ -332,6 +359,7 @@ pub unsafe extern "C" fn amb_schedule(context: *mut Context) {
                 ROOT
             });
             scheduler.current = id;
+            scheduler.capture(id);
             let task = scheduler.task(id);
             task.queued = false;
             if id == ROOT {

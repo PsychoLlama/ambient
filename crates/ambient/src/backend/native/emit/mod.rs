@@ -268,7 +268,7 @@ impl Emitter<'_> {
 
     fn expr(&mut self, expr: &Expr) -> Val {
         match expr {
-            Expr::Point { point, op } => self.point(*point, op),
+            Expr::Point { point, op, frame } => self.point(*point, op, *frame),
             Expr::Resumed {
                 points,
                 local,

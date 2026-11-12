@@ -192,7 +192,7 @@ impl Emitter {
 
     /// An operation the task may suspend in. Leaves one word on the
     /// stack.
-    fn point(&mut self, point: usize, op: &Op) {
+    fn point(&mut self, point: usize, op: &Op, frame: Option<(usize, usize)>) {
         // A function that was going back to this point is there.
         self.resuming_to((point, point + 1));
         self.emit(&Instruction::If(BlockType::Empty));
@@ -213,6 +213,12 @@ impl Emitter {
         self.emit(&Instruction::If(BlockType::Empty));
         self.emit(&Instruction::LocalGet(CONTEXT));
         self.constant(point as u64);
+        let (definition, position) = match frame {
+            Some((definition, position)) => (lir::Value::Constant(definition), position),
+            None => (lir::Value::Null, 0),
+        };
+        self.value(definition);
+        self.constant(position as u64);
         self.frame(Entry::FramePush);
         for local in 0..self.locals {
             self.emit(&Instruction::LocalGet(CONTEXT));
@@ -232,7 +238,7 @@ impl Emitter {
     /// Leaves one word on the stack.
     fn expr(&mut self, expr: &Expr) {
         match expr {
-            Expr::Point { point, op } => self.point(*point, op),
+            Expr::Point { point, op, frame } => self.point(*point, op, *frame),
             Expr::Resumed {
                 points,
                 local,

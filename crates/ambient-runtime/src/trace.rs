@@ -14,8 +14,8 @@ use crate::record::amb_record_new;
 use crate::sequence::{amb_sequence_new, amb_sequence_set};
 use crate::{Context, Fault, NULL, UNWIND, Word};
 
-/// The most frames a trace keeps: those nearest the fault.
-const LIMIT: i64 = 64;
+/// The most frames a trace keeps: those nearest where it begins.
+pub const TRACE_LIMIT: usize = 64;
 
 /// Notes that the unwinding under way left `position` of `definition`, a
 /// string, if it is a fault. Always returns [`UNWIND`]: it goes on.
@@ -27,7 +27,7 @@ pub unsafe extern "C" fn amb_trace(context: *mut Context, definition: Word, posi
         }
         let inner = (*context).trace;
         let length = if inner == 0 { 0 } else { int(words(inner)[3]) };
-        if length >= LIMIT {
+        if length >= TRACE_LIMIT as i64 {
             return UNWIND;
         }
         let frame = amb_sequence_new(0, 4);
@@ -59,16 +59,41 @@ pub(crate) unsafe fn take(context: *mut Context) -> Word {
             let [definition, position, inner, _] = *words(frame) else {
                 break;
             };
-            let record = amb_record_new(2);
-            for (name, value) in [("definition", definition), ("position", position)] {
-                crate::object::amb_retain(value);
-                set(record, name, value);
-            }
-            amb_sequence_set(list, index, record);
-            amb_release(record);
+            crate::object::amb_retain(position);
+            put(list, index, definition, position);
             frame = inner;
         }
         amb_release(chain);
+        list
+    }
+}
+
+/// Puts the frame for `position`, an integer given up, of `definition`,
+/// a string, in a list of frames.
+unsafe fn put(list: Word, index: u64, definition: Word, position: Word) {
+    unsafe {
+        let record = amb_record_new(2);
+        crate::object::amb_retain(definition);
+        set(record, "definition", definition);
+        set(record, "position", position);
+        amb_sequence_set(list, index, record);
+        amb_release(record);
+    }
+}
+
+/// A trace of these frames, each a definition and a position in it, as
+/// the list an error holds.
+pub(crate) unsafe fn frames(frames: &[(Word, u64)]) -> Word {
+    unsafe {
+        let list = amb_sequence_new(1, frames.len() as u64);
+        for (index, (definition, position)) in (0..).zip(frames) {
+            put(
+                list,
+                index,
+                *definition,
+                amb_int_new((*position).cast_signed()),
+            );
+        }
         list
     }
 }

@@ -261,6 +261,8 @@ pub struct Arm<N = Path> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Expr<N = Path> {
     Null,
+    /// The trace of where this is evaluated: see `spec/errors.md`.
+    Trace,
     Literal(Literal),
     Name(N),
     /// A generic function with its type arguments written out.

@@ -234,9 +234,14 @@ pub enum Expr {
     /// suspending, the function saves its locals and returns. A function
     /// resuming to this point runs the operation again, which resumes
     /// whatever it called.
+    ///
+    /// `frame` is what a trace says of the function while it is in the
+    /// operation: its definition, a [`Constant::Own`], and a position
+    /// in it.
     Point {
         point: usize,
         op: Op,
+        frame: Option<(usize, usize)>,
     },
     /// The value a `Let` binds to `local`, in a function that may be
     /// resuming. If it is, and the point it is going back to is not among

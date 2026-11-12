@@ -325,19 +325,27 @@ pub fn abilities(row: &[Reference]) -> Vec<Symbol> {
         .collect()
 }
 
-/// What a boundary gives for a fault: an error, as `spec/errors.md`
-/// shapes one.
+/// What a trace is: a list of frames, each a definition's hash and a
+/// position in the definition. See `spec/errors.md`.
 #[must_use]
-pub fn error() -> Ty {
+pub fn trace() -> Ty {
     let field = |name: &str, ty| (Key::Field(name.to_owned()), ty);
     let frame = Ty::Record(vec![
         field("definition", Ty::String),
         field("position", Ty::Int),
     ]);
+    Ty::List(Box::new(frame))
+}
+
+/// What a boundary gives for a fault: an error, as `spec/errors.md`
+/// shapes one.
+#[must_use]
+pub fn error() -> Ty {
+    let field = |name: &str, ty| (Key::Field(name.to_owned()), ty);
     Ty::Record(vec![
         field("kind", Ty::Tag),
         field("message", Ty::String),
         field("cause", Ty::Null),
-        field("trace", Ty::List(Box::new(frame))),
+        field("trace", trace()),
     ])
 }

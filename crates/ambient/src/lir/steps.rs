@@ -63,13 +63,15 @@ impl Op {
                     | Primitive::IntSubtract
                     | Primitive::IntMultiply
                     | Primitive::CellWait
+                    | Primitive::Capture
             ),
             _ => false,
         }
     }
 
     /// Whether a fault can leave the operation: it can fault itself, or
-    /// calls something that can. These are what a trace has frames for.
+    /// calls something that can. These are what a trace has frames for,
+    /// with the operation that captures one, whose frame is its first.
     #[must_use]
     pub fn faults(&self) -> bool {
         match self {
@@ -81,7 +83,10 @@ impl Op {
             | Self::First(_) => true,
             Self::Primitive { operation, .. } => matches!(
                 operation,
-                Primitive::IntAdd | Primitive::IntSubtract | Primitive::IntMultiply
+                Primitive::IntAdd
+                    | Primitive::IntSubtract
+                    | Primitive::IntMultiply
+                    | Primitive::Capture
             ),
             _ => false,
         }
@@ -98,7 +103,9 @@ impl Op {
             | Self::All(_)
             | Self::First(_)
             | Self::GroupClose { .. } => true,
-            Self::Primitive { operation, .. } => matches!(operation, Primitive::CellWait),
+            Self::Primitive { operation, .. } => {
+                matches!(operation, Primitive::CellWait | Primitive::Capture)
+            }
             _ => false,
         }
     }
@@ -303,5 +310,6 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::CellRead => Entry::CellRead,
         Primitive::CellReplace => Entry::CellReplace,
         Primitive::CellWait => Entry::CellWait,
+        Primitive::Capture => Entry::Capture,
     }
 }

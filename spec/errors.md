@@ -28,4 +28,6 @@ An error is a structured value of one standard shape, and it is the only thing t
 - A trace is data: it serialises with its error and can be resolved on another machine.
 - Capturing a trace is a language operation, not an ability; a target may bound how much it captures.
 - The trace is captured where the error is made, not where it is thrown.
-- TODO: only a fault has a trace; nothing yet captures one where a program makes an error.
+- A captured trace has a frame for the capture and for each call it is inside, ordered as a fault's is.
+- A capture costs in proportion to how deeply the task is nested in calls; code that captures nothing pays nothing for it.
+- Nothing else runs between a task asking for its trace and getting it.

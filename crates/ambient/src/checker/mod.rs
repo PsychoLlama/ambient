@@ -288,6 +288,7 @@ impl<'a> Checker<'a> {
     fn infer(&mut self, expr: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {
         Ok(match expr {
             Expr::Null => (core::Expr::Null, Ty::Null),
+            Expr::Trace => self.capture(),
             // A literal has its own type, and only subtyping widens it.
             Expr::Literal(literal) => (
                 core::Expr::Literal(literal.clone()),

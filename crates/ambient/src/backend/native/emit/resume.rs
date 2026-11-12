@@ -7,7 +7,7 @@ use cranelift_codegen::ir::types::I64;
 use cranelift_codegen::ir::{BlockArg, InstBuilder};
 
 use super::{Emitter, Val};
-use crate::lir::{Expr, Op};
+use crate::lir::{self, Expr, Op};
 
 impl Emitter<'_> {
     /// What a function does first: if its task is resuming, it takes its
@@ -48,7 +48,7 @@ impl Emitter<'_> {
     }
 
     /// An operation the task may suspend in.
-    pub(super) fn point(&mut self, point: usize, op: &Op) -> Val {
+    pub(super) fn point(&mut self, point: usize, op: &Op, frame: Option<(usize, usize)>) -> Val {
         // A function that was going back to this point is there.
         let here = self.resuming_to((point, point + 1));
         let target = self.builder.use_var(self.target);
@@ -78,7 +78,13 @@ impl Emitter<'_> {
 
         self.builder.switch_to_block(save);
         let at = self.constant(point as u64);
-        self.runtime(Entry::FramePush, &[at]);
+        let (definition, position) = match frame {
+            Some((definition, position)) => (lir::Value::Constant(definition), position),
+            None => (lir::Value::Null, 0),
+        };
+        let definition = self.value(definition);
+        let position = self.constant(position as u64);
+        self.runtime(Entry::FramePush, &[at, definition, position]);
         for index in 0..self.locals.len() {
             let word = self.builder.use_var(self.locals[index]);
             self.runtime(Entry::FrameSave, &[word]);

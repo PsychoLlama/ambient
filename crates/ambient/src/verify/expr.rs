@@ -6,7 +6,7 @@ use crate::checker::function_type;
 use crate::core::{self, Expr, Primitive, Slot};
 use crate::surface::{Key, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Signature, Ty, TyKey, abilities, entry, substitute};
+use crate::types::{Signature, Ty, TyKey, abilities, entry, substitute, trace};
 
 /// Abilities bound for part of a function: by its row and what it
 /// captured, or by a provide.
@@ -277,6 +277,10 @@ impl Body<'_, '_> {
             }
             Primitive::FloatLess => (Some(Ty::Float), Ty::Bool),
             Primitive::Equal => (None, Ty::Bool),
+            Primitive::Capture if args.is_empty() => {
+                return Ok(self.verifier.env.normalize(&trace()));
+            }
+            Primitive::Capture => return Err(Invalid::Arity),
             Primitive::CellRead | Primitive::CellReplace | Primitive::CellWait => {
                 return self.cell(operation, args);
             }

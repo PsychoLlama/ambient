@@ -8,7 +8,7 @@
 //! are locals, so going there is running the body with every `Let` whose
 //! value does not lead to that call skipped.
 
-use crate::lir::Expr;
+use crate::lir::{Expr, Op};
 
 /// Numbers the points in `body` in the order they are reached, and marks
 /// every `Let` with the points its value holds.
@@ -21,7 +21,11 @@ fn rewrite(expr: Expr, next: &mut usize) -> Expr {
         Expr::Op(op) if op.suspends() => {
             let point = *next;
             *next += 1;
-            Expr::Point { point, op }
+            Expr::Point {
+                point,
+                op,
+                frame: None,
+            }
         }
         Expr::Let { local, value, body } => {
             let from = *next;
@@ -47,7 +51,19 @@ fn rewrite(expr: Expr, next: &mut usize) -> Expr {
             otherwise: Box::new(rewrite(*otherwise, next)),
         },
         Expr::Try { body, recover, .. } => {
-            let body = Box::new(rewrite(*body, next));
+            let mut body = Box::new(rewrite(*body, next));
+            // What notes the operation in the trace of a fault says
+            // where the function is while it is suspended there.
+            if let (
+                Expr::Point { frame, .. },
+                Expr::Op(Op::Trace {
+                    definition,
+                    position,
+                }),
+            ) = (&mut *body, &*recover)
+            {
+                *frame = Some((*definition, *position));
+            }
             let from = *next;
             let recover = Box::new(rewrite(*recover, next));
             Expr::Try {

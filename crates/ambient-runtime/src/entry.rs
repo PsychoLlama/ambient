@@ -98,7 +98,7 @@ entries! {
     Abort = amb_abort, context, 2, word;
     Caught = amb_caught, context, 1, word;
     Native = amb_native, context, 3, word;
-    FramePush = amb_frame_push, context, 1, nothing;
+    FramePush = amb_frame_push, context, 3, nothing;
     FrameSave = amb_frame_save, context, 1, nothing;
     FramePoint = amb_frame_point, context, 0, word;
     FrameLoad = amb_frame_load, context, 1, word;
@@ -127,4 +127,5 @@ entries! {
     CellRead = amb_cell_read, plain, 1, word;
     CellReplace = amb_cell_replace, context, 3, word;
     CellWait = amb_cell_wait, context, 2, word;
+    Capture = amb_capture, context, 0, word;
 }

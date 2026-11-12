@@ -40,6 +40,7 @@ impl Resolver<'_> {
     pub(super) fn expr(&mut self, expr: &Expr) -> Result<Expr<Reference>, Error> {
         Ok(match expr {
             Expr::Null => Expr::Null,
+            Expr::Trace => Expr::Trace,
             Expr::Literal(literal) => Expr::Literal(self.literal(literal)),
             Expr::Name(path) => Expr::Name(self.name(path)?),
             Expr::Instantiate { function, args } => Expr::Instantiate {
