@@ -1,6 +1,8 @@
 //! Compile: a core tree, the interfaces of its slots, and a backend yield an
 //! artifact. See `spec/build.md`.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 use super::{Engine, Query, Stage, memo};
@@ -65,7 +67,7 @@ impl Engine<'_> {
                 key.hash(&self.interface(slot)?.digest);
             }
 
-            self.stage(Stage::Compile, symbol, key.finish(), || {
+            let compile = || {
                 backend
                     .compile(&open, metered)
                     .map(Artifact)
@@ -73,7 +75,12 @@ impl Engine<'_> {
                         symbol: symbol.clone(),
                         message,
                     })
-            })
+            };
+            // A received definition is never written to a store.
+            if self.received(symbol).is_some() {
+                return compile().map(Arc::new);
+            }
+            self.stage(Stage::Compile, symbol, key.finish(), compile)
         })
     }
 }

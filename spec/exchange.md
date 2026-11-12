@@ -5,6 +5,7 @@ Definitions and values move between running programs by hash. A receiver trusts 
 ## Packs
 
 - A pack is the core trees of a definition and of the dependencies its receiver lacks.
+- A pack names a definition it carries by position and one its receiver has by hash; it carries no hash of what it holds.
 - A receiver recomputes every hash from the trees it received.
 - A pack is independent of backend; each side compiles for its own.
 - A received definition is checked against its signature before it is linked; the sender's compiler is not trusted.

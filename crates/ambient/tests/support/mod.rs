@@ -101,8 +101,6 @@ fn execute_in(
     target: Option<&str>,
     natives: impl Fn() -> Natives,
 ) -> Outcome {
-    use ambient::backend::native::Native;
-    use ambient::backend::wasm::Wasm;
     use ambient::engine::Engine;
     use ambient::store::MemoryStore;
 
@@ -114,10 +112,24 @@ fn execute_in(
         None => main,
     };
 
-    let parts = engine.link(&entry, &Native::new().unwrap()).unwrap();
     verify_all(&engine, &entry);
+    run_entry(&engine, &entry, args, natives)
+}
+
+/// Links `entry` and runs it on every backend, and returns what they
+/// agree on.
+pub fn run_entry(
+    engine: &ambient::engine::Engine,
+    entry: &Symbol,
+    args: &[i64],
+    natives: impl Fn() -> Natives,
+) -> Outcome {
+    use ambient::backend::native::Native;
+    use ambient::backend::wasm::Wasm;
+
+    let parts = engine.link(entry, &Native::new().unwrap()).unwrap();
     let native = run_native(&parts, args, &natives());
-    let parts = engine.link(&entry, &Wasm).unwrap();
+    let parts = engine.link(entry, &Wasm).unwrap();
     let wasm = run_wasm(&parts, args, &natives());
     assert_eq!(native, wasm, "the backends disagree");
     native

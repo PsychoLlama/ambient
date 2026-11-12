@@ -24,6 +24,7 @@ mod check;
 mod compile;
 mod group;
 mod link;
+mod pack;
 mod program;
 mod read;
 mod resolve;
@@ -100,6 +101,8 @@ pub struct Engine<'a> {
     interface: Memo<Symbol, Interface>,
     type_info: Memo<Symbol, crate::types::TypeInfo>,
     check: Memo<Symbol, crate::core::Open>,
+    /// The definitions packs brought, by the symbols they were given.
+    received: RefCell<HashMap<Symbol, Arc<crate::core::Open>>>,
     hash: RefCell<HashMap<Symbol, Hash>>,
     compile: Memo<(Symbol, String, bool), Artifact>,
     /// The definitions being checked, outermost first. A comptime call
@@ -131,6 +134,7 @@ impl<'a> Engine<'a> {
             interface: RefCell::default(),
             type_info: RefCell::default(),
             check: RefCell::default(),
+            received: RefCell::default(),
             hash: RefCell::default(),
             compile: RefCell::default(),
             checking: RefCell::default(),

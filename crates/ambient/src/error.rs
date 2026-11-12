@@ -4,6 +4,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::pack::Refused;
 use crate::surface::Path;
 use crate::symbol::{ModuleId, Symbol};
 use crate::verify::Invalid;
@@ -132,6 +133,8 @@ pub enum Error {
     Backend { symbol: Symbol, message: String },
     /// A core tree is not one checking could have made.
     Invalid { symbol: Symbol, problem: Invalid },
+    /// A pack cannot be taken in.
+    Pack(Refused),
 }
 
 impl fmt::Display for Error {
@@ -234,6 +237,7 @@ impl fmt::Display for Error {
             Self::NotCompilable(symbol) => write!(f, "{symbol}: not a function"),
             Self::Backend { symbol, message } => write!(f, "{symbol}: {message}"),
             Self::Invalid { symbol, problem } => write!(f, "{symbol}: {problem}"),
+            Self::Pack(refused) => write!(f, "{refused}"),
         }
     }
 }

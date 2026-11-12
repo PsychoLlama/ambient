@@ -19,6 +19,7 @@ pub mod library;
 pub mod lir;
 pub mod literal;
 pub mod lower;
+pub mod pack;
 pub mod store;
 pub mod surface;
 pub mod symbol;

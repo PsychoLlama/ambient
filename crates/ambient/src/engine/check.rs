@@ -153,6 +153,11 @@ impl Engine<'_> {
     /// check.
     pub fn interface(&self, symbol: &Symbol) -> Query<Interface> {
         memo(&self.interface, symbol, || {
+            // A received definition has no header apart from its tree.
+            if self.received(symbol).is_some() {
+                let digest = self.hash(symbol)?;
+                return Ok(Arc::new(Interface { digest }));
+            }
             if !symbol.lambda.is_empty() {
                 return self.lambda_interface(symbol);
             }
@@ -215,6 +220,9 @@ impl Engine<'_> {
     ///
     /// Fails if the definition does not resolve or does not check.
     pub fn check(&self, symbol: &Symbol) -> Query<Open> {
+        if let Some(open) = self.received(symbol) {
+            return Ok(open);
+        }
         memo(&self.check, symbol, || {
             if !symbol.lambda.is_empty() {
                 // A lambda is checked as part of the definition it is
