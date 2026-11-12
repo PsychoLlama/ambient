@@ -123,7 +123,7 @@ entries! {
     CleanupEnter = amb_cleanup_enter, context, 0, word;
     CleanupLeave = amb_cleanup_leave, context, 0, word;
     CleanupFailed = amb_cleanup_failed, context, 0, word;
-    CellNew = amb_cell_new, plain, 3, word;
+    CellNew = amb_cell_new, context, 3, word;
     CellRead = amb_cell_read, plain, 1, word;
     CellReplace = amb_cell_replace, context, 3, word;
     CellWait = amb_cell_wait, context, 2, word;

@@ -21,6 +21,7 @@ pub unsafe extern "C" fn amb_context_new() -> *mut Context {
         mode: crate::RUNNING,
         scheduler: Box::into_raw(Box::new(Scheduler::new())) as u64,
         trace: 0,
+        cells: 0,
     }))
 }
 

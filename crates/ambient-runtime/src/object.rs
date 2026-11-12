@@ -199,7 +199,10 @@ pub unsafe extern "C" fn amb_release(word: Word) {
                 KIND_TUPLE | KIND_LIST | KIND_RECORD => words(word),
                 // After the value and the type arguments it was made
                 // under is the type the cell was made at.
-                KIND_CELL => &words(word)[..2],
+                KIND_CELL => {
+                    crate::cell::unlink(word);
+                    &words(word)[..2]
+                }
                 // The first word is the definition, which is not a value.
                 KIND_CLOSURE => &words(word)[1..],
                 // Each argument is a node, which is not a value, and the

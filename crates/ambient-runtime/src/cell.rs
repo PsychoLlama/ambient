@@ -10,15 +10,84 @@ use crate::{Context, Fault, NULL, Word};
 /// descriptor's address, read in `scope`: the type arguments of the
 /// function that makes it, or null. The cell keeps both, which is what
 /// lets a cast tell what the cell may hold.
+///
+/// If the host keeps the program's cells, the cell joins them.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_cell_new(value: Word, ty: u64, scope: Word) -> Word {
+pub unsafe extern "C" fn amb_cell_new(
+    context: *mut Context,
+    value: Word,
+    ty: u64,
+    scope: Word,
+) -> Word {
     unsafe {
-        let word = object(KIND_CELL, 24);
+        let word = object(KIND_CELL, 40);
         amb_retain(value);
         amb_retain(scope);
         let fields = words(word);
         (fields[0], fields[1], fields[2]) = (value, scope, ty);
+        (fields[BACK], fields[NEXT]) = (0, 0);
+        let first = (*context).cells as usize as *mut u64;
+        if !first.is_null() {
+            link(first, word);
+        }
         word
+    }
+}
+
+/// Where a cell keeps its place among its program's live cells: the
+/// address of the word that refers to it, which is the host's or the
+/// cell before's, and the cell after it. Neither is counted. Both are
+/// zero in a cell that is among none.
+const BACK: usize = 3;
+const NEXT: usize = 4;
+
+/// Puts a cell first among the cells `first` begins.
+unsafe fn link(first: *mut u64, cell: Word) {
+    unsafe {
+        let next = *first;
+        let fields = words(cell);
+        (fields[BACK], fields[NEXT]) = (first as u64, next);
+        if next != 0 {
+            words(next)[BACK] = (&raw mut fields[NEXT]) as u64;
+        }
+        *first = cell;
+    }
+}
+
+/// Takes a cell from among its program's live cells, if it is among
+/// them: it is being reclaimed, or emptied.
+pub(crate) unsafe fn unlink(cell: Word) {
+    unsafe {
+        let fields = words(cell);
+        let (back, next) = (fields[BACK] as usize as *mut u64, fields[NEXT]);
+        if back.is_null() {
+            return;
+        }
+        *back = next;
+        if next != 0 {
+            words(next)[BACK] = back as u64;
+        }
+        (fields[BACK], fields[NEXT]) = (0, 0);
+    }
+}
+
+/// Empties every live cell of a program, which is over: `first` is the
+/// word its contexts were given in [`Context::cells`]. Counting alone
+/// never reclaims cells that reach themselves; this is what does, once
+/// nothing can read them.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_cells_drop(first: *mut u64) {
+    unsafe {
+        loop {
+            let cell = *first;
+            if cell == 0 {
+                break;
+            }
+            unlink(cell);
+            // Releasing what it held may reclaim other cells, which
+            // take themselves from the list.
+            amb_release(std::mem::replace(&mut words(cell)[0], NULL));
+        }
     }
 }
 

@@ -28,7 +28,9 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 - Values are reference counted, and an object is reclaimed when its last reference is released.
 - The count is what makes [in-place update](values.md) decidable.
 - Reclamation is prompt and deterministic; there is no collector and no pause.
-- TODO: a [cell](cells.md) that reaches itself is never reclaimed.
+- A program's state outlives a call into it: a host may call again and find its cells as they were.
+- Everything a program allocated is reclaimed when its host lets go of the program.
+- TODO: a [cell](cells.md) that reaches itself is not reclaimed before then.
 
 ## Runtime
 

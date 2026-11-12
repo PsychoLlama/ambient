@@ -2,7 +2,7 @@
 //! what they return.
 
 use ambient_runtime::{Context, Entry, Fault, NULL, Word};
-use std::cell::RefCell;
+use std::cell::{RefCell, UnsafeCell};
 
 use memmap2::{Mmap, MmapMut};
 
@@ -32,6 +32,18 @@ pub struct Program {
     pub(super) failure: RefCell<Option<String>>,
     /// The fault that ended the last call, as an error.
     error: RefCell<Option<Value>>,
+    /// The first of the cells calls have made that are still live, which
+    /// the runtime keeps up to date: a cell outlives the call that made
+    /// it, and none outlives the program.
+    cells: Box<UnsafeCell<u64>>,
+}
+
+impl Drop for Program {
+    fn drop(&mut self) {
+        // SAFETY: the word is the one every call's context was given.
+        // No call is running, so nothing reads a cell after this.
+        unsafe { ambient_runtime::amb_cells_drop(self.cells.get()) }
+    }
 }
 
 impl Program {
@@ -106,6 +118,7 @@ impl Program {
             trace: RefCell::default(),
             failure: RefCell::default(),
             error: RefCell::default(),
+            cells: Box::default(),
             _statics: block,
             _code: code,
         })
@@ -163,6 +176,7 @@ impl Program {
             (*context).entries = self.entries.as_ptr() as u64;
             (*context).native = dispatch as *const () as u64;
             (*context).host = std::ptr::from_ref(self) as u64;
+            (*context).cells = self.cells.get() as u64;
             let invoke = move || match *words {
                 [w0] => std::mem::transmute::<usize, extern "C" fn(C, u64, u64) -> u64>(code)(
                     context, closure, w0,

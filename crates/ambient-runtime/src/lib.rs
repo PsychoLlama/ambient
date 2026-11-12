@@ -191,6 +191,9 @@ pub struct Context {
     /// While a fault unwinds: the frames it has left so far, as a value
     /// this context owns, or zero.
     pub trace: u64,
+    /// Where the host keeps the first of the program's live cells, or
+    /// zero if it keeps none: see [`amb_cells_drop`].
+    pub cells: u64,
 }
 
 impl Context {

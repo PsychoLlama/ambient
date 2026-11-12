@@ -32,6 +32,7 @@
 - A definition holds its own hash (`DEFINITION_HASH`), so a host reads a function value as a hash and captures (`value.rs`). Nothing makes a function value from outside a program yet.
 - A generic function reads its type arguments from its closure, after its captures and bindings (`lower/types.rs`, `ambient-runtime/src/scope.rs`). So a generic definition is never called through its slot, only through a closure made at type arguments.
 - Subtyping is decided in two places: `types/relate.rs` when checking, and `ambient-runtime/src/relate.rs` for casts to cell and function types. Change them together.
+- A native `Program` keeps a list of its live cells and empties them when it drops (`ambient-runtime/src/cell.rs`), since counting never reclaims a cell that reaches itself. In wasm the instance's memory goes as a whole.
 - A value has one encoding (`exchange.rs`); `decode` accepts only what `encode` produces.
 - `core::Tree::resolved` defines every hash: the tree's encoding with slots replaced by hashes and unions ordered by that. `Tree::encode` is the stored form, which names can order; never hash it. Changing either or the node set means bumping `FORMAT`.
 
