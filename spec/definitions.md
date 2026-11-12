@@ -48,6 +48,7 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 ## Tags
 
 - A tag is a string literal that supplies identity where structure cannot: on [brands](types.md), [abilities](abilities.md), and [externs](externs.md).
+- A tag may also be written as a value: a comparable, serialisable token that is equal only to the same tag.
 - Nothing else in the language is nominal.
 - A tag is unique within the package that declares it and is scoped by that package's [ID](packages.md), never by a name.
 - Equal strings in two packages are different tags; a fork keeps its origin's tags.

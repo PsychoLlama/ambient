@@ -34,7 +34,7 @@ A handler is an ordinary function value bound to an [ability](abilities.md) by a
 - Abort is the only non-local control in the language.
 - A handler for a returning ability aborts by performing a `never` ability bound further out.
 - Any perform may fail to return, so releasing a resource is a [cleanup](cleanup.md), never a later statement.
-- An abort raised in another task reaches its provide [through the group](tasks.md) that the provide encloses.
+- An abort raised in a task reaches a provide outside it [through the construct](tasks.md) that started the task.
 - Performing a captured abort handler after its provide has exited is a [fault](values.md).
 
 ## Sandboxing

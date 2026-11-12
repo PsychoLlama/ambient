@@ -33,7 +33,7 @@ A program upgrades while running by swapping the handlers its late-bound abiliti
 ## Structure
 
 - A change to a program's tasks takes effect when the code that spawns them is re-entered.
-- An owner that wants this waits on the generation cell, cancels its [group](tasks.md), and re-enters through a late-bound ability.
+- An owner that wants this waits on the generation cell, leaves its [group](tasks.md) by an abort, and re-enters through a late-bound ability.
 - How much restarts on a deploy is therefore the author's choice, expressed in where the late-bound points are.
 
 ## Delivery

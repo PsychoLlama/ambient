@@ -1,6 +1,6 @@
 # Cleanup
 
-A cleanup is code registered in a block to run when that block exits, by any route. It is the only mechanism for releasing what a block acquired.
+A cleanup is code registered in a block to run when that block exits, by any route. It is the only mechanism for releasing what a block acquired, and it is written next to the acquisition.
 
 ## Running
 
@@ -16,5 +16,5 @@ A cleanup is code registered in a block to run when that block exits, by any rou
 
 ## Limits
 
-- No code runs because a value became unreachable; there are no finalizers.
+- Release is tied to a block, never to reachability: no code runs because a value became unreachable.
 - A call in a block with a registered cleanup is not in tail position.

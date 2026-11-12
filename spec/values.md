@@ -4,11 +4,11 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 
 ## Shapes
 
-- The shapes are null, bool, int, float, string, bytes, list, map, set, record, tuple, function, cell, and handle.
+- The shapes are null, bool, int, float, string, bytes, list, map, set, tag, record, tuple, function, cell, and handle.
 - No shape is user-defined; every [type](types.md) describes a subset of these.
 - A function value is a definition hash, captured values, and [captured handlers](abilities.md).
 - A function value carries its signature, so a cast to a function type is decidable.
-- A handle is an opaque reference minted by [native code](externs.md) or, for [tasks and groups](tasks.md), by the runtime.
+- A handle is an opaque reference minted by [native code](externs.md).
 - A handle carries the tag it was minted under and has no structure to inspect.
 - No cast creates a handle.
 
@@ -40,6 +40,7 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 - A fault is a violated runtime invariant.
 - A fault is not an ability: no handler observes it and no row mentions it.
 - A fault unwinds, running [cleanups](cleanup.md), to the nearest boundary; a program's root is a boundary.
-- A boundary expression evaluates a body and yields either its value or a description of the fault that ended it.
+- A boundary expression evaluates a body and yields either its value or the fault that ended it, as an [error](errors.md).
 - A boundary cannot resume what faulted.
-- Failures a program is expected to handle are union members or [abilities](abilities.md), never faults.
+- Failures a program is expected to handle are union members or errors, never faults.
+- Faults are for conditions no type can rule out, such as exhausted memory; an operation that can fail in ordinary use says so in its type.

@@ -41,5 +41,5 @@ An ability is an operation that code may perform but does not implement. Abiliti
 
 ## Errors
 
-- `throw` is an ordinary ability that returns `never`; it is implicit in no row.
+- `throw` is an ordinary ability that returns `never`; it is implicit in no row and carries only an [error](errors.md).
 - Rows do not lie about aborts: an abort raised by a handler is charged to the scope that bound the handler, not to the code that performed.

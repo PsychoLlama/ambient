@@ -5,7 +5,8 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 ## Forms
 
 - Primitives: `null`, `bool`, `int` (64-bit signed), `float` (64-bit), `string` (UTF-8), `bytes`.
-- Literal types: a single `bool`, `int`, `float`, `string`, or `bytes` value.
+- Literal types: a single `bool`, `int`, `float`, `string`, or `bytes` value, or a single [tag](definitions.md).
+- `Tag`, the type of every tag value.
 - Records: a set of keys, each with a type; a key is a field name or an [ability](handlers.md).
 - Tuples: a fixed sequence of types.
 - Collections: `List<T>`, `Set<T>`, and `Map<E>`, where `E` is the type of the map's entries.
@@ -13,7 +14,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - Unions and intersections.
 - `never`, a subtype of every type, and `unknown`, a supertype of every type.
 - Brands.
-- `Cell<T>`, `Task<T>`, and `Group`: the handle types the language itself defines.
+- `Cell<T>`.
 - Type parameters, each with an optional upper bound.
 
 ## Soundness
@@ -26,7 +27,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 
 - Subtyping is structural, and coinductive over recursive types.
 - A record is a subtype of any record with fewer keys or wider key types.
-- Collections and `Task<T>` are covariant; immutability makes that sound.
+- Collections are covariant; immutability makes that sound.
 - `Cell<T>` is invariant.
 - A function type is a subtype of one with narrower parameters, a wider return type, or a larger row.
 - A literal type is a subtype of its primitive.

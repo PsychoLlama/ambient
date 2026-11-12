@@ -37,6 +37,7 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - [symbols](symbols.md): canonical names, aliases, and the index.
 - [types](types.md): structural types, subtyping, brands, generics.
 - [values](values.md): runtime shapes, serialization, handles, faults.
+- [errors](errors.md): the standard error shape, throwing, traces.
 - [abilities](abilities.md): abilities, rows, performing, capture.
 - [handlers](handlers.md): provides, bundles, abort, sandboxing, recording.
 - [cleanup](cleanup.md): code that runs when a block exits.
