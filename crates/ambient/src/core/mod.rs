@@ -54,6 +54,7 @@ pub enum Type {
     Tuple(Vec<Type>),
     List(Box<Type>),
     Cell(Box<Type>),
+    Iterator(Box<Type>),
     Function {
         params: Vec<Type>,
         ret: Box<Type>,
@@ -67,6 +68,22 @@ pub enum Type {
     /// A recursive type definition applied to arguments. A non-recursive
     /// one never appears: it is replaced by its expansion.
     Reference(Slot, Vec<Type>),
+}
+
+impl Type {
+    /// The type of a function that steps an iterator of `member`: it
+    /// takes nothing, and gives null or an item and the iterator of
+    /// the rest.
+    #[must_use]
+    pub fn stepper(member: &Self) -> Self {
+        let rest = Self::Iterator(Box::new(member.clone()));
+        let step = Self::Tuple(vec![member.clone(), rest]);
+        Self::Function {
+            params: Vec::new(),
+            ret: Box::new(Self::Union(vec![Self::Null, step])),
+            row: Vec::new(),
+        }
+    }
 }
 
 /// An operation the language defines. A primitive has no slot.
@@ -118,6 +135,12 @@ pub enum Primitive {
     StringInt,
     /// The float a string is, or null.
     StringFloat,
+    /// An iterator that a function steps.
+    IteratorNew,
+    /// An iterator over the members of a list.
+    ListIterate,
+    /// An iterator over the integers from one up to another.
+    IntRange,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,6 +178,10 @@ pub enum Expr {
     /// method's function and then the record, which is null here and is
     /// the record once the field is read.
     Method(Box<Expr>),
+    /// What an iterator gives next: null, or an item and the iterator
+    /// of the rest. Not a primitive, since stepping may call a
+    /// function. See `spec/iteration.md`.
+    Step(Box<Expr>),
     Tuple(Vec<Expr>),
     List(Vec<Expr>),
     Field {

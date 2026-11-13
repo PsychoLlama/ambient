@@ -34,7 +34,7 @@ impl<N> Type<N> {
                     ty.names(visit);
                 }
             }
-            Self::List(member) | Self::Cell(member) => member.names(visit),
+            Self::List(member) | Self::Cell(member) | Self::Iterator(member) => member.names(visit),
             Self::Method { needs, function } => {
                 needs.names(visit);
                 function.names(visit);

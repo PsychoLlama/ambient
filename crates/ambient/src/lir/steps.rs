@@ -165,6 +165,8 @@ impl Op {
             | Self::Types(_) => self.type_steps(),
             Self::Record(_)
             | Self::Method(_)
+            | Self::Stepper(_)
+            | Self::Advance(_)
             | Self::Field { .. }
             | Self::Held { .. }
             | Self::Unbound { .. }
@@ -234,6 +236,8 @@ impl Op {
                 steps
             }
             Self::Method(closure) => vec![step(Entry::Method, [value(closure)])],
+            Self::Stepper(iterator) => vec![step(Entry::IteratorStepper, [value(iterator)])],
+            Self::Advance(iterator) => vec![step(Entry::IteratorAdvance, [value(iterator)])],
             Self::Field { record, key: field } => {
                 vec![step(Entry::RecordGet, [value(record), key(field)])]
             }
@@ -398,5 +402,8 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::FloatText => Entry::FloatText,
         Primitive::StringInt => Entry::StringInt,
         Primitive::StringFloat => Entry::StringFloat,
+        Primitive::IteratorNew => Entry::IteratorNew,
+        Primitive::ListIterate => Entry::ListIterate,
+        Primitive::IntRange => Entry::IntRange,
     }
 }

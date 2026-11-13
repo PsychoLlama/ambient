@@ -36,6 +36,8 @@ pub enum Value {
     Method(Function),
     /// A cell. It never leaves its program.
     Cell,
+    /// An iterator. A host sees that it is one and nothing inside it.
+    Iterator,
     /// What an abort handler is bound to: a hold on a provide that is
     /// still running. It never leaves its program.
     Token,
@@ -134,6 +136,7 @@ pub fn decode(word: Word, inspect: &mut impl Inspect) -> Value {
                 return Step::Inside(words(inspect, 1, 1), Box::new(function));
             }
             kind if kind == Kind::Cell as u64 => Value::Cell,
+            kind if kind == Kind::Iterator as u64 => Value::Iterator,
             kind if kind == Kind::Token as u64 => Value::Token,
             kind if kind == Kind::Types as u64 => Value::Types,
             _ => Value::Int(inspect.int(word)),
@@ -199,7 +202,9 @@ pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
             key: ambient_runtime::NULL,
         };
         let mut ready = match next {
-            Value::Null | Value::Cell | Value::Token | Value::Types => Some(ambient_runtime::NULL),
+            Value::Null | Value::Cell | Value::Iterator | Value::Token | Value::Types => {
+                Some(ambient_runtime::NULL)
+            }
             Value::Function(function) | Value::Method(function) => {
                 let captures = function.captures.len() as u64;
                 let definition = function.definition.as_ref();

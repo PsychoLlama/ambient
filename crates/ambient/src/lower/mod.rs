@@ -309,6 +309,7 @@ impl Lowering {
                 Op::Field { record, key }
             }
             core::Expr::Send { target, key, args } => self.send(target, key, args, &mut scope)?,
+            core::Expr::Step(iterator) => return self.step(expr, iterator),
             core::Expr::Merge { .. } => self.merge(expr, &mut scope)?,
             core::Expr::Match { subject, arms } => {
                 let subject = self.operand(subject, &mut scope)?;
@@ -332,7 +333,7 @@ impl Lowering {
 
     /// The operation `node` lowered to, which goes in the trace of a
     /// fault that leaves it, if one can.
-    fn operation(&mut self, node: &core::Expr, op: Op) -> Expr {
+    pub(super) fn operation(&mut self, node: &core::Expr, op: Op) -> Expr {
         let faults = op.faults();
         let lowered = Expr::Op(op);
         if faults {

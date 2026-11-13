@@ -2,9 +2,10 @@
 
 use crate::cell::made_at;
 use crate::closure::type_name;
+use crate::iterator::{Tested, tested};
 use crate::object::{
-    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_METHOD, KIND_RECORD,
-    KIND_STRING, KIND_TAG, KIND_TUPLE, boolean, bytes, int, kind, payload, words,
+    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_ITERATOR, KIND_LIST, KIND_METHOD,
+    KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE, boolean, bytes, int, kind, payload, words,
 };
 use crate::record::find;
 use crate::same::Types;
@@ -60,6 +61,10 @@ pub mod descriptor {
     /// node of the function reading it gives. No value is tested
     /// against one: it is only ever compared, inside a cell's type.
     pub const METHOD: u64 = 18;
+    /// Then the node of the items, and the name of the type of a
+    /// function that steps an iterator of them, as a definition carries
+    /// it, or zero if the items' type mentions a type parameter.
+    pub const ITERATOR: u64 = 19;
 }
 
 /// The tests a descriptor makes of the values inside a value.
@@ -268,6 +273,21 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
                 kind(value) == KIND_CELL
                     && made_at(value).0 != 0
                     && Types::new(scopes).same(made_at(value), (node(1), scope))
+            }
+            // An iterator the runtime steps gives what it holds, which
+            // is tested. One a function steps is whatever that function
+            // says it is, as any function is.
+            d::ITERATOR => {
+                if kind(value) != KIND_ITERATOR {
+                    return Look::Answer(false);
+                }
+                match tested(value) {
+                    Tested::Function(function) => node(2) != 0 && type_name(function) == node(2),
+                    Tested::Items(members) => {
+                        let node = node(1);
+                        return inside(true, Inside::Every { node, members });
+                    }
+                }
             }
             // A function's definition names its type, and so does the
             // node: a function is of that type and no other. Nothing is

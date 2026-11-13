@@ -1,9 +1,9 @@
 //! Integers, floats, and structural equality.
 
 use crate::object::{
-    KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_METHOD, KIND_RECORD, KIND_SCOPE,
-    KIND_STRING, KIND_TUPLE, boolean, bytes, fault, float, header, int, is_object, object, payload,
-    small, words,
+    KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_ITERATOR, KIND_LIST, KIND_METHOD, KIND_RECORD,
+    KIND_SCOPE, KIND_STRING, KIND_TUPLE, boolean, bytes, fault, float, header, int, is_object,
+    object, payload, small, words,
 };
 use crate::{Context, Fault, Word};
 
@@ -142,9 +142,10 @@ pub(crate) unsafe fn equal(left: Word, right: Word) -> bool {
                 (KIND_STRING, KIND_STRING) => bytes(left) == bytes(right),
                 // A record's keys are interned and kept in order, so equal
                 // records have equal keys at equal positions.
-                (KIND_TUPLE, KIND_TUPLE) | (KIND_LIST, KIND_LIST) | (KIND_RECORD, KIND_RECORD) => {
-                    all(words(left), words(right))
-                }
+                (KIND_TUPLE, KIND_TUPLE)
+                | (KIND_LIST, KIND_LIST)
+                | (KIND_RECORD, KIND_RECORD)
+                | (KIND_ITERATOR, KIND_ITERATOR) => all(words(left), words(right)),
                 (KIND_CLOSURE, KIND_CLOSURE) | (KIND_METHOD, KIND_METHOD) => {
                     let (left, right) = (words(left), words(right));
                     crate::closure::same_definition(left[0], right[0])

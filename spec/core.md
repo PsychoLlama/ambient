@@ -49,6 +49,7 @@ The core tree is the checked form of a definition and the only form that is hash
 - Provide, boundary, budget, cleanup, and the task constructs each have one node.
 - A [recording](handlers.md) has no node: it appears as a provide of the handlers derived for it.
 - A primitive operation holds the operation and its arguments; primitives have no slots.
+- A step holds the [iterator](iteration.md) it steps; it is not a primitive, since it may call.
 - A [comptime](comptime.md) call does not appear; its result does.
 
 ## Limits

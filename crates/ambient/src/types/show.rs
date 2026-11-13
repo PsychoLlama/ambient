@@ -58,6 +58,11 @@ pub(super) fn show(ty: &Ty, out: &mut String) {
             show(member, out);
             out.push('>');
         }
+        Ty::Iterator(member) => {
+            out.push_str("Iterator<");
+            show(member, out);
+            out.push('>');
+        }
         Ty::Method { needs, function } => {
             out.push_str("method(");
             show(needs, out);

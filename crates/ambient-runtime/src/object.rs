@@ -23,6 +23,8 @@ pub(crate) const KIND_SCOPE: u32 = 12;
 /// A method a record holds: a closure whose second capture is the
 /// record, once the field is read. See `record.rs`.
 pub(crate) const KIND_METHOD: u32 = 13;
+/// An iterator: see `iterator.rs`.
+pub(crate) const KIND_ITERATOR: u32 = 14;
 
 /// The count of an object that is never reclaimed.
 pub(crate) const PINNED: u32 = u32::MAX;
@@ -219,7 +221,7 @@ pub unsafe extern "C" fn amb_release(word: Word) {
                 continue;
             }
             let held = match (*header).kind {
-                KIND_TUPLE | KIND_LIST | KIND_RECORD => words(word),
+                KIND_TUPLE | KIND_LIST | KIND_RECORD | KIND_ITERATOR => words(word),
                 // After the value and the type arguments it was made
                 // under is the type the cell was made at.
                 KIND_CELL => {

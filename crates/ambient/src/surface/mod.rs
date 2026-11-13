@@ -220,6 +220,8 @@ pub enum Type<N = Path> {
     List(Box<Type<N>>),
     /// A cell that holds a value of the type.
     Cell(Box<Type<N>>),
+    /// An iterator of items of the type. See `spec/iteration.md`.
+    Iterator(Box<Type<N>>),
     Function {
         params: Vec<Type<N>>,
         ret: Box<Type<N>>,
@@ -245,10 +247,11 @@ pub enum Shape {
     List,
     Function,
     Cell,
+    Iterator,
 }
 
 impl Shape {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Null,
         Self::Bool,
         Self::Int,
@@ -259,6 +262,7 @@ impl Shape {
         Self::List,
         Self::Function,
         Self::Cell,
+        Self::Iterator,
     ];
 
     /// The module of the standard library whose functions are the
@@ -276,6 +280,7 @@ impl Shape {
             Self::List => "list",
             Self::Function => "function",
             Self::Cell => "cell",
+            Self::Iterator => "iterator",
         }
     }
 }
@@ -306,6 +311,14 @@ pub enum Operator {
     ToFloat,
     /// A number as a string.
     ToText,
+    /// An iterator that a function steps.
+    Iterator,
+    /// An iterator over the members of a list.
+    Iterate,
+    /// An iterator over the integers from one up to another.
+    Range,
+    /// What an iterator gives next, and the iterator of the rest.
+    Step,
 }
 
 /// What can be done with a cell. See `spec/cells.md`.

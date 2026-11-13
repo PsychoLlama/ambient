@@ -17,6 +17,8 @@ use crate::value::{Function, Value};
 pub enum Unsendable {
     /// It contains a cell, which is tied to the program that holds it.
     Cell,
+    /// It contains an iterator, which has no encoding yet.
+    Iterator,
     /// It contains an abort handler, which is tied to a provide that is
     /// still running.
     Abort,
@@ -32,6 +34,7 @@ impl fmt::Display for Unsendable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Cell => write!(f, "a cell never leaves its program"),
+            Self::Iterator => write!(f, "an iterator has no encoding"),
             Self::Abort => write!(f, "an abort handler never leaves its program"),
             Self::Function => write!(f, "a function has no definition to name"),
             Self::Types => write!(f, "a generic function's type arguments have no encoding"),
@@ -146,6 +149,7 @@ pub fn encode(value: &Value) -> Result<Vec<u8>, Unsendable> {
                 );
             }
             Value::Cell => return Err(Unsendable::Cell),
+            Value::Iterator => return Err(Unsendable::Iterator),
             Value::Token => return Err(Unsendable::Abort),
             Value::Types => return Err(Unsendable::Types),
         }

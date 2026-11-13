@@ -37,6 +37,7 @@ mod convert;
 mod entry;
 mod host;
 mod is;
+mod iterator;
 mod native;
 mod number;
 mod object;
@@ -58,6 +59,9 @@ pub use convert::*;
 pub use entry::Entry;
 pub use host::*;
 pub use is::{amb_is, descriptor};
+pub use iterator::{
+    amb_int_range, amb_iterator_advance, amb_iterator_new, amb_iterator_stepper, amb_list_iterate,
+};
 pub use native::*;
 pub use number::*;
 pub use object::{amb_release, amb_retain, fixed_closure, layout};
@@ -175,6 +179,8 @@ pub enum Kind {
     /// A method a record holds: a function with room for the record,
     /// which reading the field fills in.
     Method = 13,
+    /// An iterator. A host sees that it is one and nothing inside it.
+    Iterator = 14,
 }
 
 /// The state of one execution. Compiled code receives a pointer to it as

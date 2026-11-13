@@ -24,6 +24,55 @@ impl Env {
         }
     }
 
+    /// What a step of an iterator of `item` gives: nothing, or an item
+    /// and the iterator of the rest.
+    #[must_use]
+    pub fn step(&self, item: &Ty) -> Ty {
+        let rest = Ty::Iterator(Box::new(item.clone()));
+        self.union(vec![Ty::Null, Ty::Tuple(vec![item.clone(), rest])])
+    }
+
+    /// The type of the items of an iterator: what `ty` is an iterator
+    /// of, if every value of it is one.
+    #[must_use]
+    pub fn items(&self, ty: &Ty) -> Option<Ty> {
+        match self.unfold(ty) {
+            Ty::Iterator(item) => Some(*item),
+            Ty::Union(alternatives) => {
+                let items: Option<Vec<Ty>> = alternatives.iter().map(|ty| self.items(ty)).collect();
+                Some(self.union(items?))
+            }
+            Ty::Never => Some(Ty::Never),
+            _ => None,
+        }
+    }
+
+    /// The type of the items a function gives if it steps an iterator:
+    /// it takes nothing from its caller, and gives a step of them.
+    fn stepped_by(&self, function: &Ty) -> Option<Ty> {
+        let Ty::Function { params, ret, row } = self.unfold(function) else {
+            return None;
+        };
+        let steps = match self.unfold(&ret) {
+            Ty::Union(steps) => steps,
+            step => vec![step],
+        };
+        // Whatever it gives beside null is an item and the rest, and
+        // the rest gives items too.
+        let mut items = Vec::new();
+        for step in &steps {
+            if let Ty::Tuple(members) = self.unfold(step)
+                && let [item, rest] = &members[..]
+            {
+                items.push(item.clone());
+                items.push(self.items(rest)?);
+            }
+        }
+        let item = self.union(items);
+        let fits = params.is_empty() && row.is_empty() && self.subtype(&ret, &self.step(&item));
+        fits.then_some(item)
+    }
+
     /// The type of what an operation gives for operands of these types,
     /// all normalized, or nothing if it does not take them.
     ///
@@ -72,6 +121,9 @@ impl Env {
             (P::FloatText, [_]) if all(&Ty::Float) => Ty::String,
             (P::StringInt, [_]) if all(&Ty::String) => or_null(Ty::Int),
             (P::StringFloat, [_]) if all(&Ty::String) => or_null(Ty::Float),
+            (P::IteratorNew, [function]) => Ty::Iterator(Box::new(self.stepped_by(function)?)),
+            (P::ListIterate, [values]) => Ty::Iterator(Box::new(self.members(values)?)),
+            (P::IntRange, [_, _]) if all(&Ty::Int) => Ty::Iterator(Box::new(Ty::Int)),
             _ => return None,
         })
     }

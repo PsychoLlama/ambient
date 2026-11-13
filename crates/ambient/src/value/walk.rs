@@ -91,6 +91,7 @@ impl Clone for Value {
                 tag: tag.clone(),
             }),
             Self::Cell => Step::Leaf(Self::Cell),
+            Self::Iterator => Step::Leaf(Self::Iterator),
             Self::Token => Step::Leaf(Self::Token),
             Self::Types => Step::Leaf(Self::Types),
             Self::Tuple(members) => Step::Inside(members.iter().collect(), Box::new(Self::Tuple)),
@@ -127,6 +128,7 @@ impl PartialEq for Value {
             let same = match pair {
                 (Self::Null, Self::Null)
                 | (Self::Cell, Self::Cell)
+                | (Self::Iterator, Self::Iterator)
                 | (Self::Token, Self::Token)
                 | (Self::Types, Self::Types) => true,
                 (Self::Bool(left), Self::Bool(right)) => left == right,

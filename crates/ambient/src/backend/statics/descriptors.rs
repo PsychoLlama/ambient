@@ -30,7 +30,7 @@ fn node_size(ty: &Type) -> usize {
         | Type::String
         | Type::Tag => 1,
         Type::Function { params, row, .. } => 5 + params.len() + row.len(),
-        Type::Literal(_) | Type::Method { .. } => 3,
+        Type::Literal(_) | Type::Method { .. } | Type::Iterator(_) => 3,
         Type::Record(fields) => 2 + fields.len() * 2,
         Type::Tuple(members) | Type::Union(members) => 2 + members.len(),
         Type::List(_) | Type::Cell(_) | Type::Parameter(_) => 2,
@@ -142,6 +142,13 @@ impl Statics {
                 tag(self, d::CELL);
                 let child = self.describe(member, slots);
                 self.set(at + 1, child.field());
+            }
+            Type::Iterator(member) => {
+                tag(self, d::ITERATOR);
+                let child = self.describe(member, slots);
+                self.set(at + 1, child.field());
+                let name = self.type_name(&Type::stepper(member), slots);
+                self.set(at + 2, name);
             }
             Type::Method { needs, function } => {
                 tag(self, d::METHOD);

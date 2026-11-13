@@ -81,6 +81,7 @@ impl Env {
             Ty::Tuple(members) => core::Type::Tuple(all(members)),
             Ty::List(member) => core::Type::List(Box::new(self.lower(member, slot))),
             Ty::Cell(member) => core::Type::Cell(Box::new(self.lower(member, slot))),
+            Ty::Iterator(member) => core::Type::Iterator(Box::new(self.lower(member, slot))),
             Ty::Method { needs, function } => core::Type::Method {
                 needs: Box::new(self.lower(needs, slot)),
                 function: Box::new(self.lower(function, slot)),

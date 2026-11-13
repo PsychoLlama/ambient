@@ -147,6 +147,12 @@ pub enum Op {
     /// A closure, which nothing else holds, as a method of the record
     /// it is about to be a field of.
     Method(Value),
+    /// The function that steps an iterator, or null if the runtime
+    /// steps it: see [`Op::Advance`].
+    Stepper(Value),
+    /// A step of an iterator the runtime steps: null, or an item and
+    /// the iterator of the rest.
+    Advance(Value),
     /// A field of a record that has it: its value, or for a method the
     /// function bound to the record.
     Field { record: Value, key: usize },

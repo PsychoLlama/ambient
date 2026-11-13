@@ -133,7 +133,7 @@ pub(super) fn check_type(ty: &crate::surface::Type) -> Result<(), BuildError> {
             fields.iter().try_for_each(|(_, ty)| check_type(ty))
         }
         Type::Tuple(members) | Type::Union(members) => members.iter().try_for_each(check_type),
-        Type::List(member) | Type::Cell(member) => check_type(member),
+        Type::List(member) | Type::Cell(member) | Type::Iterator(member) => check_type(member),
         Type::Method { needs, function } => {
             check_type(needs)?;
             check_type(function)

@@ -67,7 +67,10 @@ impl Env {
                 have.len() == want.len()
                     && have.iter().zip(want).all(|(h, w)| self.sub(h, w, assumed))
             }
-            (Ty::List(have), Ty::List(want)) => self.sub(have, want, assumed),
+            // Neither is ever written to, so both are covariant.
+            (Ty::List(have), Ty::List(want)) | (Ty::Iterator(have), Ty::Iterator(want)) => {
+                self.sub(have, want, assumed)
+            }
             // A method that needs less of its receiver stands in for one
             // that needs more.
             (
@@ -124,8 +127,9 @@ impl Env {
         let next = depth + 1;
         match (&left, &right) {
             (Ty::Never, _) | (_, Ty::Never) => true,
-            // Two list types share the empty list; two function types may
-            // share a function.
+            // Two list types share the empty list, two iterator types an
+            // iterator of nothing, and two function types may share a
+            // function.
             (Ty::Named(Reference::Parameter(position), _), other)
             | (other, Ty::Named(Reference::Parameter(position), _)) => self
                 .bounds
@@ -134,6 +138,7 @@ impl Env {
             (Ty::Unknown | Ty::Named(..), _)
             | (_, Ty::Unknown | Ty::Named(..))
             | (Ty::List(_), Ty::List(_))
+            | (Ty::Iterator(_), Ty::Iterator(_))
             | (Ty::Function { .. }, Ty::Function { .. }) => false,
             (Ty::Union(members), other) | (other, Ty::Union(members)) => {
                 members.iter().all(|m| self.apart(m, other, next))

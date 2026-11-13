@@ -20,6 +20,8 @@ impl Op {
             | Self::Cleanup(_) => Vec::new(),
             Self::Copy(operand)
             | Self::Method(operand)
+            | Self::Stepper(operand)
+            | Self::Advance(operand)
             | Self::IsRecord(operand)
             | Self::Expire(operand)
             | Self::Caught(operand)

@@ -217,6 +217,7 @@ impl Resolver<'_> {
             Type::Tuple(members) => Type::Tuple(self.types(members)?),
             Type::List(member) => Type::List(Box::new(self.ty(member)?)),
             Type::Cell(member) => Type::Cell(Box::new(self.ty(member)?)),
+            Type::Iterator(member) => Type::Iterator(Box::new(self.ty(member)?)),
             Type::Method { needs, function } => Type::Method {
                 needs: Box::new(self.ty(needs)?),
                 function: Box::new(self.ty(function)?),

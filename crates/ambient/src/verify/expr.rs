@@ -179,6 +179,7 @@ impl Body<'_, '_> {
                 let field = env.field(&found, &self.key(key)?);
                 field.ok_or_else(|| Invalid::Shape("a field is read that may be missing".into()))?
             }
+            Expr::Step(iterator) => self.step(iterator)?,
             Expr::Send { target, key, args } => {
                 let found = self.infer(target)?;
                 let Some(Ty::Function { params, ret, row }) = env.method(&found, &self.key(key)?)
@@ -371,6 +372,17 @@ impl Body<'_, '_> {
         let merged = Ty::Record(fields);
         self.receives(&merged)?;
         Ok(merged)
+    }
+
+    /// A step: what an iterator gives next.
+    fn step(&mut self, iterator: &Expr) -> Result<Ty, Invalid> {
+        let found = self.infer(iterator)?;
+        let env = &self.verifier.env;
+        let item = env.items(&found);
+        item.map_or_else(
+            || shape("what is stepped is not an iterator"),
+            |item| Ok(env.step(&item)),
+        )
     }
 
     fn primitive(&mut self, operation: Primitive, args: &[Expr]) -> Result<Ty, Invalid> {

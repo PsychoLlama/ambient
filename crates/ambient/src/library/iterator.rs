@@ -1,22 +1,19 @@
-//! Iterators: the type, the functions that make one, and the functions
-//! that transform and fold one. See `spec/iteration.md`.
+//! The methods of iterators, and the functions that make one. See
+//! `spec/iteration.md`.
 //!
-//! An iterator holds one thing, the function that steps it. Everything
-//! else here is a function of this module, which is what makes it a
-//! method of the type (`spec/methods.md`).
+//! An iterator is a built-in shape, and making and stepping one are
+//! the language's. Everything that transforms or folds one is written
+//! here on top of a step, as any program could write it.
 
 use crate::builder::{self as b, FunctionBuilder, ModuleBuilder, pat, ty};
 use crate::surface::{Expr, Type};
-
-/// The module's path within the standard library.
-pub(super) const MODULE: &str = "iterator";
 
 fn member() -> Type {
     ty::named("T")
 }
 
 fn iterator_of(member: Type) -> Type {
-    ty::apply("Iterator", [member])
+    ty::iterator(member)
 }
 
 /// What a step gives: nothing, or an item and the iterator of the rest.
@@ -25,21 +22,15 @@ fn step_of(member: Type) -> Type {
     ty::union([ty::null(), ty::tuple([member, rest])])
 }
 
-/// `type Iterator<T> = {step: () -> null | (T, Iterator<T>)}`
-fn iterator() -> crate::surface::Definition {
-    let step = ty::function([], step_of(member()));
-    b::generic_type("Iterator", ["T"], ty::record([("step", step)])).public()
-}
-
 /// An iterator whose step is `body`.
-pub(super) fn stepping(body: Expr) -> Expr {
-    b::record([("step", b::lambda([], body))])
+fn stepping(body: Expr) -> Expr {
+    b::iterator(b::lambda([], body))
 }
 
 /// `body` with `item` and `rest` bound to what stepping `iterator`
 /// gives, or `otherwise` when nothing is left.
 fn stepped(iterator: &str, otherwise: Expr, body: Expr) -> Expr {
-    let step = b::send(b::name(iterator), "step", []);
+    let step = b::step(b::name(iterator));
     let pair = pat::tuple([pat::bind("item"), pat::bind("rest")]);
     b::match_(step, [(pat::is(ty::null()), otherwise), (pair, body)])
 }
@@ -64,29 +55,31 @@ fn method(name: &str) -> FunctionBuilder {
 }
 
 /// `fn from<T>(step: () -> null | (T, Iterator<T>)): Iterator<T>`
-fn from() -> FunctionBuilder {
+fn from() -> crate::surface::Definition {
     b::function("from")
         .public()
         .type_param("T")
         .param("step", ty::function([], step_of(member())))
         .returns(iterator_of(member()))
+        .body(b::iterator(b::name("step")))
+}
+
+/// `fn step<T>(self: Iterator<T>): null | (T, Iterator<T>)`
+fn step() -> crate::surface::Definition {
+    method("step")
+        .returns(step_of(member()))
+        .body(b::step(b::name("self")))
 }
 
 /// `fn range(start: int, end: int): Iterator<int>`, each integer from
 /// `start` up to `end`, which it leaves out.
 fn range() -> crate::surface::Definition {
-    let next = b::add(b::name("start"), b::int(1));
-    let more = b::tuple([b::name("start"), call("range", [next, b::name("end")])]);
-    let step = b::match_(
-        b::less(b::name("start"), b::name("end")),
-        [(pat::boolean(true), more), (pat::boolean(false), b::null())],
-    );
     b::function("range")
         .public()
         .param("start", ty::int())
         .param("end", ty::int())
         .returns(iterator_of(ty::int()))
-        .body(stepping(step))
+        .body(b::range(b::name("start"), b::name("end")))
 }
 
 /// `fn map<T, U>(self: Iterator<T>, f: (T) -> U): Iterator<U>`
@@ -185,8 +178,8 @@ fn collect() -> crate::surface::Definition {
 
 pub(super) fn module() -> ModuleBuilder {
     let definitions = [
-        iterator(),
-        from().body(b::record([("step", b::name("step"))])),
+        from(),
+        step(),
         range(),
         map(),
         filter(),

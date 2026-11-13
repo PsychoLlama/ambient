@@ -153,6 +153,26 @@ impl Lowering {
         Ok(self.call_value(function, all))
     }
 
+    /// A step of an iterator: a call of the function that steps it, or,
+    /// if it has none, what the runtime gives for it.
+    pub(super) fn step(
+        &mut self,
+        node: &core::Expr,
+        iterator: &core::Expr,
+    ) -> Result<Expr, Unsupported> {
+        let mut scope = Scope::default();
+        let iterator = self.operand(iterator, &mut scope)?;
+        let function = self.bound(Op::Stepper(iterator), &mut scope);
+        let native = Expr::Op(Op::Primitive {
+            operation: Primitive::Equal,
+            args: vec![function, Value::Null],
+        });
+        let call = self.call_value(function, vec![self.bindings]);
+        let call = self.operation(node, call);
+        let step = self.branch(native, Expr::Op(Op::Advance(iterator)), call);
+        Ok(scope.wrap(step))
+    }
+
     /// A merge of two records: see [`core::Expr::Merge`].
     pub(super) fn merge(
         &mut self,

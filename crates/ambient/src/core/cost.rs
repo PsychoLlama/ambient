@@ -94,7 +94,15 @@ impl Expr {
                 Cost::object(captures.len() + 1).and(record)
             }
             // The value, and the type it was made at.
-            Self::Cell { .. } => Cost::object(3),
+            // An iterator is its kind and the two values it keeps.
+            Self::Cell { .. }
+            | Self::Primitive {
+                operation: Primitive::IteratorNew | Primitive::ListIterate | Primitive::IntRange,
+                ..
+            } => Cost::object(3),
+            // The call of what steps it, or else the item and the
+            // iterator of the rest; and the tuple of the two.
+            Self::Step(_) => Cost::steps(1).and(Cost::object(3)).and(Cost::object(2)),
             // A number that is not immediate is an object, and what
             // arithmetic gives may be one.
             Self::Literal(Literal::Int(value)) if !(SMALL_MIN..=SMALL_MAX).contains(value) => {

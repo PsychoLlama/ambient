@@ -5,23 +5,25 @@
 
 mod support;
 
-use ambient::builder::{self as b, ty};
+use ambient::builder::{self as b, pat, ty};
 use ambient::library;
 use ambient::surface::{Definition, Expr, Type};
 use ambient::value::Value;
 use support::{run_in, workspace};
 
 fn iterator_of(member: Type) -> Type {
-    ty::apply("Iterator", [member])
+    ty::iterator(member)
 }
 
-/// `fn ones(): Iterator<int>`, an iterator that never ends, written as
-/// a record.
+/// `fn ones(): Iterator<int>`, an iterator that never ends, made of a
+/// function that steps it.
 fn ones() -> Definition {
     let step = b::tuple([b::int(1), b::call(b::name("ones"), [])]);
+    // It says what it gives, so that its type is exactly a step's.
+    let gives = ty::union([ty::null(), ty::tuple([ty::int(), iterator_of(ty::int())])]);
     b::function("ones")
         .returns(iterator_of(ty::int()))
-        .body(b::record([("step", b::lambda([], step))]))
+        .body(b::iterator(b::lambda_returning([], gives, step)))
 }
 
 /// What `main`, with this body, gives beside `ones`, an ability
@@ -113,7 +115,7 @@ fn a_fold_steps_an_iterator_to_its_end() {
 }
 
 #[test]
-fn a_record_with_a_step_is_an_iterator_and_may_be_endless() {
+fn a_function_that_steps_makes_an_iterator_that_may_be_endless() {
     let two = b::send(b::call(b::name("ones"), []), "take", [b::int(2)]);
     assert_eq!(evaluates(to_list(two)), ints([1, 1]));
 }
@@ -143,4 +145,86 @@ fn what_steps_an_iterator_captures_the_abilities_it_performs() {
     let made = b::provide([("ask", b::lambda([], b::int(10)))], mapped);
     let stepped = b::provide([("ask", b::lambda([], b::int(20)))], to_list(b::name("it")));
     assert_eq!(evaluates(b::let_("it", made, stepped)), ints([10, 11]));
+}
+
+/// Whether `value`, its type forgotten, is an iterator of `member`.
+fn is_iterator_of(member: Type, value: Expr) -> Expr {
+    let unknown = b::cast(value, ty::unknown(), b::null());
+    let arms = [
+        (pat::is(iterator_of(member)), b::boolean(true)),
+        (pat::any(), b::boolean(false)),
+    ];
+    b::match_(unknown, arms)
+}
+
+fn strings() -> Expr {
+    b::send(b::list([b::string("a")]), "iter", [])
+}
+
+#[test]
+fn an_iterator_is_tested_by_what_it_is_known_to_give() {
+    let tests = b::tuple([
+        is_iterator_of(ty::int(), range(0, 2)),
+        is_iterator_of(ty::string(), range(0, 2)),
+        is_iterator_of(ty::string(), strings()),
+        is_iterator_of(ty::int(), strings()),
+        is_iterator_of(ty::int(), b::list([b::int(1)])),
+    ]);
+    let expected = [true, false, true, false, false].map(Value::Bool);
+    assert_eq!(evaluates(tests), Value::Tuple(expected.to_vec()));
+}
+
+#[test]
+fn an_iterator_a_function_steps_is_what_the_function_says() {
+    let ones = || b::call(b::name("ones"), []);
+    let tests = b::tuple([
+        is_iterator_of(ty::int(), ones()),
+        is_iterator_of(ty::string(), ones()),
+    ]);
+    let expected = [true, false].map(Value::Bool);
+    assert_eq!(evaluates(tests), Value::Tuple(expected.to_vec()));
+}
+
+#[test]
+fn iterators_are_compared_as_values() {
+    let same = b::equal(range(0, 2), range(0, 2));
+    let stepped = b::equal(range(0, 2), b::send(range(0, 9), "take", [b::int(2)]));
+    let expected = [true, false].map(Value::Bool);
+    assert_eq!(
+        evaluates(b::tuple([same, stepped])),
+        Value::Tuple(expected.to_vec())
+    );
+}
+
+#[test]
+fn a_record_gives_an_iterator_from_a_field_of_its_own() {
+    let shelf = b::record([("iter", b::lambda([], range(0, 3)))]);
+    let listed = to_list(b::send(b::name("shelf"), "iter", []));
+    assert_eq!(evaluates(b::let_("shelf", shelf, listed)), ints([0, 1, 2]));
+}
+
+#[test]
+fn a_step_gives_an_item_and_the_rest() {
+    let first = b::match_(
+        b::send(range(5, 9), "step", []),
+        [
+            (pat::tuple([pat::bind("item"), pat::any()]), b::name("item")),
+            (pat::any(), b::int(-1)),
+        ],
+    );
+    assert_eq!(evaluates(first), Value::Int(5));
+}
+
+#[test]
+fn stepping_inside_a_budget_is_charged() {
+    let steps = |allowed| b::budget(b::int(allowed), b::int(1000), sum(range(0, 10)));
+    let expected = Value::Tuple(vec![Value::Int(45), Value::Bool(false)]);
+    let spent = b::match_(
+        steps(5),
+        [
+            (pat::is(ty::int()), b::boolean(true)),
+            (pat::any(), b::boolean(false)),
+        ],
+    );
+    assert_eq!(evaluates(b::tuple([steps(1000), spent])), expected);
 }

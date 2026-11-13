@@ -1,11 +1,13 @@
 # Methods
 
-A method is a function reached through a value it then receives. A record's methods are fields that receive the record they are read from; a type definition's are functions of its module, and a built-in shape's are functions of the standard library. Which one a call means is decided when it is checked, so nothing is looked up as a program runs.
+A method is a function reached through a value it then receives. A record's methods are fields that receive the record they are read from; a built-in shape's methods are functions of the standard library. Which one a call means is decided when it is checked, so nothing is looked up as a program runs.
 
 ## Calls
 
 - A method call names a receiver, a method, and arguments.
-- The static type of the receiver decides what it means: a field of a record, or else a method of the type definition it names, or else a method of its built-in shape.
+- The static type of the receiver decides what it means: a field of a record, or a method of a built-in shape.
+- A value is a record or it is not, so a call has one meaning and nothing is tried in turn.
+- A record has the methods written in it and no others; a type definition, a module, and a name in scope add none.
 - A receiver whose type is a union of different shapes, a type parameter, or `unknown` has no methods until it is [narrowed](types.md).
 - A method call compiles to a call of one field or of one known definition; no table of methods can be changed as a program runs, and there is no chain to search.
 
@@ -48,18 +50,6 @@ A method is a function reached through a value it then receives. A record's meth
 - Two keys are the same only if they are the same definition, so a key collides with no name and with no other package's key.
 - A record holds under a key only a value of the key's type; holding another is a type error where the record is made.
 - A key is how a protocol names what it expects of a record without reserving a name.
-
-## Type methods
-
-- A [type definition](types.md) has methods: the public functions of the module it is defined in whose first parameter is that type.
-- A method call on a value whose type names the definition is a call of that function with the receiver first.
-- The value does not hold such a method: it is not a field, so it is never read, merged, or overridden.
-- Only a record holds methods of its own, and only as fields.
-- A value has a type's methods only while its type has the name: a record written as a literal or made by a merge has none until it is given the type.
-- What a pattern binds keeps the name its type had, unless the pattern narrowed it.
-- A type's method comes before its shape's, so the module that defines a type decides what a call on its values means.
-- Adding a function to a module changes only calls of that name on values of the module's own types.
-- TODO: a type definition that is not recursive is [transparent](types.md), so its name is gone before a call is checked and it has no methods.
 
 ## Built-in methods
 

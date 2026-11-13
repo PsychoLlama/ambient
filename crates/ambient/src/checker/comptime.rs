@@ -144,7 +144,12 @@ fn splice(value: &Value) -> Option<(core::Expr, Ty)> {
             }
             (core::Expr::Record(exprs), Ty::Record(types))
         }
-        Value::Function(_) | Value::Method(_) | Value::Cell | Value::Token | Value::Types => {
+        Value::Function(_)
+        | Value::Method(_)
+        | Value::Cell
+        | Value::Iterator
+        | Value::Token
+        | Value::Types => {
             return None;
         }
     })

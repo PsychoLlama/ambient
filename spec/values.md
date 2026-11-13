@@ -4,7 +4,7 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 
 ## Shapes
 
-- The shapes are null, bool, int, float, string, bytes, list, map, set, tag, record, tuple, function, cell, and handle.
+- The shapes are null, bool, int, float, string, bytes, list, map, set, tag, record, tuple, function, cell, [iterator](iteration.md), and handle.
 - No shape is user-defined; every [type](types.md) describes a subset of these.
 - A function value is a definition hash, captured values, [captured handlers](abilities.md), and the type arguments it was made at if its function [needs them](backends.md).
 - A function value says which type it is of, as one name, and nothing of what that type is within.
@@ -28,6 +28,7 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 - The bindings a function captured are among its captures, so a captured abort handler anchors it.
 - TODO: type arguments have no encoding yet, so a function value that holds them cannot be sent.
 - A decoded value is `unknown`.
+- TODO: an [iterator](iteration.md) has no encoding yet.
 - A value is anchored if it contains a handle, a [cell](cells.md), a [native handler](externs.md), or an [abort](handlers.md) handler.
 - An anchored value is tied to the program and scope that hold it and has no encoding.
 - Anchoring is a property of the value, not a marker in its type; encoding an anchored value fails as an ordinary result, not a fault.

@@ -118,6 +118,33 @@ pub fn length(value: Expr) -> Expr {
     operation(Operator::Length, [value])
 }
 
+/// An iterator that `step` steps: a function that takes nothing and
+/// gives null, or an item and the iterator of the rest.
+#[must_use]
+pub fn iterator(step: Expr) -> Expr {
+    operation(Operator::Iterator, [step])
+}
+
+/// An iterator over the members of a list.
+#[must_use]
+pub fn iterate(list: Expr) -> Expr {
+    operation(Operator::Iterate, [list])
+}
+
+/// An iterator over the integers from `start` up to `end`, which it
+/// leaves out.
+#[must_use]
+pub fn range(start: Expr, end: Expr) -> Expr {
+    binary(Operator::Range, start, end)
+}
+
+/// What an iterator gives next: null, or an item and the iterator of
+/// the rest.
+#[must_use]
+pub fn step(iterator: Expr) -> Expr {
+    operation(Operator::Step, [iterator])
+}
+
 /// The member of a list at `position`, or null.
 #[must_use]
 pub fn get(list: Expr, position: Expr) -> Expr {

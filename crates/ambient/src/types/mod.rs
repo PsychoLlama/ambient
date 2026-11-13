@@ -61,16 +61,6 @@ pub struct KeyInfo {
     pub ty: Ty,
 }
 
-/// What has methods that are not fields: a built-in shape, whose
-/// methods are its module of the standard library, or a type
-/// definition, whose methods are the module it is defined in. See
-/// `spec/methods.md`.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Receiver {
-    Shape(Shape),
-    Type(Symbol),
-}
-
 /// Everything about other definitions that checking one definition reads.
 #[derive(Debug, Default)]
 pub struct Env {
@@ -83,8 +73,8 @@ pub struct Env {
     /// Every key it refers to, or that a type it reaches does.
     pub keys: BTreeMap<Symbol, KeyInfo>,
     /// The function each method it may call by name means, for each
-    /// receiver that has one of that name.
-    pub methods: BTreeMap<(Receiver, String), Symbol>,
+    /// built-in shape that has one of that name.
+    pub methods: BTreeMap<(Shape, String), Symbol>,
     /// The bound of each type parameter of the definition being checked.
     pub bounds: Vec<Ty>,
 }
@@ -114,6 +104,7 @@ pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
         Ty::Union(members) => Ty::Union(all(members)),
         Ty::List(member) => Ty::List(Box::new(substitute(member, args))),
         Ty::Cell(member) => Ty::Cell(Box::new(substitute(member, args))),
+        Ty::Iterator(member) => Ty::Iterator(Box::new(substitute(member, args))),
         Ty::Method { needs, function } => Ty::Method {
             needs: Box::new(substitute(needs, args)),
             function: Box::new(substitute(function, args)),
@@ -167,7 +158,7 @@ fn mentions_parameter(ty: &Ty) -> bool {
         Ty::Named(Reference::Parameter(_), _) => true,
         Ty::Record(fields) => fields.iter().any(|(_, ty)| mentions_parameter(ty)),
         Ty::Tuple(members) | Ty::Union(members) | Ty::Named(_, members) => any(members),
-        Ty::List(member) | Ty::Cell(member) => mentions_parameter(member),
+        Ty::List(member) | Ty::Cell(member) | Ty::Iterator(member) => mentions_parameter(member),
         Ty::Method { needs, function } => mentions_parameter(needs) || mentions_parameter(function),
         Ty::Function { params, ret, .. } => any(params) || mentions_parameter(ret),
         _ => false,
@@ -192,7 +183,9 @@ impl Env {
     /// [`Self::testable`], given the definitions already looked into.
     fn tests<'a>(&'a self, ty: &'a Ty, seen: &mut Vec<&'a Symbol>) -> bool {
         match ty {
-            Ty::Function { .. } => !mentions_parameter(ty),
+            // An iterator that a function steps is tested as that
+            // function is.
+            Ty::Function { .. } | Ty::Iterator(_) => !mentions_parameter(ty),
             // A test never yields a method: see `spec/methods.md`.
             Ty::Method { .. } => false,
             Ty::Record(fields) => fields.iter().all(|(_, ty)| self.tests(ty, seen)),
@@ -248,6 +241,7 @@ impl Env {
             }
             Ty::List(member) => Ty::List(Box::new(self.normal(member, absorb))),
             Ty::Cell(member) => Ty::Cell(Box::new(self.normal(member, absorb))),
+            Ty::Iterator(member) => Ty::Iterator(Box::new(self.normal(member, absorb))),
             Ty::Method { needs, function } => Ty::Method {
                 needs: Box::new(self.normal(needs, absorb)),
                 function: Box::new(self.normal(function, absorb)),

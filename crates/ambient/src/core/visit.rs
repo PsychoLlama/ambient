@@ -34,6 +34,7 @@ impl Expr {
             } => exprs.iter().for_each(visit),
             Self::Field { target: inner, .. }
             | Self::Method(inner)
+            | Self::Step(inner)
             | Self::Cell { value: inner, .. }
             | Self::Boundary(inner)
             | Self::Group(inner)
@@ -210,7 +211,9 @@ impl Type {
             Self::Tuple(members) | Self::Union(members) | Self::Reference(_, members) => {
                 any(members)
             }
-            Self::List(member) | Self::Cell(member) => member.mentions_parameter(),
+            Self::List(member) | Self::Cell(member) | Self::Iterator(member) => {
+                member.mentions_parameter()
+            }
             Self::Function { params, ret, .. } => any(params) || ret.mentions_parameter(),
             _ => false,
         }
@@ -233,7 +236,7 @@ impl Type {
                 .collect(),
             Self::Tuple(members) | Self::Union(members) => all(members),
             Self::Reference(slot, args) => [*slot].into_iter().chain(all(args)).collect(),
-            Self::List(member) | Self::Cell(member) => member.slots(),
+            Self::List(member) | Self::Cell(member) | Self::Iterator(member) => member.slots(),
             Self::Function { params, ret, row } => {
                 let mut slots = all(params);
                 slots.extend(ret.slots());

@@ -40,3 +40,8 @@ An operation is something the language itself does with values: arithmetic, comp
 - Joining two lists gives the members of one followed by those of the other.
 - A slice takes a start and an end and gives the members between them; one whose positions are out of range or out of order misses.
 - No list operation takes a [tuple](types.md): its members are reached by matching.
+
+## Iterators
+
+- A function that steps makes an [iterator](iteration.md), a list makes one over its members, and two integers make one over the integers from the first up to the second.
+- Stepping an iterator is not an operation.

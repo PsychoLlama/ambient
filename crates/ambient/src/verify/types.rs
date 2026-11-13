@@ -43,6 +43,7 @@ pub(super) fn raise(ty: &core::Type, slots: &[Symbol]) -> Result<Ty, Invalid> {
         core::Type::Union(members) => Ty::Union(all(members)?),
         core::Type::List(member) => Ty::List(one(member)?),
         core::Type::Cell(member) => Ty::Cell(one(member)?),
+        core::Type::Iterator(member) => Ty::Iterator(one(member)?),
         core::Type::Method { needs, function } => Ty::Method {
             needs: one(needs)?,
             function: one(function)?,
@@ -126,7 +127,7 @@ impl Verifier<'_> {
                 self.well_formed(ty)
             }),
             Ty::Tuple(members) | Ty::Union(members) => all(members),
-            Ty::List(member) | Ty::Cell(member) => self.well_formed(member),
+            Ty::List(member) | Ty::Cell(member) | Ty::Iterator(member) => self.well_formed(member),
             Ty::Method { needs, function } => {
                 self.well_formed(needs)?;
                 self.well_formed(function)

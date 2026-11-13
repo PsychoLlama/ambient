@@ -3,8 +3,8 @@
 //!
 //! Most of it follows from the names in the definition's tree. A method
 //! call is the exception: what it means waits for the type of its
-//! receiver, so every function it could mean is gathered here, for each
-//! built-in shape and each type definition the checker can meet.
+//! receiver, so the function it means for each built-in shape is
+//! gathered here.
 
 use ambient_runtime::FAULT_PACKAGE;
 
@@ -14,7 +14,7 @@ use crate::error::Error;
 use crate::hash::{Hasher, encode};
 use crate::surface::{DefinitionKind, ExternKind, Param, Reference, Shape};
 use crate::symbol::{ModuleId, Namespace, Symbol};
-use crate::types::{Env, Receiver, Signature, Ty, abilities};
+use crate::types::{Env, Signature, Ty, abilities};
 
 impl Engine<'_> {
     /// Everything checking reads about the definitions in `used` and
@@ -43,15 +43,8 @@ impl Engine<'_> {
                 }
             }
         }
-        // A method's header may name a type whose module has methods
-        // too, so this goes round until nothing new is named.
-        loop {
-            self.gather(roots, &mut env)?;
-            roots = self.methods(sends, &mut env, key)?;
-            if roots.is_empty() {
-                break;
-            }
-        }
+        roots.extend(self.methods(sends, &mut env, key)?);
+        self.gather(roots, &mut env)?;
         // Headers are read in normal form everywhere.
         let functions = std::mem::take(&mut env.functions);
         env.functions = functions
@@ -73,42 +66,28 @@ impl Engine<'_> {
         Ok(env)
     }
 
-    /// Adds to `env` each function a method called one of `sends` could
-    /// mean that it does not have yet: a public function of that name
-    /// in a shape's module of the standard library, or in the module
-    /// of a type definition `env` holds. Gives the definitions their
-    /// headers name.
+    /// Adds to `env` the function each method called one of `sends`
+    /// means for each built-in shape: the public function of that name
+    /// in the shape's module of the standard library. Gives the
+    /// definitions their headers name.
     fn methods(
         &self,
         sends: &[String],
         env: &mut Env,
         key: &mut Hasher,
     ) -> Result<Vec<Symbol>, Error> {
-        let shapes = Shape::ALL.into_iter().map(|shape| {
-            let module = ModuleId::new(FAULT_PACKAGE, shape.module());
-            (Receiver::Shape(shape), module)
-        });
-        // Only a recursive definition is still a name once normalized.
-        let types = env.types.iter().filter(|(_, info)| info.recursive);
-        let types =
-            types.map(|(symbol, _)| (Receiver::Type(symbol.clone()), symbol.module.clone()));
-        let receivers: Vec<(Receiver, ModuleId)> = shapes.chain(types).collect();
-
         let mut named = Vec::new();
-        for (receiver, module) in receivers {
+        for shape in Shape::ALL {
+            let module = ModuleId::new(FAULT_PACKAGE, shape.module());
             if self.sources.module(&module).is_none() {
                 continue;
             }
             let members = self.members(&module)?;
             for name in sends {
-                let at = (receiver.clone(), name.clone());
                 let member = members.0.get(&(Namespace::Value, name.clone()));
                 let Some(member) = member.filter(|member| member.public) else {
                     continue;
                 };
-                if env.methods.contains_key(&at) {
-                    continue;
-                }
                 let Some((signature, mentions)) = self.signature(&member.symbol)? else {
                     continue;
                 };
@@ -116,10 +95,9 @@ impl Engine<'_> {
                 key.bytes(&encode(&member.symbol));
                 key.hash(&self.interface(&member.symbol)?.digest);
                 named.extend(mentions);
-                env.functions
-                    .entry(member.symbol.clone())
-                    .or_insert(signature);
-                env.methods.insert(at, member.symbol.clone());
+                let function = member.symbol.clone();
+                env.functions.entry(function.clone()).or_insert(signature);
+                env.methods.insert((shape, name.clone()), function);
             }
         }
         Ok(named)

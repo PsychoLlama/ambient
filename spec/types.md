@@ -16,6 +16,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - `never`, a subtype of every type, and `unknown`, a supertype of every type.
 - Brands.
 - `Cell<T>`.
+- `Iterator<T>`, the type of an [iterator](iteration.md).
 - Type parameters, each with an optional upper bound.
 
 ## Soundness
@@ -30,7 +31,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 
 - Subtyping is structural, and coinductive over recursive types.
 - A record is a subtype of any record with fewer keys or wider key types.
-- Collections are covariant; immutability makes that sound.
+- Collections and iterators are covariant; immutability makes that sound.
 - `Cell<T>` is invariant.
 - A function type is a subtype of one with narrower parameters, a wider return type, or a larger row.
 - A literal type is a subtype of its primitive.

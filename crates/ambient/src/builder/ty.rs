@@ -61,6 +61,12 @@ pub fn cell(member: Type) -> Type {
     Type::Cell(Box::new(member))
 }
 
+/// An iterator of items of a type.
+#[must_use]
+pub fn iterator(member: Type) -> Type {
+    Type::Iterator(Box::new(member))
+}
+
 pub fn union(members: impl IntoIterator<Item = Type>) -> Type {
     Type::Union(members.into_iter().collect())
 }

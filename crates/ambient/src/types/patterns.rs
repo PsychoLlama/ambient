@@ -1,7 +1,7 @@
 //! What a pattern does to a type: the values it matches, the values it
 //! lets through, and what its binders hold.
 
-use super::{Env, Receiver, Ty, TyKey, entry, field};
+use super::{Env, Ty, TyKey, entry, field};
 use crate::literal::Literal;
 use crate::surface::{Key, Pattern, Reference, Shape};
 
@@ -238,6 +238,7 @@ impl Env {
             Ty::List(_) => Shape::List,
             Ty::Function { .. } => Shape::Function,
             Ty::Cell(_) => Shape::Cell,
+            Ty::Iterator(_) => Shape::Iterator,
             Ty::Union(members) => {
                 let mut shapes = members.iter().map(|member| self.shape(member));
                 let first = shapes.next()??;
@@ -245,18 +246,6 @@ impl Env {
             }
             _ => return None,
         })
-    }
-
-    /// What a value of type `ty` may have methods as, besides its
-    /// fields: the type definition it is named by, then its shape.
-    #[must_use]
-    pub fn receivers(&self, ty: &Ty) -> Vec<Receiver> {
-        let named = match ty {
-            Ty::Named(Reference::Definition(symbol), _) => Some(Receiver::Type(symbol.clone())),
-            _ => None,
-        };
-        let shape = self.shape(ty).map(Receiver::Shape);
-        named.into_iter().chain(shape).collect()
     }
 
     /// The type of member `index` of a tuple-shaped value of type `ty`.

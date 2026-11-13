@@ -77,7 +77,7 @@ impl Type {
             Self::Tuple(members) | Self::Union(members) | Self::Reference(_, members) => {
                 deepest(members)
             }
-            Self::List(member) | Self::Cell(member) => member.depth(),
+            Self::List(member) | Self::Cell(member) | Self::Iterator(member) => member.depth(),
             Self::Function { params, ret, .. } => deepest(params).max(ret.depth()),
             _ => 0,
         }

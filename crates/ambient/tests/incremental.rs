@@ -287,3 +287,43 @@ fn linking_again_compiles_only_what_was_edited() {
     assert_eq!((first, *backend.compiled.borrow()), (3, 2));
     assert_eq!(engine.ran(Stage::Check), names(&["id"]));
 }
+
+/// The module of the standard library that gives integers their
+/// methods, with a public `name(self: int): int` for each of `names`.
+fn int_methods(names: &[&str]) -> ModuleBuilder {
+    names.iter().fold(b::module(), |module, name| {
+        let method = b::function(name).public().param("self", ty::int());
+        module.define(method.returns(ty::int()).body(b::name("self")))
+    })
+}
+
+/// What a second build checks again, after the methods of integers
+/// change, of a program whose `leaf` calls `same` on one.
+fn rechecked_after(before: &[&str], after: &[&str]) -> Vec<String> {
+    let program = |methods: &[&str]| {
+        let leaf = b::function("leaf")
+            .returns(ty::int())
+            .body(b::send(b::int(1), "same", []));
+        workspace([
+            ("ambient", "int", int_methods(methods)),
+            ("app", "main", b::module().define(leaf)),
+        ])
+    };
+    let store = MemoryStore::new();
+    let leaf = value("main", "leaf");
+    Engine::new(&program(before), &store).check(&leaf).unwrap();
+    let edited = program(after);
+    let engine = Engine::new(&edited, &store);
+    engine.check(&leaf).unwrap();
+    engine.ran(Stage::Check)
+}
+
+#[test]
+fn a_method_added_to_a_shape_rechecks_no_call_of_another() {
+    assert!(rechecked_after(&["same"], &["same", "other"]).is_empty());
+}
+
+#[test]
+fn a_method_taken_from_a_shape_rechecks_no_call_of_another() {
+    assert!(rechecked_after(&["other", "same"], &["same"]).is_empty());
+}

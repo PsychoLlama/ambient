@@ -1,9 +1,9 @@
 //! Method calls. See `spec/methods.md`.
 //!
 //! What a call means is decided by the type of its receiver: a field of
-//! a record, or else a function of the module its type is defined in
-//! or of the module the standard library has for its shape. The
-//! engine found those for every receiver the call could have
+//! a record, or the function the standard library has under that name
+//! for a built-in shape. A value is one or the other, so nothing is
+//! tried in turn. The engine found the functions for every shape
 //! (`engine/environment.rs`), since only checking knows the type.
 
 use super::Checker;
@@ -26,10 +26,8 @@ impl Checker<'_> {
             return self.send_field(receiver, &found, method, args);
         }
         let name = Self::key_name(method);
-        let receivers = self.env.receivers(&found);
-        let function = receivers
-            .into_iter()
-            .find_map(|receiver| self.env.methods.get(&(receiver, name.clone())));
+        let shape = self.env.shape(&found);
+        let function = shape.and_then(|shape| self.env.methods.get(&(shape, name.clone())));
         match function.cloned() {
             Some(function) => self.send_function(&function, (receiver, found), args),
             None => Err(Error::NoMethod {

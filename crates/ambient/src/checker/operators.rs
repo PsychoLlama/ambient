@@ -34,7 +34,16 @@ impl Checker<'_> {
         operator: Operator,
         operands: &[Expr<Reference>],
     ) -> Result<(core::Expr, Ty), Error> {
-        let (args, types) = self.infer_all(operands)?;
+        let (mut args, types) = self.infer_all(operands)?;
+        // A step is not an operation: it may call the function that
+        // steps the iterator.
+        if operator == Operator::Step
+            && let [iterator] = &types[..]
+            && let Some(item) = self.env.items(iterator)
+        {
+            let iterator = Box::new(args.remove(0));
+            return Ok((core::Expr::Step(iterator), self.env.step(&item)));
+        }
         let meant = meanings(operator).iter().find_map(|operation| {
             let ty = self.env.operation(*operation, &types)?;
             Some((*operation, ty))
@@ -69,5 +78,9 @@ fn meanings(operator: Operator) -> &'static [Primitive] {
         Operator::ToInt => &[P::FloatInt, P::StringInt],
         Operator::ToFloat => &[P::IntFloat, P::StringFloat],
         Operator::ToText => &[P::IntText, P::FloatText],
+        Operator::Iterator => &[P::IteratorNew],
+        Operator::Iterate => &[P::ListIterate],
+        Operator::Range => &[P::IntRange],
+        Operator::Step => &[],
     }
 }
