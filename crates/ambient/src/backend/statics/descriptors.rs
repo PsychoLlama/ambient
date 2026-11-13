@@ -33,7 +33,8 @@ fn node_size(ty: &Type) -> usize {
         Type::Literal(_) | Type::Method { .. } | Type::Iterator(_) => 3,
         Type::Record(fields) => 2 + fields.len() * 2,
         Type::Tuple(members) | Type::Union(members) => 2 + members.len(),
-        Type::List(_) | Type::Cell(_) | Type::Parameter(_) => 2,
+        Type::List(_) | Type::Cell(_) | Type::Parameter(_) | Type::Bound(_) => 2,
+        Type::Generic { bounds, .. } => 4 + bounds.len(),
         Type::Reference(_, args) => 3 + args.len(),
     }
 }
@@ -157,6 +158,7 @@ impl Statics {
                 let function = self.describe(function, slots);
                 self.set(at + 2, function.field());
             }
+            Type::Generic { .. } | Type::Bound(_) => self.quantified(ty, slots, at),
             Type::Parameter(position) => {
                 tag(self, d::PARAMETER);
                 self.set(at + 1, Field::Word(*position as u64));
@@ -166,6 +168,28 @@ impl Statics {
                 self.set(at + 1, slots[slot.0].address.field());
                 self.children(args, slots, at + 2);
             }
+        }
+    }
+
+    /// Writes the node of a generic function type, or of a parameter
+    /// of one.
+    fn quantified(&mut self, ty: &Type, slots: &[Target], at: usize) {
+        let tag = |statics: &mut Self, tag| statics.set(at, Field::Word(tag));
+        match ty {
+            Type::Generic { bounds, function } => {
+                tag(self, d::GENERIC);
+                self.children(bounds, slots, at + 1);
+                let after = at + 2 + bounds.len();
+                let function = self.describe(function, slots);
+                self.set(after, function.field());
+                let name = self.type_name(ty, slots);
+                self.set(after + 1, name);
+            }
+            Type::Bound(index) => {
+                tag(self, d::BOUND);
+                self.set(at + 1, Field::Word(*index as u64));
+            }
+            _ => {}
         }
     }
 

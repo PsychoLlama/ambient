@@ -166,6 +166,14 @@ impl Types {
                         && self.each((have.params, from), (want.params, to))
                         && self.same((have.ret, from), (want.ret, to))
                 }
+                d::GENERIC => {
+                    let after = |node: u64| word(node, 2 + word(node, 1) as usize);
+                    self.each((members(left), from), (members(right), to))
+                        && self.same((after(left), from), (after(right), to))
+                }
+                // The same parameter of the same generic function type:
+                // the two are compared from the outside in.
+                d::BOUND => word(left, 1) == word(right, 1),
                 // Nothing is known of a parameter read outside any scope.
                 d::PARAMETER => false,
                 _ => true,

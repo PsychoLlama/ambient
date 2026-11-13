@@ -117,6 +117,15 @@ pub(super) fn check_params(name: &str, params: &[Param]) -> Result<(), BuildErro
 }
 
 pub(super) fn check_type(ty: &crate::surface::Type) -> Result<(), BuildError> {
+    // A parameter of a generic function type is named only inside it.
+    if !ty.closed() {
+        return Err(BuildError::GenericType);
+    }
+    check_inside(ty)
+}
+
+/// [`check_type`], of a type that may be inside a generic function type.
+fn check_inside(ty: &crate::surface::Type) -> Result<(), BuildError> {
     use crate::surface::Type;
     match ty {
         Type::Never
@@ -127,25 +136,33 @@ pub(super) fn check_type(ty: &crate::surface::Type) -> Result<(), BuildError> {
         | Type::Float
         | Type::String
         | Type::Tag
+        | Type::Bound(_)
         | Type::Literal(_) => Ok(()),
+        Type::Generic { bounds, function } => {
+            if !matches!(**function, Type::Function { .. }) {
+                return Err(BuildError::GenericType);
+            }
+            bounds.iter().try_for_each(check_inside)?;
+            check_inside(function)
+        }
         Type::Record(fields) => {
             check_keys(fields.iter().map(|(key, _)| key))?;
-            fields.iter().try_for_each(|(_, ty)| check_type(ty))
+            fields.iter().try_for_each(|(_, ty)| check_inside(ty))
         }
-        Type::Tuple(members) | Type::Union(members) => members.iter().try_for_each(check_type),
-        Type::List(member) | Type::Cell(member) | Type::Iterator(member) => check_type(member),
+        Type::Tuple(members) | Type::Union(members) => members.iter().try_for_each(check_inside),
+        Type::List(member) | Type::Cell(member) | Type::Iterator(member) => check_inside(member),
         Type::Method { needs, function } => {
-            check_type(needs)?;
-            check_type(function)
+            check_inside(needs)?;
+            check_inside(function)
         }
         Type::Function { params, ret, row } => {
-            params.iter().try_for_each(check_type)?;
+            params.iter().try_for_each(check_inside)?;
             row.iter().try_for_each(check_path)?;
-            check_type(ret)
+            check_inside(ret)
         }
         Type::Named(path, args) => {
             check_path(path)?;
-            args.iter().try_for_each(check_type)
+            args.iter().try_for_each(check_inside)
         }
     }
 }

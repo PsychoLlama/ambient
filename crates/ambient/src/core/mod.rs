@@ -68,6 +68,15 @@ pub enum Type {
     /// A recursive type definition applied to arguments. A non-recursive
     /// one never appears: it is replaced by its expansion.
     Reference(Slot, Vec<Type>),
+    /// A function type with type parameters of its own: the bound of
+    /// each, and the function type.
+    Generic {
+        bounds: Vec<Type>,
+        function: Box<Type>,
+    },
+    /// A type parameter of a generic function type this is inside,
+    /// counted from the innermost.
+    Bound(usize),
 }
 
 impl Type {

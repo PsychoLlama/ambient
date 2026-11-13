@@ -182,6 +182,12 @@ pub(super) fn visit_types(ty: &Ty, visit: &mut impl FnMut(&Ty)) {
             }
             visit_types(ret, visit);
         }
+        Ty::Generic { bounds, function } => {
+            for bound in bounds {
+                visit_types(bound, visit);
+            }
+            visit_types(function, visit);
+        }
         _ => {}
     }
 }

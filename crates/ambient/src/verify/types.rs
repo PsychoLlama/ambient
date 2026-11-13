@@ -53,6 +53,11 @@ pub(super) fn raise(ty: &core::Type, slots: &[Symbol]) -> Result<Ty, Invalid> {
             ret: one(ret)?,
             row: row.iter().map(name).collect::<Result<_, _>>()?,
         },
+        core::Type::Generic { bounds, function } => Ty::Generic {
+            bounds: all(bounds)?,
+            function: one(function)?,
+        },
+        core::Type::Bound(index) => Ty::Bound(*index),
         core::Type::Parameter(position) => Ty::Named(Reference::Parameter(*position), Vec::new()),
         core::Type::Reference(slot, args) => Ty::Named(name(slot)?, all(args)?),
     })
@@ -64,6 +69,9 @@ impl Verifier<'_> {
     /// checking writes it: a type has one form, so that it has one hash.
     pub(super) fn sound(&self, ty: &core::Type) -> Result<Ty, Invalid> {
         let raised = raise(ty, self.slots)?;
+        if !raised.closed() {
+            return Err(Invalid::Type);
+        }
         self.well_formed(&raised)?;
         let normal = self.env.normalize(&raised);
         let mut known = true;
@@ -114,7 +122,16 @@ impl Verifier<'_> {
             | Ty::Float
             | Ty::String
             | Ty::Tag
+            | Ty::Bound(_)
             | Ty::Literal(_) => Ok(()),
+            // Only a function type has type parameters of its own.
+            Ty::Generic { bounds, function } => {
+                if !matches!(**function, Ty::Function { .. }) {
+                    return Err(Invalid::Type);
+                }
+                all(bounds)?;
+                self.well_formed(function)
+            }
             Ty::Record(fields) => fields.iter().try_for_each(|(key, ty)| {
                 if let Key::Ability(name) = key {
                     ability(name)?;

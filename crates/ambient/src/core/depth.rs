@@ -79,6 +79,7 @@ impl Type {
             }
             Self::List(member) | Self::Cell(member) | Self::Iterator(member) => member.depth(),
             Self::Function { params, ret, .. } => deepest(params).max(ret.depth()),
+            Self::Generic { bounds, function } => deepest(bounds).max(function.depth()),
             _ => 0,
         }
     }

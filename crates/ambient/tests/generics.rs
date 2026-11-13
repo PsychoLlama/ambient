@@ -334,3 +334,69 @@ fn type_parameter_names_are_not_content() {
         check([identity("Anything")]).unwrap().tree.encode(),
     );
 }
+
+/// `<U: bound>(U) -> ret`
+fn generic(bound: Option<Type>, ret: Type) -> Type {
+    ty::generic([("U", bound)], ty::function([ty::named("U")], ret))
+}
+
+fn u() -> Type {
+    ty::named("U")
+}
+
+/// Whether a value of type `sub` is accepted where `sup` is asked for.
+fn fits(sub: Type, sup: Type) -> bool {
+    let pass = b::function("main").param("given", sub).returns(sup);
+    check([pass.body(b::name("given"))]).is_ok()
+}
+
+#[test]
+fn a_generic_function_type_is_the_same_under_other_names() {
+    let renamed = ty::generic(
+        [("V", None)],
+        ty::function([ty::named("V")], ty::named("V")),
+    );
+    assert!(fits(generic(None, u()), renamed.clone()));
+    assert!(fits(renamed, generic(None, u())));
+}
+
+#[test]
+fn generic_function_types_are_related_as_their_function_types_are() {
+    let optional = ty::union([u(), ty::null()]);
+    assert!(fits(generic(None, u()), generic(None, optional.clone())));
+    assert!(!fits(generic(None, optional), generic(None, u())));
+}
+
+#[test]
+fn a_type_parameter_of_a_function_type_is_known_by_its_bound() {
+    let bounded = || Some(ty::int());
+    assert!(fits(generic(bounded(), u()), generic(bounded(), ty::int())));
+    assert!(!fits(generic(None, u()), generic(None, ty::int())));
+}
+
+#[test]
+fn generic_function_types_with_other_bounds_are_unrelated() {
+    let (loose, tight) = (generic(None, u()), generic(Some(ty::int()), u()));
+    assert!(!fits(loose.clone(), tight.clone()));
+    assert!(!fits(tight, loose));
+}
+
+#[test]
+fn a_generic_function_type_is_not_one_of_its_instances() {
+    let instance = ty::function([ty::int()], ty::int());
+    assert!(!fits(generic(None, u()), instance.clone()));
+    assert!(!fits(instance, generic(None, u())));
+}
+
+#[test]
+fn a_type_parameter_is_named_only_inside_its_function_type() {
+    let twice = ty::generic([("U", None)], generic(None, u()));
+    let escaped = ty::tuple([Type::Bound(0)]);
+    let build = |ty: Type| {
+        let main = b::function("main").param("given", ty).returns(ty::null());
+        b::module().define(main.body(b::null())).build()
+    };
+    assert!(build(generic(None, u())).is_ok());
+    assert!(build(twice).is_err());
+    assert!(build(escaped).is_err());
+}

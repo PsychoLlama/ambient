@@ -1,7 +1,7 @@
 //! The relations between two types: whether one is within the other, and
 //! whether they share no value.
 
-use super::{Env, Ty, booleans, entry, primitive_of};
+use super::{Env, Ty, booleans, entry, instantiate, primitive_of};
 use crate::surface::Reference;
 
 /// The longest chain of assumptions a subtyping proof may build. Regular
@@ -9,17 +9,57 @@ use crate::surface::Reference;
 /// than run forever.
 const DEPTH: usize = 256;
 
+/// A subtyping proof under way.
+#[derive(Default)]
+struct Proof {
+    /// The judgements this one is being proved under.
+    assumed: Vec<(Ty, Ty)>,
+    /// The bound of each parameter of the generic function types the
+    /// proof is inside, outermost first. Inside one its parameters are
+    /// type parameters like a definition's, numbered after those.
+    opened: Vec<Ty>,
+}
+
 impl Env {
+    /// Whether one generic function type is within another: they bind
+    /// as many parameters, with the same bounds, and with the same
+    /// types standing for those the one function type is within the
+    /// other. Bounds must be the same, not one within the other: with
+    /// that, subtyping is no longer decidable.
+    fn generic(&self, sub: (&[Ty], &Ty), sup: (&[Ty], &Ty), proof: &mut Proof) -> bool {
+        let ((bounds, function), (want_bounds, want)) = (sub, sup);
+        if bounds.len() != want_bounds.len() {
+            return false;
+        }
+        let base = self.bounds.len() + proof.opened.len();
+        let fresh: Vec<Ty> = (base..base + bounds.len())
+            .map(|position| Ty::Named(Reference::Parameter(position), Vec::new()))
+            .collect();
+        let open = |ty: &Ty| self.normalize(&instantiate(ty, &fresh));
+        let (opened, assumed) = (proof.opened.len(), proof.assumed.len());
+        proof.opened.extend(bounds.iter().map(&open));
+        let same = bounds.iter().zip(want_bounds).all(|(have, want)| {
+            let (have, want) = (open(have), open(want));
+            self.sub(&have, &want, proof) && self.sub(&want, &have, proof)
+        });
+        let holds = same && self.sub(&open(function), &open(want), proof);
+        // Whatever was assumed of these parameters says nothing of the
+        // next ones to take their numbers.
+        proof.opened.truncate(opened);
+        proof.assumed.truncate(assumed);
+        holds
+    }
+
     /// Whether every value `sub` describes is one `sup` describes. Both are
     /// normalized.
     #[must_use]
     pub fn subtype(&self, sub: &Ty, sup: &Ty) -> bool {
-        self.sub(sub, sup, &mut Vec::new())
+        self.sub(sub, sup, &mut Proof::default())
     }
 
-    /// `assumed` holds the judgements this one is being proved under.
+    /// `proof` holds the judgements this one is being proved under.
     /// Meeting one again proves it: subtyping is coinductive.
-    fn sub(&self, sub: &Ty, sup: &Ty, assumed: &mut Vec<(Ty, Ty)>) -> bool {
+    fn sub(&self, sub: &Ty, sup: &Ty, proof: &mut Proof) -> bool {
         if sub == sup {
             return true;
         }
@@ -28,48 +68,47 @@ impl Env {
             (Ty::Named(Reference::Definition(_), _), _)
             | (_, Ty::Named(Reference::Definition(_), _)) => {
                 let judgement = (sub.clone(), sup.clone());
-                if assumed.contains(&judgement) {
+                if proof.assumed.contains(&judgement) {
                     return true;
                 }
-                if assumed.len() >= DEPTH {
+                if proof.assumed.len() >= DEPTH {
                     return false;
                 }
                 let (below, above) = (self.unfold(sub), self.unfold(sup));
                 if below == *sub && above == *sup {
                     return false;
                 }
-                let depth = assumed.len();
-                assumed.push(judgement);
-                let holds = self.sub(&below, &above, assumed);
+                let depth = proof.assumed.len();
+                proof.assumed.push(judgement);
+                let holds = self.sub(&below, &above, proof);
                 if !holds {
                     // A judgement that failed must not stay assumed.
-                    assumed.truncate(depth);
+                    proof.assumed.truncate(depth);
                 }
                 holds
             }
-            (Ty::Union(members), _) => members.iter().all(|m| self.sub(m, sup, assumed)),
+            (Ty::Union(members), _) => members.iter().all(|m| self.sub(m, sup, proof)),
             // A type parameter is known only by its bound.
             (Ty::Named(Reference::Parameter(position), _), _) => {
                 let member = matches!(sup, Ty::Union(members) if members.contains(sub));
-                member
-                    || self
-                        .bounds
-                        .get(*position)
-                        .is_some_and(|bound| self.sub(bound, sup, assumed))
+                let bound = self.bounds.get(*position).cloned();
+                let bound =
+                    bound.or_else(|| proof.opened.get(position - self.bounds.len()).cloned());
+                member || bound.is_some_and(|bound| self.sub(&bound, sup, proof))
             }
-            (Ty::Bool, Ty::Union(_)) => self.sub(&booleans(), sup, assumed),
-            (_, Ty::Union(members)) => members.iter().any(|m| self.sub(sub, m, assumed)),
+            (Ty::Bool, Ty::Union(_)) => self.sub(&booleans(), sup, proof),
+            (_, Ty::Union(members)) => members.iter().any(|m| self.sub(sub, m, proof)),
             (Ty::Literal(literal), _) => primitive_of(literal) == *sup,
             (Ty::Record(have), Ty::Record(want)) => want.iter().all(|(key, want)| {
-                entry(have, key).is_some_and(|have| self.sub(have, want, assumed))
+                entry(have, key).is_some_and(|have| self.sub(have, want, proof))
             }),
             (Ty::Tuple(have), Ty::Tuple(want)) => {
                 have.len() == want.len()
-                    && have.iter().zip(want).all(|(h, w)| self.sub(h, w, assumed))
+                    && have.iter().zip(want).all(|(h, w)| self.sub(h, w, proof))
             }
             // Neither is ever written to, so both are covariant.
             (Ty::List(have), Ty::List(want)) | (Ty::Iterator(have), Ty::Iterator(want)) => {
-                self.sub(have, want, assumed)
+                self.sub(have, want, proof)
             }
             // A method that needs less of its receiver stands in for one
             // that needs more.
@@ -79,15 +118,22 @@ impl Env {
                     needs: want_needs,
                     function: want,
                 },
-            ) => self.sub(want_needs, needs, assumed) && self.sub(function, want, assumed),
+            ) => self.sub(want_needs, needs, proof) && self.sub(function, want, proof),
             // Read, a method is the function it gives; what it needed
             // is then forgotten.
-            (Ty::Method { function, .. }, _) => self.sub(function, sup, assumed),
+            (Ty::Method { function, .. }, _) => self.sub(function, sup, proof),
             // A cell is written as well as read, so it is the same type
             // or it is not a subtype.
             (Ty::Cell(have), Ty::Cell(want)) => {
-                self.sub(have, want, assumed) && self.sub(want, have, assumed)
+                self.sub(have, want, proof) && self.sub(want, have, proof)
             }
+            (
+                Ty::Generic { bounds, function },
+                Ty::Generic {
+                    bounds: want_bounds,
+                    function: want,
+                },
+            ) => self.generic((bounds, function), (want_bounds, want), proof),
             (
                 Ty::Function { params, ret, row },
                 Ty::Function {
@@ -103,8 +149,8 @@ impl Env {
                     && want_params
                         .iter()
                         .zip(params)
-                        .all(|(want, have)| self.sub(want, have, assumed))
-                    && self.sub(ret, want_ret, assumed)
+                        .all(|(want, have)| self.sub(want, have, proof))
+                    && self.sub(ret, want_ret, proof)
             }
             _ => false,
         }
@@ -139,6 +185,7 @@ impl Env {
             | (_, Ty::Unknown | Ty::Named(..))
             | (Ty::List(_), Ty::List(_))
             | (Ty::Iterator(_), Ty::Iterator(_))
+            | (Ty::Generic { .. }, Ty::Generic { .. })
             | (Ty::Function { .. }, Ty::Function { .. }) => false,
             (Ty::Union(members), other) | (other, Ty::Union(members)) => {
                 members.iter().all(|m| self.apart(m, other, next))

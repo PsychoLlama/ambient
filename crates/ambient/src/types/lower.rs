@@ -91,6 +91,11 @@ impl Env {
                 ret: Box::new(self.lower(ret, slot)),
                 row: self.row(&abilities(row)).iter().map(slot).collect(),
             },
+            Ty::Bound(index) => core::Type::Bound(*index),
+            Ty::Generic { bounds, function } => core::Type::Generic {
+                bounds: all(bounds),
+                function: Box::new(self.lower(function, slot)),
+            },
             Ty::Union(members) => {
                 let mut members = all(members);
                 members.sort_by_key(core::Type::encode);

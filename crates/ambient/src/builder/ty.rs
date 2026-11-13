@@ -148,6 +148,39 @@ pub fn function_row<'a>(
     }
 }
 
+/// A function type with type parameters of its own, each a name and an
+/// optional bound. `function` is a function type that names them, as
+/// their bounds may; the names are not kept.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "a builder takes what it is given, as the others do"
+)]
+pub fn generic<'a>(
+    params: impl IntoIterator<Item = (&'a str, Option<Type>)>,
+    function: Type,
+) -> Type {
+    let (names, bounds): (Vec<&str>, Vec<Option<Type>>) = params.into_iter().unzip();
+    let bind = |ty: &Type| {
+        ty.rewrite(0, &|ty, depth| match ty {
+            Type::Named(Path(segments), args) if args.is_empty() => {
+                let [name] = segments.as_slice() else {
+                    return None;
+                };
+                let position = names.iter().position(|param| param == name)?;
+                Some(Type::Bound(depth + position))
+            }
+            _ => None,
+        })
+    };
+    Type::Generic {
+        bounds: bounds
+            .iter()
+            .map(|bound| bound.as_ref().map_or(Type::Unknown, &bind))
+            .collect(),
+        function: Box::new(bind(&function)),
+    }
+}
+
 /// A type named by a dotted path, such as `"Point"` or `"geometry.Point"`.
 #[must_use]
 pub fn named(path: &str) -> Type {

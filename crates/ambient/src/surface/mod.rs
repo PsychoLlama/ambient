@@ -231,6 +231,18 @@ pub enum Type<N = Path> {
     Union(Vec<Type<N>>),
     /// A type parameter, or a type definition applied to arguments.
     Named(N, Vec<Type<N>>),
+    /// A function type with type parameters of its own: the bound of
+    /// each, and the function type they are parameters of. See
+    /// "Generics" in `spec/types.md`.
+    Generic {
+        bounds: Vec<Type<N>>,
+        function: Box<Type<N>>,
+    },
+    /// A type parameter of a [`Type::Generic`] this is inside, counted
+    /// from the innermost: its parameters in order, then those of the
+    /// one around it. A name is not part of a type, so two generic
+    /// function types that differ only in names are one type.
+    Bound(usize),
 }
 
 /// A shape of value that has methods of the standard library: every

@@ -65,6 +65,15 @@ pub mod descriptor {
     /// function that steps an iterator of them, as a definition carries
     /// it, or zero if the items' type mentions a type parameter.
     pub const ITERATOR: u64 = 19;
+    /// A function type with type parameters of its own: then a count
+    /// and that many nodes, the bound of each; the node of the
+    /// function type; and the name of the whole type, as a definition
+    /// carries it, or zero if it mentions a type parameter of the
+    /// definition it is written in.
+    pub const GENERIC: u64 = 20;
+    /// Then which parameter of the generic function types it is inside,
+    /// counted from the innermost. No value is tested against one.
+    pub const BOUND: u64 = 21;
 }
 
 /// The tests a descriptor makes of the values inside a value.
@@ -288,6 +297,13 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
                         return inside(true, Inside::Every { node, members });
                     }
                 }
+            }
+            // A generic function is of the type its definition names,
+            // as any function is.
+            d::GENERIC => {
+                let name = node(3 + node(1) as usize);
+                let function = matches!(kind(value), KIND_CLOSURE | KIND_METHOD);
+                function && name != 0 && type_name(value) == name
             }
             // A function's definition names its type, and so does the
             // node: a function is of that type and no other. Nothing is

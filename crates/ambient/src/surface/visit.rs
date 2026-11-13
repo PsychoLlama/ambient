@@ -22,6 +22,7 @@ impl<N> Type<N> {
             | Self::Float
             | Self::String
             | Self::Tag
+            | Self::Bound(_)
             | Self::Literal(_) => {}
             Self::Record(fields) => {
                 for (key, ty) in fields {
@@ -39,6 +40,12 @@ impl<N> Type<N> {
                 needs.names(visit);
                 function.names(visit);
             }
+            Self::Generic { bounds, function } => {
+                for bound in bounds {
+                    bound.names(visit);
+                }
+                function.names(visit);
+            }
             Self::Function { params, ret, row } => {
                 for ty in params {
                     ty.names(visit);
@@ -53,6 +60,74 @@ impl<N> Type<N> {
                 }
             }
         }
+    }
+}
+
+impl<N: Clone> Type<N> {
+    /// The type with every type in it passed through `leaf`, which
+    /// gives what to put in its place or nothing to keep it. `leaf` is
+    /// told how many parameters of generic function types are bound
+    /// around the type it is asked about: `depth`, and more inside.
+    #[must_use]
+    pub fn rewrite(&self, depth: usize, leaf: &dyn Fn(&Self, usize) -> Option<Self>) -> Self {
+        if let Some(replaced) = leaf(self, depth) {
+            return replaced;
+        }
+        let all = |types: &[Self], depth: usize| -> Vec<Self> {
+            types.iter().map(|ty| ty.rewrite(depth, leaf)).collect()
+        };
+        let one = |ty: &Self, depth: usize| Box::new(ty.rewrite(depth, leaf));
+        match self {
+            Self::Record(fields) => {
+                let field = |(key, ty): &(Key<N>, Self)| (key.clone(), ty.rewrite(depth, leaf));
+                Self::Record(fields.iter().map(field).collect())
+            }
+            Self::Tuple(members) => Self::Tuple(all(members, depth)),
+            Self::Union(members) => Self::Union(all(members, depth)),
+            Self::List(member) => Self::List(one(member, depth)),
+            Self::Cell(member) => Self::Cell(one(member, depth)),
+            Self::Iterator(member) => Self::Iterator(one(member, depth)),
+            Self::Method { needs, function } => Self::Method {
+                needs: one(needs, depth),
+                function: one(function, depth),
+            },
+            Self::Function { params, ret, row } => Self::Function {
+                params: all(params, depth),
+                ret: one(ret, depth),
+                row: row.clone(),
+            },
+            Self::Named(name, args) => Self::Named(name.clone(), all(args, depth)),
+            // A bound may mention the parameters it is beside.
+            Self::Generic { bounds, function } => Self::Generic {
+                bounds: all(bounds, depth + bounds.len()),
+                function: one(function, depth + bounds.len()),
+            },
+            _ => self.clone(),
+        }
+    }
+
+    /// The parameter of a generic function type that this is, if it is
+    /// one of the `count` bound just outside `depth` more.
+    #[must_use]
+    pub fn bound_at(&self, depth: usize, count: usize) -> Option<usize> {
+        match self {
+            Self::Bound(index) if (depth..depth + count).contains(index) => Some(index - depth),
+            _ => None,
+        }
+    }
+
+    /// Whether the type mentions no parameter of a generic function
+    /// type that is not inside it.
+    #[must_use]
+    pub fn closed(&self) -> bool {
+        let free = std::cell::Cell::new(false);
+        let _ = self.rewrite(0, &|ty, depth| {
+            if matches!(ty, Self::Bound(index) if *index >= depth) {
+                free.set(true);
+            }
+            None
+        });
+        !free.get()
     }
 }
 

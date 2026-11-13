@@ -29,6 +29,9 @@ pub enum BuildError {
     ImportTooShort(Path),
     /// An expression nests more deeply than any tree may.
     Nesting,
+    /// Type parameters are given to something other than a function
+    /// type, or one is named outside the function type that has it.
+    GenericType,
 }
 
 impl fmt::Display for BuildError {
@@ -49,6 +52,10 @@ impl fmt::Display for BuildError {
             Self::DuplicateHandler(path) => write!(f, "two handlers for `{path}`"),
             Self::DuplicateBinder(name) => write!(f, "a pattern binds `{name}` twice"),
             Self::ImportTooShort(path) => write!(f, "import `{path}` names only a package"),
+            Self::GenericType => write!(
+                f,
+                "only a function type has type parameters, named only inside it"
+            ),
             Self::Nesting => write!(
                 f,
                 "an expression nests more than {} levels deep",

@@ -85,6 +85,15 @@ pub(super) fn show(ty: &Ty, out: &mut String) {
             show(ret, out);
         }
         Ty::Union(members) => show_all(members, " | ", out),
+        Ty::Bound(index) => {
+            let _ = write!(out, "G{index}");
+        }
+        Ty::Generic { bounds, function } => {
+            out.push('<');
+            show_all(bounds, ", ", out);
+            out.push('>');
+            show(function, out);
+        }
         Ty::Named(Reference::Local(number) | Reference::Parameter(number), _) => {
             let _ = write!(out, "T{number}");
         }

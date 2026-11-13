@@ -84,6 +84,14 @@ fn spell(ty: &Type, hash: &dyn Fn(Slot) -> Hash) -> Option<String> {
         Type::Reference(slot, args) => {
             format!("#{}<{}>", hash(*slot), each(args, hash)?.join(","))
         }
+        Type::Generic { bounds, function } => {
+            format!(
+                "all[{}]{}",
+                each(bounds, hash)?.join(","),
+                spell(function, hash)?
+            )
+        }
+        Type::Bound(index) => format!("^{index}"),
         Type::Parameter(_) => return None,
     })
 }

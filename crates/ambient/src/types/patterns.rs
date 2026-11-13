@@ -236,7 +236,7 @@ impl Env {
             Ty::Tag | Ty::Literal(Literal::Tag { .. }) => Shape::Tag,
             Ty::Tuple(_) => Shape::Tuple,
             Ty::List(_) => Shape::List,
-            Ty::Function { .. } => Shape::Function,
+            Ty::Function { .. } | Ty::Generic { .. } => Shape::Function,
             Ty::Cell(_) => Shape::Cell,
             Ty::Iterator(_) => Shape::Iterator,
             Ty::Union(members) => {

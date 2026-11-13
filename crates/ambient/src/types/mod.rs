@@ -6,6 +6,7 @@
 //! is transparent and is replaced by its expansion before anything looks at
 //! it.
 
+mod generic;
 mod lower;
 mod operations;
 mod patterns;
@@ -17,6 +18,8 @@ use std::collections::BTreeMap;
 use crate::literal::Literal;
 use crate::surface::{Key, Reference, Shape, Type};
 use crate::symbol::Symbol;
+
+pub use generic::{generalize, instantiate};
 
 pub type Ty = Type<Reference>;
 
@@ -93,7 +96,14 @@ pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
         | Ty::String
         | Ty::Tag
         | Ty::Literal(_)
+        | Ty::Bound(_)
         | Ty::Named(Reference::Local(_), _) => ty.clone(),
+        // An argument mentions no parameter of a generic function
+        // type from outside it, so it goes inside one as it is.
+        Ty::Generic { bounds, function } => Ty::Generic {
+            bounds: all(bounds),
+            function: Box::new(substitute(function, args)),
+        },
         Ty::Record(fields) => Ty::Record(
             fields
                 .iter()
@@ -161,6 +171,7 @@ fn mentions_parameter(ty: &Ty) -> bool {
         Ty::List(member) | Ty::Cell(member) | Ty::Iterator(member) => mentions_parameter(member),
         Ty::Method { needs, function } => mentions_parameter(needs) || mentions_parameter(function),
         Ty::Function { params, ret, .. } => any(params) || mentions_parameter(ret),
+        Ty::Generic { bounds, function } => any(bounds) || mentions_parameter(function),
         _ => false,
     }
 }
@@ -185,7 +196,7 @@ impl Env {
         match ty {
             // An iterator that a function steps is tested as that
             // function is.
-            Ty::Function { .. } | Ty::Iterator(_) => !mentions_parameter(ty),
+            Ty::Function { .. } | Ty::Generic { .. } | Ty::Iterator(_) => !mentions_parameter(ty),
             // A test never yields a method: see `spec/methods.md`.
             Ty::Method { .. } => false,
             Ty::Record(fields) => fields.iter().all(|(_, ty)| self.tests(ty, seen)),
@@ -227,7 +238,12 @@ impl Env {
             | Ty::String
             | Ty::Tag
             | Ty::Literal(_)
+            | Ty::Bound(_)
             | Ty::Named(Reference::Local(_) | Reference::Parameter(_), _) => ty.clone(),
+            Ty::Generic { bounds, function } => Ty::Generic {
+                bounds: bounds.iter().map(|b| self.normal(b, absorb)).collect(),
+                function: Box::new(self.normal(function, absorb)),
+            },
             Ty::Record(fields) => {
                 let mut fields: Vec<_> = fields
                     .iter()

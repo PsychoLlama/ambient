@@ -34,6 +34,9 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - Collections and iterators are covariant; immutability makes that sound.
 - `Cell<T>` is invariant.
 - A function type is a subtype of one with narrower parameters, a wider return type, or a larger row.
+- Two function types with type parameters are related only if they take as many, with the same bounds; they are then related as they would be with one type standing for each parameter in both.
+- Bounds must be the same, not one within the other, which keeps subtyping decidable.
+- A function type with type parameters and one without are unrelated: subtyping never chooses a type argument.
 - A literal type is a subtype of its primitive.
 - A tuple and a list are unrelated, whatever they hold: a tuple is so many values, each with its own type, and a list is any number of one type.
 - An intersection of records has the keys of both; an intersection with a brand adds the brand.
@@ -98,7 +101,8 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - An inferred argument that violates its bound is an error; inference never widens to the bound.
 - Inside its definition a type parameter is known only by its bound, and an unbounded one supports no operations.
 - A generic function used as a value is instantiated where it is named, from the function type expected of it.
-- TODO: a function type that is itself generic is not yet expressible; every generic function value is instantiated at one type.
+- A function type may take type parameters of its own, each with an optional bound; their names are not part of the type.
+- TODO: no value has such a type yet: every generic function value is instantiated at one type.
 - A recursive generic type applies itself only to its own parameters, unchanged.
 - There are no conditional types, mapped types, or type operators.
 

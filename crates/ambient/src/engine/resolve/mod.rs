@@ -228,6 +228,11 @@ impl Resolver<'_> {
                 row: self.row(row)?,
             },
             Type::Union(members) => Type::Union(self.types(members)?),
+            Type::Bound(index) => Type::Bound(*index),
+            Type::Generic { bounds, function } => Type::Generic {
+                bounds: self.types(bounds)?,
+                function: Box::new(self.ty(function)?),
+            },
             Type::Named(path, args) => {
                 let parameter = match path.0.as_slice() {
                     [name] => self.type_params.iter().position(|param| param == name),

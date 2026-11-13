@@ -215,6 +215,7 @@ impl Type {
                 member.mentions_parameter()
             }
             Self::Function { params, ret, .. } => any(params) || ret.mentions_parameter(),
+            Self::Generic { bounds, function } => any(bounds) || function.mentions_parameter(),
             _ => false,
         }
     }
@@ -241,6 +242,11 @@ impl Type {
                 let mut slots = all(params);
                 slots.extend(ret.slots());
                 slots.extend(row);
+                slots
+            }
+            Self::Generic { bounds, function } => {
+                let mut slots = all(bounds);
+                slots.extend(function.slots());
                 slots
             }
             _ => Vec::new(),
