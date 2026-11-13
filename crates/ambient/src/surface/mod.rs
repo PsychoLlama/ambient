@@ -429,7 +429,10 @@ pub enum Expr<N = Path> {
     /// `row` is what it takes from its caller; any other ability it uses
     /// is captured where the lambda is written. `returns` is what it
     /// gives, if that is stated: otherwise it is what the body gives.
+    /// With `type_params` it is a generic function, and its type a
+    /// generic function type.
     Lambda {
+        type_params: Vec<TypeParam<N>>,
         params: Vec<(String, Option<Type<N>>)>,
         row: Vec<N>,
         returns: Option<Type<N>>,

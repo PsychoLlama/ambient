@@ -3,7 +3,7 @@
 
 use super::Resolver;
 use crate::error::Error;
-use crate::surface::{Arm, Expr, Key, Path, Pattern, Reference, Type};
+use crate::surface::{Arm, Expr, Key, Pattern, Reference, TypeParam};
 use crate::symbol::Namespace;
 
 impl Resolver<'_> {
@@ -111,14 +111,15 @@ impl Resolver<'_> {
                     body: Box::new(self.expr(body)?),
                 }
             }
-            Expr::Lambda {
-                params,
-                row,
-                returns,
-                body,
-            } => {
-                let returns = returns.as_ref().map(|ty| self.ty(ty)).transpose()?;
-                self.lambda(params, row, returns, body)?
+            Expr::Lambda { type_params, .. } => {
+                // Its type parameters follow those in scope, and a name
+                // of its own hides one outside it.
+                let outer = self.type_params.len();
+                let names = type_params.iter().map(|param| param.name.clone());
+                self.type_params.extend(names);
+                let lambda = self.lambda(expr);
+                self.type_params.truncate(outer);
+                lambda?
             }
             Expr::Comptime(call) => Expr::Comptime(Box::new(self.expr(call)?)),
             Expr::Cast {
@@ -231,13 +232,25 @@ impl Resolver<'_> {
         Ok(resolved)
     }
 
-    fn lambda(
-        &mut self,
-        params: &[(String, Option<Type>)],
-        row: &[Path],
-        returns: Option<Type<Reference>>,
-        body: &Expr,
-    ) -> Result<Expr<Reference>, Error> {
+    fn lambda(&mut self, lambda: &Expr) -> Result<Expr<Reference>, Error> {
+        let Expr::Lambda {
+            type_params,
+            params,
+            row,
+            returns,
+            body,
+        } = lambda
+        else {
+            return self.expr(lambda);
+        };
+        let mut bounds = Vec::new();
+        for param in type_params {
+            bounds.push(TypeParam {
+                name: param.name.clone(),
+                bound: param.bound.as_ref().map(|ty| self.ty(ty)).transpose()?,
+            });
+        }
+        let returns = returns.as_ref().map(|ty| self.ty(ty)).transpose()?;
         let mut resolved = Vec::new();
         for (name, ty) in params {
             let ty = ty.as_ref().map(|ty| self.ty(ty)).transpose()?;
@@ -250,6 +263,7 @@ impl Resolver<'_> {
         let body = Box::new(self.expr(body)?);
         self.locals.truncate(scope);
         Ok(Expr::Lambda {
+            type_params: bounds,
             params: resolved,
             row: self.row(row)?,
             returns,

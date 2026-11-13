@@ -233,11 +233,16 @@ fn check_node(expr: &Expr) -> Result<(), BuildError> {
         Expr::Cell { ty, .. } => ty.iter().try_for_each(check_type),
         Expr::Cast { ty, .. } => check_type(ty),
         Expr::Lambda {
+            type_params,
             params,
             row,
             returns,
             ..
         } => {
+            check_type_params(type_params.iter().map(|param| &param.name))?;
+            for bound in type_params.iter().filter_map(|param| param.bound.as_ref()) {
+                check_type(bound)?;
+            }
             row.iter().try_for_each(check_path)?;
             returns.iter().try_for_each(check_type)?;
             let mut seen = BTreeSet::new();

@@ -80,6 +80,38 @@ pub struct Env {
     pub methods: BTreeMap<(Shape, String), Symbol>,
     /// The bound of each type parameter of the definition being checked.
     pub bounds: Vec<Ty>,
+    /// The bound of each type parameter of the generic lambdas checking
+    /// is inside of, outermost first: type parameters like the
+    /// definition's, numbered after them. It changes as checking goes
+    /// in and out of them, which is the one thing here that changes.
+    pub inner: std::cell::RefCell<Vec<Ty>>,
+}
+
+impl Env {
+    /// How many type parameters are in scope.
+    #[must_use]
+    pub fn parameters(&self) -> usize {
+        self.bounds.len() + self.inner.borrow().len()
+    }
+
+    /// The bound of the type parameter at `position`, if one is in
+    /// scope there.
+    #[must_use]
+    pub fn bound(&self, position: usize) -> Option<Ty> {
+        let inner = || {
+            self.inner
+                .borrow()
+                .get(position - self.bounds.len())
+                .cloned()
+        };
+        self.bounds.get(position).cloned().or_else(inner)
+    }
+
+    /// The bound of every type parameter in scope, in order.
+    #[must_use]
+    pub fn all_bounds(&self) -> Vec<Ty> {
+        [self.bounds.clone(), self.inner.borrow().clone()].concat()
+    }
 }
 
 /// `ty` with each type parameter replaced by the argument in its position.

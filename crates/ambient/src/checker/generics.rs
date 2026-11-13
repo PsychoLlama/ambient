@@ -67,7 +67,7 @@ impl Checker<'_> {
         let Ty::Generic { bounds, function } = self.env.unfold(ty) else {
             return Err(not_callable());
         };
-        let own = self.env.bounds.len();
+        let own = self.env.parameters();
         let fresh: Vec<Ty> = (own..own + bounds.len())
             .map(|position| Ty::Named(Reference::Parameter(position), Vec::new()))
             .collect();

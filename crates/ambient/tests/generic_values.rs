@@ -6,9 +6,11 @@
 mod support;
 
 use ambient::builder::{self as b, pat, ty};
+use ambient::engine::Engine;
+use ambient::store::MemoryStore;
 use ambient::surface::{Definition, Expr, Type};
 use ambient::value::Value;
-use support::run;
+use support::{run, value, workspace};
 
 fn t() -> Type {
     ty::named("T")
@@ -146,4 +148,96 @@ fn generic_functions_are_compared_as_values() {
         evaluates(b::tuple([same, other]), []),
         Value::Tuple(expected.to_vec())
     );
+}
+
+/// `<T>(v: T) => body`
+fn generic_lambda(body: Expr) -> Expr {
+    b::generic([("T", None)], b::lambda([("v", Some(t()))], body))
+}
+
+#[test]
+fn a_lambda_with_type_parameters_is_used_at_more_than_one_type() {
+    let body = b::let_("f", generic_lambda(b::name("v")), at_two_types("f"));
+    assert_eq!(evaluates(body, []), both());
+}
+
+#[test]
+fn a_generic_lambda_captures_what_is_in_scope() {
+    let paired = generic_lambda(b::tuple([b::name("kept"), b::name("v")]));
+    let called = b::let_("f", paired, b::call(b::name("f"), [b::string("a")]));
+    assert_eq!(evaluates(b::let_("kept", b::int(1), called), []), both());
+}
+
+#[test]
+fn a_generic_function_gives_a_generic_function() {
+    let second = ty::generic(
+        [("B", None)],
+        ty::function(
+            [ty::named("B")],
+            ty::tuple([ty::named("A"), ty::named("B")]),
+        ),
+    );
+    let inner = b::lambda(
+        [("b", Some(ty::named("B")))],
+        b::tuple(["a", "b"].map(b::name)),
+    );
+    let pair = b::function("pair")
+        .type_param("A")
+        .param("a", ty::named("A"))
+        .returns(second)
+        .body(b::generic([("B", None)], inner));
+    let made = b::call(b::name("pair"), [b::int(1)]);
+    assert_eq!(evaluates(b::call(made, [b::string("a")]), [pair]), both());
+}
+
+#[test]
+fn a_generic_lambda_is_handed_its_type_arguments_after_its_enclosers() {
+    let is = |name: &str| {
+        let arms = [
+            (pat::is(ty::named(name)), b::boolean(true)),
+            (pat::any(), b::boolean(false)),
+        ];
+        b::match_(b::name("v"), arms)
+    };
+    let inner = b::lambda([("v", Some(ty::unknown()))], b::tuple([is("A"), is("B")]));
+    let gives = ty::function([ty::unknown()], ty::tuple([ty::bool(), ty::bool()]));
+    let tests = b::function("tests")
+        .type_param("A")
+        .returns(ty::generic([("B", None)], gives))
+        .body(b::generic([("B", None)], inner));
+    let made = b::call(b::instantiate("tests", [ty::int()]), []);
+    let called = b::call(b::instantiate("g", [ty::string()]), [b::string("a")]);
+    let expected = [false, true].map(Value::Bool);
+    assert_eq!(
+        evaluates(b::let_("g", made, called), [tests]),
+        Value::Tuple(expected.to_vec())
+    );
+}
+
+#[test]
+fn a_generic_lambda_takes_parameter_types_from_what_is_expected() {
+    let twice = b::function("twice")
+        .param("f", identity())
+        .returns(ty::unknown())
+        .body(at_two_types("f"));
+    let untyped = b::generic([("T", None)], b::lambda([("v", None)], b::name("v")));
+    let body = b::call(b::name("twice"), [untyped]);
+    assert_eq!(evaluates(body, [twice]), both());
+}
+
+#[test]
+fn a_type_parameter_of_a_lambda_is_known_by_its_bound() {
+    let bounded = |arg: Expr| {
+        let add = b::lambda([("v", Some(t()))], b::add(b::name("v"), b::int(1)));
+        let lambda = b::generic([("T", Some(ty::int()))], add);
+        let main = b::function("main").returns(ty::unknown());
+        let body = b::let_("f", lambda, b::call(b::name("f"), [arg]));
+        let workspace = workspace([("app", "main", b::module().define(main.body(body)))]);
+        let store = MemoryStore::new();
+        Engine::new(&workspace, &store)
+            .check(&value("main", "main"))
+            .is_ok()
+    };
+    assert!(bounded(b::int(1)));
+    assert!(!bounded(b::string("a")));
 }

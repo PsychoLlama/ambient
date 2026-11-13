@@ -457,11 +457,13 @@ fn a_fault_inside_a_closure_unwinds_through_its_caller() {
 fn overflow_typed(lambda: Expr) -> Expr {
     match lambda {
         ambient::surface::Expr::Lambda {
+            type_params,
             params,
             row,
             returns,
             body,
         } => ambient::surface::Expr::Lambda {
+            type_params,
             returns,
             params: params
                 .into_iter()

@@ -163,11 +163,15 @@ impl<N> Expr<N> {
             Self::Send { method, .. } => method.names(visit),
             Self::Match { arms, .. } => arms.iter().for_each(|arm| arm.pattern.names(visit)),
             Self::Lambda {
+                type_params,
                 params,
                 row,
                 returns,
                 ..
             } => {
+                for bound in type_params.iter().filter_map(|param| param.bound.as_ref()) {
+                    bound.names(visit);
+                }
                 for ty in params.iter().filter_map(|(_, ty)| ty.as_ref()) {
                     ty.names(visit);
                 }

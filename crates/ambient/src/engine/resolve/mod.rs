@@ -235,7 +235,7 @@ impl Resolver<'_> {
             },
             Type::Named(path, args) => {
                 let parameter = match path.0.as_slice() {
-                    [name] => self.type_params.iter().position(|param| param == name),
+                    [name] => self.type_params.iter().rposition(|param| param == name),
                     _ => None,
                 };
                 let reference = match parameter {

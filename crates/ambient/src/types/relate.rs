@@ -31,7 +31,7 @@ impl Env {
         if bounds.len() != want_bounds.len() {
             return false;
         }
-        let base = self.bounds.len() + proof.opened.len();
+        let base = self.parameters() + proof.opened.len();
         let fresh: Vec<Ty> = (base..base + bounds.len())
             .map(|position| Ty::Named(Reference::Parameter(position), Vec::new()))
             .collect();
@@ -91,9 +91,8 @@ impl Env {
             // A type parameter is known only by its bound.
             (Ty::Named(Reference::Parameter(position), _), _) => {
                 let member = matches!(sup, Ty::Union(members) if members.contains(sub));
-                let bound = self.bounds.get(*position).cloned();
-                let bound =
-                    bound.or_else(|| proof.opened.get(position - self.bounds.len()).cloned());
+                let opened = || proof.opened.get(position - self.parameters()).cloned();
+                let bound = self.bound(*position).or_else(opened);
                 member || bound.is_some_and(|bound| self.sub(&bound, sup, proof))
             }
             (Ty::Bool, Ty::Union(_)) => self.sub(&booleans(), sup, proof),
@@ -178,9 +177,8 @@ impl Env {
             // function.
             (Ty::Named(Reference::Parameter(position), _), other)
             | (other, Ty::Named(Reference::Parameter(position), _)) => self
-                .bounds
-                .get(*position)
-                .is_some_and(|bound| self.apart(bound, other, next)),
+                .bound(*position)
+                .is_some_and(|bound| self.apart(&bound, other, next)),
             (Ty::Unknown | Ty::Named(..), _)
             | (_, Ty::Unknown | Ty::Named(..))
             | (Ty::List(_), Ty::List(_))

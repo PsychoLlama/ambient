@@ -6,7 +6,7 @@ use crate::core::{self, Open, Slot, Tree};
 use crate::error::Error;
 use crate::surface::{Expr, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Ty, abilities};
+use crate::types::{Ty, abilities, generalize, instantiate};
 
 /// A definition made inside another, as the encloser refers to it.
 pub(super) struct Made {
@@ -32,12 +32,80 @@ impl Checker<'_> {
     ///
     /// `hint` is the parameter types expected of it, if anything expects
     /// any. The result type is the one it states, or else the body's.
+    /// One with type parameters is of a generic function type.
     pub(super) fn lambda(
         &mut self,
         lambda: &Expr<Reference>,
         hint: Option<&[Ty]>,
     ) -> Result<(core::Expr, Ty), Error> {
+        let Expr::Lambda { type_params, .. } = lambda else {
+            return self.infer(lambda);
+        };
+        // Its type parameters are in scope for everything written in
+        // it, a bound beside them included, and for nothing after it.
+        let outer = self.env.parameters();
+        let depth = outer - self.env.bounds.len();
+        let unbounded = type_params.iter().map(|_| Ty::Unknown);
+        self.env.inner.borrow_mut().extend(unbounded);
+        let checked = self.bounds_of(lambda).and_then(|bounds| {
+            self.env.inner.borrow_mut().splice(depth.., bounds.clone());
+            let made = self.written(lambda, hint)?;
+            Ok((made, bounds))
+        });
+        self.env.inner.borrow_mut().truncate(depth);
+        let ((closure, function), bounds) = checked?;
+        if bounds.is_empty() {
+            return Ok((closure, function));
+        }
+        let own = bounds.len();
+        let generic = Ty::Generic {
+            bounds: bounds.iter().map(|b| generalize(b, outer, own)).collect(),
+            function: Box::new(generalize(&function, outer, own)),
+        };
+        Ok((closure, generic))
+    }
+
+    /// The bound of each type parameter a lambda has of its own.
+    fn bounds_of(&self, lambda: &Expr<Reference>) -> Result<Vec<Ty>, Error> {
+        let Expr::Lambda { type_params, .. } = lambda else {
+            return Ok(Vec::new());
+        };
+        let mut bounds = Vec::new();
+        for param in type_params {
+            bounds.push(match &param.bound {
+                Some(bound) => {
+                    self.well_formed(bound)?;
+                    self.env.normalize(bound)
+                }
+                None => Ty::Unknown,
+            });
+        }
+        Ok(bounds)
+    }
+
+    /// The parameter types a generic lambda takes from a generic
+    /// function type expected of it: those of the function type, with
+    /// the lambda's own type parameters standing for the type's.
+    pub(super) fn hinted(&self, bounds: &[Ty], function: &Ty) -> Option<Vec<Ty>> {
+        let outer = self.env.parameters();
+        let own: Vec<Ty> = (outer..outer + bounds.len())
+            .map(|position| Ty::Named(Reference::Parameter(position), Vec::new()))
+            .collect();
+        match self.env.normalize(&instantiate(function, &own)) {
+            Ty::Function { params, .. } => Some(params),
+            _ => None,
+        }
+    }
+
+    /// A lambda checked with its own type parameters in scope: the
+    /// closure, and the type of its function as written inside it.
+    fn written(
+        &mut self,
+        lambda: &Expr<Reference>,
+        hint: Option<&[Ty]>,
+    ) -> Result<(core::Expr, Ty), Error> {
         let Expr::Lambda {
+            type_params,
             params,
             row,
             returns,
@@ -69,7 +137,7 @@ impl Checker<'_> {
                 }
             });
         }
-        self.function(types, row, returns, body)
+        self.function_of(type_params.len(), types, row, returns, body)
     }
 
     /// A function written in place: one that takes `types` and its
@@ -81,7 +149,21 @@ impl Checker<'_> {
         returns: Option<Ty>,
         body: &Expr<Reference>,
     ) -> Result<(core::Expr, Ty), Error> {
+        self.function_of(0, types, row, returns, body)
+    }
+
+    /// [`Self::function`], of a function that has `generic` type
+    /// parameters of its own, the last that are in scope.
+    fn function_of(
+        &mut self,
+        generic: usize,
+        types: Vec<Ty>,
+        row: &[Reference],
+        returns: Option<Ty>,
+        body: &Expr<Reference>,
+    ) -> Result<(core::Expr, Ty), Error> {
         self.enter(abilities(row));
+        self.frame().generic = generic;
         for ty in &types {
             self.bind_local(ty.clone());
         }
@@ -142,7 +224,8 @@ impl Checker<'_> {
         // The definition's own tree is lowered while its frame is current,
         // so the slots land in its table.
         let env = self.env;
-        let type_params = env.bounds.iter().map(|ty| self.lower(ty)).collect();
+        let bounds = env.all_bounds();
+        let type_params = bounds.iter().map(|ty| self.lower(ty)).collect();
         let captures = values.iter().map(|ty| self.lower(ty)).collect();
         let params = params.iter().map(|ty| self.lower(ty)).collect();
         let ret = self.lower(ret);
@@ -171,7 +254,10 @@ impl Checker<'_> {
         Made {
             slot: self.slot(&symbol),
             // A lambda has its encloser's type parameters, at themselves.
-            type_args: (0..env.bounds.len()).map(core::Type::Parameter).collect(),
+            // Any of its own are given where it is instantiated.
+            type_args: (0..bounds.len() - frame.generic)
+                .map(core::Type::Parameter)
+                .collect(),
             // The same abilities, as the encloser's slots.
             bindings: self.row(&taken),
         }

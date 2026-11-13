@@ -227,11 +227,44 @@ pub fn lambda_returning<'a>(
 ) -> Expr {
     match lambda(params, body) {
         Expr::Lambda {
-            params, row, body, ..
+            type_params,
+            params,
+            row,
+            body,
+            ..
         } => Expr::Lambda {
+            type_params,
             params,
             row,
             returns: Some(returns),
+            body,
+        },
+        other => other,
+    }
+}
+
+/// `lambda`, a lambda, with type parameters: each a name and an
+/// optional bound. Its type is then a generic function type.
+pub fn generic<'a>(
+    type_params: impl IntoIterator<Item = (&'a str, Option<crate::surface::Type>)>,
+    lambda: Expr,
+) -> Expr {
+    let named = |(name, bound): (&str, _)| crate::surface::TypeParam {
+        name: name.to_owned(),
+        bound,
+    };
+    match lambda {
+        Expr::Lambda {
+            params,
+            row,
+            returns,
+            body,
+            ..
+        } => Expr::Lambda {
+            type_params: type_params.into_iter().map(named).collect(),
+            params,
+            row,
+            returns,
             body,
         },
         other => other,
@@ -246,6 +279,7 @@ pub fn lambda_row<'a>(
     body: Expr,
 ) -> Expr {
     Expr::Lambda {
+        type_params: Vec::new(),
         params: params
             .into_iter()
             .map(|(name, ty)| (name.to_owned(), ty))

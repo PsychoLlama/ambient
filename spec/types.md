@@ -67,6 +67,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - A cast to a function type passes a function of exactly that type, not one whose type is within it: a program never decides subtyping as it runs; only checking does.
 - A function type that mentions a type parameter is not a cast target, but inside a [cell](cells.md) type.
 - A cast to a generic function type passes a generic function of exactly that type that holds no type arguments; one that needs none as it runs is the same value at every type, and passes however it was used.
+- TODO: a generic lambda does not say its type, so no cast passes one.
 - A cast to a type parameter is allowed, and tests against the type argument, which a generic function [receives at run time](backends.md).
 - Only a function that casts to a type parameter, makes a cell at one, or hands one on to a function that does, needs its type arguments.
 - A cast never adds a brand to a value.
@@ -105,7 +106,9 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - A generic function named where nothing is expected of it is a value of such a type, and is still generic wherever it is passed or kept.
 - A value of a generic function type is instantiated by the arguments it is called with, by the function type expected of it where that is not generic, or by type arguments written out.
 - Instantiating is something done to a value where it is used, never a relation between types.
-- TODO: a lambda and a [method](methods.md) cannot take type parameters yet, so only a definition is a generic function.
+- A lambda may take type parameters, and is then a value of a generic function type; a parameter it gives no type takes one from a generic function type expected of it that has as many type parameters.
+- A lambda has only the type parameters it writes: nothing expected of it makes it generic.
+- TODO: a [method](methods.md) cannot take type parameters yet.
 - A recursive generic type applies itself only to its own parameters, unchanged.
 - There are no conditional types, mapped types, or type operators.
 

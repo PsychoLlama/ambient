@@ -103,6 +103,9 @@ struct Frame {
     /// Abilities this definition uses that only an enclosing one binds.
     bindings: Vec<Symbol>,
     lambdas: Vec<Open>,
+    /// How many type parameters this definition has of its own, after
+    /// those of what it is written in: a generic lambda's.
+    generic: usize,
 }
 
 /// Runs functions for comptime calls.
@@ -247,8 +250,15 @@ impl<'a> Checker<'a> {
         expr: &Expr<Reference>,
         expected: &Ty,
     ) -> Result<(core::Expr, Ty), Error> {
-        let hint = match self.env.unfold(expected) {
-            Ty::Function { params, .. } => Some(params),
+        let hint = match (self.env.unfold(expected), expr) {
+            (Ty::Function { params, .. }, _) => Some(params),
+            // A generic lambda takes them from a generic function type
+            // with as many type parameters, each standing for its own.
+            (Ty::Generic { bounds, function }, Expr::Lambda { type_params, .. })
+                if bounds.len() == type_params.len() =>
+            {
+                self.hinted(&bounds, &function)
+            }
             _ => None,
         };
         match (expr, hint) {

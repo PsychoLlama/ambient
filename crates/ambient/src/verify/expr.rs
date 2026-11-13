@@ -2,11 +2,11 @@
 //! it.
 
 use super::{Invalid, Verifier, shape};
-use crate::checker::{function_type, generic_type};
+use crate::checker::function_type;
 use crate::core::{self, Expr, Primitive, Slot};
 use crate::surface::{Key, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Signature, Ty, TyKey, abilities, entry, instantiate, substitute, trace};
+use crate::types::{Ty, TyKey, abilities, entry, generalize, instantiate, substitute, trace};
 
 /// Abilities bound for part of a function: by its row and what it
 /// captured, or by a provide.
@@ -94,23 +94,6 @@ impl Body<'_, '_> {
 
     fn infer_all(&mut self, exprs: &[Expr]) -> Result<Vec<Ty>, Invalid> {
         exprs.iter().map(|expr| self.infer(expr)).collect()
-    }
-
-    /// The arguments a generic function is used at: as many as it has
-    /// type parameters, each within its bound.
-    fn type_args(&self, signature: &Signature, args: &[core::Type]) -> Result<Vec<Ty>, Invalid> {
-        let env = &self.verifier.env;
-        if args.len() != signature.type_params.len() {
-            return Err(Invalid::Arity);
-        }
-        let args = self.verifier.sound_all(args)?;
-        for (arg, bound) in args.iter().zip(&signature.type_params) {
-            let bound = env.normalize(&substitute(bound, &args));
-            if !env.subtype(arg, &bound) {
-                return Err(self.verifier.mismatch(&bound, arg));
-            }
-        }
-        Ok(args)
     }
 
     /// A key of a record, as its type holds it.
@@ -250,12 +233,22 @@ impl Body<'_, '_> {
         if signature.native && !verifier.root {
             return shape("only a program's root names a native handler");
         }
-        // A generic function named with no type arguments is a value of
-        // a generic function type.
-        if type_args.is_empty() && !signature.type_params.is_empty() && captures.is_empty() {
-            return Ok(env.normalize(&generic_type(signature)));
+        // Type arguments it is not given are parameters of its type: a
+        // generic function named alone, or a generic lambda, which is
+        // given only those of what it is written in.
+        let given = self.verifier.sound_all(type_args)?;
+        let Some(rest) = signature.type_params.len().checked_sub(given.len()) else {
+            return Err(Invalid::Arity);
+        };
+        let base = env.bounds.len();
+        let fresh = (base..base + rest).map(|at| Ty::Named(Reference::Parameter(at), Vec::new()));
+        let args: Vec<Ty> = given.iter().cloned().chain(fresh).collect();
+        for (arg, bound) in given.iter().zip(&signature.type_params) {
+            let bound = env.normalize(&substitute(bound, &args));
+            if !env.subtype(arg, &bound) {
+                return Err(self.verifier.mismatch(&bound, arg));
+            }
         }
-        let args = self.type_args(signature, type_args)?;
         if captures.len() + pending != held.captures.len() {
             return Err(Invalid::Arity);
         }
@@ -270,7 +263,17 @@ impl Body<'_, '_> {
         for ability in &held.bindings {
             self.require(ability)?;
         }
-        Ok(env.normalize(&function_type(signature, &args)))
+        let function = function_type(signature, &args);
+        if rest == 0 {
+            return Ok(env.normalize(&function));
+        }
+        let bounds = signature.type_params[given.len()..].iter();
+        Ok(env.normalize(&Ty::Generic {
+            bounds: bounds
+                .map(|bound| generalize(&substitute(bound, &args), base, rest))
+                .collect(),
+            function: Box::new(generalize(&function, base, rest)),
+        }))
     }
 
     /// The type of a record written out, before its methods are held

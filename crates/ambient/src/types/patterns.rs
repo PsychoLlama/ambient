@@ -179,9 +179,7 @@ impl Env {
     pub fn field(&self, ty: &Ty, key: &TyKey) -> Option<Ty> {
         match self.unfold(ty) {
             Ty::Never => Some(Ty::Never),
-            Ty::Named(Reference::Parameter(position), _) => {
-                self.field(self.bounds.get(position)?, key)
-            }
+            Ty::Named(Reference::Parameter(position), _) => self.field(&self.bound(position)?, key),
             Ty::Record(fields) => entry(&fields, key).map(Ty::read),
             Ty::Union(members) => {
                 let fields: Option<Vec<Ty>> = members.iter().map(|m| self.field(m, key)).collect();
@@ -198,7 +196,7 @@ impl Env {
     pub fn method(&self, ty: &Ty, key: &TyKey) -> Option<Ty> {
         match self.unfold(ty) {
             Ty::Named(Reference::Parameter(position), _) => {
-                self.method(self.bounds.get(position)?, key)
+                self.method(&self.bound(position)?, key)
             }
             Ty::Record(fields) => match entry(&fields, key)? {
                 Ty::Method { function, .. } => Some(self.unfold(function)),

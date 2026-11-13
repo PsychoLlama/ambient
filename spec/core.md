@@ -40,6 +40,7 @@ The core tree is the checked form of a definition and the only form that is hash
 - A closure: a slot for the lambda's definition, the locals it captures, and the [bindings it captures](abilities.md).
 - Inside a lambda a captured value is addressed by its position among the captures, separately from the lambda's own locals.
 - A lambda has the type parameters of the definition it is written in, and a closure passes them through unchanged.
+- A generic lambda has its own after those; its closure gives none of them, which is what makes it a value of a generic function type.
 - A call holds its callee and arguments.
 - A perform holds an ability slot, arguments, and whether the ability [returns](handlers.md).
 - A provide holds its mode, its body, and each handler with its ability slot.
