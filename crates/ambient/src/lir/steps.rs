@@ -165,6 +165,7 @@ impl Op {
             | Self::Types(_) => self.type_steps(),
             Self::Record(_)
             | Self::Method(_)
+            | Self::Instantiate { .. }
             | Self::Stepper(_)
             | Self::Advance(_)
             | Self::Field { .. }
@@ -236,6 +237,9 @@ impl Op {
                 steps
             }
             Self::Method(closure) => vec![step(Entry::Method, [value(closure)])],
+            Self::Instantiate { function, types } => {
+                vec![step(Entry::Instantiate, [value(function), value(types)])]
+            }
             Self::Stepper(iterator) => vec![step(Entry::IteratorStepper, [value(iterator)])],
             Self::Advance(iterator) => vec![step(Entry::IteratorAdvance, [value(iterator)])],
             Self::Field { record, key: field } => {

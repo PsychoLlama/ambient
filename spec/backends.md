@@ -46,6 +46,8 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 - A function needs them if it tests a value against a type parameter, makes a cell at one, or hands one on to a function that needs it; handing them on to itself is no need.
 - Any other generic function is one function at every type argument, and is called like a function that is not generic.
 - A type argument that is itself a type parameter is handed on as what it stands for, so a function that calls itself holds nothing of its callers.
+- A value of a generic function type holds no type arguments. Instantiating one copies it to hold them if its function needs them, and gives it back as it is if not; its definition says which.
+- What instantiates such a value at one of its own type parameters needs its type arguments, since nothing there says whether the value's function does.
 - One value carries a type: a [cell](cells.md) keeps the descriptor of the type it was made at, read with the type arguments in force where it was made.
 - A descriptor is otherwise consulted only where a cast is written.
 - A cast to a cell type passes a cell whose descriptor describes the same type as the cast's: names stand for their definitions, and a union is its members in any order.

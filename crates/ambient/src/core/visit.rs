@@ -33,6 +33,9 @@ impl Expr {
                 captures: exprs, ..
             } => exprs.iter().for_each(visit),
             Self::Field { target: inner, .. }
+            | Self::Instantiate {
+                function: inner, ..
+            }
             | Self::Method(inner)
             | Self::Step(inner)
             | Self::Cell { value: inner, .. }
@@ -183,6 +186,10 @@ impl Expr {
                 Self::Match { arms, .. } => {
                     found.own |= arms.iter().any(|(pattern, _)| pattern.mentions_parameter());
                 }
+                // Nothing says whether the function needs them.
+                Self::Instantiate { types, .. } => {
+                    found.own |= types.iter().any(Type::mentions_parameter);
+                }
                 Self::Reference(slot, types)
                 | Self::Closure {
                     slot,
@@ -217,6 +224,44 @@ impl Type {
             Self::Function { params, ret, .. } => any(params) || ret.mentions_parameter(),
             Self::Generic { bounds, function } => any(bounds) || function.mentions_parameter(),
             _ => false,
+        }
+    }
+
+    /// The type as the inside of a generic function type that binds
+    /// the type parameters of the definition it is written in, `depth`
+    /// parameters of generic function types being bound between.
+    #[must_use]
+    pub fn generalized(&self, depth: usize) -> Self {
+        let all = |types: &[Self], depth: usize| -> Vec<Self> {
+            types.iter().map(|ty| ty.generalized(depth)).collect()
+        };
+        let one = |ty: &Self, depth: usize| Box::new(ty.generalized(depth));
+        match self {
+            Self::Parameter(position) => Self::Bound(depth + position),
+            Self::Record(fields) => {
+                let field = |(key, ty): &(Key, Self)| (key.clone(), ty.generalized(depth));
+                Self::Record(fields.iter().map(field).collect())
+            }
+            Self::Tuple(members) => Self::Tuple(all(members, depth)),
+            Self::Union(members) => Self::Union(all(members, depth)),
+            Self::Reference(slot, args) => Self::Reference(*slot, all(args, depth)),
+            Self::List(member) => Self::List(one(member, depth)),
+            Self::Cell(member) => Self::Cell(one(member, depth)),
+            Self::Iterator(member) => Self::Iterator(one(member, depth)),
+            Self::Method { needs, function } => Self::Method {
+                needs: one(needs, depth),
+                function: one(function, depth),
+            },
+            Self::Function { params, ret, row } => Self::Function {
+                params: all(params, depth),
+                ret: one(ret, depth),
+                row: row.clone(),
+            },
+            Self::Generic { bounds, function } => Self::Generic {
+                bounds: all(bounds, depth + bounds.len()),
+                function: one(function, depth + bounds.len()),
+            },
+            _ => self.clone(),
         }
     }
 

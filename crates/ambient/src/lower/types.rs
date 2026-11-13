@@ -2,7 +2,7 @@
 //! of the type it was made at, and the type arguments a generic function
 //! is handed. See `spec/backends.md`.
 
-use super::{Lowering, Scope};
+use super::{Lowering, Scope, Unsupported};
 use crate::core;
 use crate::lir::{Constant, Expr, Op, Value};
 
@@ -89,6 +89,21 @@ impl Lowering {
             slot: slot.0,
             captures: vec![self.type_arguments(types, scope)],
         }
+    }
+
+    /// A generic function value at type arguments. What it is a
+    /// closure over is not known here, so the runtime sees whether its
+    /// function needs them: one that does is copied to hold them.
+    pub(super) fn instantiate(
+        &mut self,
+        function: &core::Expr,
+        types: &[core::Type],
+        scope: &mut Scope,
+    ) -> Result<Op, Unsupported> {
+        let function = self.operand(function, scope)?;
+        self.charge_copies(&[function], scope);
+        let types = self.type_arguments(types, scope);
+        Ok(Op::Instantiate { function, types })
     }
 
     /// The type arguments a generic function is used at here, as the

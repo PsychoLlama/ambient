@@ -167,6 +167,7 @@ pub fn plan(parts: &Parts, base: &Base) -> Statics {
                 constants,
                 metered,
                 signature,
+                types,
                 ..
             } => {
                 // Without a metered form, the plain one stands in for it.
@@ -180,6 +181,7 @@ pub fn plan(parts: &Parts, base: &Base) -> Statics {
                     let name = statics.type_name(signature, &slots);
                     statics.set(at + 4, name);
                 }
+                statics.set(at + 5, Field::Word(*types as u64));
                 for (position, slot) in slots.iter().enumerate() {
                     statics.set(at + DEFINITION_WORDS + position, slot.address.field());
                 }

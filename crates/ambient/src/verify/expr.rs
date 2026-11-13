@@ -2,11 +2,11 @@
 //! it.
 
 use super::{Invalid, Verifier, shape};
-use crate::checker::function_type;
+use crate::checker::{function_type, generic_type};
 use crate::core::{self, Expr, Primitive, Slot};
 use crate::surface::{Key, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Signature, Ty, TyKey, abilities, entry, substitute, trace};
+use crate::types::{Signature, Ty, TyKey, abilities, entry, instantiate, substitute, trace};
 
 /// Abilities bound for part of a function: by its row and what it
 /// captured, or by a provide.
@@ -180,6 +180,7 @@ impl Body<'_, '_> {
                 field.ok_or_else(|| Invalid::Shape("a field is read that may be missing".into()))?
             }
             Expr::Step(iterator) => self.step(iterator)?,
+            Expr::Instantiate { function, types } => self.instantiate(function, types)?,
             Expr::Send { target, key, args } => {
                 let found = self.infer(target)?;
                 let Some(Ty::Function { params, ret, row }) = env.method(&found, &self.key(key)?)
@@ -248,6 +249,11 @@ impl Body<'_, '_> {
         let held = verifier.held.get(symbol).ok_or(Invalid::Slot)?;
         if signature.native && !verifier.root {
             return shape("only a program's root names a native handler");
+        }
+        // A generic function named with no type arguments is a value of
+        // a generic function type.
+        if type_args.is_empty() && !signature.type_params.is_empty() && captures.is_empty() {
+            return Ok(env.normalize(&generic_type(signature)));
         }
         let args = self.type_args(signature, type_args)?;
         if captures.len() + pending != held.captures.len() {
@@ -372,6 +378,27 @@ impl Body<'_, '_> {
         let merged = Ty::Record(fields);
         self.receives(&merged)?;
         Ok(merged)
+    }
+
+    /// A generic function value at type arguments: as many as its type
+    /// has parameters, each within its bound.
+    fn instantiate(&mut self, function: &Expr, types: &[core::Type]) -> Result<Ty, Invalid> {
+        let found = self.infer(function)?;
+        let env = &self.verifier.env;
+        let Ty::Generic { bounds, function } = env.unfold(&found) else {
+            return shape("type arguments are given to what takes none");
+        };
+        if bounds.len() != types.len() {
+            return Err(Invalid::Arity);
+        }
+        let args = self.verifier.sound_all(types)?;
+        for (arg, bound) in args.iter().zip(&bounds) {
+            let bound = env.normalize(&instantiate(bound, &args));
+            if !env.subtype(arg, &bound) {
+                return Err(self.verifier.mismatch(&bound, arg));
+            }
+        }
+        Ok(env.normalize(&instantiate(&function, &args)))
     }
 
     /// A step: what an iterator gives next.

@@ -1,7 +1,7 @@
 //! Type tests: whether a descriptor describes a value.
 
 use crate::cell::made_at;
-use crate::closure::type_name;
+use crate::closure::{generic, type_name};
 use crate::iterator::{Tested, tested};
 use crate::object::{
     KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_ITERATOR, KIND_LIST, KIND_METHOD,
@@ -299,11 +299,11 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
                 }
             }
             // A generic function is of the type its definition names,
-            // as any function is.
+            // as any function is, until it holds its type arguments.
             d::GENERIC => {
                 let name = node(3 + node(1) as usize);
                 let function = matches!(kind(value), KIND_CLOSURE | KIND_METHOD);
-                function && name != 0 && type_name(value) == name
+                function && name != 0 && type_name(value) == name && generic(value)
             }
             // A function's definition names its type, and so does the
             // node: a function is of that type and no other. Nothing is

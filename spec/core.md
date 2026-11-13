@@ -36,6 +36,7 @@ The core tree is the checked form of a definition and the only form that is hash
 
 - Literals: null, booleans, integers, floats, strings, bytes, and tags.
 - A local, and a reference to a definition through a slot with its type arguments.
+- A reference to a generic function with no type arguments is a value of a generic function type; an instantiation holds such a value and its type arguments.
 - A closure: a slot for the lambda's definition, the locals it captures, and the [bindings it captures](abilities.md).
 - Inside a lambda a captured value is addressed by its position among the captures, separately from the lambda's own locals.
 - A lambda has the type parameters of the definition it is written in, and a closure passes them through unchanged.

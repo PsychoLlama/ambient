@@ -17,8 +17,11 @@ impl Checker<'_> {
         function: &Reference,
         args: &[Ty],
     ) -> Result<(core::Expr, Ty), Error> {
+        // Anything but a definition is a value of a generic function
+        // type, if it is one.
         let Reference::Definition(function) = function else {
-            return Ok((core::Expr::Null, Ty::Never));
+            let value = self.infer(&Expr::Name(function.clone()))?;
+            return self.instantiate_value(value, args);
         };
         let Some(signature) = self.env.functions.get(function) else {
             return Ok((core::Expr::Null, Ty::Never));
@@ -53,9 +56,60 @@ impl Checker<'_> {
             return self.generic_call(function, &signature, None, args);
         }
         let (core_callee, ty) = self.infer(callee)?;
+        if matches!(self.env.unfold(&ty), Ty::Generic { .. }) {
+            return self.generic_value_call(core_callee, &ty, None, args);
+        }
         let (args, ret) = self.arguments(callee, &ty, None, args)?;
         let callee = Box::new(core_callee);
         Ok((core::Expr::Call { callee, args }, ret))
+    }
+
+    /// A value of a generic function type where a function type that is
+    /// not generic is expected, with these parameters: it is
+    /// instantiated at whatever they require.
+    pub(super) fn coerced(
+        &mut self,
+        (core, found): Checked,
+        params: &[Ty],
+    ) -> Result<(core::Expr, Ty), Error> {
+        let (signature, own) = self.opened(&found)?;
+        if signature.params.len() != params.len() {
+            return Ok((core, found));
+        }
+        let mut lower = vec![Vec::new(); signature.type_params.len()];
+        for (param, wanted) in signature.params.iter().zip(params) {
+            self.collect(param, wanted, &mut lower);
+        }
+        let args = self.solve(None, &signature, own, lower)?;
+        let ty = self.env.normalize(&function_type(&signature, &args));
+        Ok((self.instantiated(core, &args[own..]), ty))
+    }
+
+    /// A value of a generic function type at type arguments that were
+    /// written out.
+    fn instantiate_value(
+        &mut self,
+        (core, found): Checked,
+        args: &[Ty],
+    ) -> Result<(core::Expr, Ty), Error> {
+        let (signature, own) = self.opened(&found)?;
+        let wanted = signature.type_params.len() - own;
+        if args.len() != wanted {
+            return Err(Error::TypeArguments {
+                symbol: self.symbol.clone(),
+                expected: wanted,
+                found: args.len(),
+            });
+        }
+        let scope = (0..own).map(|position| Ty::Named(Reference::Parameter(position), Vec::new()));
+        let mut all: Vec<Ty> = scope.collect();
+        for arg in args {
+            self.well_formed(arg)?;
+            all.push(self.env.normalize(arg));
+        }
+        self.within_bounds(&signature, &all)?;
+        let ty = self.env.normalize(&function_type(&signature, &all));
+        Ok((self.instantiated(core, &all[own..]), ty))
     }
 
     /// The arguments of a call of `callee`, a value of type `ty`, each

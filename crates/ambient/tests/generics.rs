@@ -213,13 +213,13 @@ fn a_generic_function_as_a_value_is_instantiated_by_what_is_expected() {
     let wanted = ty::function([ty::int()], ty::int());
 
     assert!(check([id(), returning(wanted, b::name("id"))]).is_ok());
-    assert!(matches!(
-        check([
-            id(),
-            returning(ty::unknown(), b::let_("f", b::name("id"), b::null()))
-        ]),
-        Err(Error::CannotInfer { .. })
-    ));
+    // Where nothing is expected of it, it stays generic.
+    let kept = b::let_("f", b::name("id"), b::name("f"));
+    let generic = ty::generic(
+        [("U", None)],
+        ty::function([ty::named("U")], ty::named("U")),
+    );
+    assert!(check([id(), returning(generic, kept)]).is_ok());
 }
 
 #[test]
@@ -382,10 +382,17 @@ fn generic_function_types_with_other_bounds_are_unrelated() {
 }
 
 #[test]
-fn a_generic_function_type_is_not_one_of_its_instances() {
+fn a_generic_function_value_is_instantiated_where_a_function_is_expected() {
     let instance = ty::function([ty::int()], ty::int());
-    assert!(!fits(generic(None, u()), instance.clone()));
+    assert!(fits(generic(None, u()), instance.clone()));
+    // Nothing makes a function of one type generic.
     assert!(!fits(instance, generic(None, u())));
+    // And subtyping picks no type argument: only a value is instantiated.
+    let listed = |member: Type| ty::list(member);
+    assert!(!fits(
+        listed(generic(None, u())),
+        listed(ty::function([ty::int()], ty::int()))
+    ));
 }
 
 #[test]

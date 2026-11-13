@@ -12,6 +12,7 @@ mod resume;
 mod tail;
 mod tasks;
 mod types;
+mod values;
 
 use std::collections::HashMap;
 use std::ptr;
@@ -285,21 +286,8 @@ impl Lowering {
                 only,
                 body,
             } => return self.provide(handlers, *only, body),
-            core::Expr::Tuple(members) => Op::Sequence {
-                list: false,
-                members: self.operands(members, &mut scope)?,
-            },
-            core::Expr::List(members) => Op::Sequence {
-                list: true,
-                members: self.operands(members, &mut scope)?,
-            },
-            core::Expr::Record(fields) => {
-                let mut lowered = Vec::new();
-                for (key, value) in fields {
-                    let value = self.operand(value, &mut scope)?;
-                    lowered.push((self.key(key), value));
-                }
-                Op::Record(lowered)
+            core::Expr::Tuple(_) | core::Expr::List(_) | core::Expr::Record(_) => {
+                self.construction(expr, &mut scope)?
             }
             core::Expr::Method(closure) => Op::Method(self.operand(closure, &mut scope)?),
             core::Expr::Field { target, key } => {
@@ -310,6 +298,9 @@ impl Lowering {
             }
             core::Expr::Send { target, key, args } => self.send(target, key, args, &mut scope)?,
             core::Expr::Step(iterator) => return self.step(expr, iterator),
+            core::Expr::Instantiate { function, types } => {
+                self.instantiate(function, types, &mut scope)?
+            }
             core::Expr::Merge { .. } => self.merge(expr, &mut scope)?,
             core::Expr::Match { subject, arms } => {
                 let subject = self.operand(subject, &mut scope)?;

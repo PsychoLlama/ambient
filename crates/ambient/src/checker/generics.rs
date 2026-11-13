@@ -6,7 +6,15 @@ use crate::core;
 use crate::error::Error;
 use crate::surface::{Expr, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Signature, Ty, entry, substitute};
+use crate::types::{Signature, Ty, abilities, entry, generalize, instantiate, substitute};
+
+/// A generic call, once its type arguments are known.
+pub(super) struct Solved {
+    pub args: Vec<core::Expr>,
+    /// A type argument for each type parameter of the header.
+    pub types: Vec<Ty>,
+    pub ret: Ty,
+}
 
 impl Checker<'_> {
     /// A call to a generic function: its type arguments are whatever the
@@ -18,14 +26,93 @@ impl Checker<'_> {
         first: Option<Checked>,
         args: &[Expr<Reference>],
     ) -> Result<(core::Expr, Ty), Error> {
+        let solved = self.generic_arguments(Some(function), signature, 0, first, args)?;
+        let callee = Box::new(self.reference(function, &solved.types));
+        let args = solved.args;
+        Ok((core::Expr::Call { callee, args }, solved.ret))
+    }
+
+    /// A call of a value of a generic function type, which is
+    /// instantiated at whatever the arguments require.
+    pub(super) fn generic_value_call(
+        &mut self,
+        callee: core::Expr,
+        ty: &Ty,
+        first: Option<Checked>,
+        args: &[Expr<Reference>],
+    ) -> Result<(core::Expr, Ty), Error> {
+        let (signature, own) = self.opened(ty)?;
+        let solved = self.generic_arguments(None, &signature, own, first, args)?;
+        let callee = Box::new(self.instantiated(callee, &solved.types[own..]));
+        let args = solved.args;
+        Ok((core::Expr::Call { callee, args }, solved.ret))
+    }
+
+    /// A value of a generic function type at type arguments.
+    pub(super) fn instantiated(&mut self, function: core::Expr, types: &[Ty]) -> core::Expr {
+        core::Expr::Instantiate {
+            function: Box::new(function),
+            types: types.iter().map(|ty| self.lower(ty)).collect(),
+        }
+    }
+
+    /// A generic function type as the header of a function to call: its
+    /// parameters become type parameters numbered after those in scope,
+    /// which are how many the second of the pair says.
+    pub(super) fn opened(&self, ty: &Ty) -> Result<(Signature, usize), Error> {
+        let not_callable = || Error::NotCallable {
+            symbol: self.symbol.clone(),
+            found: self.env.show(ty),
+        };
+        let Ty::Generic { bounds, function } = self.env.unfold(ty) else {
+            return Err(not_callable());
+        };
+        let own = self.env.bounds.len();
+        let fresh: Vec<Ty> = (own..own + bounds.len())
+            .map(|position| Ty::Named(Reference::Parameter(position), Vec::new()))
+            .collect();
+        let open = |ty: &Ty| self.env.normalize(&instantiate(ty, &fresh));
+        let Ty::Function { params, ret, row } = open(&function) else {
+            return Err(not_callable());
+        };
+        let outer = std::iter::repeat_n(Ty::Unknown, own);
+        let signature = Signature {
+            type_params: outer.chain(bounds.iter().map(open)).collect(),
+            params,
+            ret: *ret,
+            row: abilities(&row),
+            native: false,
+        };
+        Ok((signature, own))
+    }
+
+    /// The arguments of a call of a generic function, its type
+    /// arguments, and what it gives. `function` is the definition
+    /// called, if it is one. The first `own` type parameters of
+    /// `signature` are not the function's but those in scope where the
+    /// call is: each stands for itself.
+    pub(super) fn generic_arguments(
+        &mut self,
+        function: Option<&Symbol>,
+        signature: &Signature,
+        own: usize,
+        first: Option<Checked>,
+        args: &[Expr<Reference>],
+    ) -> Result<Solved, Error> {
         // An argument already checked goes before the rest.
         let given = usize::from(first.is_some());
         if signature.params.len() != args.len() + given {
-            return Err(Error::Arity {
-                symbol: self.symbol.clone(),
-                callee: function.clone(),
-                expected: signature.params.len(),
-                found: args.len() + given,
+            return Err(match function {
+                Some(function) => Error::Arity {
+                    symbol: self.symbol.clone(),
+                    callee: function.clone(),
+                    expected: signature.params.len(),
+                    found: args.len() + given,
+                },
+                None => Error::NotCallable {
+                    symbol: self.symbol.clone(),
+                    found: self.env.show(&function_type(signature, &[])),
+                },
             });
         }
         let params = &signature.params[given..];
@@ -58,7 +145,7 @@ impl Checker<'_> {
             if !matches!(arg, Expr::Lambda { .. }) {
                 continue;
             }
-            let so_far: Vec<Ty> = lower.iter().map(|b| self.env.union(b.clone())).collect();
+            let so_far = self.least(own, lower.clone());
             let expected = self.env.normalize(&substitute(&params[position], &so_far));
             self.next = bases[position];
             let (core, found) = self.infer_as(arg, &expected)?;
@@ -66,7 +153,7 @@ impl Checker<'_> {
             checked[position] = Some((core, found));
         }
         self.next = base;
-        let type_args = self.solve(function, signature, lower)?;
+        let type_args = self.solve(function, signature, own, lower)?;
         let mut core_args = Vec::new();
         let checked = first.into_iter().chain(checked.into_iter().flatten());
         for (param, (core, found)) in signature.params.iter().zip(checked) {
@@ -80,12 +167,12 @@ impl Checker<'_> {
         for ability in &signature.row {
             self.require(ability)?;
         }
-        let core = core::Expr::Call {
-            callee: Box::new(self.reference(function, &type_args)),
-            args: core_args,
-        };
         let ret = self.env.normalize(&substitute(&signature.ret, &type_args));
-        Ok((core, ret))
+        Ok(Solved {
+            args: core_args,
+            types: type_args,
+            ret,
+        })
     }
 
     /// The header of `function`, if it has type parameters.
@@ -201,24 +288,39 @@ impl Checker<'_> {
         }
     }
 
-    /// One type argument per parameter: the least type that meets what was
-    /// collected.
+    /// The least type that meets what was collected for each type
+    /// parameter. The first `own` are in scope here, and stand for
+    /// themselves whatever was collected.
+    fn least(&self, own: usize, lower: Vec<Vec<Ty>>) -> Vec<Ty> {
+        let least = |(position, bounds): (usize, Vec<Ty>)| {
+            if position < own {
+                Ty::Named(Reference::Parameter(position), Vec::new())
+            } else {
+                self.env.union(bounds)
+            }
+        };
+        lower.into_iter().enumerate().map(least).collect()
+    }
+
+    /// One type argument per parameter: the least type that meets what
+    /// was collected, as [`Self::least`] has it. `function` is the
+    /// definition being called, if it is one.
     pub(super) fn solve(
         &self,
-        function: &Symbol,
+        function: Option<&Symbol>,
         signature: &Signature,
+        own: usize,
         lower: Vec<Vec<Ty>>,
     ) -> Result<Vec<Ty>, Error> {
-        let args: Vec<Ty> = lower
-            .into_iter()
-            .map(|bounds| self.env.union(bounds))
-            .collect();
-        self.within_bounds(signature, &args)
-            .map_err(|_| Error::CannotInfer {
+        let args = self.least(own, lower);
+        match (self.within_bounds(signature, &args), function) {
+            (Ok(()), _) => Ok(args),
+            (Err(_), Some(function)) => Err(Error::CannotInfer {
                 symbol: self.symbol.clone(),
                 function: function.clone(),
-            })?;
-        Ok(args)
+            }),
+            (Err(error), None) => Err(error),
+        }
     }
 
     pub(super) fn within_bounds(&self, signature: &Signature, args: &[Ty]) -> Result<(), Error> {
@@ -229,6 +331,27 @@ impl Checker<'_> {
             }
         }
         Ok(())
+    }
+}
+
+/// The type of a function with this header as a value: a generic
+/// function type if it has type parameters.
+pub(crate) fn generic_type(signature: &Signature) -> Ty {
+    let count = signature.type_params.len();
+    let own: Vec<Ty> = (0..count)
+        .map(|position| Ty::Named(Reference::Parameter(position), Vec::new()))
+        .collect();
+    let function = function_type(signature, &own);
+    if count == 0 {
+        return function;
+    }
+    Ty::Generic {
+        bounds: signature
+            .type_params
+            .iter()
+            .map(|bound| generalize(bound, 0, count))
+            .collect(),
+        function: Box::new(generalize(&function, 0, count)),
     }
 }
 

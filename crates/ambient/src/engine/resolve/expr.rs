@@ -44,7 +44,7 @@ impl Resolver<'_> {
             Expr::Literal(literal) => Expr::Literal(self.literal(literal)),
             Expr::Name(path) => Expr::Name(self.name(path)?),
             Expr::Instantiate { function, args } => Expr::Instantiate {
-                function: Reference::Definition(self.lookup(Namespace::Value, function)?),
+                function: self.name(function)?,
                 args: self.types(args)?,
             },
             Expr::Call { callee, args } => Expr::Call {

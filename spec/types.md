@@ -66,6 +66,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - A cast decides by the value's [shape](values.md), so an erased type can be a cast target.
 - A cast to a function type passes a function of exactly that type, not one whose type is within it: a program never decides subtyping as it runs; only checking does.
 - A function type that mentions a type parameter is not a cast target, but inside a [cell](cells.md) type.
+- A cast to a generic function type passes a generic function of exactly that type that holds no type arguments; one that needs none as it runs is the same value at every type, and passes however it was used.
 - A cast to a type parameter is allowed, and tests against the type argument, which a generic function [receives at run time](backends.md).
 - Only a function that casts to a type parameter, makes a cell at one, or hands one on to a function that does, needs its type arguments.
 - A cast never adds a brand to a value.
@@ -100,9 +101,11 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - An inferred type argument is the least type the arguments require: the union of what they supply for that parameter.
 - An inferred argument that violates its bound is an error; inference never widens to the bound.
 - Inside its definition a type parameter is known only by its bound, and an unbounded one supports no operations.
-- A generic function used as a value is instantiated where it is named, from the function type expected of it.
 - A function type may take type parameters of its own, each with an optional bound; their names are not part of the type.
-- TODO: no value has such a type yet: every generic function value is instantiated at one type.
+- A generic function named where nothing is expected of it is a value of such a type, and is still generic wherever it is passed or kept.
+- A value of a generic function type is instantiated by the arguments it is called with, by the function type expected of it where that is not generic, or by type arguments written out.
+- Instantiating is something done to a value where it is used, never a relation between types.
+- TODO: a lambda and a [method](methods.md) cannot take type parameters yet, so only a definition is a generic function.
 - A recursive generic type applies itself only to its own parameters, unchanged.
 - There are no conditional types, mapped types, or type operators.
 

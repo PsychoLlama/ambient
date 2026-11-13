@@ -44,7 +44,8 @@ pub(crate) fn fixed(loaded: bool) -> u64 {
 /// A closure is an object whose payload is its definition and then its
 /// captures. A definition is not an object: it is the code, the code
 /// compiled to run inside a budget, the arity, its hash, the name of its
-/// type, and then one closure per slot. The word before it names its
+/// type, how many type arguments it is handed, and then one closure per
+/// slot. The word before it names its
 /// unit: see [`crate::unit`].
 pub mod layout {
     /// From a closure to its definition.
@@ -67,10 +68,14 @@ pub mod layout {
     /// of the same type. Zero in a function whose type depends on its
     /// type arguments.
     pub const DEFINITION_TYPE: i32 = 32;
+    /// From a definition to how many type arguments its function is
+    /// handed as it runs: as many as it has type parameters if it needs
+    /// them, and none if it does not.
+    pub const DEFINITION_TYPES: i32 = 40;
     /// From a definition to its first slot.
-    pub const DEFINITION_SLOTS: i32 = 40;
+    pub const DEFINITION_SLOTS: i32 = 48;
     /// The words in a definition with no slots.
-    pub const DEFINITION_WORDS: usize = 5;
+    pub const DEFINITION_WORDS: usize = 6;
 }
 
 /// Writes a closure for a block into `words`: its header, its

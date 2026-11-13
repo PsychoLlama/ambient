@@ -32,7 +32,7 @@ use crate::symbol::{PackageId, Symbol};
 use crate::types::{Env, Ty};
 use crate::value::Value;
 use abilities::Layer;
-pub(crate) use generics::function_type;
+pub(crate) use generics::{function_type, generic_type};
 pub use header::{check_ability, check_key, check_type, encode_header};
 use header::{header, visit_types};
 pub use world::{check_extern, check_target};
@@ -266,13 +266,22 @@ impl<'a> Checker<'a> {
                 for (param, wanted) in signature.params.iter().zip(&params) {
                     self.collect(param, wanted, &mut lower);
                 }
-                let args = self.solve(function, &signature, lower)?;
+                let args = self.solve(Some(function), &signature, 0, lower)?;
                 let found = self.env.normalize(&function_type(&signature, &args));
                 Ok((self.reference(function, &args), found))
             }
             // A lambda takes the types its parameters lack from the
             // function type expected of it.
             (Expr::Lambda { .. }, hint) => self.lambda(expr, hint.as_deref()),
+            // Any other value of a generic function type takes its
+            // type arguments from the function type expected of it too.
+            (_, Some(params)) => {
+                let (core, found) = self.infer(expr)?;
+                if matches!(self.env.unfold(&found), Ty::Generic { .. }) {
+                    return self.coerced((core, found), &params);
+                }
+                Ok((core, found))
+            }
             _ => self.infer(expr),
         }
     }
@@ -320,16 +329,12 @@ impl<'a> Checker<'a> {
             }
             // Resolution never produces a type parameter as a value.
             Expr::Name(Reference::Parameter(_)) => (core::Expr::Null, Ty::Never),
+            // A generic function named where nothing says what types
+            // it is used at is a value of a generic function type.
             Expr::Name(Reference::Definition(symbol)) => {
-                if self.generic(symbol).is_some() {
-                    return Err(Error::CannotInfer {
-                        symbol: self.symbol.clone(),
-                        function: symbol.clone(),
-                    });
-                }
                 let ty = match self.env.functions.get(symbol) {
                     Some(signature) if self.root || !signature.native => {
-                        function_type(signature, &[])
+                        self.env.normalize(&generic_type(signature))
                     }
                     _ => {
                         return Err(Error::NotValue {

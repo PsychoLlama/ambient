@@ -1,7 +1,7 @@
 //! Closures, and starting a fault.
 
-use crate::object::layout::{DEFINITION_HASH, DEFINITION_TYPE};
-use crate::object::{KIND_CLOSURE, amb_retain, bytes, fault, object, words};
+use crate::object::layout::{DEFINITION_HASH, DEFINITION_TYPE, DEFINITION_TYPES};
+use crate::object::{KIND_CLOSURE, KIND_SCOPE, amb_retain, bytes, fault, kind, object, words};
 use crate::unit::{self, amb_unit_retain};
 use crate::{Context, Fault, NULL, Word};
 
@@ -45,6 +45,58 @@ pub(crate) unsafe fn type_name(closure: Word) -> u64 {
     unsafe {
         let definition = words(closure)[0] as usize as *const u64;
         definition.add(DEFINITION_TYPE as usize / 8).read()
+    }
+}
+
+/// How many type arguments a closure's function is handed as it runs.
+unsafe fn handed(closure: Word) -> usize {
+    unsafe {
+        let definition = words(closure)[0] as usize as *const u64;
+        definition.add(DEFINITION_TYPES as usize / 8).read() as usize
+    }
+}
+
+/// The type arguments a closure holds, which follow what it captured,
+/// if it holds any.
+unsafe fn scope(closure: Word) -> Option<Word> {
+    unsafe {
+        let last = *words(closure)[1..].last()?;
+        (kind(last) == KIND_SCOPE).then_some(last)
+    }
+}
+
+/// Whether a closure is still a generic function: its function needs
+/// no type arguments, or it does not hold them all yet.
+pub(crate) unsafe fn generic(closure: Word) -> bool {
+    unsafe {
+        let held = scope(closure).map_or(0, |scope| words(scope).len() / 2);
+        held < handed(closure) || handed(closure) == 0
+    }
+}
+
+/// A generic function at type arguments: `types`, which follow those
+/// the closure already holds. A function that is handed none is one
+/// function at every type, and is given back as it is.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_instantiate(closure: Word, types: Word) -> Word {
+    unsafe {
+        if handed(closure) == 0 {
+            amb_retain(closure);
+            return closure;
+        }
+        let held = scope(closure);
+        let fields = words(closure);
+        let captures = &fields[1..fields.len() - usize::from(held.is_some())];
+        let made = object(kind(closure), (captures.len() + 2) * 8);
+        let filled = words(made);
+        filled[0] = fields[0];
+        amb_unit_retain(unit::of(fields[0]));
+        for (slot, capture) in filled[1..].iter_mut().zip(captures) {
+            amb_retain(*capture);
+            *slot = *capture;
+        }
+        filled[captures.len() + 1] = crate::scope::joined(held, types);
+        made
     }
 }
 

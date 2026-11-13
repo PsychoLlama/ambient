@@ -154,6 +154,7 @@ entries! {
     Method = amb_method, plain, 1, word;
     RecordHeld = amb_record_held, plain, 2, word;
     RecordMethod = amb_record_method, plain, 2, word;
+    Instantiate = amb_instantiate, plain, 2, word;
     IteratorNew = amb_iterator_new, plain, 1, word;
     ListIterate = amb_list_iterate, plain, 1, word;
     IntRange = amb_int_range, plain, 2, word;

@@ -147,6 +147,9 @@ pub enum Op {
     /// A closure, which nothing else holds, as a method of the record
     /// it is about to be a field of.
     Method(Value),
+    /// A generic function at `types`, type arguments as a closure
+    /// holds them, which follow any it holds already.
+    Instantiate { function: Value, types: Value },
     /// The function that steps an iterator, or null if the runtime
     /// steps it: see [`Op::Advance`].
     Stepper(Value),

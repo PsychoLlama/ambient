@@ -52,6 +52,7 @@ impl Op {
             } => vec![base, overlay, methods],
             Self::GroupClose { group, .. } => vec![group],
             Self::Abort { token, args } => vec![token, args],
+            Self::Instantiate { function, types } => vec![function, types],
             Self::Tail { callee, args, .. } => vec![callee, args],
             Self::Native { bindings, args, .. } => vec![bindings, args],
             Self::Call { args, .. } | Self::Primitive { args, .. } => args.iter_mut().collect(),

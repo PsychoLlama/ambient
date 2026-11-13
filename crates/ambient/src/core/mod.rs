@@ -187,6 +187,12 @@ pub enum Expr {
     /// method's function and then the record, which is null here and is
     /// the record once the field is read.
     Method(Box<Expr>),
+    /// A generic function at type arguments: `function`, whose type has
+    /// as many type parameters as there are `types`.
+    Instantiate {
+        function: Box<Expr>,
+        types: Vec<Type>,
+    },
     /// What an iterator gives next: null, or an item and the iterator
     /// of the rest. Not a primitive, since stepping may call a
     /// function. See `spec/iteration.md`.

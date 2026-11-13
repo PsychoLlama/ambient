@@ -44,9 +44,13 @@ pub enum Body {
         metered: Option<Arc<Artifact>>,
         /// What the function needs made when the program is loaded.
         constants: Vec<Constant>,
-        /// Its type, which its definition carries the name of, unless it
-        /// has type parameters. Its slots are the definition's.
+        /// Its type, which its definition carries the name of, unless
+        /// that depends on type arguments. Its slots are the
+        /// definition's.
         signature: Option<core::Type>,
+        /// How many type arguments it is handed as it runs: as many as
+        /// it has type parameters if it needs them, and none if not.
+        types: usize,
     },
     /// A recursive type definition, which casts test values against.
     Type(core::Type),
@@ -209,15 +213,30 @@ impl Engine<'_> {
             }
             let metered = metered.contains(&self.hash(symbol)?);
             // The bindings a function is handed come first.
-            let function = |generic: bool, params: &[core::Type], ret, row: &[core::Slot]| {
+            let function = |bounds: &[core::Type], params: &[core::Type], ret, row: &[_]| {
                 let signature = core::Type::Function {
                     params: params.to_vec(),
                     ret: Box::new(Clone::clone(ret)),
                     row: row.to_vec(),
                 };
+                // A generic function is of a generic function type. One
+                // written inside another is of a type that depends on
+                // the type arguments of what it is written in.
+                let signature = if bounds.is_empty() {
+                    Some(signature)
+                } else if symbol.lambda.is_empty() {
+                    Some(core::Type::Generic {
+                        bounds: bounds.iter().map(|bound| bound.generalized(0)).collect(),
+                        function: Box::new(signature.generalized(0)),
+                    })
+                } else {
+                    None
+                };
+                let handed = self.handed(symbol)?;
                 Ok::<Body, Error>(Body::Function {
                     arity: params.len() + 1,
-                    signature: (!generic).then_some(signature),
+                    signature,
+                    types: if handed { bounds.len() } else { 0 },
                     code: self.compile_as(symbol, backend, false)?,
                     metered: if metered {
                         Some(self.compile_as(symbol, backend, true)?)
@@ -237,12 +256,11 @@ impl Engine<'_> {
             };
             let body = match &open.tree {
                 Tree::Function(tree) => {
-                    let generic = !tree.type_params.is_empty();
-                    function(generic, &tree.params, &tree.ret, &tree.row)?
+                    function(&tree.type_params, &tree.params, &tree.ret, &tree.row)?
                 }
                 Tree::Extern {
                     params, ret, row, ..
-                } => function(false, params, ret, row)?,
+                } => function(&[], params, ret, row)?,
                 Tree::Type { ty, .. } => Body::Type(ty.clone()),
                 Tree::Ability { .. } | Tree::Key { .. } | Tree::Target { .. } => Body::Inert,
             };

@@ -100,6 +100,22 @@ pub unsafe extern "C" fn amb_scope_set(scope: Word, index: u64, node: u64, withi
     }
 }
 
+/// Type arguments that are `first`, if there are any, followed by
+/// `second`.
+pub(crate) unsafe fn joined(first: Option<Word>, second: Word) -> Word {
+    unsafe {
+        let first = first.map_or(&[][..], |first| &*words(first));
+        let entries = [first, &*words(second)].concat();
+        let scope = object(KIND_SCOPE, entries.len() * 8);
+        for entry in entries.chunks(2) {
+            amb_unit_retain(unit::of(entry[0]));
+            amb_retain(entry[1]);
+        }
+        words(scope).copy_from_slice(&entries);
+        scope
+    }
+}
+
 /// Whether two sets of type arguments are the same types.
 pub(crate) unsafe fn same(left: Word, right: Word) -> bool {
     unsafe {

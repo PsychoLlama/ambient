@@ -120,6 +120,7 @@ pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
         }
         Expr::Closure { .. }
         | Expr::Method(_)
+        | Expr::Instantiate { .. }
         | Expr::Step(_)
         | Expr::Perform { .. }
         | Expr::Provide { .. }
@@ -188,6 +189,11 @@ fn encode_binding(expr: &Expr, out: &mut Sink<'_>) {
         Expr::Step(iterator) => {
             out.push(31);
             encode_expr(iterator, out);
+        }
+        Expr::Instantiate { function, types } => {
+            out.push(32);
+            encode_expr(function, out);
+            encode_types(types, out);
         }
         Expr::AbilityId(ability) => {
             out.push(18);

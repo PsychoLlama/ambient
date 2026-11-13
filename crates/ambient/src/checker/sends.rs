@@ -50,6 +50,11 @@ impl Checker<'_> {
     ) -> Result<(core::Expr, Ty), Error> {
         let method = self.env.method(found, key).is_some();
         let (read, ty) = self.field(record, found, key)?;
+        // A field that holds a generic function is read, and what is
+        // read is instantiated by its arguments.
+        if !method && matches!(self.env.unfold(&ty), Ty::Generic { .. }) {
+            return self.generic_value_call(read, &ty, None, args);
+        }
         let callee = Expr::Field {
             target: Box::new(Expr::Null),
             key: key.clone(),
