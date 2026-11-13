@@ -220,6 +220,55 @@ pub enum Type<N = Path> {
     Named(N, Vec<Type<N>>),
 }
 
+/// A shape of value that has methods of the standard library: every
+/// built-in shape but a record. See `spec/methods.md`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum Shape {
+    Null,
+    Bool,
+    Int,
+    Float,
+    String,
+    Tag,
+    Tuple,
+    List,
+    Function,
+    Cell,
+}
+
+impl Shape {
+    pub const ALL: [Self; 10] = [
+        Self::Null,
+        Self::Bool,
+        Self::Int,
+        Self::Float,
+        Self::String,
+        Self::Tag,
+        Self::Tuple,
+        Self::List,
+        Self::Function,
+        Self::Cell,
+    ];
+
+    /// The module of the standard library whose functions are the
+    /// shape's methods.
+    #[must_use]
+    pub fn module(self) -> &'static str {
+        match self {
+            Self::Null => "null",
+            Self::Bool => "bool",
+            Self::Int => "int",
+            Self::Float => "float",
+            Self::String => "string",
+            Self::Tag => "tag",
+            Self::Tuple => "tuple",
+            Self::List => "list",
+            Self::Function => "function",
+            Self::Cell => "cell",
+        }
+    }
+}
+
 /// An operator. Which primitive operation it means depends on its operands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Operator {
@@ -326,6 +375,15 @@ pub enum Expr<N = Path> {
     Operation {
         operator: Operator,
         operands: Vec<Expr<N>>,
+    },
+    /// A method call: `method` of `target`, with `args`. See
+    /// `spec/methods.md`. `shapes` is what the method means for each
+    /// built-in shape that has it, which resolution fills in.
+    Send {
+        target: Box<Expr<N>>,
+        method: Key<N>,
+        args: Vec<Expr<N>>,
+        shapes: Vec<(Shape, N)>,
     },
     /// Takes the first arm whose pattern matches the subject.
     Match {

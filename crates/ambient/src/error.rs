@@ -65,6 +65,12 @@ pub enum Error {
         ty: String,
         name: String,
     },
+    /// A method is called on a value whose type has none of that name.
+    NoMethod {
+        symbol: Symbol,
+        ty: String,
+        name: String,
+    },
     /// A method is not a field of a record, or is not a function with a
     /// parameter for its record.
     Method { symbol: Symbol, found: String },
@@ -187,13 +193,13 @@ impl fmt::Display for Error {
             Self::NotCallable { symbol, found } => {
                 write!(f, "{symbol}: `{found}` is not a function")
             }
-            Self::NoField { symbol, ty, name } => {
-                write!(f, "{symbol}: `{ty}` may have no field `{name}`")
-            }
             Self::Operands { symbol, found } => {
                 write!(f, "{symbol}: no operator for `{found}`")
             }
-            Self::Method { .. } | Self::Receiver { .. } => self.fmt_method(f),
+            Self::NoField { .. }
+            | Self::NoMethod { .. }
+            | Self::Method { .. }
+            | Self::Receiver { .. } => self.fmt_method(f),
             Self::NotExhaustive { symbol, remaining } => {
                 write!(f, "{symbol}: match does not handle `{remaining}`")
             }
@@ -390,6 +396,12 @@ impl std::error::Error for Error {}
 impl Error {
     fn fmt_method(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NoField { symbol, ty, name } => {
+                write!(f, "{symbol}: `{ty}` may have no field `{name}`")
+            }
+            Self::NoMethod { symbol, ty, name } => {
+                write!(f, "{symbol}: `{ty}` has no method `{name}`")
+            }
             Self::Method { symbol, found } => write!(
                 f,
                 "{symbol}: a method is a field of a record and a function that takes \

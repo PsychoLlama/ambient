@@ -7,6 +7,9 @@ use crate::error::Error;
 use crate::surface::{Expr, Reference};
 use crate::types::Ty;
 
+/// An expression already checked: its core form and its type.
+pub(super) type Checked = (core::Expr, Ty);
+
 impl Checker<'_> {
     /// A generic function at type arguments that were written out.
     pub(super) fn instantiate(
@@ -47,57 +50,60 @@ impl Checker<'_> {
         if let Expr::Name(Reference::Definition(function)) = callee
             && let Some(signature) = self.generic(function)
         {
-            return self.generic_call(function, &signature, args);
+            return self.generic_call(function, &signature, None, args);
         }
-        // A method is called with the record it is read from, so the
-        // read that would bind the two is never made.
-        let mut sent = None;
-        let (core_callee, ty) = match callee {
-            Expr::Field { target, key } => {
-                let (record, found) = self.infer(target)?;
-                let method = self.env.method(&found, key);
-                let read = self.field(record, &found, key)?;
-                sent = method.map(|_| self.key(key));
-                read
-            }
-            callee => self.infer(callee)?,
-        };
-        let Ty::Function { params, ret, row } = self.env.unfold(&ty) else {
+        let (core_callee, ty) = self.infer(callee)?;
+        let (args, ret) = self.arguments(callee, &ty, None, args)?;
+        let callee = Box::new(core_callee);
+        Ok((core::Expr::Call { callee, args }, ret))
+    }
+
+    /// The arguments of a call of `callee`, a value of type `ty`, each
+    /// held to the parameter it is for; and what the call gives.
+    /// `first` is an argument already checked, which goes before `args`.
+    pub(super) fn arguments(
+        &mut self,
+        callee: &Expr<Reference>,
+        ty: &Ty,
+        first: Option<Checked>,
+        args: &[Expr<Reference>],
+    ) -> Result<(Vec<core::Expr>, Ty), Error> {
+        let Ty::Function { params, ret, row } = self.env.unfold(ty) else {
             return Err(Error::NotCallable {
                 symbol: self.symbol.clone(),
-                found: self.env.show(&ty),
+                found: self.env.show(ty),
             });
         };
-        if params.len() != args.len() {
+        let found = args.len() + usize::from(first.is_some());
+        if params.len() != found {
             return Err(match callee {
                 Expr::Name(Reference::Definition(target)) => Error::Arity {
                     symbol: self.symbol.clone(),
                     callee: target.clone(),
                     expected: params.len(),
-                    found: args.len(),
+                    found,
                 },
                 _ => Error::NotCallable {
                     symbol: self.symbol.clone(),
-                    found: self.env.show(&ty),
+                    found: self.env.show(ty),
                 },
             });
         }
         self.require_all(&row)?;
+        let mut params = params.iter();
         let mut core_args = Vec::new();
-        for (arg, param) in args.iter().zip(&params) {
+        if let Some((core, found)) = first
+            && let Some(param) = params.next()
+        {
+            let (core, found) = self.bind_row(core, found, param)?;
+            if !self.env.subtype(&found, param) {
+                return Err(self.mismatch(param, &found));
+            }
+            core_args.push(core);
+        }
+        for (arg, param) in args.iter().zip(params) {
             core_args.push(self.check(arg, param)?);
         }
-        let core = match (sent, core_callee) {
-            (Some(key), core::Expr::Field { target, .. }) => core::Expr::Send {
-                target,
-                key,
-                args: core_args,
-            },
-            (_, callee) => core::Expr::Call {
-                callee: Box::new(callee),
-                args: core_args,
-            },
-        };
-        Ok((core, *ret))
+        Ok((core_args, *ret))
     }
 }

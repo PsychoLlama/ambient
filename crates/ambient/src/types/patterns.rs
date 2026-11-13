@@ -3,6 +3,7 @@
 
 use super::{Env, Ty, TyKey, entry, field};
 use crate::literal::Literal;
+use crate::surface::Shape;
 use crate::surface::{Key, Pattern, Reference};
 
 type Pat = Pattern<Reference>;
@@ -199,6 +200,31 @@ impl Env {
             },
             _ => None,
         }
+    }
+
+    /// The built-in shape every value of type `ty` has, if they share
+    /// one that has methods: a record has fields, and a type parameter
+    /// or `unknown` says nothing of shape.
+    #[must_use]
+    pub fn shape(&self, ty: &Ty) -> Option<Shape> {
+        Some(match self.unfold(ty) {
+            Ty::Null => Shape::Null,
+            Ty::Bool | Ty::Literal(Literal::Bool(_)) => Shape::Bool,
+            Ty::Int | Ty::Literal(Literal::Int(_)) => Shape::Int,
+            Ty::Float | Ty::Literal(Literal::Float(_)) => Shape::Float,
+            Ty::String | Ty::Literal(Literal::String(_)) => Shape::String,
+            Ty::Tag | Ty::Literal(Literal::Tag { .. }) => Shape::Tag,
+            Ty::Tuple(_) => Shape::Tuple,
+            Ty::List(_) => Shape::List,
+            Ty::Function { .. } => Shape::Function,
+            Ty::Cell(_) => Shape::Cell,
+            Ty::Union(members) => {
+                let mut shapes = members.iter().map(|member| self.shape(member));
+                let first = shapes.next()??;
+                return shapes.all(|shape| shape == Some(first)).then_some(first);
+            }
+            _ => return None,
+        })
     }
 
     /// The type of member `index` of a tuple-shaped value of type `ty`.

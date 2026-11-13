@@ -3,7 +3,7 @@
 
 use super::Resolver;
 use crate::error::Error;
-use crate::surface::{Arm, Expr, Key, Path, Pattern, Reference, Type};
+use crate::surface::{Arm, Expr, Key, Path, Pattern, Reference, Shape, Type};
 use crate::symbol::Namespace;
 
 impl Resolver<'_> {
@@ -64,6 +64,7 @@ impl Resolver<'_> {
                 target: Box::new(self.expr(target)?),
                 key: self.key(key)?,
             },
+            Expr::Send { .. } => self.send(expr)?,
             Expr::Merge { left, right } => Expr::Merge {
                 left: Box::new(self.expr(left)?),
                 right: Box::new(self.expr(right)?),
@@ -130,6 +131,36 @@ impl Resolver<'_> {
                 otherwise: Box::new(self.expr(otherwise)?),
             },
         })
+    }
+
+    fn send(&mut self, send: &Expr) -> Result<Expr<Reference>, Error> {
+        let Expr::Send {
+            target,
+            method,
+            args,
+            ..
+        } = send
+        else {
+            return self.expr(send);
+        };
+        Ok(Expr::Send {
+            target: Box::new(self.expr(target)?),
+            method: self.key(method)?,
+            args: self.exprs(args)?,
+            shapes: self.shapes(method),
+        })
+    }
+
+    /// What a method called `method` means for each built-in shape
+    /// that has one.
+    fn shapes(&self, method: &Key) -> Vec<(Shape, Reference)> {
+        let Key::Field(name) = method else {
+            return Vec::new();
+        };
+        let found = self.scope.methods.get(name).into_iter().flatten();
+        found
+            .map(|(shape, function)| (*shape, Reference::Definition(function.clone())))
+            .collect()
     }
 
     pub(super) fn key(&self, key: &Key) -> Result<Key<Reference>, Error> {

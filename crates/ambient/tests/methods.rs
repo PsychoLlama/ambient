@@ -59,7 +59,7 @@ fn refused(body: Expr) -> Error {
 
 /// A call of the method `name` of `record`.
 fn send(record: Expr, name: &str, args: impl IntoIterator<Item = Expr>) -> Expr {
-    b::call(b::field(record, name), args)
+    b::send(record, name, args)
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn a_method_does_not_reach_one_that_leaves_what_it_gives_unstated() {
         ("double", b::method(redoubling())),
         ("quadruple", b::method(redoubling())),
     ]);
-    assert!(matches!(refused(record), Error::NoField { name, .. } if name == "double"));
+    assert!(matches!(refused(record), Error::NoMethod { name, .. } if name == "double"));
 }
 
 #[test]
@@ -297,4 +297,17 @@ fn reading_a_method_is_charged_for_the_function_it_makes() {
     };
     assert!(matches!(evaluates(read(4)), Value::Function(_)));
     assert!(matches!(evaluates(read(3)), Value::Tag { .. }));
+}
+
+#[test]
+fn a_field_that_holds_a_function_is_called_as_a_method_is() {
+    let seven = b::lambda([], b::int(7));
+    let record = b::record([("seven", seven)]);
+    assert_eq!(evaluates(send(record, "seven", [])), Value::Int(7));
+}
+
+#[test]
+fn a_record_has_no_method_it_has_no_field_for() {
+    let missing = send(point(3), "triple", []);
+    assert!(matches!(refused(missing), Error::NoMethod { name, .. } if name == "triple"));
 }

@@ -436,6 +436,17 @@ pub fn call(callee: Expr, args: impl IntoIterator<Item = Expr>) -> Expr {
     }
 }
 
+/// A call of the method `method` of `target`: a field of a record, or
+/// a function of the standard library for the shape `target` has.
+pub fn send(target: Expr, method: &str, args: impl IntoIterator<Item = Expr>) -> Expr {
+    Expr::Send {
+        target: Box::new(target),
+        method: Key::Field(method.to_owned()),
+        args: args.into_iter().collect(),
+        shapes: Vec::new(),
+    }
+}
+
 pub fn record<'a>(fields: impl IntoIterator<Item = (&'a str, Expr)>) -> Expr {
     Expr::Record(
         fields

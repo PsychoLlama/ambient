@@ -7,6 +7,8 @@
 //! defined here, which a workspace has in scope unless it lists preludes
 //! of its own.
 
+mod shapes;
+
 use ambient_runtime::{FAULT_PACKAGE, Fault, LIMITS};
 
 use crate::builder::{self as b, ModuleBuilder, ty};
@@ -24,7 +26,7 @@ fn type_name(tag: &str) -> String {
 }
 
 /// The library module: `Error`, and a type for the kind of each fault
-/// and for each limit of a budget.
+/// and for each limit of a budget. It lists the module of each shape.
 #[must_use]
 pub fn module() -> ModuleBuilder {
     let frame = ty::record([("definition", ty::string()), ("position", ty::int())]);
@@ -36,7 +38,11 @@ pub fn module() -> ModuleBuilder {
     ]);
     let kinds = Fault::ALL.iter().filter_map(|fault| fault.describe());
     let tags = kinds.map(|(kind, _)| kind).chain(LIMITS);
-    let module = b::module()
+    let shapes = shapes::modules().into_iter();
+    let module = shapes.fold(b::module(), |module, (shape, _)| {
+        module.expose(shape.module())
+    });
+    let module = module
         .define(b::type_("Frame", frame).public())
         .define(b::type_("Error", error).public());
     tags.fold(module, |module, tag| {
@@ -54,6 +60,10 @@ pub fn install(workspace: &mut Workspace) -> Result<(), WorkspaceError> {
     let id = ModuleId::new(FAULT_PACKAGE, "");
     let module = module().build().map_err(|_| WorkspaceError::Library)?;
     workspace.set(id.clone(), module)?;
+    for (shape, module) in shapes::modules() {
+        let module = module.build().map_err(|_| WorkspaceError::Library)?;
+        workspace.set(ModuleId::new(FAULT_PACKAGE, shape.module()), module)?;
+    }
     workspace.standard(vec![id]);
     Ok(())
 }

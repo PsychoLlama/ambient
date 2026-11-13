@@ -85,6 +85,12 @@ impl<N> Expr<N> {
             }
             Self::Record(fields) => fields.iter().for_each(|(key, _)| key.names(visit)),
             Self::Field { key, .. } => key.names(visit),
+            Self::Send { method, shapes, .. } => {
+                method.names(visit);
+                for (_, function) in shapes {
+                    visit(function);
+                }
+            }
             Self::Match { arms, .. } => arms.iter().for_each(|arm| arm.pattern.names(visit)),
             Self::Lambda {
                 params,
@@ -163,6 +169,10 @@ impl<N> Expr<N> {
             | Self::AbilityId(_) => {}
             Self::Call { callee, args } => {
                 visit(callee);
+                args.iter().for_each(visit);
+            }
+            Self::Send { target, args, .. } => {
+                visit(target);
                 args.iter().for_each(visit);
             }
             Self::Record(fields) => fields.iter().for_each(|(_, value)| visit(value)),

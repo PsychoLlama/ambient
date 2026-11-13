@@ -19,6 +19,7 @@ mod observe;
 mod operators;
 mod patterns;
 mod records;
+mod sends;
 mod tasks;
 mod world;
 
@@ -341,6 +342,12 @@ impl<'a> Checker<'a> {
             }
             Expr::Instantiate { function, args } => self.instantiate(function, args)?,
             Expr::Call { callee, args } => self.call(callee, args)?,
+            Expr::Send {
+                target,
+                method,
+                args,
+                shapes,
+            } => self.send(target, method, args, shapes)?,
             Expr::Record(fields) => self.record(fields)?,
             // Only a record's field is a method.
             Expr::Method(_) => return Err(self.not_method(&Ty::Unknown)),

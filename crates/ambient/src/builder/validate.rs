@@ -206,7 +206,9 @@ fn check_node(expr: &Expr) -> Result<(), BuildError> {
             args.iter().try_for_each(check_type)
         }
         Expr::Record(fields) => check_keys(fields.iter().map(|(key, _)| key)),
-        Expr::Field { key, .. } => check_keys(std::iter::once(key)),
+        Expr::Field { key, .. } | Expr::Send { method: key, .. } => {
+            check_keys(std::iter::once(key))
+        }
         Expr::Let { name, .. } => check_name(name),
         Expr::Match { arms, .. } => arms
             .iter()

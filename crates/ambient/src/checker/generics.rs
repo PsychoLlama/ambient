@@ -1,6 +1,7 @@
 //! Generic functions: working out type arguments at a call.
 
 use super::Checker;
+use super::calls::Checked;
 use crate::core;
 use crate::error::Error;
 use crate::surface::{Expr, Reference};
@@ -14,16 +15,20 @@ impl Checker<'_> {
         &mut self,
         function: &Symbol,
         signature: &Signature,
+        first: Option<Checked>,
         args: &[Expr<Reference>],
     ) -> Result<(core::Expr, Ty), Error> {
-        if signature.params.len() != args.len() {
+        // An argument already checked goes before the rest.
+        let given = usize::from(first.is_some());
+        if signature.params.len() != args.len() + given {
             return Err(Error::Arity {
                 symbol: self.symbol.clone(),
                 callee: function.clone(),
                 expected: signature.params.len(),
-                found: args.len(),
+                found: args.len() + given,
             });
         }
+        let params = &signature.params[given..];
         // Lambdas wait until the other arguments have said what they can
         // about the type parameters, so their own parameters can be typed.
         // Each argument is still checked at the local numbers it was
@@ -35,15 +40,18 @@ impl Checker<'_> {
             bases.push(base);
             base += arg.binders();
         }
-        let mut checked: Vec<Option<(core::Expr, Ty)>> = vec![None; args.len()];
+        let mut checked: Vec<Option<Checked>> = vec![None; args.len()];
         let mut lower = vec![Vec::new(); signature.type_params.len()];
+        if let Some((_, found)) = &first {
+            self.collect(&signature.params[0], found, &mut lower);
+        }
         for (position, arg) in args.iter().enumerate() {
             if matches!(arg, Expr::Lambda { .. }) {
                 continue;
             }
             self.next = bases[position];
             let (core, found) = self.infer(arg)?;
-            self.collect(&signature.params[position], &found, &mut lower);
+            self.collect(&params[position], &found, &mut lower);
             checked[position] = Some((core, found));
         }
         for (position, arg) in args.iter().enumerate() {
@@ -51,18 +59,17 @@ impl Checker<'_> {
                 continue;
             }
             let so_far: Vec<Ty> = lower.iter().map(|b| self.env.union(b.clone())).collect();
-            let expected = self
-                .env
-                .normalize(&substitute(&signature.params[position], &so_far));
+            let expected = self.env.normalize(&substitute(&params[position], &so_far));
             self.next = bases[position];
             let (core, found) = self.infer_as(arg, &expected)?;
-            self.collect(&signature.params[position], &found, &mut lower);
+            self.collect(&params[position], &found, &mut lower);
             checked[position] = Some((core, found));
         }
         self.next = base;
         let type_args = self.solve(function, signature, lower)?;
         let mut core_args = Vec::new();
-        for (param, (core, found)) in signature.params.iter().zip(checked.into_iter().flatten()) {
+        let checked = first.into_iter().chain(checked.into_iter().flatten());
+        for (param, (core, found)) in signature.params.iter().zip(checked) {
             let expected = self.env.normalize(&substitute(param, &type_args));
             let (core, found) = self.bind_row(core, found, &expected)?;
             if !self.env.subtype(&found, &expected) {
