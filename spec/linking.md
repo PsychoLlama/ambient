@@ -32,6 +32,8 @@ A program carries the code it reaches and nothing else, the [runtime](backends.m
 - It is told when it is emitted, not when it is loaded. Being told of something the target lacks fails the load; being told of less only makes the code larger.
 - Told of nothing, the code loads into any program.
 - State is the exception: loaded code uses the target's, by hash, and brings its own only if the target has none.
+- What loaded code brings of the runtime is its target's from then on, and outlives the code: a value may refer into a piece long after the definitions that came with it are gone.
+- Later code is told of those pieces like any others, so a piece is brought twice only by code that was told of less than its target had.
 - What to load together, and when, is not the language's to decide. A bundler, a plugin host, and a live upgrade are libraries over the same two questions: what a definition reaches, and what a target has.
 - Loaded code and its target must agree on the layout of every value. One number names that agreement; a load whose number differs is refused.
 - Comparing that number before sending code is up to whoever sends it. The language makes no promise across it.
