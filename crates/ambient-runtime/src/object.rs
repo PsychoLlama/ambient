@@ -129,6 +129,7 @@ std::thread_local! {
 
 /// The same, of a program that is alone in its memory.
 #[cfg(target_arch = "wasm32")]
+#[unsafe(export_name = "amb_state_live")]
 static LIVE: Alone = Alone(Cell::new(0));
 
 #[cfg(target_arch = "wasm32")]

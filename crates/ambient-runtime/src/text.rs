@@ -33,6 +33,7 @@ pub unsafe extern "C" fn amb_string_new(pointer: *const u8, length: u64) -> Word
 /// their words are equal.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_tag(pointer: *const u8, length: u64) -> Word {
+    #[cfg_attr(target_arch = "wasm32", unsafe(export_name = "amb_state_tags"))]
     static TAGS: Shared<Vec<usize>> = Shared::new(Vec::new());
     unsafe {
         let text = core::slice::from_raw_parts(pointer, length as usize);
@@ -56,6 +57,7 @@ pub unsafe extern "C" fn amb_tag(pointer: *const u8, length: u64) -> Word {
 /// loading code with new field names grows by them.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_intern(pointer: *const u8, length: u64) -> Word {
+    #[cfg_attr(target_arch = "wasm32", unsafe(export_name = "amb_state_names"))]
     static NAMES: Shared<Vec<usize>> = Shared::new(Vec::new());
     unsafe {
         let name = core::slice::from_raw_parts(pointer, length as usize);
