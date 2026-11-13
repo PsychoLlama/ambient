@@ -282,7 +282,6 @@ pub fn send_key(target: Expr, key: &str, args: impl IntoIterator<Item = Expr>) -
         target: Box::new(target),
         method: Key::Ability(Path::parse(key)),
         args: args.into_iter().collect(),
-        shapes: Vec::new(),
     }
 }
 
@@ -473,7 +472,6 @@ pub fn send(target: Expr, method: &str, args: impl IntoIterator<Item = Expr>) ->
         target: Box::new(target),
         method: Key::Field(method.to_owned()),
         args: args.into_iter().collect(),
-        shapes: Vec::new(),
     }
 }
 

@@ -15,7 +15,7 @@ mod show;
 use std::collections::BTreeMap;
 
 use crate::literal::Literal;
-use crate::surface::{Key, Reference, Type};
+use crate::surface::{Key, Reference, Shape, Type};
 use crate::symbol::Symbol;
 
 pub type Ty = Type<Reference>;
@@ -61,6 +61,16 @@ pub struct KeyInfo {
     pub ty: Ty,
 }
 
+/// What has methods that are not fields: a built-in shape, whose
+/// methods are its module of the standard library, or a type
+/// definition, whose methods are the module it is defined in. See
+/// `spec/methods.md`.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Receiver {
+    Shape(Shape),
+    Type(Symbol),
+}
+
 /// Everything about other definitions that checking one definition reads.
 #[derive(Debug, Default)]
 pub struct Env {
@@ -72,6 +82,9 @@ pub struct Env {
     pub abilities: BTreeMap<Symbol, AbilityInfo>,
     /// Every key it refers to, or that a type it reaches does.
     pub keys: BTreeMap<Symbol, KeyInfo>,
+    /// The function each method it may call by name means, for each
+    /// receiver that has one of that name.
+    pub methods: BTreeMap<(Receiver, String), Symbol>,
     /// The bound of each type parameter of the definition being checked.
     pub bounds: Vec<Ty>,
 }

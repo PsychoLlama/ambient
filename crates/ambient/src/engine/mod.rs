@@ -22,6 +22,7 @@
 
 mod check;
 mod compile;
+mod environment;
 mod group;
 mod handed;
 mod link;

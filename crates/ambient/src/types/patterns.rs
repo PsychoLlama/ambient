@@ -1,7 +1,7 @@
 //! What a pattern does to a type: the values it matches, the values it
 //! lets through, and what its binders hold.
 
-use super::{Env, Ty, TyKey, entry, field};
+use super::{Env, Receiver, Ty, TyKey, entry, field};
 use crate::literal::Literal;
 use crate::surface::{Key, Pattern, Reference, Shape};
 
@@ -12,7 +12,14 @@ impl Env {
     /// there are none.
     #[must_use]
     pub fn narrow(&self, ty: &Ty, pattern: &Pat) -> Option<Ty> {
+        let named = ty;
         let ty = self.unfold(ty);
+        // A pattern that takes every value narrows nothing, so the
+        // type keeps the name it had: what a binder holds is then still
+        // the type definition it was, with its methods.
+        if ty != Ty::Never && self.covers(named, pattern) {
+            return Some(named.clone());
+        }
         if let Ty::Union(members) = &ty {
             let parts: Vec<Ty> = members
                 .iter()
@@ -238,6 +245,18 @@ impl Env {
             }
             _ => return None,
         })
+    }
+
+    /// What a value of type `ty` may have methods as, besides its
+    /// fields: the type definition it is named by, then its shape.
+    #[must_use]
+    pub fn receivers(&self, ty: &Ty) -> Vec<Receiver> {
+        let named = match ty {
+            Ty::Named(Reference::Definition(symbol), _) => Some(Receiver::Type(symbol.clone())),
+            _ => None,
+        };
+        let shape = self.shape(ty).map(Receiver::Shape);
+        named.into_iter().chain(shape).collect()
     }
 
     /// The type of member `index` of a tuple-shaped value of type `ty`.

@@ -1,15 +1,17 @@
 //! Method calls. See `spec/methods.md`.
 //!
 //! What a call means is decided by the type of its receiver: a field of
-//! a record, or the function of the standard library that the
-//! receiver's shape has under that name. Resolution found the second
-//! for every shape (`engine/scope.rs`), since it cannot know the type.
+//! a record, or else a function of the module its type is defined in
+//! or of the module the standard library has for its shape. The
+//! engine found those for every receiver the call could have
+//! (`engine/environment.rs`), since only checking knows the type.
 
 use super::Checker;
 use super::calls::Checked;
 use crate::core;
 use crate::error::Error;
-use crate::surface::{Expr, Reference, Shape};
+use crate::surface::{Expr, Reference};
+use crate::symbol::Symbol;
 use crate::types::{Ty, TyKey};
 
 impl Checker<'_> {
@@ -18,23 +20,22 @@ impl Checker<'_> {
         target: &Expr<Reference>,
         method: &TyKey,
         args: &[Expr<Reference>],
-        shapes: &[(Shape, Reference)],
     ) -> Result<(core::Expr, Ty), Error> {
         let (receiver, found) = self.infer(target)?;
         if self.env.field(&found, method).is_some() {
             return self.send_field(receiver, &found, method, args);
         }
-        let shape = self.env.shape(&found);
-        let function = shapes
-            .iter()
-            .find(|(has, _)| Some(*has) == shape)
-            .map(|(_, function)| function);
-        match function {
-            Some(function) => self.send_shape(function, (receiver, found), args),
+        let name = Self::key_name(method);
+        let receivers = self.env.receivers(&found);
+        let function = receivers
+            .into_iter()
+            .find_map(|receiver| self.env.methods.get(&(receiver, name.clone())));
+        match function.cloned() {
+            Some(function) => self.send_function(&function, (receiver, found), args),
             None => Err(Error::NoMethod {
                 symbol: self.symbol.clone(),
                 ty: self.env.show(&found),
-                name: Self::key_name(method),
+                name,
             }),
         }
     }
@@ -66,20 +67,17 @@ impl Checker<'_> {
         Ok((core, ret))
     }
 
-    /// A call of the function a shape has for a method, with the
-    /// receiver first.
-    fn send_shape(
+    /// A call of the function a method means, with the receiver first.
+    fn send_function(
         &mut self,
-        function: &Reference,
+        function: &Symbol,
         receiver: Checked,
         args: &[Expr<Reference>],
     ) -> Result<(core::Expr, Ty), Error> {
-        if let Reference::Definition(symbol) = function
-            && let Some(signature) = self.generic(symbol)
-        {
-            return self.generic_call(symbol, &signature, Some(receiver), args);
+        if let Some(signature) = self.generic(function) {
+            return self.generic_call(function, &signature, Some(receiver), args);
         }
-        let callee = Expr::Name(function.clone());
+        let callee = Expr::Name(Reference::Definition(function.clone()));
         let (core_callee, ty) = self.infer(&callee)?;
         let (args, ret) = self.arguments(&callee, &ty, Some(receiver), args)?;
         let callee = Box::new(core_callee);

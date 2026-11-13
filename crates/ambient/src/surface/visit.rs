@@ -85,12 +85,7 @@ impl<N> Expr<N> {
             }
             Self::Record(fields) => fields.iter().for_each(|(key, _)| key.names(visit)),
             Self::Field { key, .. } => key.names(visit),
-            Self::Send { method, shapes, .. } => {
-                method.names(visit);
-                for (_, function) in shapes {
-                    visit(function);
-                }
-            }
+            Self::Send { method, .. } => method.names(visit),
             Self::Match { arms, .. } => arms.iter().for_each(|arm| arm.pattern.names(visit)),
             Self::Lambda {
                 params,
@@ -144,6 +139,19 @@ impl<N> Expr<N> {
 }
 
 impl<N> Expr<N> {
+    /// Calls `visit` with the name of every method called by name
+    /// inside the expression.
+    pub fn sends<'a>(&'a self, visit: &mut impl FnMut(&'a str)) {
+        if let Self::Send {
+            method: Key::Field(name),
+            ..
+        } = self
+        {
+            visit(name);
+        }
+        self.children(&mut |child| child.sends(visit));
+    }
+
     /// Calls `visit` with the callee of every comptime call inside the
     /// expression.
     pub fn comptime_callees<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {

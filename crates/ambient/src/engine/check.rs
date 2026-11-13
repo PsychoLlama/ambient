@@ -17,9 +17,9 @@ use crate::core::{self, Open, Tree};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, encode};
 use crate::lower::deep;
-use crate::surface::{DefinitionKind, ExternKind, Function, Param, Reference};
+use crate::surface::{DefinitionKind, Function, Reference};
 use crate::symbol::{Namespace, Symbol};
-use crate::types::{AbilityInfo, Env, KeyInfo, Signature, Ty, TypeInfo, abilities};
+use crate::types::{AbilityInfo, Env, KeyInfo, Ty, TypeInfo};
 
 /// A checked function, kept with the runs its content came from.
 #[derive(Serialize, Deserialize)]
@@ -36,7 +36,7 @@ pub struct Interface {
 }
 
 /// The definitions a tree names, in order of first use.
-fn definitions<'a>(names: impl FnOnce(&mut dyn FnMut(&'a Reference))) -> Vec<Symbol> {
+pub(super) fn definitions<'a>(names: impl FnOnce(&mut dyn FnMut(&'a Reference))) -> Vec<Symbol> {
     let mut symbols: Vec<Symbol> = Vec::new();
     names(&mut |reference| {
         if let Reference::Definition(symbol) = reference
@@ -91,7 +91,7 @@ impl Engine<'_> {
 
     /// Adds every type definition and ability reachable from `roots` to
     /// `env`, then puts what was added in normal form.
-    fn gather(&self, roots: Vec<Symbol>, env: &mut Env) -> Result<(), Error> {
+    pub(super) fn gather(&self, roots: Vec<Symbol>, env: &mut Env) -> Result<(), Error> {
         let mut pending = roots;
         while let Some(symbol) = pending.pop() {
             match symbol.namespace {
@@ -320,7 +320,7 @@ impl Engine<'_> {
             }
             DefinitionKind::Extern(native) => {
                 self.tags(&symbol.module.package)?;
-                let env = self.environment(used, &mut key)?;
+                let env = self.environment(used, &[], &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
                     checker::check_extern(symbol, native, &package, &env)
                 })
@@ -332,7 +332,7 @@ impl Engine<'_> {
                     .iter()
                     .flat_map(|(ability, handler)| [ability.clone(), handler.clone()])
                     .collect();
-                let env = self.environment(used, &mut key)?;
+                let env = self.environment(used, &[], &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
                     checker::check_target(symbol, &bindings, &env)
                 })
@@ -352,7 +352,13 @@ impl Engine<'_> {
         mut key: Hasher,
         root: bool,
     ) -> Query<Open> {
-        let env = self.environment(used, &mut key)?;
+        let mut sends = Vec::new();
+        function.body.sends(&mut |name| {
+            if !sends.iter().any(|sent| sent == name) {
+                sends.push(name.to_owned());
+            }
+        });
+        let env = self.environment(used, &sends, &mut key)?;
         // What a comptime call returns is content of this definition, and
         // depends on everything its callee is.
         let mut callees = Vec::new();
@@ -383,111 +389,5 @@ impl Engine<'_> {
             Ok(Checked { result, runs })
         })?;
         checked.result.clone().map(Arc::new)
-    }
-
-    /// Everything checking reads about the definitions in `used`, with
-    /// what covers it added to `key`.
-    fn environment(&self, used: Vec<Symbol>, key: &mut Hasher) -> Result<Env, Error> {
-        let mut env = Env::default();
-        let mut roots = Vec::new();
-        for used in used {
-            match used.namespace {
-                Namespace::Type | Namespace::Ability | Namespace::Key => {
-                    key.hash(&self.hash(&used)?);
-                    roots.push(used);
-                }
-                Namespace::Value => {
-                    key.hash(&self.interface(&used)?.digest);
-                    if let Some((signature, named)) = self.signature(&used)? {
-                        roots.extend(named);
-                        env.functions.insert(used, signature);
-                    }
-                }
-            }
-        }
-        self.gather(roots, &mut env)?;
-        // Headers are read in normal form everywhere.
-        let functions = std::mem::take(&mut env.functions);
-        env.functions = functions
-            .into_iter()
-            .map(|(symbol, signature)| {
-                let signature = Signature {
-                    type_params: signature
-                        .type_params
-                        .iter()
-                        .map(|bound| env.normalize(bound))
-                        .collect(),
-                    params: signature.params.iter().map(|p| env.normalize(p)).collect(),
-                    ret: env.normalize(&signature.ret),
-                    ..signature
-                };
-                (symbol, signature)
-            })
-            .collect();
-        Ok(env)
-    }
-
-    /// The header of a function or an extern as written, and the
-    /// definitions it names. A target has none: it is not a value.
-    pub(super) fn signature(
-        &self,
-        symbol: &Symbol,
-    ) -> Result<Option<(Signature, Vec<Symbol>)>, Error> {
-        let resolved = self.resolve(symbol)?;
-        let named = definitions(|visit| match &resolved.definition.kind {
-            DefinitionKind::Function(header) => header.header_names(&mut |name| visit(name)),
-            _ => resolved.definition.names(&mut |name| visit(name)),
-        });
-        let types = |params: &[Param<Reference>]| params.iter().map(|p| p.ty.clone()).collect();
-        let row = |row: &[Reference]| {
-            let mut row = abilities(row);
-            row.sort();
-            row.dedup();
-            row
-        };
-        let signature = match &resolved.definition.kind {
-            DefinitionKind::Function(header) => Signature {
-                type_params: header
-                    .type_params
-                    .iter()
-                    .map(|p| p.bound.clone().unwrap_or(Ty::Unknown))
-                    .collect(),
-                params: types(&header.params),
-                ret: header.ret.clone(),
-                row: row(&header.row),
-                native: false,
-            },
-            DefinitionKind::Extern(native) => match &native.kind {
-                ExternKind::Function { params, ret } => Signature {
-                    type_params: Vec::new(),
-                    params: types(params),
-                    ret: ret.clone(),
-                    row: Vec::new(),
-                    native: false,
-                },
-                // A native handler takes what its ability takes.
-                ExternKind::Handler {
-                    ability,
-                    row: takes,
-                } => {
-                    let Reference::Definition(ability) = ability else {
-                        return Ok(None);
-                    };
-                    let ability = self.resolve(ability)?;
-                    let DefinitionKind::Ability(ability) = &ability.definition.kind else {
-                        return Ok(None);
-                    };
-                    Signature {
-                        type_params: Vec::new(),
-                        params: types(&ability.params),
-                        ret: ability.ret.clone(),
-                        row: row(takes),
-                        native: true,
-                    }
-                }
-            },
-            _ => return Ok(None),
-        };
-        Ok(Some((signature, named)))
     }
 }

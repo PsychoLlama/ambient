@@ -3,14 +3,13 @@
 
 use std::collections::BTreeMap;
 
-use ambient_runtime::FAULT_PACKAGE;
 use serde::Serialize;
 
 use super::{Engine, Query, memo};
 use crate::builder::OWN_PACKAGE;
 use crate::error::Error;
 use crate::hash::{Hash, digest};
-use crate::surface::{Import, Shape};
+use crate::surface::Import;
 use crate::symbol::{ModuleId, ModulePath, Namespace, Symbol};
 
 /// Something a module lets be named through it: a definition of its own,
@@ -38,11 +37,6 @@ pub struct Scope {
     /// What its package's preludes bring into scope. Anything above
     /// shadows these.
     pub preludes: BTreeMap<(Namespace, String), Symbol>,
-    /// The methods of the built-in shapes, by name: the public
-    /// functions of each shape's module of the standard library. No
-    /// name in scope shadows one, since a method is not found by name
-    /// alone. See `spec/methods.md`.
-    pub methods: BTreeMap<String, Vec<(Shape, Symbol)>>,
 }
 
 impl Scope {
@@ -73,18 +67,6 @@ impl Engine<'_> {
                 for (key, member) in &self.members(&prelude)?.0 {
                     if member.public {
                         scope.preludes.insert(key.clone(), member.symbol.clone());
-                    }
-                }
-            }
-            for shape in Shape::ALL {
-                let module = ModuleId::new(FAULT_PACKAGE, shape.module());
-                if self.sources.module(&module).is_none() {
-                    continue;
-                }
-                for ((namespace, name), member) in &self.members(&module)?.0 {
-                    if member.public && *namespace == Namespace::Value {
-                        let methods = scope.methods.entry(name.clone()).or_default();
-                        methods.push((shape, member.symbol.clone()));
                     }
                 }
             }

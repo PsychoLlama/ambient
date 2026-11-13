@@ -388,13 +388,11 @@ pub enum Expr<N = Path> {
         operands: Vec<Expr<N>>,
     },
     /// A method call: `method` of `target`, with `args`. See
-    /// `spec/methods.md`. `shapes` is what the method means for each
-    /// built-in shape that has it, which resolution fills in.
+    /// `spec/methods.md`. What it means waits for the type of `target`.
     Send {
         target: Box<Expr<N>>,
         method: Key<N>,
         args: Vec<Expr<N>>,
-        shapes: Vec<(Shape, N)>,
     },
     /// Takes the first arm whose pattern matches the subject.
     Match {

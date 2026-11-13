@@ -346,8 +346,7 @@ impl<'a> Checker<'a> {
                 target,
                 method,
                 args,
-                shapes,
-            } => self.send(target, method, args, shapes)?,
+            } => self.send(target, method, args)?,
             Expr::Record(fields) => self.record(fields)?,
             // Only a record's field is a method.
             Expr::Method(_) => return Err(self.not_method(&Ty::Unknown)),

@@ -38,6 +38,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - An intersection of records has the keys of both; an intersection with a brand adds the brand.
 - An intersection of two different shapes is `never`; there are no overloaded function types and no negation types.
 - `int` and `float` are unrelated.
+- No type of one [shape](values.md) is a subtype of a type of another: a value has one shape.
 
 ## Singleton types
 

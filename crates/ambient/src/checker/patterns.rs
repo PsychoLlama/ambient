@@ -57,6 +57,9 @@ impl Checker<'_> {
     /// Gives every binder in `pattern` its type, in binding order, and
     /// returns the core pattern. `ty` is what the pattern matched.
     pub(super) fn bind(&mut self, ty: &Ty, pattern: &Pat) -> core::Pattern {
+        // A binder holds the type by the name it had, so that it is
+        // still the type definition it was, with its methods.
+        let named = ty;
         let ty = self.env.unfold(ty);
         match pattern {
             Pattern::Wildcard => core::Pattern::Wildcard,
@@ -66,8 +69,8 @@ impl Checker<'_> {
                 core::Pattern::Is(self.lower(&tested))
             }
             Pattern::Bind(_, inner) => {
-                self.bind_local(ty.clone());
-                core::Pattern::Bind(Box::new(self.bind(&ty, inner)))
+                self.bind_local(named.clone());
+                core::Pattern::Bind(Box::new(self.bind(named, inner)))
             }
             Pattern::Record(patterns) => core::Pattern::Record(
                 patterns
