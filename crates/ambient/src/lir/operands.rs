@@ -19,6 +19,7 @@ impl Op {
             | Self::Group
             | Self::Cleanup(_) => Vec::new(),
             Self::Copy(operand)
+            | Self::Method(operand)
             | Self::IsRecord(operand)
             | Self::Expire(operand)
             | Self::Caught(operand)

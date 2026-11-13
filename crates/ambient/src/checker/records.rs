@@ -14,7 +14,7 @@ impl Checker<'_> {
         env.lower_key(key, &mut |symbol| self.slot(symbol))
     }
 
-    fn key_name(key: &TyKey) -> String {
+    pub(super) fn key_name(key: &TyKey) -> String {
         match key {
             Key::Field(name) => name.clone(),
             Key::Ability(Reference::Definition(ability)) => format!("[{}]", ability.name),
@@ -43,9 +43,10 @@ impl Checker<'_> {
         let mut cores = Vec::new();
         let mut types: Vec<(TyKey, Ty)> = Vec::new();
         for (key, value) in fields {
-            let (core, ty) = match self.expected_handler(key) {
-                Some(expected) => self.infer_as(value, &expected)?,
-                None => self.infer(value)?,
+            let (core, ty) = match (self.expected_handler(key), value) {
+                (Some(expected), _) => self.infer_as(value, &expected)?,
+                (None, Expr::Method(function)) => self.method(function)?,
+                (None, _) => self.infer(value)?,
             };
             // Two paths can name one ability, which a builder cannot see.
             if let (Some(_), Key::Ability(Reference::Definition(ability))) =
@@ -60,7 +61,11 @@ impl Checker<'_> {
             types.push((key.clone(), ty));
         }
         types.sort_by(|(a, _), (b, _)| a.cmp(b));
-        Ok((core::Expr::Record(cores), Ty::Record(types)))
+        let record = Ty::Record(types);
+        if let Ty::Record(types) = &record {
+            self.receives(&record, types)?;
+        }
+        Ok((core::Expr::Record(cores), record))
     }
 
     /// Reads what a record holds under `key`.
@@ -112,6 +117,12 @@ impl Checker<'_> {
         fields.retain(|(key, _)| entry(&over, key).is_none());
         fields.extend(over);
         fields.sort_by(|(a, _), (b, _)| a.cmp(b));
+        // TODO: a method the operands list should receive the merged
+        // record, checked against it here. Until then every method
+        // stays bound to the record it had.
+        for (_, ty) in &mut fields {
+            *ty = ty.read();
+        }
         let core = core::Expr::Merge {
             left: Box::new(core_left),
             right: Box::new(core_right),

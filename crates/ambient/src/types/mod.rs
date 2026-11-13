@@ -89,6 +89,10 @@ pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
         Ty::Union(members) => Ty::Union(all(members)),
         Ty::List(member) => Ty::List(Box::new(substitute(member, args))),
         Ty::Cell(member) => Ty::Cell(Box::new(substitute(member, args))),
+        Ty::Method { needs, function } => Ty::Method {
+            needs: Box::new(substitute(needs, args)),
+            function: Box::new(substitute(function, args)),
+        },
         Ty::Function { params, ret, row } => Ty::Function {
             params: all(params),
             ret: Box::new(substitute(ret, args)),
@@ -98,6 +102,18 @@ pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
             args.get(*position).cloned().unwrap_or(Ty::Never)
         }
         Ty::Named(name, inner) => Ty::Named(name.clone(), all(inner)),
+    }
+}
+
+impl Ty {
+    /// The type of what reading a record's key of this type gives: for
+    /// a method, the function bound to the record.
+    #[must_use]
+    pub fn read(&self) -> Self {
+        match self {
+            Self::Method { function, .. } => (**function).clone(),
+            other => other.clone(),
+        }
     }
 }
 
@@ -127,6 +143,7 @@ fn mentions_parameter(ty: &Ty) -> bool {
         Ty::Record(fields) => fields.iter().any(|(_, ty)| mentions_parameter(ty)),
         Ty::Tuple(members) | Ty::Union(members) | Ty::Named(_, members) => any(members),
         Ty::List(member) | Ty::Cell(member) => mentions_parameter(member),
+        Ty::Method { needs, function } => mentions_parameter(needs) || mentions_parameter(function),
         Ty::Function { params, ret, .. } => any(params) || mentions_parameter(ret),
         _ => false,
     }
@@ -151,6 +168,8 @@ impl Env {
     fn tests<'a>(&'a self, ty: &'a Ty, seen: &mut Vec<&'a Symbol>) -> bool {
         match ty {
             Ty::Function { .. } => !mentions_parameter(ty),
+            // A test never yields a method: see `spec/methods.md`.
+            Ty::Method { .. } => false,
             Ty::Record(fields) => fields.iter().all(|(_, ty)| self.tests(ty, seen)),
             Ty::Tuple(members) | Ty::Union(members) => {
                 members.iter().all(|member| self.tests(member, seen))
@@ -204,6 +223,10 @@ impl Env {
             }
             Ty::List(member) => Ty::List(Box::new(self.normal(member, absorb))),
             Ty::Cell(member) => Ty::Cell(Box::new(self.normal(member, absorb))),
+            Ty::Method { needs, function } => Ty::Method {
+                needs: Box::new(self.normal(needs, absorb)),
+                function: Box::new(self.normal(function, absorb)),
+            },
             Ty::Function { params, ret, row } => {
                 let mut row = row.clone();
                 row.sort();

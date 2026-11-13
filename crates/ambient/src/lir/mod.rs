@@ -144,7 +144,11 @@ pub enum Op {
     Sequence { list: bool, members: Vec<Value> },
     /// A record. Each field is a [`Constant::Field`] and its value.
     Record(Vec<(usize, Value)>),
-    /// A field of a record that has it.
+    /// A closure, which nothing else holds, as a method of the record
+    /// it is about to be a field of.
+    Method(Value),
+    /// A field of a record that has it: its value, or for a method the
+    /// function bound to the record.
     Field { record: Value, key: usize },
     /// A member of a tuple that has it.
     Member { tuple: Value, index: usize },

@@ -175,7 +175,7 @@ impl Env {
             Ty::Named(Reference::Parameter(position), _) => {
                 self.field(self.bounds.get(position)?, key)
             }
-            Ty::Record(fields) => entry(&fields, key).cloned(),
+            Ty::Record(fields) => entry(&fields, key).map(Ty::read),
             Ty::Union(members) => {
                 let fields: Option<Vec<Ty>> = members.iter().map(|m| self.field(m, key)).collect();
                 fields.map(|fields| self.union(fields))

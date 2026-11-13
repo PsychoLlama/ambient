@@ -3,8 +3,8 @@
 use crate::cell::made_at;
 use crate::closure::type_name;
 use crate::object::{
-    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_RECORD, KIND_STRING, KIND_TAG,
-    KIND_TUPLE, boolean, bytes, int, kind, payload, words,
+    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_LIST, KIND_METHOD, KIND_RECORD,
+    KIND_STRING, KIND_TAG, KIND_TUPLE, boolean, bytes, int, kind, payload, words,
 };
 use crate::record::find;
 use crate::same::Types;
@@ -56,6 +56,10 @@ pub mod descriptor {
     pub const TAG: u64 = 16;
     /// Then the node of what the cell holds.
     pub const CELL: u64 = 17;
+    /// Then the node of what the method needs of its receiver, and the
+    /// node of the function reading it gives. No value is tested
+    /// against one: it is only ever compared, inside a cell's type.
+    pub const METHOD: u64 = 18;
 }
 
 /// The tests a descriptor makes of the values inside a value.
@@ -270,7 +274,9 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
             // decided here of one type being within another.
             d::FUNCTION => {
                 let name = node(4 + node(1) as usize + node(3 + node(1) as usize) as usize);
-                kind(value) == KIND_CLOSURE && name != 0 && type_name(value) == name
+                // A method is the function reading it gives.
+                let function = matches!(kind(value), KIND_CLOSURE | KIND_METHOD);
+                function && name != 0 && type_name(value) == name
             }
             _ => false,
         })

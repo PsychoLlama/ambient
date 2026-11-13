@@ -3,8 +3,15 @@
 //! A record is its fields as (key, value) pairs, ordered by key. A key is
 //! an interned string, so the order is by address: arbitrary, but the same
 //! for every record in one execution.
+//!
+//! A method (`spec/methods.md`) is held as a closure of its own kind,
+//! with room for the record it will receive. Reading the field gives a
+//! copy that holds the record, so no record holds itself.
 
-use crate::object::{KIND_RECORD, amb_retain, boolean, kind, object, words};
+use crate::object::{
+    KIND_CLOSURE, KIND_METHOD, KIND_RECORD, amb_retain, boolean, header, kind, object, words,
+};
+use crate::unit::{self, amb_unit_retain};
 use crate::{NULL, Word};
 
 /// A record with room for `length` fields. Fill it with
@@ -45,14 +52,50 @@ pub(crate) unsafe fn find(record: Word, key: Word) -> Option<Word> {
     }
 }
 
+/// Where among a method's words the record it receives goes: after its
+/// definition and the function it calls.
+const RECEIVER: usize = 2;
+
+/// Makes a closure that nothing else holds yet a method, for a record
+/// to hold.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_method(closure: Word) -> Word {
+    unsafe {
+        amb_method_mark(closure);
+        amb_retain(closure);
+        closure
+    }
+}
+
+/// [`amb_method`], for a host that holds the closure already.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_method_mark(closure: Word) {
+    unsafe { (*header(closure)).kind = KIND_METHOD }
+}
+
+/// What reading `held` out of `record` gives, which the caller owns:
+/// the value, or for a method the function bound to the record.
+pub(crate) unsafe fn read(record: Word, held: Word) -> Word {
+    unsafe {
+        if kind(held) != KIND_METHOD {
+            amb_retain(held);
+            return held;
+        }
+        let method = words(held);
+        let word = object(KIND_CLOSURE, method.len() * 8);
+        let bound = words(word);
+        bound.copy_from_slice(method);
+        bound[RECEIVER] = record;
+        amb_unit_retain(unit::of(bound[0]));
+        bound[1..].iter().for_each(|value| amb_retain(*value));
+        word
+    }
+}
+
 /// The field `key` of a record, which must have it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_record_get(record: Word, key: Word) -> Word {
-    unsafe {
-        let value = find(record, key).unwrap_or(NULL);
-        amb_retain(value);
-        value
-    }
+    unsafe { read(record, find(record, key).unwrap_or(NULL)) }
 }
 
 /// Whether a value is a record with the field `key`.
@@ -89,18 +132,19 @@ pub unsafe extern "C" fn amb_record_merge(base: Word, overlay: Word) -> Word {
         let (mut low, mut high) = (0, 0);
         for pair in fields.chunks_mut(2) {
             let from_base = high == above.len() || (low < below.len() && below[low] < above[high]);
-            let source = if from_base {
+            let (from, source) = if from_base {
                 low += 2;
-                &below[low - 2..low]
+                (base, &below[low - 2..low])
             } else {
                 if low < below.len() && below[low] == above[high] {
                     low += 2;
                 }
                 high += 2;
-                &above[high - 2..high]
+                (overlay, &above[high - 2..high])
             };
-            amb_retain(source[1]);
-            pair.copy_from_slice(source);
+            // A method stays bound to the record it had.
+            pair[0] = source[0];
+            pair[1] = read(from, source[1]);
         }
         word
     }

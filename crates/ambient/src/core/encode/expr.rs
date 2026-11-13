@@ -68,6 +68,10 @@ pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
             out.push(5);
             encode_fields(fields, out);
         }
+        Expr::Method(closure) => {
+            out.push(29);
+            encode_expr(closure, out);
+        }
         Expr::Tuple(members) => {
             out.push(6);
             encode_exprs(members, out);

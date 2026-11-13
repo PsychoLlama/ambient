@@ -65,6 +65,16 @@ pub enum Error {
         ty: String,
         name: String,
     },
+    /// A method is not a field of a record, or is not a function with a
+    /// parameter for its record.
+    Method { symbol: Symbol, found: String },
+    /// A record does not have what one of its methods needs of it.
+    Receiver {
+        symbol: Symbol,
+        name: String,
+        needs: String,
+        found: String,
+    },
     /// An operator is applied to types it is not defined for.
     Operands { symbol: Symbol, found: String },
     /// A match leaves some values of its subject unhandled.
@@ -183,6 +193,7 @@ impl fmt::Display for Error {
             Self::Operands { symbol, found } => {
                 write!(f, "{symbol}: no operator for `{found}`")
             }
+            Self::Method { .. } | Self::Receiver { .. } => self.fmt_method(f),
             Self::NotExhaustive { symbol, remaining } => {
                 write!(f, "{symbol}: match does not handle `{remaining}`")
             }
@@ -375,3 +386,25 @@ impl Error {
 }
 
 impl std::error::Error for Error {}
+
+impl Error {
+    fn fmt_method(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Method { symbol, found } => write!(
+                f,
+                "{symbol}: a method is a field of a record and a function that takes \
+                 the record first, not `{found}`"
+            ),
+            Self::Receiver {
+                symbol,
+                name,
+                needs,
+                found,
+            } => write!(
+                f,
+                "{symbol}: method `{name}` needs `{needs}` of its record, which is `{found}`"
+            ),
+            _ => Ok(()),
+        }
+    }
+}

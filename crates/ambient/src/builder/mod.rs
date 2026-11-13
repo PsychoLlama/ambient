@@ -424,6 +424,13 @@ pub fn record<'a>(fields: impl IntoIterator<Item = (&'a str, Expr)>) -> Expr {
     )
 }
 
+/// `function` as a method of the record it is a field of: its first
+/// parameter is the record the field is read from.
+#[must_use]
+pub fn method(function: Expr) -> Expr {
+    Expr::Method(Box::new(function))
+}
+
 #[must_use]
 pub fn field(target: Expr, name: &str) -> Expr {
     Expr::Field {

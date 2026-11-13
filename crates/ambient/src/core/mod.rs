@@ -45,6 +45,12 @@ pub enum Type {
     /// Fields come first, ordered by name; then handlers, ordered by
     /// their abilities' tags.
     Record(Vec<(Key, Type)>),
+    /// A method, as a key of a record type holds one: what it needs of
+    /// its receiver, and the function reading it gives.
+    Method {
+        needs: Box<Type>,
+        function: Box<Type>,
+    },
     Tuple(Vec<Type>),
     List(Box<Type>),
     Cell(Box<Type>),
@@ -144,6 +150,11 @@ pub enum Expr {
     /// Fields keep the order they were written in: it is their evaluation
     /// order.
     Record(Vec<(Key, Expr)>),
+    /// A method of the record it is a field of. What it holds is a
+    /// closure over the function that reads it: one that captures the
+    /// method's function and then the record, which is null here and is
+    /// the record once the field is read.
+    Method(Box<Expr>),
     Tuple(Vec<Expr>),
     List(Vec<Expr>),
     Field {

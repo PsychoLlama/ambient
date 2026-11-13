@@ -29,6 +29,7 @@ impl Expr {
                 captures: exprs, ..
             } => exprs.iter().for_each(visit),
             Self::Field { target: inner, .. }
+            | Self::Method(inner)
             | Self::Cell { value: inner, .. }
             | Self::Boundary(inner)
             | Self::Group(inner)

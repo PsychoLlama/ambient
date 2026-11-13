@@ -30,6 +30,10 @@ pub enum Value {
     List(Vec<Value>),
     Record(BTreeMap<String, Value>),
     Function(Function),
+    /// A method a record holds: the function reading the field gives,
+    /// before it has the record. The record is its second capture,
+    /// and null here.
+    Method(Function),
     /// A cell. It never leaves its program.
     Cell,
     /// What an abort handler is bound to: a hold on a provide that is
@@ -112,14 +116,20 @@ pub fn decode(word: Word, inspect: &mut impl Inspect) -> Value {
             }
             // A function's payload is its definition, and then what it
             // captured.
-            kind if kind == Kind::Function as u64 => {
+            kind if kind == Kind::Function as u64 || kind == Kind::Method as u64 => {
                 let hash = inspect.definition(word);
                 let definition = Hash::parse(&text(inspect, hash));
+                let method = kind == Kind::Method as u64;
                 let function = move |captures| {
-                    Value::Function(Function {
+                    let function = Function {
                         definition,
                         captures,
-                    })
+                    };
+                    if method {
+                        Value::Method(function)
+                    } else {
+                        Value::Function(function)
+                    }
                 };
                 return Step::Inside(words(inspect, 1, 1), Box::new(function));
             }
@@ -155,6 +165,8 @@ pub trait Construct {
         None
     }
     fn capture(&mut self, _function: Word, _index: u64, _value: Word) {}
+    /// Makes a function just made a method, for a record to hold.
+    fn method(&mut self, _function: Word) {}
 }
 
 /// A container being filled: its word, and what is still to go in it.
@@ -188,11 +200,14 @@ pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
         };
         let mut ready = match next {
             Value::Null | Value::Cell | Value::Token | Value::Types => Some(ambient_runtime::NULL),
-            Value::Function(function) => {
+            Value::Function(function) | Value::Method(function) => {
                 let captures = function.captures.len() as u64;
                 let definition = function.definition.as_ref();
                 match definition.and_then(|hash| make.function(hash, captures)) {
                     Some(word) => {
+                        if matches!(next, Value::Method(_)) {
+                            make.method(word);
+                        }
                         open.push(filling(word, Members::Captures(function.captures.iter())));
                         None
                     }

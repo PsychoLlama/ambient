@@ -69,6 +69,9 @@ fn spell(ty: &Type, hash: &dyn Fn(Slot) -> Hash) -> Option<String> {
             format!("<{}>", members.join("|"))
         }
         Type::List(member) => format!("[{}]", spell(member, hash)?),
+        Type::Method { needs, function } => {
+            format!("method[{}]{}", spell(needs, hash)?, spell(function, hash)?)
+        }
         Type::Cell(member) => format!("cell[{}]", spell(member, hash)?),
         Type::Function { params, ret, row } => {
             let mut text = format!("fn({})", each(params, hash)?.join(","));

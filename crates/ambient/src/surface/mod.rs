@@ -198,6 +198,13 @@ pub enum Type<N = Path> {
     Tag,
     Literal(Literal),
     Record(Vec<(Key<N>, Type<N>)>),
+    /// A method, as a key of a record type holds one: what it needs of
+    /// the record it is read from, and the function reading it gives.
+    /// See `spec/methods.md`.
+    Method {
+        needs: Box<Type<N>>,
+        function: Box<Type<N>>,
+    },
     Tuple(Vec<Type<N>>),
     List(Box<Type<N>>),
     /// A cell that holds a value of the type.
@@ -293,6 +300,10 @@ pub enum Expr<N = Path> {
         args: Vec<Expr<N>>,
     },
     Record(Vec<(Key<N>, Expr<N>)>),
+    /// A function as a method of the record it is a field of: its first
+    /// parameter is the record the field is read from. Only a field of
+    /// a record is one. See `spec/methods.md`.
+    Method(Box<Expr<N>>),
     Tuple(Vec<Expr<N>>),
     List(Vec<Expr<N>>),
     Field {

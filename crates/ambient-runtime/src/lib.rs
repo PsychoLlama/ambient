@@ -172,6 +172,9 @@ pub enum Kind {
     /// Not a value a program can name: the type arguments a generic
     /// function was made at, which follow what it captured.
     Types = 12,
+    /// A method a record holds: a function with room for the record,
+    /// which reading the field fills in.
+    Method = 13,
 }
 
 /// The state of one execution. Compiled code receives a pointer to it as

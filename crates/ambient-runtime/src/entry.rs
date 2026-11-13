@@ -150,4 +150,5 @@ entries! {
     FloatText = amb_float_text, plain, 1, word;
     StringInt = amb_string_int, plain, 1, word;
     StringFloat = amb_string_float, plain, 1, word;
+    Method = amb_method, plain, 1, word;
 }

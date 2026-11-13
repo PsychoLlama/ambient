@@ -160,6 +160,7 @@ impl Op {
                 }
                 steps
             }
+            Self::Method(closure) => vec![step(Entry::Method, [value(closure)])],
             Self::Field { record, key: field } => {
                 vec![step(Entry::RecordGet, [value(record), key(field)])]
             }

@@ -14,6 +14,7 @@ mod comptime;
 mod generics;
 mod header;
 mod lambda;
+mod methods;
 mod observe;
 mod operators;
 mod patterns;
@@ -343,6 +344,8 @@ impl<'a> Checker<'a> {
             Expr::Instantiate { function, args } => self.instantiate(function, args)?,
             Expr::Call { callee, args } => self.call(callee, args)?,
             Expr::Record(fields) => self.record(fields)?,
+            // Only a record's field is a method.
+            Expr::Method(_) => return Err(self.not_method(&Ty::Unknown)),
             Expr::Merge { left, right } => self.merge(left, right)?,
             Expr::Tuple(members) => {
                 let (cores, types) = self.infer_all(members)?;

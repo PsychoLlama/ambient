@@ -57,6 +57,7 @@ impl Resolver<'_> {
                     .map(|(key, value)| Ok((self.key(key)?, self.expr(value)?)))
                     .collect::<Result<_, Error>>()?,
             ),
+            Expr::Method(function) => Expr::Method(Box::new(self.expr(function)?)),
             Expr::Tuple(members) => Expr::Tuple(self.exprs(members)?),
             Expr::List(members) => Expr::List(self.exprs(members)?),
             Expr::Field { target, key } => Expr::Field {

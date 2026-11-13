@@ -35,6 +35,10 @@ impl<N> Type<N> {
                 }
             }
             Self::List(member) | Self::Cell(member) => member.names(visit),
+            Self::Method { needs, function } => {
+                needs.names(visit);
+                function.names(visit);
+            }
             Self::Function { params, ret, row } => {
                 for ty in params {
                     ty.names(visit);
@@ -156,6 +160,7 @@ impl<N> Expr<N> {
             Self::Record(fields) => fields.iter().for_each(|(_, value)| visit(value)),
             Self::Tuple(members) | Self::List(members) => members.iter().for_each(visit),
             Self::Field { target, .. } => visit(target),
+            Self::Method(function) => visit(function),
             Self::Let { value, body, .. } => {
                 visit(value);
                 visit(body);

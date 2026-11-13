@@ -61,7 +61,9 @@ impl Value {
         match self {
             Self::Tuple(members) | Self::List(members) => std::mem::take(members),
             Self::Record(fields) => std::mem::take(fields).into_values().collect(),
-            Self::Function(function) => std::mem::take(&mut function.captures),
+            Self::Function(function) | Self::Method(function) => {
+                std::mem::take(&mut function.captures)
+            }
             _ => Vec::new(),
         }
     }
@@ -98,13 +100,19 @@ impl Clone for Value {
                     |values: Vec<Self>| Self::Record(fields.keys().cloned().zip(values).collect());
                 Step::Inside(fields.values().collect(), Box::new(record))
             }
-            Self::Function(function) => {
+            Self::Function(function) | Self::Method(function) => {
                 let definition = function.definition;
+                let method = matches!(value, Self::Method(_));
                 let made = move |captures| {
-                    Self::Function(Function {
+                    let function = Function {
                         definition,
                         captures,
-                    })
+                    };
+                    if method {
+                        Self::Method(function)
+                    } else {
+                        Self::Function(function)
+                    }
                 };
                 Step::Inside(function.captures.iter().collect(), Box::new(made))
             }
@@ -140,7 +148,8 @@ impl PartialEq for Value {
                     pending.extend(left.values().zip(right.values()));
                     left.keys().eq(right.keys())
                 }
-                (Self::Function(left), Self::Function(right)) => {
+                (Self::Function(left), Self::Function(right))
+                | (Self::Method(left), Self::Method(right)) => {
                     pending.extend(left.captures.iter().zip(&right.captures));
                     left.definition == right.definition
                         && left.captures.len() == right.captures.len()

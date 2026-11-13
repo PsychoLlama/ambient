@@ -154,6 +154,10 @@ impl Types {
                 }
                 d::TUPLE => self.each((members(left), from), (members(right), to)),
                 d::LIST | d::CELL => self.same((word(left, 1), from), (word(right, 1), to)),
+                d::METHOD => {
+                    self.same((word(left, 1), from), (word(right, 1), to))
+                        && self.same((word(left, 2), from), (word(right, 2), to))
+                }
                 d::FUNCTION => {
                     let (have, want) = (function(left), function(right));
                     have.row == want.row

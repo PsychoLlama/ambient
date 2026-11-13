@@ -276,6 +276,11 @@ impl Construct for Inside<'_> {
         // SAFETY: `encode` stays within the captures it asked for.
         unsafe { ambient_runtime::amb_closure_set(function, index, value) }
     }
+
+    fn method(&mut self, function: Word) {
+        // SAFETY: the function was just made, and nothing else holds it.
+        unsafe { ambient_runtime::amb_method_mark(function) }
+    }
 }
 
 /// A value as a word the caller owns.

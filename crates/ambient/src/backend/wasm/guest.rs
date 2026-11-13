@@ -193,6 +193,10 @@ impl<S: AsContextMut<Data = State>> Construct for Guest<S> {
     fn capture(&mut self, function: u64, index: u64, value: u64) {
         self.words("amb_closure_set", &[function, index, value]);
     }
+
+    fn method(&mut self, function: u64) {
+        self.words("amb_method_mark", &[function]);
+    }
 }
 
 /// One call of native code: the program it was made from, and the

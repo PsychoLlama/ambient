@@ -301,6 +301,7 @@ impl Lowering {
                 }
                 Op::Record(lowered)
             }
+            core::Expr::Method(closure) => Op::Method(self.operand(closure, &mut scope)?),
             core::Expr::Field { target, key } => Op::Field {
                 record: self.operand(target, &mut scope)?,
                 key: self.key(key),

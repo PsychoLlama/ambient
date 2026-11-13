@@ -139,13 +139,13 @@ impl Body<'_, '_> {
                 let captured = self.captures.get(*position).cloned();
                 captured.ok_or(Invalid::Local)?
             }
-            Expr::Reference(slot, args) => self.function_value(*slot, args, &[], &[])?,
+            Expr::Reference(slot, args) => self.function_value(*slot, args, &[], &[], 0)?,
             Expr::Closure {
                 slot,
                 type_args,
                 captures,
                 bindings,
-            } => self.function_value(*slot, type_args, captures, bindings)?,
+            } => self.function_value(*slot, type_args, captures, bindings, 0)?,
             Expr::Call { callee, args } => {
                 let found = self.infer(callee)?;
                 let Ty::Function { params, ret, row } = env.unfold(&found) else {
@@ -167,10 +167,16 @@ impl Body<'_, '_> {
                     if entry(&types, &key).is_some() {
                         return shape("a record has one key twice");
                     }
-                    types.push((key, self.infer(value)?));
+                    let ty = match value {
+                        Expr::Method(closure) => self.method(closure)?,
+                        value => self.infer(value)?,
+                    };
+                    types.push((key, ty));
                 }
                 types.sort_by(|(a, _), (b, _)| a.cmp(b));
-                Ty::Record(types)
+                let record = Ty::Record(types);
+                self.receives(&record)?;
+                record
             }
             Expr::Tuple(members) => Ty::Tuple(self.infer_all(members)?),
             Expr::List(members) => {
@@ -213,13 +219,15 @@ impl Body<'_, '_> {
     }
 
     /// A function as a value: one that stands alone, or a closure over
-    /// one that captures values and bindings.
+    /// one that captures values and bindings. `pending` is how many of
+    /// its last captures are not captured yet.
     fn function_value(
         &mut self,
         slot: Slot,
         type_args: &[core::Type],
         captures: &[Expr],
         bindings: &[Slot],
+        pending: usize,
     ) -> Result<Ty, Invalid> {
         let verifier = self.verifier;
         let env = &verifier.env;
@@ -230,7 +238,7 @@ impl Body<'_, '_> {
             return shape("only a program's root names a native handler");
         }
         let args = self.type_args(signature, type_args)?;
-        if captures.len() != held.captures.len() {
+        if captures.len() + pending != held.captures.len() {
             return Err(Invalid::Arity);
         }
         for (capture, ty) in captures.iter().zip(&held.captures) {
@@ -245,6 +253,50 @@ impl Body<'_, '_> {
             self.require(ability)?;
         }
         Ok(env.normalize(&function_type(signature, &args)))
+    }
+
+    /// A method of a record: a closure over the function that reads
+    /// it, which captures the method's function and then the record.
+    /// The record is not there until the field is read, and what the
+    /// function takes it to be is what the method needs.
+    fn method(&mut self, closure: &Expr) -> Result<Ty, Invalid> {
+        let Expr::Closure {
+            slot,
+            type_args,
+            captures,
+            bindings,
+        } = closure
+        else {
+            return shape("a method is not a closure");
+        };
+        let [function, Expr::Null] = captures.as_slice() else {
+            return shape("a method does not capture a function and then nothing");
+        };
+        let captured = std::slice::from_ref(function);
+        let read = self.function_value(*slot, type_args, captured, bindings, 1)?;
+        let held = &self.verifier.held[self.verifier.symbol(*slot)?];
+        let args = self.verifier.sound_all(type_args)?;
+        let needs = held.captures.get(1).ok_or(Invalid::Arity)?;
+        let needs = self.verifier.env.normalize(&substitute(needs, &args));
+        Ok(Ty::Method {
+            needs: Box::new(needs),
+            function: Box::new(read),
+        })
+    }
+
+    /// Fails unless a record has what each of its methods needs of it.
+    fn receives(&self, record: &Ty) -> Result<(), Invalid> {
+        let Ty::Record(fields) = record else {
+            return Ok(());
+        };
+        for (_, ty) in fields {
+            if let Ty::Method { needs, .. } = ty
+                && !self.verifier.env.subtype(record, needs)
+            {
+                return Err(self.verifier.mismatch(needs, record));
+            }
+        }
+        Ok(())
     }
 
     fn merge(&mut self, left: &Expr, right: &Expr, keys: &[core::Key]) -> Result<Ty, Invalid> {
@@ -264,6 +316,10 @@ impl Body<'_, '_> {
         fields.retain(|(key, _)| entry(&over, key).is_none());
         fields.extend(over);
         fields.sort_by(|(a, _), (b, _)| a.cmp(b));
+        // A merge leaves each method bound to the record it had.
+        for (_, ty) in &mut fields {
+            *ty = ty.read();
+        }
         Ok(Ty::Record(fields))
     }
 

@@ -20,6 +20,9 @@ pub(crate) const KIND_CELL: u32 = 9;
 pub(crate) const KIND_TAG: u32 = 10;
 /// Not a value: the type arguments a generic function was made at.
 pub(crate) const KIND_SCOPE: u32 = 12;
+/// A method a record holds: a closure whose second capture is the
+/// record, once the field is read. See `record.rs`.
+pub(crate) const KIND_METHOD: u32 = 13;
 
 /// The count of an object that is never reclaimed.
 pub(crate) const PINNED: u32 = u32::MAX;
@@ -225,7 +228,7 @@ pub unsafe extern "C" fn amb_release(word: Word) {
                     &words(word)[..2]
                 }
                 // The first word is the definition, which is not a value.
-                KIND_CLOSURE => {
+                KIND_CLOSURE | KIND_METHOD => {
                     amb_unit_release(unit::of(words(word)[0]));
                     &words(word)[1..]
                 }

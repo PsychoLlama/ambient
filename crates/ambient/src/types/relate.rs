@@ -68,6 +68,18 @@ impl Env {
                     && have.iter().zip(want).all(|(h, w)| self.sub(h, w, assumed))
             }
             (Ty::List(have), Ty::List(want)) => self.sub(have, want, assumed),
+            // A method that needs less of its receiver stands in for one
+            // that needs more.
+            (
+                Ty::Method { needs, function },
+                Ty::Method {
+                    needs: want_needs,
+                    function: want,
+                },
+            ) => self.sub(want_needs, needs, assumed) && self.sub(function, want, assumed),
+            // Read, a method is the function it gives; what it needed
+            // is then forgotten.
+            (Ty::Method { function, .. }, _) => self.sub(function, sup, assumed),
             // A cell is written as well as read, so it is the same type
             // or it is not a subtype.
             (Ty::Cell(have), Ty::Cell(want)) => {
@@ -126,6 +138,8 @@ impl Env {
             (Ty::Union(members), other) | (other, Ty::Union(members)) => {
                 members.iter().all(|m| self.apart(m, other, next))
             }
+            // Read, a method is a function, and two functions may be one.
+            (Ty::Method { .. }, _) | (_, Ty::Method { .. }) => false,
             (Ty::Literal(a), Ty::Literal(b)) => a != b,
             (Ty::Literal(literal), other) | (other, Ty::Literal(literal)) => {
                 primitive_of(literal) != *other

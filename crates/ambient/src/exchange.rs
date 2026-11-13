@@ -64,6 +64,7 @@ const TUPLE: u8 = 7;
 const LIST: u8 = 8;
 const RECORD: u8 = 9;
 const FUNCTION: u8 = 10;
+const METHOD: u8 = 11;
 
 fn text(text: &str, out: &mut Vec<u8>) {
     out.extend_from_slice(&(text.len() as u64).to_le_bytes());
@@ -127,9 +128,13 @@ pub fn encode(value: &Value) -> Result<Vec<u8>, Unsendable> {
             }
             // A function is its definition's hash and what it captured:
             // the definition itself travels as a pack.
-            Value::Function(function) => {
+            Value::Function(function) | Value::Method(function) => {
                 let definition = function.definition.ok_or(Unsendable::Function)?;
-                out.push(FUNCTION);
+                out.push(if matches!(value, Value::Method(_)) {
+                    METHOD
+                } else {
+                    FUNCTION
+                });
                 out.extend_from_slice(definition.as_bytes());
                 count(function.captures.len(), &mut out);
                 pending.extend(
@@ -168,6 +173,7 @@ enum Partial {
         key: String,
     },
     Function {
+        method: bool,
         definition: Hash,
         captures: Vec<Value>,
     },
@@ -230,12 +236,20 @@ impl Open {
             Partial::Sequence { members, .. } => Value::Tuple(members),
             Partial::Record { fields, .. } => Value::Record(fields),
             Partial::Function {
+                method,
                 definition,
                 captures,
-            } => Value::Function(Function {
-                definition: Some(definition),
-                captures,
-            }),
+            } => {
+                let function = Function {
+                    definition: Some(definition),
+                    captures,
+                };
+                if method {
+                    Value::Method(function)
+                } else {
+                    Value::Function(function)
+                }
+            }
         }
     }
 }
@@ -264,13 +278,14 @@ pub fn decode(bytes: &[u8]) -> Result<Value, Malformed> {
                 package: reader.text()?,
                 tag: reader.text()?,
             },
-            kind @ (TUPLE | LIST | RECORD | FUNCTION) => {
+            kind @ (TUPLE | LIST | RECORD | FUNCTION | METHOD) => {
                 let partial = match kind {
                     RECORD => Partial::Record {
                         fields: BTreeMap::new(),
                         key: String::new(),
                     },
-                    FUNCTION => Partial::Function {
+                    FUNCTION | METHOD => Partial::Function {
+                        method: kind == METHOD,
                         definition: reader.hash()?,
                         captures: Vec::new(),
                     },

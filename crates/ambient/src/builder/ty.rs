@@ -139,3 +139,13 @@ pub fn named(path: &str) -> Type {
 pub fn apply(path: &str, args: impl IntoIterator<Item = Type>) -> Type {
     Type::Named(Path::parse(path), args.into_iter().collect())
 }
+
+/// A method of a record type: what it needs of the record it is read
+/// from, and the function reading it gives.
+#[must_use]
+pub fn method(needs: Type, function: Type) -> Type {
+    Type::Method {
+        needs: Box::new(needs),
+        function: Box::new(function),
+    }
+}
