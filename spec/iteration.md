@@ -4,14 +4,14 @@ An iterator is a function that gives the next item and an iterator of the rest. 
 
 ## Iterators
 
-- An iterator of `T` is a function that takes nothing and gives `null` when nothing is left, or else a [tuple](types.md) of an item and an iterator of what follows it.
+- An iterator of `T` is a [record](types.md) with a [method](methods.md) that steps it: it gives `null` when nothing is left, or else a tuple of an item and an iterator of what follows it.
 - The item is in a tuple so that an item that is `null` is not the end.
-- `Iterator<T>` is that function type under a [brand](types.md) of the standard library, not a [shape](values.md); a function of the standard library makes an iterator of any function of that type.
-- Being a brand is what gives an iterator [methods](methods.md).
-- Stepping an iterator is calling it. It changes nothing: the iterator it was called on still gives the same step.
-- An iterator is therefore a value like any function: it can be kept, stepped twice, compared, and [sent](exchange.md).
+- `Iterator<T>` is a record type of the standard library, not a [shape](values.md): any record of that type is an iterator.
+- An iterator's other methods transform it and fold it, so one is made by a function of the standard library from a function that steps, or by merging over one so made.
+- Stepping changes nothing: the iterator that was stepped still gives the same step.
+- An iterator is therefore a value like any record: it can be kept, stepped twice, compared, and [sent](exchange.md).
 - Nothing is computed until an iterator is stepped, so one may be endless.
-- An iterator's function [captures](abilities.md) the abilities it performs, so an iterator that performs has the same type as one that does not.
+- What steps an iterator [captures](abilities.md) the abilities it performs, so an iterator that performs has the same type as one that does not.
 - Stepping an iterator that performs performs again; what it gives is then whatever its handlers answer.
 - An iterator over something a [cleanup](cleanup.md) releases is good only inside the block that registered the cleanup.
 
@@ -27,4 +27,5 @@ An iterator is a function that gives the next item and an iterator of the rest. 
 - The iterator's methods transform iterators into iterators without stepping them, and fold one into a value by stepping it to its end.
 - No [operation](operations.md) takes an iterator, since an operation calls nothing.
 - Any construct the language gains for looping takes an iterator and nothing else.
-- TODO: a step allocates a tuple and a function, and collecting into a list [copies at every push](values.md); iterating a list is far dearer than indexing it until both are dealt with.
+- TODO: a method that changes the type of the items is generic, and a [generic function type](types.md) cannot be written yet.
+- TODO: a step allocates a tuple and an iterator, and collecting into a list [copies at every push](values.md); iterating a list is far dearer than indexing it until both are dealt with.
