@@ -45,7 +45,7 @@ fn size(body: Expr, host: &[&'static str]) -> usize {
 /// runtime's function `name`.
 fn carries(body: Expr, name: &str) -> bool {
     let pieces = pieces(&program(body), HOST).unwrap();
-    pieces.iter().any(|(piece, _)| piece == name)
+    pieces.iter().any(|piece| piece.name == name)
 }
 
 fn fold() -> Expr {
@@ -97,8 +97,8 @@ fn what_the_floor_is_made_of() {
         std::fs::write(path, &module).unwrap();
     }
     let mut pieces = pieces(&parts, BARE).unwrap();
-    pieces.sort_by_key(|(_, size)| std::cmp::Reverse(*size));
-    for (name, size) in pieces {
-        eprintln!("{size:>6} {name}");
+    pieces.sort_by_key(|piece| std::cmp::Reverse(piece.size));
+    for piece in pieces {
+        eprintln!("{:>6} {}", piece.size, piece.name);
     }
 }

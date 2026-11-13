@@ -1,19 +1,22 @@
 //! Putting compiled functions together as a module, with the function
 //! that lays out its statics.
 
+use std::collections::BTreeSet;
+
 use wasm_encoder::{
     CodeSection, ConstExpr, DataCountSection, DataSection, ElementSection, Elements, ExportKind,
-    ExportSection, FunctionSection, GlobalSection, GlobalType, ImportSection, Module, TypeSection,
-    ValType,
+    ExportSection, FunctionSection, GlobalSection, ImportSection, Module, TypeSection, ValType,
 };
 
 use super::code::{self, Calls};
 use super::function_type;
 use super::layout::{Globals, initializer, reclaimer};
+use super::link::{Carried, Space};
 pub use super::runtime::HOST;
-use super::runtime::{Runtime, global};
+use super::runtime::{Runtime, Shape, global, global_type, share};
 use crate::backend::statics::{self, Base, Statics};
 use crate::engine::{Body, Part, Parts};
+use crate::hash::Hash;
 
 /// The module name a unit imports what its host keeps under: `unused`,
 /// the address of the program's list of units to reclaim, and
@@ -24,15 +27,6 @@ pub const HOST_MODULE: &str = "host";
 /// under: `root:<hash>` and `definition:<hash>`, each an address, or
 /// zero for one the program lacks, which the unit then lays out.
 pub const KNOWN_MODULE: &str = "known";
-
-/// What kind of module is being put together.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Shape {
-    /// A program, and whether code can be loaded into it.
-    Program { open: bool },
-    /// Code to load into a program.
-    Unit,
-}
 
 /// The types every module starts with: one for each number of
 /// arguments a compiled function takes, up to `widest`, then `init`'s
@@ -88,12 +82,13 @@ pub fn module_for(parts: &Parts, host: &[&'static str]) -> Result<Vec<u8>, Strin
 
 /// A program as [`module`] makes it, that code can be loaded into.
 ///
-/// It has the whole runtime, since what is loaded may call any of it,
-/// and exports all of it with its table and its stack. It also exports
-/// where it laid everything out, for its host to hand to a [`unit`]:
-/// `base`, the address of its block, and for each definition
-/// `root:<hash>` and `definition:<hash>`, offsets from that, and
-/// `metered:<hash>` if the definition has a metered form.
+/// It carries no more of the runtime than [`module`] does, but for
+/// what loading calls. It exports its table and its stack, and what it
+/// has, for its host to hand to a [`unit`]: each function of the
+/// runtime as `piece:<hash>` and the address of each state as
+/// `state:<hash>`; `base`, the address of its block; and for each
+/// definition `root:<hash>` and `definition:<hash>`, offsets from
+/// that, and `metered:<hash>` if the definition has a metered form.
 ///
 /// # Errors
 ///
@@ -106,17 +101,23 @@ pub fn open_module(parts: &Parts) -> Result<Vec<u8>, String> {
 /// as a module to instantiate over a running program's memory and
 /// table.
 ///
-/// It imports the program's memory, table, stack, and runtime, and
-/// what [`HOST_MODULE`] and [`KNOWN_MODULE`] describe. It exports what
+/// `has` is the pieces of the runtime its target has, by hash: what
+/// the program and the units loaded into it export as `piece:<hash>`.
+/// The unit imports those, and carries the rest of what it reaches;
+/// told of nothing, it loads into any program. See "Loading" in
+/// `spec/linking.md`.
+///
+/// It imports the program's memory, table, and stack, and what
+/// [`HOST_MODULE`] and [`KNOWN_MODULE`] describe. It exports what
 /// [`open_module`] does of itself, but for `entry`, and `drop`, which
-/// gives back everything `init` took and is called once the runtime
-/// says nothing refers to the unit.
+/// gives back what `init` took for the unit's definitions and is called
+/// once the runtime says nothing refers to the unit.
 ///
 /// # Errors
 ///
 /// Fails if the parts are too large to index.
-pub fn unit(parts: &Parts) -> Result<Vec<u8>, String> {
-    assemble(parts, Shape::Unit, &[])
+pub fn unit(parts: &Parts, has: &BTreeSet<Hash>) -> Result<Vec<u8>, String> {
+    assemble(parts, Shape::Unit(has), &[])
 }
 
 /// The functions a module defines besides the runtime's: each a body
@@ -161,37 +162,45 @@ fn assemble(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Vec<u8
 }
 
 /// The pieces of the runtime a program carries for a host that calls
-/// `host`: what the runtime's source calls each, and its bytes. See
-/// "Pieces" in `spec/linking.md`.
+/// `host`. See "Pieces" in `spec/linking.md`.
 ///
 /// # Errors
 ///
 /// Fails as [`module_for`] does.
-pub fn pieces(parts: &Parts, host: &[&'static str]) -> Result<Vec<(String, usize)>, String> {
+pub fn pieces(parts: &Parts, host: &[&'static str]) -> Result<Vec<Carried>, String> {
     Ok(assembled(parts, Shape::Program { open: false }, host)?.1)
 }
 
 /// A module, and the pieces of the runtime it carries.
-type Assembled = (Vec<u8>, Vec<(String, usize)>);
+type Assembled = (Vec<u8>, Vec<Carried>);
+
+/// The functions that lay a module out, and give a unit back: each
+/// a body and where it calls the runtime, with its type.
+fn layout(
+    plan: &Statics,
+    own: &Own,
+    globals: &Globals,
+    init_type: u32,
+) -> Result<Vec<(Vec<u8>, Calls, u32)>, String> {
+    let (init, calls) = initializer(plan, &own.positions, own.compiled, globals)?;
+    let mut bodies = vec![(init.into_raw_body(), calls, init_type)];
+    if plan.loaded {
+        let (drop, calls) = reclaimer(plan, own.compiled, globals)?;
+        bodies.push((drop.into_raw_body(), calls, init_type + 1));
+    }
+    Ok(bodies)
+}
 
 fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assembled, String> {
-    let loaded = shape == Shape::Unit;
-    let open = shape != Shape::Program { open: false };
+    let (loaded, open) = (shape.loaded(), shape.open());
 
     let mut own = compiled(parts)?;
     let (mut types, init_type) = types(own.widest)?;
-    let first_type = init_type + 2;
     let mut imports = ImportSection::new();
-    // The stack pointer is every module's first global.
-    let (mut globals, mut next_global) = (Globals::default(), 1);
-    let mut borrowed = None;
+    let (mut globals, mut imported) = (Globals::default(), 0);
     if loaded {
-        borrowed = Some(Runtime::borrowed(&mut types, &mut imports, first_type));
-        (globals, next_global) = told(parts, &mut imports);
-    }
-    if open {
-        // Where `init` puts the block, and the first of its functions.
-        (globals.base, globals.table) = (Some(next_global), Some(next_global + 1));
+        share(&mut imports);
+        (globals, imported) = told(parts, &mut imports);
     }
 
     let base = Base {
@@ -199,23 +208,36 @@ fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assem
         ..Base::none()
     };
     let plan = statics::plan(parts, &base);
-    let (init, calls) = initializer(&plan, &own.positions, own.compiled, &globals)?;
-    own.bodies.push((init.into_raw_body(), calls, init_type));
-    if loaded {
-        let (drop, calls) = reclaimer(&plan, own.compiled, &globals)?;
-        own.bodies
-            .push((drop.into_raw_body(), calls, init_type + 1));
-    }
-
-    // A unit borrows its program's runtime, and a program has its own:
-    // what its host and its functions call.
-    let runtime = if let Some(borrowed) = borrowed {
-        borrowed
-    } else {
-        let called = own.bodies.iter().flat_map(|(_, calls, _)| calls);
-        let roots = host.iter().copied().chain(called.map(|(_, name)| *name));
-        Runtime::own(roots.collect(), open, first_type, &mut types, &mut imports)?
+    // What laying the module out calls does not depend on where its
+    // globals are, and where they are depends on what is linked: so
+    // it is written once to see what it calls, and again once that is
+    // linked.
+    let draft = Globals {
+        base: Some(0),
+        table: Some(0),
+        ..globals.clone()
     };
+    let draft = layout(&plan, &own, &draft, init_type)?;
+    let called = own
+        .bodies
+        .iter()
+        .chain(&draft)
+        .flat_map(|(_, calls, _)| calls);
+    let roots = host.iter().copied().chain(called.map(|(_, name)| *name));
+    let space = Space {
+        types: init_type + 2,
+        globals: imported,
+        thunk: init_type + 1,
+    };
+    let runtime = Runtime::link(roots.collect(), shape, &space, &mut types, &mut imports)?;
+    let mut next_global = runtime.globals();
+    if open {
+        // Where `init` puts the block, and the first of its functions.
+        (globals.base, globals.table) = (Some(next_global), Some(next_global + 1));
+    }
+    globals.setup = runtime.setup();
+    own.bodies.extend(layout(&plan, &own, &globals, init_type)?);
+
     let mut functions = FunctionSection::new();
     let mut code = CodeSection::new();
     runtime.define(&mut functions, &mut code);
@@ -238,6 +260,7 @@ fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assem
             next_global += 1;
         }
         describe(parts, &plan, &mut defined, &mut exports, &mut next_global)?;
+        runtime.tell(&mut defined, &mut exports, &mut next_global);
     }
     for (position, native) in parts.natives.iter().enumerate() {
         let name = format!("native:{}\t{}", native.package, native.tag);
@@ -279,14 +302,6 @@ fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assem
     Ok((module.finish(), runtime.pieces().to_vec()))
 }
 
-fn global_type(val_type: ValType, mutable: bool) -> GlobalType {
-    GlobalType {
-        val_type,
-        mutable,
-        shared: false,
-    }
-}
-
 /// Imports what a unit is told: what its host keeps, and where the
 /// program has each part the unit would lay out. Returns the globals
 /// those are, and how many globals the module now imports.
@@ -322,11 +337,7 @@ fn constant(
     value: usize,
 ) -> Result<(), String> {
     let value = i64::try_from(value).map_err(|error| error.to_string())?;
-    let ty = GlobalType {
-        val_type: ValType::I64,
-        mutable: false,
-        shared: false,
-    };
+    let ty = global_type(ValType::I64, false);
     defined.global(ty, &ConstExpr::i64_const(value));
     exports.export(name, ExportKind::Global, *next);
     *next += 1;

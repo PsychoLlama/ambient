@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use wasmtime::{AsContextMut, Caller, Instance, Linker, Val};
+use wasmtime::{AsContextMut, Caller, Func, Instance, Linker, Val};
 
 use super::units::{Known, Unit};
 use crate::backend::native::{Externs, Natives, Running};
@@ -22,6 +22,11 @@ pub struct State {
     pub(super) linker: Option<Linker<State>>,
     pub(super) known: HashMap<Hash, Known>,
     pub(super) units: HashMap<u64, Unit>,
+    /// What the program has of the runtime, its own and what was
+    /// loaded since: each function by hash, and the address of each
+    /// state. See "Loading" in `spec/linking.md`.
+    pub(super) pieces: HashMap<Hash, Func>,
+    pub(super) states: HashMap<Hash, u64>,
     /// The address of the word the runtime keeps the units nothing
     /// refers to under.
     pub(super) unused: u64,
@@ -208,7 +213,8 @@ struct Call<'a, 'b> {
 
 impl Running for Call<'_, '_> {
     fn load(&mut self, parts: &Parts, natives: &Natives) -> Result<Value, String> {
-        let function = self.guest.add(&super::unit(parts)?, natives)?;
+        let has = self.guest.pieces();
+        let function = self.guest.add(&super::unit(parts, &has)?, natives)?;
         self.held.push(function);
         parts.function()
     }

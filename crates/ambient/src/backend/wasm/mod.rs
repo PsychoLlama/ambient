@@ -8,8 +8,9 @@
 //!
 //! Code is loaded into a program that is running as one more module, a
 //! [`unit`], instantiated over the same memory and table. What the
-//! program has already reaches it as imports, by hash, so the module is
-//! the same bytes whatever program loads it.
+//! program has already reaches it as imports, by hash: definitions, and
+//! the pieces of the runtime the unit was told its target has. It
+//! carries the rest of the runtime it reaches.
 
 mod code;
 mod emit;
@@ -25,10 +26,11 @@ mod units;
 pub use emit::Wasm;
 pub use guest::{Guest, State};
 pub use host::Program;
+pub use link::Carried;
 pub use module::{HOST, HOST_MODULE, KNOWN_MODULE, module, module_for, open_module, pieces, unit};
 
 /// The module name a unit imports its program under: the program's
-/// memory, table, and stack, and the runtime's functions.
+/// memory, table, and stack.
 pub const RUNTIME_MODULE: &str = "rt";
 
 /// The type index of a compiled function taking `arity` arguments.

@@ -5,6 +5,8 @@
 //! memory and table. Any other host does the same with the same
 //! modules; nothing here needs the compiler.
 
+use std::collections::BTreeSet;
+
 use ambient_runtime::{Fault, NULL, SUSPENDING, UNWIND};
 use wasmtime::{Engine, Linker, Module, Store, Val};
 
@@ -37,7 +39,7 @@ impl Program {
     /// Fails if the bytes are not such a module, or `natives` lacks an
     /// extern the program reaches.
     pub fn load(module: &[u8], natives: &Natives) -> Result<Self, String> {
-        let text = |error: wasmtime::Error| error.to_string();
+        let text = |error: wasmtime::Error| format!("{error:#}");
         let engine = Engine::default();
         let mut store = Store::new(&engine, State::default());
         let mut linker = Linker::new(&engine);
@@ -82,6 +84,13 @@ impl Program {
     /// extern it reaches. Nothing is loaded then.
     pub fn add(&mut self, module: &[u8], natives: &Natives) -> Result<u64, String> {
         self.guest.add(module, natives)
+    }
+
+    /// The pieces of the runtime the program has, by hash: its own,
+    /// and what was loaded into it since. A [`super::unit`] for this
+    /// program can be told of these.
+    pub fn pieces(&mut self) -> BTreeSet<Hash> {
+        self.guest.pieces()
     }
 
     /// Drops what was loaded and nothing refers to any more, and

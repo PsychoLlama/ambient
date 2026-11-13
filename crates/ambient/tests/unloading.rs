@@ -116,9 +116,9 @@ fn plugins_with<const N: usize>(
     let (main, parts) = compiled(module.clone(), names, &wasm::Wasm);
     let main = wasm::open_module(&main).unwrap();
     let mut program = wasm::Program::load(&main, &Natives::new()).unwrap();
-    let live = program.live();
+    let (live, has) = (program.live(), program.pieces());
     let unit = |(name, (parts, hash)): (String, (Parts, Hash))| {
-        (name, (wasm::unit(&parts).unwrap(), hash))
+        (name, (wasm::unit(&parts, &has).unwrap(), hash))
     };
     let wasm = InWasm {
         program,

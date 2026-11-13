@@ -1,9 +1,10 @@
-//! What a module has of the runtime: a program its own pieces, linked
-//! in, and a unit its program's, borrowed. See `spec/linking.md`.
+//! What a module has of the runtime: the pieces it reaches, linked in.
+//! A program has them at places known when it is put together; a unit
+//! brings the ones its program lacks and imports the rest. See
+//! `spec/linking.md`.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
-use ambient_runtime::Entry;
 use wasm_encoder::{
     CodeSection, ConstExpr, DataSection, ElementSection, Elements, EntityType, ExportKind,
     ExportSection, FunctionSection, GlobalSection, GlobalType, ImportSection, MemorySection,
@@ -11,24 +12,11 @@ use wasm_encoder::{
 };
 
 use super::RUNTIME_MODULE;
-use super::link::{Linked, Space, link};
+use super::link::{Carried, For, Linked, Offer, STATE_MODULE, Space, link};
+use crate::hash::Hash;
 
 /// The bytes in a page of memory.
 const PAGE: u32 = 1 << 16;
-
-/// The runtime's functions that are not entry points and that a module
-/// calls to lay itself out, or to give itself back: the type of each,
-/// counted from the first of [`OTHER_TYPES`].
-const OTHERS: [(&str, u32); 8] = [
-    ("amb_words", 0),
-    ("amb_string_pinned", 1),
-    ("amb_intern", 1),
-    ("amb_tag", 1),
-    ("amb_string_new", 1),
-    ("amb_words_free", 2),
-    ("amb_unit_retain", 3),
-    ("amb_unit_release", 3),
-];
 
 /// The runtime's functions the host in this crate calls: what
 /// [`super::Program`] starts a call with, and makes and reads values
@@ -70,36 +58,57 @@ pub const HOST: &[&str] = &[
 
 /// What a host calls only of a program that reaches a function: what
 /// gives suspended tasks their turns, of a program that can suspend.
-/// One that cannot is linked without it.
+/// One that cannot is linked without it. A program code is loaded into
+/// has it regardless, since what is loaded may suspend.
 const OFFERED: &[(&str, &str)] = &[("amb_schedule", "amb_suspend")];
 
 /// What a host that loads units calls besides.
 const LOADING: &[&str] = &["amb_unit_retain", "amb_unit_release", "amb_unit_take"];
 
+/// What kind of module the runtime is linked into.
+#[derive(Clone, Copy)]
+pub(super) enum Shape<'a> {
+    /// A program, and whether code can be loaded into it.
+    Program { open: bool },
+    /// Code to load into a program that has the pieces of these hashes.
+    Unit(&'a BTreeSet<Hash>),
+}
+
+impl Shape<'_> {
+    pub(super) fn loaded(&self) -> bool {
+        matches!(self, Self::Unit(_))
+    }
+
+    /// Whether the module says where it put things, for code loaded
+    /// after it.
+    pub(super) fn open(&self) -> bool {
+        !matches!(self, Self::Program { open: false })
+    }
+}
+
 /// What a module has of the runtime.
-pub(super) enum Runtime {
-    /// A program's: the pieces it reaches.
-    Own(Linked),
-    /// A unit's: the index of each function it imports of its program.
-    Borrowed(HashMap<&'static str, u32>),
+pub(super) struct Runtime {
+    linked: Linked,
+    loaded: bool,
+    /// The first global the module defines.
+    first: u32,
 }
 
 pub(super) fn global(val_type: ValType, mutable: bool) -> EntityType {
-    EntityType::Global(GlobalType {
+    EntityType::Global(global_type(val_type, mutable))
+}
+
+pub(super) fn global_type(val_type: ValType, mutable: bool) -> GlobalType {
+    GlobalType {
         val_type,
         mutable,
         shared: false,
-    })
+    }
 }
 
-/// What a unit imports of the program it is loaded into: its memory,
-/// its table, its stack, and every function of the runtime a unit may
-/// call. Returns the index each function has.
-fn borrowed(
-    types: &mut TypeSection,
-    imports: &mut ImportSection,
-    first_type: u32,
-) -> HashMap<&'static str, u32> {
+/// Imports what a unit shares with the program it is loaded into: its
+/// memory, its table, and its stack, the unit's first global.
+pub(super) fn share(imports: &mut ImportSection) {
     imports.import(
         RUNTIME_MODULE,
         "memory",
@@ -130,119 +139,83 @@ fn borrowed(
         "__stack_pointer",
         global(ValType::I32, true),
     );
-    let mut indices = HashMap::new();
-    let mut next_type = first_type;
-    for entry in Entry::ALL {
-        let mut params = Vec::new();
-        if entry.takes_context() {
-            params.push(ValType::I32);
-        }
-        params.extend(vec![ValType::I64; entry.arity()]);
-        let results: &[ValType] = if entry.returns() {
-            &[ValType::I64]
-        } else {
-            &[]
-        };
-        types.ty().function(params, results.iter().copied());
-        imports.import(
-            RUNTIME_MODULE,
-            entry.name(),
-            EntityType::Function(next_type),
-        );
-        indices.insert(entry.name(), next_type - first_type);
-        next_type += 1;
-    }
-    let bytes = [ValType::I32, ValType::I64];
-    types.ty().function([ValType::I64], [ValType::I32]);
-    types.ty().function(bytes, [ValType::I64]);
-    types.ty().function(bytes, []);
-    types.ty().function([ValType::I64], []);
-    for (name, ty) in OTHERS {
-        imports.import(RUNTIME_MODULE, name, EntityType::Function(next_type + ty));
-        indices.insert(name, u32::try_from(indices.len()).unwrap_or(0));
-    }
-    indices
-}
-
-/// Every function a unit may borrow, and a host that loads units calls.
-fn whole() -> impl Iterator<Item = &'static str> {
-    let entries = Entry::ALL.iter().map(|entry| entry.name());
-    let others = OTHERS.iter().map(|(name, _)| *name);
-    entries.chain(others).chain(LOADING.iter().copied())
 }
 
 impl Runtime {
-    /// A unit's: its imports.
-    pub(super) fn borrowed(
-        types: &mut TypeSection,
-        imports: &mut ImportSection,
-        first_type: u32,
-    ) -> Self {
-        Self::Borrowed(borrowed(types, imports, first_type))
-    }
-
-    /// A program's: what its host and its own functions call, by name,
-    /// with everything those reach; and all of it if code is loaded
-    /// into the program. Adds the types and imports the pieces need.
-    pub(super) fn own(
+    /// Links what a module's host and its own functions call, by name,
+    /// with everything those reach. Adds the types and imports the
+    /// pieces need, after the `globals` globals the module imports.
+    pub(super) fn link(
         mut roots: BTreeSet<&'static str>,
-        open: bool,
-        first_type: u32,
+        shape: Shape,
+        space: &Space,
         types: &mut TypeSection,
         imports: &mut ImportSection,
     ) -> Result<Self, String> {
-        if open {
-            roots.extend(whole());
-        }
-        for (name, _) in OFFERED {
-            roots.remove(name);
-        }
+        let target = match shape {
+            Shape::Program { open: false } => {
+                for (name, _) in OFFERED {
+                    roots.remove(name);
+                }
+                For::Program(OFFERED)
+            }
+            Shape::Program { open: true } => {
+                roots.extend(LOADING);
+                For::Program(&[])
+            }
+            Shape::Unit(has) => For::Unit(has),
+        };
         let roots = roots.iter().copied().collect();
-        let linked = link(&roots, OFFERED, &Space { types: first_type })?;
+        let linked = link(&roots, &target, space)?;
         for (params, results) in &linked.types {
             let (params, results) = (params.iter().copied(), results.iter().copied());
             types.ty().function(params, results);
         }
+        for state in &linked.states {
+            let name = state.to_string();
+            imports.import(STATE_MODULE, &name, global(ValType::I32, false));
+        }
         for (module, field, ty) in &linked.imports {
             imports.import(module, field, EntityType::Function(*ty));
         }
-        Ok(Self::Own(linked))
+        let states = u32::try_from(linked.states.len()).map_err(|error| error.to_string())?;
+        Ok(Self {
+            linked,
+            loaded: shape.loaded(),
+            first: space.globals + states,
+        })
     }
 
-    /// The pieces of the runtime the module carries: the name and the
-    /// bytes of each.
-    pub(super) fn pieces(&self) -> &[(String, usize)] {
-        match self {
-            Self::Own(linked) => &linked.pieces,
-            Self::Borrowed(_) => &[],
-        }
+    /// The pieces of the runtime the module carries.
+    pub(super) fn pieces(&self) -> &[Carried] {
+        &self.linked.pieces
     }
 
     /// The index of one of the runtime's functions.
     pub(super) fn function(&self, name: &str) -> Result<u32, String> {
-        match self {
-            Self::Own(linked) => linked.function(name),
-            Self::Borrowed(indices) => {
-                let index = indices.get(name).copied();
-                index.ok_or_else(|| format!("a unit borrows no `{name}`"))
-            }
-        }
+        self.linked.function(name)
+    }
+
+    /// The function a unit's `init` calls first.
+    pub(super) fn setup(&self) -> Option<u32> {
+        self.linked.setup
     }
 
     /// How many functions the module has before its own.
     pub(super) fn count(&self) -> usize {
-        match self {
-            Self::Own(linked) => linked.count(),
-            Self::Borrowed(indices) => indices.len(),
-        }
+        self.linked.count()
+    }
+
+    /// The first global the module is free to define after the
+    /// runtime's: a program's stack pointer, and what a unit reaches
+    /// its pieces through.
+    pub(super) fn globals(&self) -> u32 {
+        self.first + if self.loaded { self.linked.globals } else { 1 }
     }
 
     /// Defines the runtime's functions: the module's first.
     pub(super) fn define(&self, functions: &mut FunctionSection, code: &mut CodeSection) {
-        let Self::Own(linked) = self else {
-            return;
-        };
-        for (ty, body) in &linked.functions {
+        for (ty, body) in &self.linked.functions {
             functions.function(*ty);
             code.raw(body);
         }
@@ -250,9 +223,10 @@ impl Runtime {
 
     /// Gives a program its table and its memory.
     pub(super) fn room(&self, module: &mut Module) {
-        let Self::Own(linked) = self else {
+        if self.loaded {
             return;
-        };
+        }
+        let linked = &self.linked;
         // The runtime's own functions are tabled from the second place
         // on: nothing is at the first, which stands for no function.
         let mut tables = TableSection::new();
@@ -274,24 +248,34 @@ impl Runtime {
         module.section(&tables).section(&memories);
     }
 
-    /// Fills the table and memory with what the runtime starts with.
+    /// What the runtime's pieces start with: in a program, in the
+    /// table and memory already; in a unit, for its setup to copy to
+    /// wherever it finds room.
     pub(super) fn fill(&self, elements: &mut ElementSection, data: &mut DataSection) {
-        let Self::Own(linked) = self else {
-            return;
-        };
+        let linked = &self.linked;
         if !linked.slots.is_empty() {
             let slots = Elements::Functions(linked.slots.as_slice().into());
-            elements.active(None, &ConstExpr::i32_const(1), slots);
+            if self.loaded {
+                elements.passive(slots);
+            } else {
+                elements.active(None, &ConstExpr::i32_const(1), slots);
+            }
         }
         if !linked.data.is_empty() {
-            let start = ConstExpr::i32_const(linked.start.cast_signed());
-            data.active(0, &start, linked.data.iter().copied());
+            let bytes = linked.data.iter().copied();
+            if self.loaded {
+                data.passive(bytes);
+            } else {
+                let start = ConstExpr::i32_const(linked.start.cast_signed());
+                data.active(0, &start, bytes);
+            }
         }
     }
 
-    /// Defines a program's stack pointer, its first global, and exports
-    /// its memory and the functions `host` names; and, if code is
-    /// loaded into it, its table, its stack, and the whole runtime.
+    /// Defines the module's first globals, a program's stack pointer or
+    /// what a unit reaches its pieces through, and exports of a
+    /// program its memory and the functions `host` names; and, if code
+    /// is loaded into it, its table, its stack, and what loading calls.
     pub(super) fn offer(
         &self,
         host: &[&'static str],
@@ -299,22 +283,22 @@ impl Runtime {
         globals: &mut GlobalSection,
         exports: &mut ExportSection,
     ) -> Result<(), String> {
-        let Self::Own(linked) = self else {
+        let linked = &self.linked;
+        let ty = global_type(ValType::I32, true);
+        if self.loaded {
+            for _ in 0..linked.globals {
+                globals.global(ty, &ConstExpr::i32_const(0));
+            }
             return Ok(());
-        };
+        }
         // The stack starts at the top of the room left for it.
-        let ty = GlobalType {
-            val_type: ValType::I32,
-            mutable: true,
-            shared: false,
-        };
         globals.global(ty, &ConstExpr::i32_const(linked.stack.cast_signed()));
         exports.export("memory", ExportKind::Memory, 0);
         let mut named: BTreeSet<&str> = host.iter().copied().collect();
         if open {
             exports.export("__indirect_function_table", ExportKind::Table, 0);
             exports.export("__stack_pointer", ExportKind::Global, 0);
-            named.extend(whole());
+            named.extend(LOADING);
         }
         for name in named {
             let offered = OFFERED.iter().any(|(offered, _)| *offered == name);
@@ -323,5 +307,38 @@ impl Runtime {
             }
         }
         Ok(())
+    }
+
+    /// Exports what the module carries of the runtime, for code loaded
+    /// after it: each function as `piece:<hash>`, and the address of
+    /// each state as `state:<hash>`.
+    pub(super) fn tell(
+        &self,
+        globals: &mut GlobalSection,
+        exports: &mut ExportSection,
+        next: &mut u32,
+    ) {
+        // Two pieces of one hash are the same piece twice over, and
+        // either stands for both.
+        let mut told = BTreeSet::new();
+        for (hash, offer) in &self.linked.offers {
+            if !told.insert(*hash) {
+                continue;
+            }
+            match *offer {
+                Offer::Function(index) => {
+                    exports.export(&format!("piece:{hash}"), ExportKind::Func, index);
+                }
+                Offer::Global(global) => {
+                    exports.export(&format!("state:{hash}"), ExportKind::Global, global);
+                }
+                Offer::State(address) => {
+                    let ty = global_type(ValType::I32, false);
+                    globals.global(ty, &ConstExpr::i32_const(address.cast_signed()));
+                    exports.export(&format!("state:{hash}"), ExportKind::Global, *next);
+                    *next += 1;
+                }
+            }
+        }
     }
 }

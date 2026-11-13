@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use wasm_encoder::ValType;
+
+use crate::hash::Hash;
 use wasmparser::{
     KnownCustom, Linking, Parser, Payload, RelocationEntry, RelocationType, SymbolFlags,
     SymbolInfo, TypeRef,
@@ -23,6 +25,8 @@ pub struct Library {
     pub pieces: Vec<Piece>,
     /// The functions other code can name, and the piece each is.
     pub named: HashMap<String, usize>,
+    /// The name of each piece: see [`super::hash`].
+    pub hashes: Vec<Hash>,
 }
 
 /// A function type: what it takes and what it gives.
@@ -50,6 +54,9 @@ pub enum Body {
         bytes: Vec<u8>,
         /// The power of two its address is a multiple of.
         align: u32,
+        /// Whether the runtime writes to it: see "Pieces" in
+        /// `spec/linking.md`.
+        state: bool,
     },
 }
 
@@ -155,6 +162,14 @@ const PANICS: &[&str] = &[
     "alloc_error_handler",
 ];
 
+/// A block of data as the object has it.
+struct Segment<'a> {
+    bytes: &'a [u8],
+    align: u32,
+    /// Whether it is in a section the runtime writes to.
+    state: bool,
+}
+
 /// What reading an object gathers before it can say what refers to
 /// what: the symbol table comes after everything it names.
 #[derive(Default)]
@@ -166,8 +181,8 @@ struct Reading<'a> {
     symbols: Vec<SymbolInfo<'a>>,
     /// Each relocation, and whether it is in the code.
     relocs: Vec<(bool, RelocationEntry)>,
-    /// Each block of data, its alignment, and where the object has it.
-    segments: Vec<(&'a [u8], u32, Range<usize>)>,
+    /// Each block of data, and where the object has it.
+    segments: Vec<(Segment<'a>, Range<usize>)>,
 }
 
 /// Reads what a linker is told: the symbols, and the relocations.
@@ -180,8 +195,12 @@ fn custom<'a>(
             for part in linking.subsections() {
                 match part.map_err(text)? {
                     Linking::SegmentInfo(infos) => {
-                        for (info, segment) in infos.into_iter().zip(&mut reading.segments) {
-                            segment.1 = info.map_err(text)?.alignment;
+                        for (info, (segment, _)) in infos.into_iter().zip(&mut reading.segments) {
+                            let info = info.map_err(text)?;
+                            segment.align = info.alignment;
+                            // Named for the section its source put it
+                            // in, and only this one is never written.
+                            segment.state = !info.name.starts_with(".rodata");
                         }
                     }
                     Linking::SymbolTable(table) => {
@@ -219,6 +238,7 @@ impl Library {
             types: Vec::new(),
             pieces: Vec::new(),
             named: HashMap::new(),
+            hashes: Vec::new(),
         };
         let mut reading = Reading::default();
         for payload in Parser::new(0).parse_all(object) {
@@ -228,13 +248,14 @@ impl Library {
             }
         }
         let functions = library.pieces.len();
-        for (bytes, align, range) in std::mem::take(&mut reading.segments) {
+        for (segment, range) in std::mem::take(&mut reading.segments) {
             reading.data.pieces.push((library.pieces.len(), range));
             library.pieces.push(Piece {
                 name: String::new(),
                 body: Body::Data {
-                    bytes: bytes.to_vec(),
-                    align,
+                    bytes: segment.bytes.to_vec(),
+                    align: segment.align,
+                    state: segment.state,
                 },
                 relocs: Vec::new(),
             });
@@ -249,6 +270,7 @@ impl Library {
             library.place(section, entry, &symbols)?;
         }
         library.trap();
+        library.hashes = super::hash::hashes(&library);
         Ok(library)
     }
 
@@ -311,7 +333,12 @@ impl Library {
                     let segment = segment.map_err(text)?;
                     let start = segment.data.as_ptr() as usize - object.as_ptr() as usize;
                     let range = start..start + segment.data.len();
-                    reading.segments.push((segment.data, 0, range));
+                    let segment = Segment {
+                        bytes: segment.data,
+                        align: 0,
+                        state: true,
+                    };
+                    reading.segments.push((segment, range));
                 }
             }
             _ => {}

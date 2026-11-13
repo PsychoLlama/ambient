@@ -5,12 +5,13 @@
 //! the host loads between calls or native code loads in the middle of
 //! one.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
 
-use wasmtime::{AsContextMut, Global, GlobalType, Instance, Module, Mutability, Val};
+use wasmtime::{AsContextMut, Global, GlobalType, Instance, Linker, Module, Mutability, Val};
 
 use super::guest::{Guest, State, must, word};
+use super::link::{PIECE_MODULE, STATE_MODULE};
 use super::{HOST_MODULE, KNOWN_MODULE};
 use crate::backend::native::Natives;
 use crate::engine::Native;
@@ -83,6 +84,64 @@ pub(super) fn externs(
 }
 
 impl<S: AsContextMut<Data = State>> Guest<S> {
+    /// The pieces of the runtime the program has, by hash: what a
+    /// [`super::unit`] for it can be told of.
+    pub fn pieces(&mut self) -> BTreeSet<Hash> {
+        self.state(|state| state.pieces.keys().copied().collect())
+    }
+
+    /// Notes what a module that was just laid out has of the runtime
+    /// that the program lacked. It is the program's from then on.
+    fn brought(&mut self, module: &Module, instance: Instance) {
+        for (name, address) in exported(module, instance, &mut self.store, "state:") {
+            if let Some(hash) = Hash::parse(&name) {
+                self.state(|state| {
+                    state.states.entry(hash).or_insert(address);
+                });
+            }
+        }
+        let names = module.exports().map(|export| export.name());
+        for name in names.filter_map(|name| name.strip_prefix("piece:")) {
+            let function = instance.get_func(&mut self.store, &format!("piece:{name}"));
+            if let (Some(hash), Some(function)) = (Hash::parse(name), function) {
+                self.state(|state| {
+                    state.pieces.entry(hash).or_insert(function);
+                });
+            }
+        }
+    }
+
+    /// Defines what a unit was told the program has of the runtime: a
+    /// function by hash, and the address of a state, or zero for one
+    /// the program lacks, which the unit then brings.
+    fn tell(&mut self, module: &Module, linker: &mut Linker<State>) -> Result<(), String> {
+        let text = |error: wasmtime::Error| format!("{error:#}");
+        for import in module.imports() {
+            let (name, hash) = (import.name(), Hash::parse(import.name()));
+            match (import.module(), hash) {
+                (PIECE_MODULE, Some(hash)) => {
+                    let piece = self.state(|state| state.pieces.get(&hash).copied());
+                    let piece = piece.ok_or("a unit was told of a piece the program lacks")?;
+                    linker
+                        .define(&mut self.store, PIECE_MODULE, name, piece)
+                        .map_err(text)?;
+                }
+                (STATE_MODULE, Some(hash)) => {
+                    let address = self.state(|state| state.states.get(&hash).copied());
+                    let address = i32::try_from(address.unwrap_or(0)).unwrap_or(0);
+                    let ty = GlobalType::new(wasmtime::ValType::I32, Mutability::Const);
+                    let global =
+                        Global::new(&mut self.store, ty, Val::I32(address)).map_err(text)?;
+                    linker
+                        .define(&mut self.store, STATE_MODULE, name, global)
+                        .map_err(text)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     /// Runs a module's `init`, and notes where it put each definition
     /// that is not among `had`: those its host said the program has.
     /// Returns the entry, and the address of the module's block, or
@@ -102,6 +161,8 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
         init.call(&mut *store, &[], &mut entry)
             .map_err(|error| error.to_string())?;
         let entry = entry[0].unwrap_i64().cast_unsigned();
+        self.brought(module, instance);
+        let store = &mut self.store;
         // Nothing can be loaded into a program that does not say where
         // it is.
         let Some(base) = instance.get_global(&mut *store, "base") else {
@@ -133,7 +194,7 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
     /// [`super::Program::add`].
     pub(super) fn add(&mut self, module: &[u8], natives: &Natives) -> Result<u64, String> {
         self.reclaim();
-        let text = |error: wasmtime::Error| error.to_string();
+        let text = |error: wasmtime::Error| format!("{error:#}");
         let engine = self.store.as_context().engine().clone();
         let module = Module::new(&engine, module).map_err(text)?;
         let wanted: Vec<&str> = module.exports().map(|export| export.name()).collect();
@@ -141,6 +202,7 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
 
         let linker = self.state(|state| state.linker.clone());
         let mut linker = linker.ok_or("the program is not loaded yet")?;
+        self.tell(&module, &mut linker)?;
         let constant = GlobalType::new(wasmtime::ValType::I64, Mutability::Const);
         let mut define = |store: &mut S, module: &str, name: &str, value: u64| {
             let global = Global::new(&mut *store, constant.clone(), word(value)).map_err(text)?;

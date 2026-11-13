@@ -10,7 +10,7 @@ use crate::backend::statics::{Field, Make, Place, Statics};
 
 /// The globals a module's layout reads and writes, by index. A program
 /// that nothing is loaded into has none of them.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct Globals {
     /// For each part, the first of the two globals that say where the
     /// program has it: its root, then its definition. Only in a unit.
@@ -23,6 +23,9 @@ pub(super) struct Globals {
     /// table the module's functions start.
     pub base: Option<u32>,
     pub table: Option<u32>,
+    /// The function that makes room for the pieces of the runtime a
+    /// unit brings, if it brings any.
+    pub setup: Option<u32>,
 }
 
 /// The locals of `init`: the address of the block the definitions are
@@ -86,6 +89,11 @@ pub(super) fn initializer(
     let locals = [ValType::I32, ValType::I32, ValType::I32, ValType::I64];
     let mut body = Function::new_with_locals_types(locals);
     let mut calls = Calls::new();
+    // The pieces of the runtime the module brings come first: the
+    // rest of this calls them.
+    if let Some(setup) = globals.setup {
+        body.instruction(&Instruction::Call(setup));
+    }
     // Room in the table for the module's functions, then the functions.
     body.instruction(&Instruction::RefNull(HeapType::FUNC));
     body.instruction(&Instruction::I32Const(functions.cast_signed()));
