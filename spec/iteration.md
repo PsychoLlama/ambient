@@ -31,7 +31,7 @@ An iterator is a value that gives the next item and an iterator of the rest. It 
 - A collection is never itself an iterator; a [method](methods.md) of it gives an iterator over it.
 - A collection that can be walked more than one way has a function for each.
 - A range of integers is an iterator, and holds no list.
-- TODO: only a list has an iterator yet; a string has none.
+- A string is walked by its [characters](operations.md), in order.
 
 ## Use
 

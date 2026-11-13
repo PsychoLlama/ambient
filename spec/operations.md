@@ -31,6 +31,7 @@ An operation is something the language itself does with values: arithmetic, comp
 - Joining two strings gives the string of one followed by the other.
 - A slice takes a start and an end and gives the string between them.
 - A slice whose positions are out of range, out of order, or inside a character misses, so every string is valid UTF-8.
+- A character is one Unicode scalar value. There is no shape for one: a character is a string that holds it alone.
 
 ## Lists
 
@@ -43,5 +44,5 @@ An operation is something the language itself does with values: arithmetic, comp
 
 ## Iterators
 
-- A function that steps makes an [iterator](iteration.md), a list makes one over its members, and two integers make one over the integers from the first up to the second.
+- A function that steps makes an [iterator](iteration.md), a list makes one over its members, a string makes one over its characters, and two integers make one over the integers from the first up to the second.
 - Stepping an iterator is not an operation.
