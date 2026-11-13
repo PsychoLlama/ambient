@@ -145,11 +145,17 @@ fn encode_record(expr: &Expr, out: &mut Sink<'_>) {
             encode_expr(target, out);
             encode_key(key, out);
         }
-        Expr::Send { target, key, args } => {
+        Expr::Send {
+            target,
+            key,
+            args,
+            types,
+        } => {
             out.push(30);
             encode_expr(target, out);
             encode_key(key, out);
             encode_exprs(args, out);
+            encode_types(types, out);
         }
         Expr::Merge {
             left,

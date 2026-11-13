@@ -241,3 +241,94 @@ fn a_type_parameter_of_a_lambda_is_known_by_its_bound() {
     assert!(bounded(b::int(1)));
     assert!(!bounded(b::string("a")));
 }
+
+fn has_x() -> Type {
+    ty::record([("x", ty::int())])
+}
+
+/// `{x, with}`, where `with` is `<U>(self, other: U) => (self.x, other)`.
+/// The receiver has the type given, or the record's own if none is.
+fn pairing(x: i64, receiver: Option<Type>) -> Expr {
+    let pair = b::tuple([b::field(b::name("self"), "x"), b::name("other")]);
+    let params = [("self", receiver), ("other", Some(ty::named("U")))];
+    let with = b::generic([("U", None)], b::lambda(params, pair));
+    b::record([("x", b::int(x)), ("with", b::method(with))])
+}
+
+/// `(record.with(1), record.with("a"))`, of the record bound to `name`.
+fn with_both(name: &str) -> Expr {
+    let with = |arg| b::send(b::name(name), "with", [arg]);
+    b::tuple([with(b::int(1)), with(b::string("a"))])
+}
+
+fn paired(x: i64) -> Value {
+    let with = |other| Value::Tuple(vec![Value::Int(x), other]);
+    Value::Tuple(vec![with(Value::Int(1)), with(Value::String("a".into()))])
+}
+
+#[test]
+fn a_method_with_type_parameters_is_called_at_more_than_one_type() {
+    let body = b::let_("record", pairing(7, Some(has_x())), with_both("record"));
+    assert_eq!(evaluates(body, []), paired(7));
+}
+
+#[test]
+fn a_generic_method_may_leave_its_receivers_type_out() {
+    let body = b::let_("record", pairing(7, None), with_both("record"));
+    assert_eq!(evaluates(body, []), paired(7));
+}
+
+#[test]
+fn reading_a_generic_method_gives_a_generic_function_bound_to_its_record() {
+    let read = b::field(pairing(7, Some(has_x())), "with");
+    let body = b::let_("with", read, at_two_types("with"));
+    assert_eq!(evaluates(body, []), paired(7));
+}
+
+#[test]
+fn a_generic_method_receives_the_record_it_is_merged_into() {
+    let merged = b::merge(pairing(7, Some(has_x())), b::record([("x", b::int(9))]));
+    let body = b::let_("record", merged, with_both("record"));
+    assert_eq!(evaluates(body, []), paired(9));
+}
+
+#[test]
+fn a_record_type_asks_for_a_generic_method() {
+    let gives = ty::tuple([ty::int(), ty::named("U")]);
+    let with = ty::generic([("U", None)], ty::function([ty::named("U")], gives));
+    let asked = ty::record([("with", ty::method(has_x(), with))]);
+    let both = b::function("both")
+        .param("record", asked)
+        .returns(ty::unknown())
+        .body(with_both("record"));
+    let body = b::call(b::name("both"), [pairing(7, Some(has_x()))]);
+    assert_eq!(evaluates(body, [both]), paired(7));
+}
+
+#[test]
+fn a_generic_method_that_needs_its_type_arguments_is_handed_them() {
+    let arms = [
+        (pat::is(ty::named("U")), b::boolean(true)),
+        (pat::any(), b::boolean(false)),
+    ];
+    let params = [
+        ("self", Some(ty::record([]))),
+        ("like", Some(ty::named("U"))),
+        ("v", Some(ty::unknown())),
+    ];
+    let alike = b::generic(
+        [("U", None)],
+        b::lambda(params, b::match_(b::name("v"), arms)),
+    );
+    let record = b::record([("alike", b::method(alike))]);
+    // A sum is an `int`, where a literal would be only itself.
+    let int = || b::add(b::int(0), b::int(1));
+    let sent = |v| b::send(b::name("record"), "alike", [int(), v]);
+    let read = b::call(b::field(b::name("record"), "alike"), [int(), b::int(2)]);
+    let tests = b::tuple([sent(b::int(2)), sent(b::string("a")), read]);
+    let expected = [true, false, true].map(Value::Bool);
+    assert_eq!(
+        evaluates(b::let_("record", record, tests), []),
+        Value::Tuple(expected.to_vec())
+    );
+}

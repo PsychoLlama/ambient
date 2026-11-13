@@ -6,7 +6,7 @@ use crate::checker::function_type;
 use crate::core::{self, Expr, Primitive, Slot};
 use crate::surface::{Key, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Ty, TyKey, abilities, entry, generalize, instantiate, substitute, trace};
+use crate::types::{Ty, TyKey, abilities, entry, generalize, substitute, trace};
 
 /// Abilities bound for part of a function: by its row and what it
 /// captured, or by a provide.
@@ -97,7 +97,7 @@ impl Body<'_, '_> {
     }
 
     /// A key of a record, as its type holds it.
-    fn key(&self, key: &core::Key) -> Result<TyKey, Invalid> {
+    pub(super) fn key(&self, key: &core::Key) -> Result<TyKey, Invalid> {
         Ok(match key {
             core::Key::Field(name) => Key::Field(name.clone()),
             core::Key::Ability(slot) => {
@@ -164,21 +164,7 @@ impl Body<'_, '_> {
             }
             Expr::Step(iterator) => self.step(iterator)?,
             Expr::Instantiate { function, types } => self.instantiate(function, types)?,
-            Expr::Send { target, key, args } => {
-                let found = self.infer(target)?;
-                let Some(Ty::Function { params, ret, row }) = env.method(&found, &self.key(key)?)
-                else {
-                    return shape("a method is called that may be missing");
-                };
-                if params.len() != args.len() {
-                    return Err(Invalid::Arity);
-                }
-                self.require_all(&row)?;
-                for (arg, param) in args.iter().zip(&params) {
-                    self.check(arg, param)?;
-                }
-                *ret
-            }
+            Expr::Send { .. } => self.send(expr)?,
             Expr::Merge {
                 left,
                 right,
@@ -381,38 +367,6 @@ impl Body<'_, '_> {
         let merged = Ty::Record(fields);
         self.receives(&merged)?;
         Ok(merged)
-    }
-
-    /// A generic function value at type arguments: as many as its type
-    /// has parameters, each within its bound.
-    fn instantiate(&mut self, function: &Expr, types: &[core::Type]) -> Result<Ty, Invalid> {
-        let found = self.infer(function)?;
-        let env = &self.verifier.env;
-        let Ty::Generic { bounds, function } = env.unfold(&found) else {
-            return shape("type arguments are given to what takes none");
-        };
-        if bounds.len() != types.len() {
-            return Err(Invalid::Arity);
-        }
-        let args = self.verifier.sound_all(types)?;
-        for (arg, bound) in args.iter().zip(&bounds) {
-            let bound = env.normalize(&instantiate(bound, &args));
-            if !env.subtype(arg, &bound) {
-                return Err(self.verifier.mismatch(&bound, arg));
-            }
-        }
-        Ok(env.normalize(&instantiate(&function, &args)))
-    }
-
-    /// A step: what an iterator gives next.
-    fn step(&mut self, iterator: &Expr) -> Result<Ty, Invalid> {
-        let found = self.infer(iterator)?;
-        let env = &self.verifier.env;
-        let item = env.items(&found);
-        item.map_or_else(
-            || shape("what is stepped is not an iterator"),
-            |item| Ok(env.step(&item)),
-        )
     }
 
     fn primitive(&mut self, operation: Primitive, args: &[Expr]) -> Result<Ty, Invalid> {

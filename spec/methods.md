@@ -23,6 +23,8 @@ A method is a function reached through a value it then receives. A record's meth
 - A method written in a record that asks for nothing asks for that record as a reader sees it: each method as the function reading it gives.
 - It reaches another such method through the receiver only if that one states what it takes and gives, as a [definition](definitions.md) reached by name does.
 - One written in a record that is merged over another asks for the merged record.
+- A method may take [type parameters](types.md): calling it gives them by its arguments, and reading it gives a generic function bound to the record.
+- What a generic method needs of its receiver mentions none of its type parameters: a record is held to it where it is made, before any call has chosen them.
 - Calling a method makes no function, and reading one makes one; a record never holds a reference to itself.
 
 ## Method types

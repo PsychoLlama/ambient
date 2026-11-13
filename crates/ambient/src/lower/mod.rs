@@ -296,7 +296,7 @@ impl Lowering {
                 self.charge_read(record, key, &mut scope);
                 Op::Field { record, key }
             }
-            core::Expr::Send { target, key, args } => self.send(target, key, args, &mut scope)?,
+            core::Expr::Send { .. } => self.send(expr, &mut scope)?,
             core::Expr::Step(iterator) => return self.step(expr, iterator),
             core::Expr::Instantiate { function, types } => {
                 self.instantiate(function, types, &mut scope)?

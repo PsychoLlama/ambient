@@ -210,6 +210,8 @@ pub enum Expr {
         target: Box<Expr>,
         key: Key,
         args: Vec<Expr>,
+        /// The type arguments of a method that is generic.
+        types: Vec<Type>,
     },
     /// `left` with each of `keys` taken from `right` instead. The keys
     /// are those `right` is known to have: anything else it holds is left

@@ -86,6 +86,15 @@ fn a_method_takes_what_follows_its_record() {
 }
 
 #[test]
+fn what_is_bound_after_a_method_with_parameters_keeps_its_type() {
+    let sum = b::add(b::field(b::name("self"), "x"), b::name("n"));
+    let add = b::lambda([("self", Some(has_x())), ("n", Some(ty::int()))], sum);
+    let record = b::record([("x", b::int(3)), ("add", b::method(add))]);
+    let sent = send(b::name("record"), "add", [b::int(4)]);
+    assert_eq!(evaluates(b::let_("record", record, sent)), Value::Int(7));
+}
+
+#[test]
 fn a_method_reaches_another_through_its_record() {
     let twice = || send(b::name("self"), "double", []);
     let quadruple = b::lambda([("self", Some(doubles()))], b::add(twice(), twice()));

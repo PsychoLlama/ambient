@@ -16,6 +16,7 @@
 //! A definition is verified against the headers of what its slots refer
 //! to, and each of those is verified on its own, against its own header.
 
+mod calls;
 mod expr;
 mod patterns;
 mod tasks;

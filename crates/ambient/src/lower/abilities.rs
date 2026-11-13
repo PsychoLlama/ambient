@@ -137,17 +137,26 @@ impl Lowering {
     }
 
     /// A call of a method: its function, with the record it is held
-    /// by and then the arguments.
-    pub(super) fn send(
-        &mut self,
-        target: &core::Expr,
-        key: &core::Key,
-        args: &[core::Expr],
-        scope: &mut Scope,
-    ) -> Result<Op, Unsupported> {
+    /// by and then the arguments. A generic method's function is
+    /// instantiated first.
+    pub(super) fn send(&mut self, send: &core::Expr, scope: &mut Scope) -> Result<Op, Unsupported> {
+        let core::Expr::Send {
+            target,
+            key,
+            args,
+            types,
+        } = send
+        else {
+            return Err(Unsupported("a call of a method that is not one"));
+        };
         let record = self.operand(target, scope)?;
         let key = self.key(key);
-        let function = self.bound(Op::Unbound { record, key }, scope);
+        let mut function = self.bound(Op::Unbound { record, key }, scope);
+        if !types.is_empty() {
+            self.charge_copies(&[function], scope);
+            let types = self.type_arguments(types, scope);
+            function = self.bound(Op::Instantiate { function, types }, scope);
+        }
         let mut all = vec![self.bindings, record];
         all.extend(self.operands(args, scope)?);
         Ok(self.call_value(function, all))

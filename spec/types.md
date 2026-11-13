@@ -108,7 +108,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - Instantiating is something done to a value where it is used, never a relation between types.
 - A lambda may take type parameters, and is then a value of a generic function type; a parameter it gives no type takes one from a generic function type expected of it that has as many type parameters.
 - A lambda has only the type parameters it writes: nothing expected of it makes it generic.
-- TODO: a [method](methods.md) cannot take type parameters yet.
+- A [method](methods.md) written as such a lambda is generic the same way.
 - A recursive generic type applies itself only to its own parameters, unchanged.
 - There are no conditional types, mapped types, or type operators.
 

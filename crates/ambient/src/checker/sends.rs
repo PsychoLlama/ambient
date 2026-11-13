@@ -55,13 +55,40 @@ impl Checker<'_> {
         if !method && matches!(self.env.unfold(&ty), Ty::Generic { .. }) {
             return self.generic_value_call(read, &ty, None, args);
         }
+        // A generic method is called with the record too, at whatever
+        // type arguments its other arguments require.
+        if matches!(self.env.unfold(&ty), Ty::Generic { .. }) {
+            let (signature, own) = self.opened(&ty)?;
+            let solved = self.generic_arguments(None, &signature, own, None, args)?;
+            let types = solved.types[own..].iter();
+            let types = types.map(|ty| self.lower(ty)).collect();
+            let core::Expr::Field { target, key } = read else {
+                return Ok((read, solved.ret));
+            };
+            let args = solved.args;
+            return Ok((
+                core::Expr::Send {
+                    target,
+                    key,
+                    args,
+                    types,
+                },
+                solved.ret,
+            ));
+        }
         let callee = Expr::Field {
             target: Box::new(Expr::Null),
             key: key.clone(),
         };
         let (args, ret) = self.arguments(&callee, &ty, None, args)?;
+        let types = Vec::new();
         let core = match read {
-            core::Expr::Field { target, key } if method => core::Expr::Send { target, key, args },
+            core::Expr::Field { target, key } if method => core::Expr::Send {
+                target,
+                key,
+                args,
+                types,
+            },
             callee => core::Expr::Call {
                 callee: Box::new(callee),
                 args,
