@@ -73,7 +73,7 @@ pub unsafe extern "C" fn amb_intern(pointer: *const u8, length: u64) -> Word {
 }
 
 /// A string of `bytes`.
-unsafe fn string(bytes: &[u8]) -> Word {
+pub(crate) unsafe fn string(bytes: &[u8]) -> Word {
     unsafe { amb_string_new(bytes.as_ptr(), bytes.len() as u64) }
 }
 

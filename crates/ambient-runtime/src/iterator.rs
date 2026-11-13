@@ -6,7 +6,7 @@
 //! held, compared, and reclaimed like a tuple.
 
 use crate::list::members;
-use crate::object::{KIND_ITERATOR, KIND_TUPLE, amb_retain, int, object, small, words};
+use crate::object::{KIND_ITERATOR, KIND_TUPLE, amb_retain, bytes, int, object, small, words};
 use crate::{NULL, Word, amb_int_new};
 
 /// Over a function: the function, which is called for each step.
@@ -15,6 +15,8 @@ const FUNCTION: i64 = 0;
 const LIST: i64 = 1;
 /// Over integers: the next one, and the one to stop before.
 const RANGE: i64 = 2;
+/// Over a string: the string, and the position of the next character.
+const STRING: i64 = 3;
 
 /// An iterator of `kind` that owns `first` and `second`.
 unsafe fn iterator(kind: i64, first: Word, second: Word) -> Word {
@@ -55,6 +57,15 @@ pub unsafe extern "C" fn amb_list_iterate(list: Word) -> Word {
     unsafe {
         amb_retain(list);
         iterator(LIST, list, amb_int_new(0))
+    }
+}
+
+/// An iterator over the characters of a string, from the first.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_string_iterate(string: Word) -> Word {
+    unsafe {
+        amb_retain(string);
+        iterator(STRING, string, amb_int_new(0))
     }
 }
 
@@ -111,6 +122,21 @@ pub unsafe extern "C" fn amb_iterator_advance(iterator: Word) -> Word {
                 let rest = self::iterator(RANGE, amb_int_new(start + 1), held[2]);
                 step(amb_int_new(start), rest)
             }
+            STRING => {
+                let position = int(held[2]) as usize;
+                // Every string is UTF-8, and the position is between
+                // two of its characters.
+                let text = core::str::from_utf8_unchecked(bytes(held[1]));
+                let Some(character) = text[position..].chars().next() else {
+                    return NULL;
+                };
+                let end = position + character.len_utf8();
+                amb_retain(held[1]);
+                step(
+                    crate::text::string(&text.as_bytes()[position..end]),
+                    self::iterator(STRING, held[1], amb_int_new(end as i64)),
+                )
+            }
             _ => NULL,
         }
     }
@@ -135,8 +161,10 @@ pub(crate) unsafe fn tested(iterator: Word) -> Tested {
                 let from = (int(held[2]) as usize).min(members.len());
                 Tested::Items(&members[from..])
             }
+            // Every item is a string, so the string stands for all.
+            STRING if (int(held[2]) as usize) < bytes(held[1]).len() => Tested::Items(&held[1..2]),
             // Every item is an integer, so the first stands for all.
-            _ if int(held[1]) < int(held[2]) => Tested::Items(&held[1..2]),
+            RANGE if int(held[1]) < int(held[2]) => Tested::Items(&held[1..2]),
             _ => Tested::Items(&[]),
         }
     }

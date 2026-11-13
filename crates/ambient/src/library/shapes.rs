@@ -85,6 +85,11 @@ fn string() -> ModuleBuilder {
                 .returns(or_null(ty::float()))
                 .body(b::to_float(this())),
         )
+        .define(
+            method("chars")
+                .returns(ty::iterator(ty::string()))
+                .body(b::iterate(this())),
+        )
 }
 
 fn list() -> ModuleBuilder {

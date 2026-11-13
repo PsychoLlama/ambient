@@ -408,6 +408,7 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::StringFloat => Entry::StringFloat,
         Primitive::IteratorNew => Entry::IteratorNew,
         Primitive::ListIterate => Entry::ListIterate,
+        Primitive::StringIterate => Entry::StringIterate,
         Primitive::IntRange => Entry::IntRange,
     }
 }

@@ -148,6 +148,8 @@ pub enum Primitive {
     IteratorNew,
     /// An iterator over the members of a list.
     ListIterate,
+    /// An iterator over the characters of a string.
+    StringIterate,
     /// An iterator over the integers from one up to another.
     IntRange,
 }

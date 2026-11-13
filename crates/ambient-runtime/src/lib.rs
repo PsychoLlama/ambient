@@ -70,6 +70,7 @@ pub use host::*;
 pub use is::{amb_is, descriptor};
 pub use iterator::{
     amb_int_range, amb_iterator_advance, amb_iterator_new, amb_iterator_stepper, amb_list_iterate,
+    amb_string_iterate,
 };
 pub use list::*;
 pub use native::*;

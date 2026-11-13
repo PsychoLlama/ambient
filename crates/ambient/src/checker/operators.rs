@@ -79,7 +79,7 @@ fn meanings(operator: Operator) -> &'static [Primitive] {
         Operator::ToFloat => &[P::IntFloat, P::StringFloat],
         Operator::ToText => &[P::IntText, P::FloatText],
         Operator::Iterator => &[P::IteratorNew],
-        Operator::Iterate => &[P::ListIterate],
+        Operator::Iterate => &[P::StringIterate, P::ListIterate],
         Operator::Range => &[P::IntRange],
         Operator::Step => &[],
     }

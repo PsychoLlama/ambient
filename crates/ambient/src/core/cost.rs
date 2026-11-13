@@ -97,7 +97,11 @@ impl Expr {
             // An iterator is its kind and the two values it keeps.
             Self::Cell { .. }
             | Self::Primitive {
-                operation: Primitive::IteratorNew | Primitive::ListIterate | Primitive::IntRange,
+                operation:
+                    Primitive::IteratorNew
+                    | Primitive::ListIterate
+                    | Primitive::StringIterate
+                    | Primitive::IntRange,
                 ..
             } => Cost::object(3),
             // The call of what steps it, or else the item and the

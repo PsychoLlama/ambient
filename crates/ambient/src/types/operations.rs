@@ -123,6 +123,7 @@ impl Env {
             (P::StringFloat, [_]) if all(&Ty::String) => or_null(Ty::Float),
             (P::IteratorNew, [function]) => Ty::Iterator(Box::new(self.stepped_by(function)?)),
             (P::ListIterate, [values]) => Ty::Iterator(Box::new(self.members(values)?)),
+            (P::StringIterate, [_]) if all(&Ty::String) => Ty::Iterator(Box::new(Ty::String)),
             (P::IntRange, [_, _]) if all(&Ty::Int) => Ty::Iterator(Box::new(Ty::Int)),
             _ => return None,
         })

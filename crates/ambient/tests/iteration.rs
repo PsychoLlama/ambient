@@ -84,6 +84,37 @@ fn a_member_that_is_null_is_not_the_end() {
     assert_eq!(evaluates(to_list(b::send(list, "iter", []))), expected);
 }
 
+/// The characters of `text`, as a list.
+fn chars(text: &str) -> Expr {
+    to_list(b::send(b::string(text), "chars", []))
+}
+
+#[test]
+fn a_string_is_iterated_by_its_characters() {
+    let each = |text: &[&str]| {
+        Value::List(
+            text.iter()
+                .map(|c| Value::String((*c).to_owned()))
+                .collect(),
+        )
+    };
+    // One, two, three, and four bytes long.
+    assert_eq!(evaluates(chars("aé€😀")), each(&["a", "é", "€", "😀"]));
+    assert_eq!(evaluates(chars("")), each(&[]));
+}
+
+#[test]
+fn the_characters_of_a_string_are_strings() {
+    let of = |text: &str| b::send(b::string(text), "chars", []);
+    let tests = b::tuple([
+        is_iterator_of(ty::string(), of("ab")),
+        is_iterator_of(ty::int(), of("ab")),
+        is_iterator_of(ty::int(), of("")),
+    ]);
+    let bools = [true, false, true].map(Value::Bool).to_vec();
+    assert_eq!(evaluates(tests), Value::Tuple(bools));
+}
+
 #[test]
 fn a_range_holds_every_integer_up_to_its_end() {
     assert_eq!(evaluates(to_list(range(2, 5))), ints([2, 3, 4]));
