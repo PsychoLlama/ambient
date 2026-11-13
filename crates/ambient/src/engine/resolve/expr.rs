@@ -110,7 +110,15 @@ impl Resolver<'_> {
                     body: Box::new(self.expr(body)?),
                 }
             }
-            Expr::Lambda { params, row, body } => self.lambda(params, row, body)?,
+            Expr::Lambda {
+                params,
+                row,
+                returns,
+                body,
+            } => {
+                let returns = returns.as_ref().map(|ty| self.ty(ty)).transpose()?;
+                self.lambda(params, row, returns, body)?
+            }
             Expr::Comptime(call) => Expr::Comptime(Box::new(self.expr(call)?)),
             Expr::Cast {
                 value,
@@ -204,6 +212,7 @@ impl Resolver<'_> {
         &mut self,
         params: &[(String, Option<Type>)],
         row: &[Path],
+        returns: Option<Type<Reference>>,
         body: &Expr,
     ) -> Result<Expr<Reference>, Error> {
         let mut resolved = Vec::new();
@@ -220,6 +229,7 @@ impl Resolver<'_> {
         Ok(Expr::Lambda {
             params: resolved,
             row: self.row(row)?,
+            returns,
             body,
         })
     }

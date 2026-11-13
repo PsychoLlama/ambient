@@ -86,9 +86,17 @@ impl<N> Expr<N> {
             Self::Record(fields) => fields.iter().for_each(|(key, _)| key.names(visit)),
             Self::Field { key, .. } => key.names(visit),
             Self::Match { arms, .. } => arms.iter().for_each(|arm| arm.pattern.names(visit)),
-            Self::Lambda { params, row, .. } => {
+            Self::Lambda {
+                params,
+                row,
+                returns,
+                ..
+            } => {
                 for ty in params.iter().filter_map(|(_, ty)| ty.as_ref()) {
                     ty.names(visit);
+                }
+                if let Some(returns) = returns {
+                    returns.names(visit);
                 }
                 row.iter().for_each(&mut *visit);
             }

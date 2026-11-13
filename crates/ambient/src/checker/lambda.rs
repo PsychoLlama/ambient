@@ -31,14 +31,28 @@ impl Checker<'_> {
     /// A lambda: its own definition, checked in a frame of its own.
     ///
     /// `hint` is the parameter types expected of it, if anything expects
-    /// any. The result type is always the body's.
+    /// any. The result type is the one it states, or else the body's.
     pub(super) fn lambda(
         &mut self,
-        params: &[(String, Option<Ty>)],
-        row: &[Reference],
-        body: &Expr<Reference>,
+        lambda: &Expr<Reference>,
         hint: Option<&[Ty]>,
     ) -> Result<(core::Expr, Ty), Error> {
+        let Expr::Lambda {
+            params,
+            row,
+            returns,
+            body,
+        } = lambda
+        else {
+            return self.infer(lambda);
+        };
+        let returns = match returns {
+            Some(ty) => {
+                self.well_formed(ty)?;
+                Some(self.env.normalize(ty))
+            }
+            None => None,
+        };
         let mut types = Vec::new();
         for (position, (name, ty)) in params.iter().enumerate() {
             types.push(match (ty, hint.and_then(|hint| hint.get(position))) {
@@ -55,12 +69,26 @@ impl Checker<'_> {
                 }
             });
         }
+        self.function(types, row, returns, body)
+    }
 
+    /// A function written in place: one that takes `types` and its
+    /// caller's `row`, and gives `returns` if that is stated.
+    pub(super) fn function(
+        &mut self,
+        types: Vec<Ty>,
+        row: &[Reference],
+        returns: Option<Ty>,
+        body: &Expr<Reference>,
+    ) -> Result<(core::Expr, Ty), Error> {
         self.enter(abilities(row));
         for ty in &types {
             self.bind_local(ty.clone());
         }
-        let (body, ret) = self.infer(body)?;
+        let (body, ret) = match returns {
+            Some(ret) => (self.check(body, &ret)?, ret),
+            None => self.infer(body)?,
+        };
         let outer = self.frame().captures.clone();
         let held: Vec<Ty> = outer
             .iter()

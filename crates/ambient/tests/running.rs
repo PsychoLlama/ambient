@@ -456,7 +456,13 @@ fn a_fault_inside_a_closure_unwinds_through_its_caller() {
 /// A lambda needs a parameter type when nothing expects one of it.
 fn overflow_typed(lambda: Expr) -> Expr {
     match lambda {
-        ambient::surface::Expr::Lambda { params, row, body } => ambient::surface::Expr::Lambda {
+        ambient::surface::Expr::Lambda {
+            params,
+            row,
+            returns,
+            body,
+        } => ambient::surface::Expr::Lambda {
+            returns,
             params: params
                 .into_iter()
                 .map(|(name, _)| (name, Some(ty::int())))

@@ -97,6 +97,50 @@ fn a_method_reaches_another_through_its_record() {
     assert_eq!(evaluates(send(record, "quadruple", [])), Value::Int(12));
 }
 
+/// `self.x + self.x`, a method that does not say what it needs.
+fn doubling() -> Expr {
+    let x = || b::field(b::name("self"), "x");
+    b::lambda_returning([("self", None)], ty::int(), b::add(x(), x()))
+}
+
+/// A method that calls `self.double()` and does not say what it needs.
+fn redoubling() -> Expr {
+    let twice = || send(b::name("self"), "double", []);
+    b::lambda([("self", None)], b::add(twice(), twice()))
+}
+
+#[test]
+fn a_method_that_asks_for_nothing_receives_the_record_it_is_written_in() {
+    let record = b::record([("x", b::int(3)), ("double", b::method(doubling()))]);
+    assert_eq!(evaluates(send(record, "double", [])), Value::Int(6));
+}
+
+#[test]
+fn a_method_reaches_one_that_states_what_it_gives() {
+    let record = b::record([
+        ("quadruple", b::method(redoubling())),
+        ("x", b::int(3)),
+        ("double", b::method(doubling())),
+    ]);
+    assert_eq!(evaluates(send(record, "quadruple", [])), Value::Int(12));
+}
+
+#[test]
+fn a_method_does_not_reach_one_that_leaves_what_it_gives_unstated() {
+    let record = b::record([
+        ("double", b::method(redoubling())),
+        ("quadruple", b::method(redoubling())),
+    ]);
+    assert!(matches!(refused(record), Error::NoField { name, .. } if name == "double"));
+}
+
+#[test]
+fn a_method_written_in_a_merge_asks_for_the_merged_record() {
+    let added = b::record([("double", b::method(doubling()))]);
+    let merged = b::merge(b::record([("x", b::int(4))]), added);
+    assert_eq!(evaluates(send(merged, "double", [])), Value::Int(8));
+}
+
 #[test]
 fn a_function_is_a_method_of_every_record_that_has_what_it_needs() {
     let wider = b::record([

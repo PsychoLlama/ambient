@@ -18,7 +18,9 @@ A method is a function reached through a value it then receives. A record's meth
 - A method is written in the record or is any function named there.
 - A method says what it needs of its receiver as a type, and a record is checked against that where it is made.
 - A method that asks for less than a record holds is a method of every record that has that much.
-- A method written in a record that asks for nothing asks for that record's type; reaching another method through the receiver then needs that method's return type stated, as a [definition](definitions.md) reached by name does.
+- A method written in a record that asks for nothing asks for that record as a reader sees it: each method as the function reading it gives.
+- It reaches another such method through the receiver only if that one states what it takes and gives, as a [definition](definitions.md) reached by name does.
+- One written in a record that is merged over another asks for the merged record.
 - Calling a method makes no function, and reading one makes one; a record never holds a reference to itself.
 
 ## Method types

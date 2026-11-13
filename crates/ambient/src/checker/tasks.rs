@@ -52,7 +52,7 @@ impl Checker<'_> {
         let mut thunks = Vec::new();
         let mut results = Vec::new();
         for branch in branches {
-            let (thunk, ty) = self.lambda(&[], &[], branch, None)?;
+            let (thunk, ty) = self.function(Vec::new(), &[], None, branch)?;
             thunks.push(thunk);
             results.push(match ty {
                 Ty::Function { ret, .. } => *ret,
@@ -70,7 +70,7 @@ impl Checker<'_> {
         cleanup: &Expr<Reference>,
         body: &Expr<Reference>,
     ) -> Result<(core::Expr, Ty), Error> {
-        let (cleanup, _) = self.lambda(&[], &[], cleanup, None)?;
+        let (cleanup, _) = self.function(Vec::new(), &[], None, cleanup)?;
         let (body, ty) = self.infer(body)?;
         let node = core::Expr::Cleanup {
             cleanup: Box::new(cleanup),
@@ -124,7 +124,7 @@ impl Checker<'_> {
             only: inside.iter().any(|layer| layer.only),
             seen: Some(Vec::new()),
         });
-        let thunk = self.lambda(&[], &[], task, None);
+        let thunk = self.function(Vec::new(), &[], None, task);
         let used = self.frame().layers.pop().and_then(|layer| layer.seen);
         self.frame().layers.extend(inside);
 

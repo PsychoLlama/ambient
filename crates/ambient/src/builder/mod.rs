@@ -190,6 +190,26 @@ pub fn lambda<'a>(
     lambda_row(params, [], body)
 }
 
+/// A lambda that says what it gives, so that it is known before its
+/// body is checked.
+pub fn lambda_returning<'a>(
+    params: impl IntoIterator<Item = (&'a str, Option<crate::surface::Type>)>,
+    returns: crate::surface::Type,
+    body: Expr,
+) -> Expr {
+    match lambda(params, body) {
+        Expr::Lambda {
+            params, row, body, ..
+        } => Expr::Lambda {
+            params,
+            row,
+            returns: Some(returns),
+            body,
+        },
+        other => other,
+    }
+}
+
 /// A lambda that takes the abilities in `row` from its caller. Any other
 /// ability it uses is captured where it is written.
 pub fn lambda_row<'a>(
@@ -203,6 +223,7 @@ pub fn lambda_row<'a>(
             .map(|(name, ty)| (name.to_owned(), ty))
             .collect(),
         row: row.into_iter().map(Path::parse).collect(),
+        returns: None,
         body: Box::new(body),
     }
 }

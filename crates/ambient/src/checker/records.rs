@@ -40,7 +40,7 @@ impl Checker<'_> {
         &mut self,
         fields: &[(TyKey, Expr<Reference>)],
     ) -> Result<(core::Expr, Ty), Error> {
-        let (core, record) = self.fields(fields)?;
+        let (core, record) = self.fields(fields, &[])?;
         if let Ty::Record(types) = &record {
             self.receives(&record, types)?;
         }
@@ -48,16 +48,44 @@ impl Checker<'_> {
     }
 
     /// A record written out, before its methods are held to what they
-    /// need: one written to be merged is part of a larger record.
-    fn fields(&mut self, fields: &[(TyKey, Expr<Reference>)]) -> Result<(core::Expr, Ty), Error> {
+    /// need: one written to be merged is part of a larger record, which
+    /// has the fields `under` besides.
+    fn fields(
+        &mut self,
+        fields: &[(TyKey, Expr<Reference>)],
+        under: &[(TyKey, Ty)],
+    ) -> Result<(core::Expr, Ty), Error> {
         let mut cores = Vec::new();
         let mut types: Vec<(TyKey, Ty)> = Vec::new();
+        // What a method that does not say what it needs receives: the
+        // record as a reader sees it, so far as that is known before
+        // such a method's body is checked.
+        let mut own: Vec<(TyKey, Ty)> = Vec::new();
+        for (key, ty) in under {
+            if fields.iter().all(|(written, _)| written != key) {
+                own.push((key.clone(), ty.read()));
+            }
+        }
         for (key, value) in fields {
-            let (core, ty) = match (self.expected_handler(key), value) {
-                (Some(expected), _) => self.infer_as(value, &expected)?,
-                (None, Expr::Method(function)) => self.method(function)?,
-                (None, _) => self.infer(value)?,
+            if Self::implicit(value)
+                && let Some(ty) = self.stated(value)?
+            {
+                own.push((key.clone(), ty));
+            }
+        }
+        let mut waiting = Vec::new();
+        for (key, value) in fields {
+            if Self::implicit(value) {
+                waiting.push((cores.len(), value));
+                cores.push((self.key(key), core::Expr::Null));
+                types.push((key.clone(), Ty::Never));
+                continue;
+            }
+            let (core, ty) = match self.expected_handler(key) {
+                Some(expected) => self.infer_as(value, &expected)?,
+                None => self.method(value, None)?,
             };
+            own.push((key.clone(), ty.read()));
             // Two paths can name one ability, which a builder cannot see.
             if let (Some(_), Key::Ability(Reference::Definition(ability))) =
                 (entry(&types, key), key)
@@ -69,6 +97,11 @@ impl Checker<'_> {
             }
             cores.push((self.key(key), core));
             types.push((key.clone(), ty));
+        }
+        own.sort_by(|(a, _), (b, _)| a.cmp(b));
+        let own = Ty::Record(own);
+        for (index, value) in waiting {
+            (cores[index].1, types[index].1) = self.method(value, Some(&own))?;
         }
         types.sort_by(|(a, _), (b, _)| a.cmp(b));
         Ok((core::Expr::Record(cores), Ty::Record(types)))
@@ -115,15 +148,17 @@ impl Checker<'_> {
     ) -> Result<(core::Expr, Ty), Error> {
         // A record written here is whole only once merged, so its
         // methods are held to the merged record alone.
-        let mut operand = |expr: &Expr<Reference>| match expr {
-            Expr::Record(fields) => self.fields(fields),
-            expr => self.infer(expr),
+        let (core_left, left) = match left {
+            Expr::Record(fields) => self.fields(fields, &[])?,
+            left => self.infer(left)?,
         };
-        let (core_left, left) = operand(left)?;
-        let (core_right, right) = operand(right)?;
-        let (Ty::Record(mut fields), Ty::Record(over)) =
-            (self.env.unfold(&left), self.env.unfold(&right))
-        else {
+        let below = self.env.unfold(&left);
+        let (core_right, right) = match (right, &below) {
+            (Expr::Record(fields), Ty::Record(below)) => self.fields(fields, below)?,
+            (Expr::Record(fields), _) => self.fields(fields, &[])?,
+            (right, _) => self.infer(right)?,
+        };
+        let (Ty::Record(mut fields), Ty::Record(over)) = (below, self.env.unfold(&right)) else {
             return Err(Error::Operands {
                 symbol: self.symbol.clone(),
                 found: format!("{}, {}", self.env.show(&left), self.env.show(&right)),

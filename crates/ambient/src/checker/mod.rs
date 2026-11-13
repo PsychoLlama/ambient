@@ -271,9 +271,7 @@ impl<'a> Checker<'a> {
             }
             // A lambda takes the types its parameters lack from the
             // function type expected of it.
-            (Expr::Lambda { params, row, body }, hint) => {
-                self.lambda(params, row, body, hint.as_deref())
-            }
+            (Expr::Lambda { .. }, hint) => self.lambda(expr, hint.as_deref()),
             _ => self.infer(expr),
         }
     }
@@ -369,7 +367,7 @@ impl<'a> Checker<'a> {
             }
             Expr::Operation { operator, operands } => self.operation(*operator, operands)?,
             Expr::Match { subject, arms } => self.matching(subject, arms)?,
-            Expr::Lambda { params, row, body } => self.lambda(params, row, body, None)?,
+            Expr::Lambda { .. } => self.lambda(expr, None)?,
             Expr::Perform { ability, args } => self.perform(ability, args)?,
             Expr::Provide { bundle, only, body } => self.provide(bundle, *only, body)?,
             Expr::Observe { observer, body } => self.observe(observer, body)?,

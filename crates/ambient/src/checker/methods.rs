@@ -11,8 +11,12 @@
 //! (`records.rs`). A method no type lists stays bound to the record it
 //! had, which the runtime sees to.
 //!
-//! TODO: the receiver's type must be written. One left out should be
-//! the type of the record the method is written in.
+//! A method written in a record may leave its receiver's type out. It
+//! then needs the record it is written in, as a reader sees it: each
+//! method as the function reading it gives. Such a method is checked
+//! after the rest of the record, and another like it is in that type
+//! only if it states what it takes and gives, since its body is not
+//! checked yet.
 
 use super::Checker;
 use crate::core;
@@ -21,10 +25,67 @@ use crate::surface::{Expr, Reference};
 use crate::types::{Ty, TyKey, abilities};
 
 impl Checker<'_> {
+    /// Whether `value` is a method that leaves its receiver's type out.
+    pub(super) fn implicit(value: &Expr<Reference>) -> bool {
+        let Expr::Method(function) = value else {
+            return false;
+        };
+        matches!(&**function, Expr::Lambda { params, .. } if matches!(params.first(), Some((_, None))))
+    }
+
+    /// The function reading a method written as `lambda` gives, if the
+    /// lambda states it: the type of each parameter after the receiver,
+    /// and what it gives.
+    pub(super) fn stated(&mut self, lambda: &Expr<Reference>) -> Result<Option<Ty>, Error> {
+        let Expr::Method(function) = lambda else {
+            return Ok(None);
+        };
+        let Expr::Lambda {
+            params,
+            row,
+            returns: Some(returns),
+            ..
+        } = &**function
+        else {
+            return Ok(None);
+        };
+        let mut types = vec![returns];
+        for (_, ty) in params.iter().skip(1) {
+            let Some(ty) = ty else {
+                return Ok(None);
+            };
+            types.push(ty);
+        }
+        let mut normal = Vec::new();
+        for ty in types {
+            self.well_formed(ty)?;
+            normal.push(self.env.normalize(ty));
+        }
+        let mut row = row.clone();
+        row.sort();
+        row.dedup();
+        Ok(Some(Ty::Function {
+            ret: Box::new(normal.remove(0)),
+            params: normal,
+            row,
+        }))
+    }
+
     /// A method written under a key of a record: what the record holds
-    /// for it, and its type.
-    pub(super) fn method(&mut self, function: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {
-        let (function, found) = self.infer(function)?;
+    /// for it, and its type. `receiver` is the type of its receiver if
+    /// it leaves that out.
+    pub(super) fn method(
+        &mut self,
+        value: &Expr<Reference>,
+        receiver: Option<&Ty>,
+    ) -> Result<(core::Expr, Ty), Error> {
+        let Expr::Method(function) = value else {
+            return self.infer(value);
+        };
+        let (function, found) = match receiver {
+            Some(receiver) => self.lambda(function, Some(std::slice::from_ref(receiver)))?,
+            None => self.infer(function)?,
+        };
         let (needs, params, ret, row) = match self.env.unfold(&found) {
             Ty::Function { params, ret, row } if !params.is_empty() => {
                 (params[0].clone(), params[1..].to_vec(), *ret, row)

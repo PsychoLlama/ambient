@@ -335,10 +335,12 @@ pub enum Expr<N = Path> {
     /// A function written in place. A parameter without a type takes it
     /// from where the lambda is used.
     /// `row` is what it takes from its caller; any other ability it uses
-    /// is captured where the lambda is written.
+    /// is captured where the lambda is written. `returns` is what it
+    /// gives, if that is stated: otherwise it is what the body gives.
     Lambda {
         params: Vec<(String, Option<Type<N>>)>,
         row: Vec<N>,
+        returns: Option<Type<N>>,
         body: Box<Expr<N>>,
     },
     /// Calls the handler bound to an ability.

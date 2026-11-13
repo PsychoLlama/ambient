@@ -213,8 +213,14 @@ fn check_node(expr: &Expr) -> Result<(), BuildError> {
             .try_for_each(|arm| check_pattern(&arm.pattern, &mut BTreeSet::new())),
         Expr::Cell { ty, .. } => ty.iter().try_for_each(check_type),
         Expr::Cast { ty, .. } => check_type(ty),
-        Expr::Lambda { params, row, .. } => {
+        Expr::Lambda {
+            params,
+            row,
+            returns,
+            ..
+        } => {
             row.iter().try_for_each(check_path)?;
+            returns.iter().try_for_each(check_type)?;
             let mut seen = BTreeSet::new();
             for (name, ty) in params {
                 check_name(name)?;
