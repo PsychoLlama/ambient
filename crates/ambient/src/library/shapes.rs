@@ -6,7 +6,8 @@
 //! what gives the operation a name to be called by and a function to
 //! be passed.
 
-use crate::builder::{self as b, FunctionBuilder, ModuleBuilder, ty};
+use super::iterator::stepping;
+use crate::builder::{self as b, FunctionBuilder, ModuleBuilder, pat, ty};
 use crate::surface::{Expr, Shape, Type};
 
 fn this() -> Expr {
@@ -87,11 +88,61 @@ fn string() -> ModuleBuilder {
         )
 }
 
+/// The iterator over the members of `list` from `position` on.
+///
+/// A member that is null and a miss past the end look alike to `get`,
+/// so a null is told from the end by the list's length. The checker
+/// cannot follow that, so the null is tested against the member type:
+/// the one case in which walking a list looks at a type as it runs.
+fn walk(list: &Type, member: &Type) -> crate::surface::Definition {
+    let rest = || {
+        let next = b::add(b::name("position"), b::int(1));
+        b::call(b::name("walk"), [this(), next])
+    };
+    let null_member = b::match_(
+        b::null(),
+        [
+            (
+                pat::bind_as("item", pat::is(member.clone())),
+                b::tuple([b::name("item"), rest()]),
+            ),
+            (pat::any(), b::null()),
+        ],
+    );
+    let within = b::less(b::name("position"), b::length(this()));
+    let missed = b::match_(
+        within,
+        [
+            (pat::boolean(true), null_member),
+            (pat::boolean(false), b::null()),
+        ],
+    );
+    let step = b::match_(
+        b::get(this(), b::name("position")),
+        [
+            (pat::is(ty::null()), missed),
+            (pat::bind("item"), b::tuple([b::name("item"), rest()])),
+        ],
+    );
+    b::function("walk")
+        .type_param("T")
+        .param("self", list.clone())
+        .param("position", ty::int())
+        .returns(ty::apply("iterator.Iterator", [member.clone()]))
+        .body(stepping(step))
+}
+
 fn list() -> ModuleBuilder {
     let member = || ty::named("T");
     let list = ty::list(member());
     let method = |name: &str| method(name, list.clone()).type_param("T");
+    let iter = method("iter")
+        .returns(ty::apply("iterator.Iterator", [member()]))
+        .body(b::call(b::name("walk"), [this(), b::int(0)]));
     sequence(&list, &method)
+        .import("pkg.iterator")
+        .define(walk(&list, &member()))
+        .define(iter)
         .define(
             method("get")
                 .param("position", ty::int())

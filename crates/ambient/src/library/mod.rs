@@ -7,6 +7,7 @@
 //! defined here, which a workspace has in scope unless it lists preludes
 //! of its own.
 
+mod iterator;
 mod shapes;
 
 use ambient_runtime::{FAULT_PACKAGE, Fault, LIMITS};
@@ -26,7 +27,8 @@ fn type_name(tag: &str) -> String {
 }
 
 /// The library module: `Error`, and a type for the kind of each fault
-/// and for each limit of a budget. It lists the module of each shape.
+/// and for each limit of a budget. It lists the module of each shape
+/// and the module of iterators, whose type it also gives by name.
 #[must_use]
 pub fn module() -> ModuleBuilder {
     let frame = ty::record([("definition", ty::string()), ("position", ty::int())]);
@@ -43,6 +45,8 @@ pub fn module() -> ModuleBuilder {
         module.expose(shape.module())
     });
     let module = module
+        .expose(iterator::MODULE)
+        .export("pkg.iterator.Iterator")
         .define(b::type_("Frame", frame).public())
         .define(b::type_("Error", error).public());
     tags.fold(module, |module, tag| {
@@ -60,6 +64,9 @@ pub fn install(workspace: &mut Workspace) -> Result<(), WorkspaceError> {
     let id = ModuleId::new(FAULT_PACKAGE, "");
     let module = module().build().map_err(|_| WorkspaceError::Library)?;
     workspace.set(id.clone(), module)?;
+    let iterators = iterator::module().build();
+    let iterators = iterators.map_err(|_| WorkspaceError::Library)?;
+    workspace.set(ModuleId::new(FAULT_PACKAGE, iterator::MODULE), iterators)?;
     for (shape, module) in shapes::modules() {
         let module = module.build().map_err(|_| WorkspaceError::Library)?;
         workspace.set(ModuleId::new(FAULT_PACKAGE, shape.module()), module)?;

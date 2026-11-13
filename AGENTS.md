@@ -37,7 +37,7 @@
 - Lowered code nests once per bound value, so whatever makes, walks, or drops a `lir::Function` runs inside `lower::deep`, on a stack with room for it.
 - Compiled code is position-independent: it reaches definitions through slots and the runtime through entry points, never by address.
 - A name reaches a definition through a module's members (`engine/scope.rs`): its own definitions and its re-exports, which keep the symbol of what they alias. Another package is reached only through its library module and the modules that lists.
-- The standard library is a package built with builders (`library.rs`), installed into a workspace on request. Fault kinds and budget limits are its tags; their names come from the runtime, never restated.
+- The standard library is a package built with builders (`library/`), installed into a workspace on request. Fault kinds and budget limits are its tags; their names come from the runtime, never restated.
 - The core checker (`verify/`) accepts what `checker/` makes and nothing looser; `support::run` verifies every definition it runs. Typing rules live in `types::Env`, which both checkers ask.
 - A received definition (`engine/pack.rs`) is an `Open` under a made-up symbol: it is verified, then hashed, compiled, and linked like any other. It has no surface tree and never reaches the store.
 - A definition holds its own hash (`DEFINITION_HASH`), so a host reads a function value as a hash and captures (`value.rs`), and makes one of a definition the program has (`native::Inside`); what it captures is trusted.
