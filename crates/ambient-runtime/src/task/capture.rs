@@ -8,7 +8,7 @@
 
 use alloc::vec::Vec;
 
-use super::{Capture, Scheduler, arriving, scheduler, suspend};
+use super::{Capture, Scheduler, amb_suspend, arriving, scheduler};
 use crate::trace::{TRACE_LIMIT, frames};
 use crate::{Context, NULL, Word};
 
@@ -54,6 +54,6 @@ pub unsafe extern "C" fn amb_capture(context: *mut Context) -> Word {
         let task = scheduler.current();
         task.queued = true;
         task.capture = Capture::Asked;
-        suspend(context)
+        amb_suspend(context)
     }
 }

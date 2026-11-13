@@ -16,7 +16,7 @@ A program carries the code it reaches and nothing else, the [runtime](backends.m
 
 - Every program carries what calling, counting, and allocating need. That is the fixed cost of the language, and it is kept small.
 - The floor does not grow with the runtime: a release that adds operations leaves it as it was.
-- An operation a backend can express in a few instructions is emitted in place, and reaches a piece only for the cases that are not.
+- A piece a program carries is part of the program: calling one is a call like any other, never a call out to a runtime loaded beside it.
 - Where the checker knows a value's type it picks the operation for that type. Only code that does not know reaches a piece that handles every shape.
 - A program that performs no [task](tasks.md) operation carries no scheduler.
 - TODO: every function still carries the code to suspend and to unwind, whether or not anything it reaches can.

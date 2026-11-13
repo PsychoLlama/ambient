@@ -9,7 +9,7 @@
 
 use alloc::vec::Vec;
 
-use super::{Join, Task, arriving, interrupted, scheduler, suspend};
+use super::{Join, Task, amb_suspend, arriving, interrupted, scheduler};
 use crate::abort::abandon;
 use crate::number::amb_int_new;
 use crate::object::{amb_retain, fault, int};
@@ -91,7 +91,7 @@ pub unsafe extern "C" fn amb_group_close(
                 }
             }
         }
-        if waiting { suspend(context) } else { NULL }
+        if waiting { amb_suspend(context) } else { NULL }
     }
 }
 

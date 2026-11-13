@@ -46,10 +46,13 @@ fn main() {
             .arg("--target-dir")
             .arg(&target)
             // Flags meant for the host build do not apply to this one.
+            // A panic names the file it is in, and a trap reads no
+            // name, so the names are made as short as they go.
             .env_remove("CARGO_ENCODED_RUSTFLAGS")
             .env(
                 "RUSTFLAGS",
-                "-C opt-level=s -C codegen-units=1 -C panic=abort",
+                "-C opt-level=s -C codegen-units=1 -C panic=abort \
+                 --remap-path-prefix=crates/ambient-runtime/src/=",
             ),
         "building the runtime for WebAssembly",
     );

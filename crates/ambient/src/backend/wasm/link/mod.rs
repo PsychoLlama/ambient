@@ -68,6 +68,11 @@ impl Linked {
         found.ok_or_else(|| format!("the runtime has no `{name}`"))
     }
 
+    /// Whether a function was linked under its name.
+    pub fn has(&self, name: &str) -> bool {
+        self.named.contains_key(name)
+    }
+
     /// How many functions come before the module's own.
     pub fn count(&self) -> usize {
         self.imports.len() + self.functions.len()
@@ -84,22 +89,34 @@ struct Places {
     types: HashMap<u32, u32>,
 }
 
-/// Links the functions named `roots`, and everything they reach.
+/// Links the functions named `roots`, and everything they reach; and
+/// each function of `offered`, if they reach the function it is paired
+/// with.
 ///
 /// # Errors
 ///
 /// Fails if the runtime has no function of one of those names.
-pub fn link(roots: &BTreeSet<&str>, space: &Space) -> Result<Linked, String> {
+pub fn link(
+    roots: &BTreeSet<&str>,
+    offered: &[(&'static str, &str)],
+    space: &Space,
+) -> Result<Linked, String> {
     let library = library()?;
+    let piece = |name: &str| {
+        let piece = library.named.get(name).copied();
+        piece.ok_or_else(|| format!("the runtime has no `{name}`"))
+    };
     let mut named = Vec::new();
     for root in roots {
-        let piece = library.named.get(*root).copied();
-        named.push((
-            *root,
-            piece.ok_or_else(|| format!("the runtime has no `{root}`"))?,
-        ));
+        named.push((*root, piece(root)?));
     }
-    let reached = reach(library, named.iter().map(|(_, piece)| *piece));
+    let mut reached = reach(library, named.iter().map(|(_, piece)| *piece));
+    for (name, needs) in offered {
+        if reached.contains(&piece(needs)?) {
+            named.push((*name, piece(name)?));
+        }
+    }
+    reached = reach(library, named.iter().map(|(_, piece)| *piece));
 
     let mut linked = Linked {
         stack: STACK,

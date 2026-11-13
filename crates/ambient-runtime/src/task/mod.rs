@@ -307,7 +307,14 @@ pub(crate) unsafe fn arriving(context: *mut Context) -> bool {
 }
 
 /// Suspends the current task. Always returns [`UNWIND`].
-pub(crate) unsafe fn suspend(context: *mut Context) -> Word {
+///
+/// Everything that suspends comes through here, by name and never
+/// inlined: a program that does not reach this cannot suspend, and is
+/// linked without what gives suspended tasks their turns
+/// (`spec/linking.md`).
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub unsafe extern "C" fn amb_suspend(context: *mut Context) -> Word {
     unsafe {
         (*context).mode = SUSPENDING;
     }

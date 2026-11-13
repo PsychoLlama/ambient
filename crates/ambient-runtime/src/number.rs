@@ -29,11 +29,13 @@ pub unsafe extern "C" fn amb_float_new(bits: u64) -> Word {
     }
 }
 
+// Generic over the operation, so each gets a copy of its own: it is a
+// few instructions, and a call through a pointer would be most of them.
 pub(crate) unsafe fn arithmetic(
     context: *mut Context,
     left: Word,
     right: Word,
-    operation: fn(i64, i64) -> Option<i64>,
+    operation: impl Fn(i64, i64) -> Option<i64>,
 ) -> Word {
     unsafe {
         match operation(int(left), int(right)) {

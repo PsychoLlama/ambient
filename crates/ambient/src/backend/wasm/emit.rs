@@ -74,6 +74,7 @@ impl Backend for Wasm {
             slots: function.slots,
             frames: Vec::new(),
             calls: Vec::new(),
+            widest: 0,
         };
         emitter.enter();
         // The outermost block is the one a point leaves to suspend: after
@@ -90,7 +91,7 @@ impl Backend for Wasm {
         emitter.save();
         emitter.leave();
         emitter.emit(&Instruction::End);
-        code::artifact(emitter.body.into_raw_body(), &emitter.calls)
+        code::artifact(emitter.body.into_raw_body(), &emitter.calls, emitter.widest)
     }
 }
 
@@ -120,6 +121,9 @@ pub(super) struct Emitter {
     pub(super) frames: Vec<bool>,
     /// Where the body calls the runtime: see [`code`].
     pub(super) calls: Vec<(usize, Entry)>,
+    /// The most arguments the body calls a function value with: a
+    /// module has a type for each number up to the most any body needs.
+    pub(super) widest: usize,
 }
 
 impl Emitter {
@@ -406,6 +410,7 @@ impl Emitter {
             DEFINITION_CODE
         });
         self.emit(&Instruction::I32WrapI64);
+        self.widest = self.widest.max(args.len());
         self.emit(&Instruction::CallIndirect {
             type_index: function_type(args.len()),
             table_index: 0,

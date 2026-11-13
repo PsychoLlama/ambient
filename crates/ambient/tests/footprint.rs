@@ -5,9 +5,10 @@
 
 mod support;
 
-use ambient::backend::wasm::{HOST, Wasm, module_for};
+use ambient::backend::wasm::{HOST, Wasm, module_for, pieces};
 use ambient::builder::{self as b, ty};
 use ambient::engine::Engine;
+use ambient::engine::Parts;
 use ambient::library;
 use ambient::store::MemoryStore;
 use ambient::surface::Expr;
@@ -21,9 +22,9 @@ const BARE: &[&str] = &[
     "amb_release",
 ];
 
-/// The bytes of the module `main`, with this body, compiles to, for a
-/// host that calls `host`.
-fn size(body: Expr, host: &[&'static str]) -> usize {
+/// The parts of the program `main`, with this body, is, beside the
+/// standard library.
+fn program(body: Expr) -> Parts {
     let main = b::function("main").returns(ty::unknown()).body(body);
     let module = b::module().import("ambient.iterator").define(main);
     let mut workspace = workspace([("app", "main", module)]);
@@ -31,8 +32,20 @@ fn size(body: Expr, host: &[&'static str]) -> usize {
     library::install(&mut workspace).unwrap();
     let store = MemoryStore::new();
     let engine = Engine::new(&workspace, &store);
-    let parts = engine.link(&value("main", "main"), &Wasm).unwrap();
-    module_for(&parts, host).unwrap().len()
+    engine.link(&value("main", "main"), &Wasm).unwrap()
+}
+
+/// The bytes of the module that program compiles to, for a host that
+/// calls `host`.
+fn size(body: Expr, host: &[&'static str]) -> usize {
+    module_for(&program(body), host).unwrap().len()
+}
+
+/// Whether that program, for the host in this crate, carries the
+/// runtime's function `name`.
+fn carries(body: Expr, name: &str) -> bool {
+    let pieces = pieces(&program(body), HOST).unwrap();
+    pieces.iter().any(|(piece, _)| piece == name)
 }
 
 fn fold() -> Expr {
@@ -45,7 +58,7 @@ fn fold() -> Expr {
 /// The most a program that does nothing may be, for a host that
 /// starts a call and reads nothing. Lower it when the floor falls;
 /// raising it is a decision, not a fix.
-const FLOOR: usize = 8_200;
+const FLOOR: usize = 7_800;
 
 #[test]
 fn a_program_that_does_nothing_is_within_the_floor() {
@@ -67,21 +80,23 @@ fn a_host_that_reads_no_values_pays_for_no_readers() {
 }
 
 #[test]
+fn only_a_program_that_can_suspend_carries_what_gives_tasks_their_turns() {
+    assert!(!carries(b::null(), "amb_schedule"));
+    assert!(carries(b::all([b::int(1), b::int(2)]), "amb_schedule"));
+}
+
+#[test]
 #[ignore = "prints what the floor is made of"]
 #[allow(clippy::print_stderr)]
 fn what_the_floor_is_made_of() {
-    let main = b::function("main").returns(ty::unknown()).body(b::null());
-    let workspace = workspace([("app", "main", b::module().define(main))]);
-    let store = MemoryStore::new();
-    let engine = Engine::new(&workspace, &store);
-    let parts = engine.link(&value("main", "main"), &Wasm).unwrap();
-    let mut pieces = ambient::backend::wasm::pieces(&parts, BARE).unwrap();
+    let parts = program(b::null());
     let module = module_for(&parts, BARE).unwrap();
     eprintln!("{} bytes in all", module.len());
     // Somewhere to look at the module itself, if asked for.
     if let Some(path) = std::env::var_os("FOOTPRINT") {
         std::fs::write(path, &module).unwrap();
     }
+    let mut pieces = pieces(&parts, BARE).unwrap();
     pieces.sort_by_key(|(_, size)| std::cmp::Reverse(*size));
     for (name, size) in pieces {
         eprintln!("{size:>6} {name}");

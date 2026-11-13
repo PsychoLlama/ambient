@@ -3,7 +3,7 @@
 use crate::number::equal;
 use crate::object::{KIND_CELL, amb_release, amb_retain, boolean, fault, object, words};
 use crate::scope::{At, Env};
-use crate::task::{arriving, interrupted, suspend, wait_on, wake};
+use crate::task::{amb_suspend, arriving, interrupted, wait_on, wake};
 use crate::unit::{self, amb_unit_retain};
 use crate::{Context, Fault, NULL, Word};
 
@@ -143,6 +143,6 @@ pub unsafe extern "C" fn amb_cell_wait(context: *mut Context, cell: Word, seen: 
             return NULL;
         }
         wait_on(context, Some(cell));
-        suspend(context)
+        amb_suspend(context)
     }
 }

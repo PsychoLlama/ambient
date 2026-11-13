@@ -12,7 +12,6 @@ use super::function_type;
 use super::layout::{Globals, initializer, reclaimer};
 pub use super::runtime::HOST;
 use super::runtime::{Runtime, global};
-use crate::backend::MAX_ARITY;
 use crate::backend::statics::{self, Base, Statics};
 use crate::engine::{Body, Part, Parts};
 
@@ -35,25 +34,21 @@ enum Shape {
     Unit,
 }
 
-/// The first type after those every module starts with: one for each
-/// arity of compiled function, then `init`'s and `drop`'s.
-// There are a handful of arities; this cannot truncate.
-#[allow(clippy::cast_possible_truncation)]
-const INIT_TYPE: u32 = MAX_ARITY as u32 + 1;
-const DROP_TYPE: u32 = INIT_TYPE + 1;
-pub(super) const FIRST_TYPE: u32 = DROP_TYPE + 1;
-
-/// The types every module starts with.
-fn types() -> TypeSection {
+/// The types every module starts with: one for each number of
+/// arguments a compiled function takes, up to `widest`, then `init`'s
+/// and `drop`'s. Returns the index of `init`'s; `drop`'s is the next,
+/// and the first free one follows.
+fn types(widest: usize) -> Result<(TypeSection, u32), String> {
     let mut types = TypeSection::new();
-    for arity in 0..=MAX_ARITY {
+    for arity in 0..=widest {
         let mut params = vec![ValType::I32, ValType::I64];
         params.extend(vec![ValType::I64; arity]);
         types.ty().function(params, [ValType::I64]);
     }
     types.ty().function([], [ValType::I64]);
     types.ty().function([], []);
-    types
+    let init = u32::try_from(widest + 1).map_err(|error| error.to_string())?;
+    Ok((types, init))
 }
 
 /// Whether a part is laid out: a function or a type, which other code
@@ -133,6 +128,9 @@ struct Own {
     /// How many of them are compiled functions: the rest lay the
     /// module out and give it back.
     compiled: u32,
+    /// The most arguments any of them takes or calls a function
+    /// value with.
+    widest: usize,
 }
 
 /// Reads the compiled functions of `parts`, in the order of the parts.
@@ -142,13 +140,15 @@ fn compiled(parts: &Parts) -> Result<Own, String> {
         bodies: Vec::new(),
         positions: vec![0u64; codes.len()],
         compiled: 0,
+        widest: 0,
     };
     for (position, unit) in codes.iter().enumerate() {
         let Some((arity, artifact)) = unit else {
             continue;
         };
         own.positions[position] = own.bodies.len() as u64;
-        let (body, calls) = code::read(&artifact.0)?;
+        let (body, calls, widest) = code::read(&artifact.0)?;
+        own.widest = own.widest.max(widest).max(*arity);
         own.bodies
             .push((body.to_vec(), calls, function_type(*arity)));
     }
@@ -178,13 +178,15 @@ fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assem
     let loaded = shape == Shape::Unit;
     let open = shape != Shape::Program { open: false };
 
-    let mut types = types();
+    let mut own = compiled(parts)?;
+    let (mut types, init_type) = types(own.widest)?;
+    let first_type = init_type + 2;
     let mut imports = ImportSection::new();
     // The stack pointer is every module's first global.
     let (mut globals, mut next_global) = (Globals::default(), 1);
     let mut borrowed = None;
     if loaded {
-        borrowed = Some(Runtime::borrowed(&mut types, &mut imports));
+        borrowed = Some(Runtime::borrowed(&mut types, &mut imports, first_type));
         (globals, next_global) = told(parts, &mut imports);
     }
     if open {
@@ -197,12 +199,12 @@ fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assem
         ..Base::none()
     };
     let plan = statics::plan(parts, &base);
-    let mut own = compiled(parts)?;
     let (init, calls) = initializer(&plan, &own.positions, own.compiled, &globals)?;
-    own.bodies.push((init.into_raw_body(), calls, INIT_TYPE));
+    own.bodies.push((init.into_raw_body(), calls, init_type));
     if loaded {
         let (drop, calls) = reclaimer(&plan, own.compiled, &globals)?;
-        own.bodies.push((drop.into_raw_body(), calls, DROP_TYPE));
+        own.bodies
+            .push((drop.into_raw_body(), calls, init_type + 1));
     }
 
     // A unit borrows its program's runtime, and a program has its own:
@@ -212,7 +214,7 @@ fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assem
     } else {
         let called = own.bodies.iter().flat_map(|(_, calls, _)| calls);
         let roots = host.iter().copied().chain(called.map(|(_, name)| *name));
-        Runtime::own(roots.collect(), open, &mut types, &mut imports)?
+        Runtime::own(roots.collect(), open, first_type, &mut types, &mut imports)?
     };
     let mut functions = FunctionSection::new();
     let mut code = CodeSection::new();

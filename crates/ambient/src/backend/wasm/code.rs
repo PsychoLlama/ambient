@@ -23,23 +23,30 @@ pub(super) fn call(body: &mut Function, calls: &mut Calls, name: &'static str) {
     body.raw(ROOM);
 }
 
-/// A body and its calls as an artifact: the body, each call as four
-/// bytes of offset and two of the entry point's number, and how many
-/// calls there are.
-pub(super) fn artifact(mut body: Vec<u8>, calls: &[(usize, Entry)]) -> Result<Vec<u8>, String> {
+/// A body as an artifact: the body, each call as four bytes of offset
+/// and two of the entry point's number, the most arguments the body
+/// calls a function value with, and how many calls there are.
+pub(super) fn artifact(
+    mut body: Vec<u8>,
+    calls: &[(usize, Entry)],
+    widest: usize,
+) -> Result<Vec<u8>, String> {
     let small = |value: usize| u32::try_from(value).map_err(|error| error.to_string());
     for (offset, entry) in calls {
         body.extend(small(*offset)?.to_le_bytes());
         body.extend((*entry as u16).to_le_bytes());
     }
+    body.push(u8::try_from(widest).map_err(|error| error.to_string())?);
     body.extend(small(calls.len())?.to_le_bytes());
     Ok(body)
 }
 
-/// Reads what [`artifact`] wrote.
-pub(super) fn read(artifact: &[u8]) -> Result<(&[u8], Calls), String> {
+/// Reads what [`artifact`] wrote: the body, its calls, and the most
+/// arguments it calls a function value with.
+pub(super) fn read(artifact: &[u8]) -> Result<(&[u8], Calls, usize), String> {
     let broken = || "an artifact is not a function body".to_owned();
     let (rest, count) = artifact.split_last_chunk::<4>().ok_or_else(broken)?;
+    let (widest, rest) = rest.split_last().ok_or_else(broken)?;
     let count = u32::from_le_bytes(*count) as usize;
     let body = rest.len().checked_sub(count * 6).ok_or_else(broken)?;
     let (body, table) = rest.split_at(body);
@@ -50,7 +57,7 @@ pub(super) fn read(artifact: &[u8]) -> Result<(&[u8], Calls), String> {
         let entry = Entry::ALL.get(entry).ok_or_else(broken)?;
         calls.push((offset, entry.name()));
     }
-    Ok((body, calls))
+    Ok((body, calls, usize::from(*widest)))
 }
 
 /// A body with each call given the index `index` says its function

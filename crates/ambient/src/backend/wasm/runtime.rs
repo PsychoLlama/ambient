@@ -12,7 +12,6 @@ use wasm_encoder::{
 
 use super::RUNTIME_MODULE;
 use super::link::{Linked, Space, link};
-use super::module::FIRST_TYPE;
 
 /// The bytes in a page of memory.
 const PAGE: u32 = 1 << 16;
@@ -69,6 +68,11 @@ pub const HOST: &[&str] = &[
     "amb_schedule",
 ];
 
+/// What a host calls only of a program that reaches a function: what
+/// gives suspended tasks their turns, of a program that can suspend.
+/// One that cannot is linked without it.
+const OFFERED: &[(&str, &str)] = &[("amb_schedule", "amb_suspend")];
+
 /// What a host that loads units calls besides.
 const LOADING: &[&str] = &["amb_unit_retain", "amb_unit_release", "amb_unit_take"];
 
@@ -91,7 +95,11 @@ pub(super) fn global(val_type: ValType, mutable: bool) -> EntityType {
 /// What a unit imports of the program it is loaded into: its memory,
 /// its table, its stack, and every function of the runtime a unit may
 /// call. Returns the index each function has.
-fn borrowed(types: &mut TypeSection, imports: &mut ImportSection) -> HashMap<&'static str, u32> {
+fn borrowed(
+    types: &mut TypeSection,
+    imports: &mut ImportSection,
+    first_type: u32,
+) -> HashMap<&'static str, u32> {
     imports.import(
         RUNTIME_MODULE,
         "memory",
@@ -123,7 +131,7 @@ fn borrowed(types: &mut TypeSection, imports: &mut ImportSection) -> HashMap<&'s
         global(ValType::I32, true),
     );
     let mut indices = HashMap::new();
-    let mut next_type = FIRST_TYPE;
+    let mut next_type = first_type;
     for entry in Entry::ALL {
         let mut params = Vec::new();
         if entry.takes_context() {
@@ -141,7 +149,7 @@ fn borrowed(types: &mut TypeSection, imports: &mut ImportSection) -> HashMap<&'s
             entry.name(),
             EntityType::Function(next_type),
         );
-        indices.insert(entry.name(), next_type - FIRST_TYPE);
+        indices.insert(entry.name(), next_type - first_type);
         next_type += 1;
     }
     let bytes = [ValType::I32, ValType::I64];
@@ -165,8 +173,12 @@ fn whole() -> impl Iterator<Item = &'static str> {
 
 impl Runtime {
     /// A unit's: its imports.
-    pub(super) fn borrowed(types: &mut TypeSection, imports: &mut ImportSection) -> Self {
-        Self::Borrowed(borrowed(types, imports))
+    pub(super) fn borrowed(
+        types: &mut TypeSection,
+        imports: &mut ImportSection,
+        first_type: u32,
+    ) -> Self {
+        Self::Borrowed(borrowed(types, imports, first_type))
     }
 
     /// A program's: what its host and its own functions call, by name,
@@ -175,14 +187,18 @@ impl Runtime {
     pub(super) fn own(
         mut roots: BTreeSet<&'static str>,
         open: bool,
+        first_type: u32,
         types: &mut TypeSection,
         imports: &mut ImportSection,
     ) -> Result<Self, String> {
         if open {
             roots.extend(whole());
         }
+        for (name, _) in OFFERED {
+            roots.remove(name);
+        }
         let roots = roots.iter().copied().collect();
-        let linked = link(&roots, &Space { types: FIRST_TYPE })?;
+        let linked = link(&roots, OFFERED, &Space { types: first_type })?;
         for (params, results) in &linked.types {
             let (params, results) = (params.iter().copied(), results.iter().copied());
             types.ty().function(params, results);
@@ -301,7 +317,10 @@ impl Runtime {
             named.extend(whole());
         }
         for name in named {
-            exports.export(name, ExportKind::Func, linked.function(name)?);
+            let offered = OFFERED.iter().any(|(offered, _)| *offered == name);
+            if !offered || linked.has(name) {
+                exports.export(name, ExportKind::Func, linked.function(name)?);
+            }
         }
         Ok(())
     }

@@ -4,7 +4,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{Join, Task, arriving, interrupted, scheduler, suspend};
+use super::{Join, Task, amb_suspend, arriving, interrupted, scheduler};
 use crate::object::{amb_release, amb_retain, fault, words};
 use crate::sequence::{amb_sequence_new, amb_sequence_set};
 use crate::{Context, Fault, NULL, UNWIND, Word};
@@ -71,7 +71,7 @@ unsafe fn join(context: *mut Context, thunks: Word, first: bool) -> Word {
         if thunks.is_empty() && !first {
             scheduler.queue(parent);
         }
-        suspend(context)
+        amb_suspend(context)
     }
 }
 
@@ -87,7 +87,7 @@ unsafe fn joined(context: *mut Context) -> Word {
             .is_some_and(|join| join.remaining > 0);
         if unfinished && !scheduler.interrupted() {
             // It was cancelled inside a cleanup, which goes on waiting.
-            return suspend(context);
+            return amb_suspend(context);
         }
         if unfinished {
             // Only cancellation wakes a task whose tasks are not over. It
@@ -101,7 +101,7 @@ unsafe fn joined(context: *mut Context) -> Word {
                     scheduler.cancel(child);
                 }
             }
-            return suspend(context);
+            return amb_suspend(context);
         }
         scheduler.current().join = None;
         let Some(join) = scheduler.joins[id].take() else {
