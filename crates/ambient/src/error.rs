@@ -150,9 +150,6 @@ pub enum Error {
     EntryAbilities(Symbol),
     /// A lambda parameter has no type, and nothing expects one of it.
     UntypedParameter { symbol: Symbol, name: String },
-    /// A recursive generic type applies itself to something other than its
-    /// own parameters.
-    IrregularType(Symbol),
     /// A recursive type that never reaches a constructor.
     Uncontractive(Symbol),
     /// A cast or a pattern tests for a function type that mentions a
@@ -253,9 +250,7 @@ impl fmt::Display for Error {
             Self::UntypedParameter { symbol, name } => {
                 write!(f, "{symbol}: parameter `{name}` needs a type")
             }
-            Self::IrregularType(_) | Self::Untestable { .. } | Self::Uncontractive(_) => {
-                self.fmt_type(f)
-            }
+            Self::Untestable { .. } | Self::Uncontractive(_) => self.fmt_type(f),
             Self::Nesting(symbol) => write!(
                 f,
                 "{symbol}: nests more than {} levels deep",
@@ -273,10 +268,6 @@ impl Error {
     /// The errors about what a type may be.
     fn fmt_type(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::IrregularType(symbol) => write!(
-                f,
-                "{symbol}: a recursive type may apply itself only to its own parameters"
-            ),
             Self::Untestable { symbol, found } => write!(
                 f,
                 "{symbol}: no value can be tested for `{found}`: a function type in it mentions a type parameter"

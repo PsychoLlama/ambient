@@ -30,6 +30,10 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 ## Subtyping
 
 - Subtyping is structural, and coinductive over recursive types.
+- Two uses of one recursive definition are related if their arguments are, each the way the definition varies with it: with it, against it, both ways, or not at all.
+- How a definition varies with a parameter follows from what it is written as; nothing states it.
+- A definition that applies itself to a type built from its own parameter has no end of different unfoldings: two uses of it are related by their arguments and no other way, and it is unfolded only a few times against any other type.
+- A method that needs the record type it is in makes that type invariant in whatever the record holds of a parameter, since the type is then on both sides of the method.
 - A record is a subtype of any record with fewer keys or wider key types.
 - Collections and iterators are covariant; immutability makes that sound.
 - `Cell<T>` is invariant.
@@ -109,7 +113,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - A lambda may take type parameters, and is then a value of a generic function type; a parameter it gives no type takes one from a generic function type expected of it that has as many type parameters.
 - A lambda has only the type parameters it writes: nothing expected of it makes it generic.
 - A [method](methods.md) written as such a lambda is generic the same way.
-- A recursive generic type applies itself only to its own parameters, unchanged.
+- A recursive generic type may apply itself to types other than its own parameters: a method of a container may give the container at another type.
 - There are no conditional types, mapped types, or type operators.
 
 ## Type definitions

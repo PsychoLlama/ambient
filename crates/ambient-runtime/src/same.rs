@@ -79,9 +79,29 @@ impl Types {
         }
     }
 
+    /// Whether two types are one generic definition at the same
+    /// arguments. A definition that applies itself to other types has
+    /// no end of unfoldings, and this is how two uses of it are found
+    /// the same.
+    unsafe fn applied_alike(&mut self, (left, from): At, (right, to): At) -> bool {
+        unsafe {
+            let applied = |node: u64| word(node, 0) == d::APPLY;
+            applied(left)
+                && applied(right)
+                && word(left, 1) == word(right, 1)
+                && self.each(
+                    (span(left, 3, word(left, 2)), from),
+                    (span(right, 3, word(right, 2)), to),
+                )
+        }
+    }
+
     /// Whether two types are the same.
     pub(crate) unsafe fn same(&mut self, left: At, right: At) -> bool {
         unsafe {
+            if self.applied_alike(left, right) {
+                return true;
+            }
             let (left, right) = (self.head(left), self.head(right));
             if left == right || self.assumed.contains(&(left, right)) {
                 return true;

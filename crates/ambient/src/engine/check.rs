@@ -85,6 +85,8 @@ impl Engine<'_> {
                 params: definition.params.len(),
                 ty: ty.clone(),
                 recursive,
+                variance: Vec::new(),
+                finite: true,
             }))
         })
     }
@@ -139,6 +141,7 @@ impl Engine<'_> {
                 _ => {}
             }
         }
+        env.settle();
         let keys = std::mem::take(&mut env.keys);
         env.keys = keys
             .into_iter()

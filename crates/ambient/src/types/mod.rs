@@ -12,6 +12,7 @@ mod operations;
 mod patterns;
 mod relate;
 mod show;
+mod variance;
 
 use std::collections::BTreeMap;
 
@@ -20,6 +21,7 @@ use crate::surface::{Key, Reference, Shape, Type};
 use crate::symbol::Symbol;
 
 pub use generic::{generalize, instantiate};
+pub use variance::Variance;
 
 pub type Ty = Type<Reference>;
 
@@ -30,6 +32,12 @@ pub struct TypeInfo {
     pub ty: Ty,
     /// Whether the definition can reach itself.
     pub recursive: bool,
+    /// How a recursive definition varies with each of its parameters:
+    /// empty until [`Env::settle`] has run.
+    pub variance: Vec<Variance>,
+    /// Whether unfolding a recursive definition comes back to types it
+    /// has already been, and so can be relied on to end.
+    pub finite: bool,
 }
 
 #[derive(Clone, Debug)]

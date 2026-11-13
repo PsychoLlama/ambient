@@ -12,8 +12,8 @@ use crate::types::{Env, Ty, abilities};
 ///
 /// # Errors
 ///
-/// Fails if the type is ill-formed: recursive without passing through a
-/// constructor, or applying itself to anything but its own parameters.
+/// Fails if the type is ill-formed, or recursive without passing
+/// through a constructor.
 pub fn check_type(
     symbol: &Symbol,
     definition: &TypeDefinition<Reference>,
@@ -22,7 +22,6 @@ pub fn check_type(
     contractive(symbol, &definition.ty, env, &mut vec![symbol.clone()])?;
     let mut checker = Checker::new(symbol, env);
     checker.well_formed(&definition.ty)?;
-    regular(symbol, &definition.ty, definition.params.len())?;
     let ty = checker.lower(&env.normalize(&definition.ty));
     Ok(Open {
         tree: Tree::Type {
@@ -160,26 +159,6 @@ pub(super) fn header(
     env.bounds = bounds;
     let row = abilities(&function.row);
     Ok(Header { params, ret, row })
-}
-
-/// Fails unless every use of `symbol` inside its own definition applies it
-/// to exactly its own parameters, in order.
-fn regular(symbol: &Symbol, ty: &Ty, params: usize) -> Result<(), Error> {
-    let mut result = Ok(());
-    visit_types(ty, &mut |ty| {
-        if let Ty::Named(Reference::Definition(name), args) = ty
-            && name == symbol
-        {
-            let own = args.len() == params
-                && args.iter().enumerate().all(|(position, arg)| {
-                    matches!(arg, Ty::Named(Reference::Parameter(p), _) if *p == position)
-                });
-            if !own {
-                result = Err(Error::IrregularType(symbol.clone()));
-            }
-        }
-    });
-    result
 }
 
 /// Calls `visit` with `ty` and every type inside it.

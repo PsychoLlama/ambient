@@ -225,6 +225,8 @@ impl Verifier<'_> {
                         params: *params,
                         ty: raise(ty)?,
                         recursive: true,
+                        variance: Vec::new(),
+                        finite: true,
                     };
                     header.push(info.ty.clone());
                     self.env.types.insert(symbol, info);
@@ -307,6 +309,9 @@ impl Verifier<'_> {
 
     /// Puts every header in normal form, which is how they are read.
     fn normalize(&mut self) {
+        // How each recursive type varies is known before any two
+        // types are compared.
+        self.env.settle();
         let env = &self.env;
         let all = |types: &[Ty]| -> Vec<Ty> { types.iter().map(|ty| env.normalize(ty)).collect() };
         let abilities = env

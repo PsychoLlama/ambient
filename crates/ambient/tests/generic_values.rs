@@ -332,3 +332,59 @@ fn a_generic_method_that_needs_its_type_arguments_is_handed_them() {
         Value::Tuple(expected.to_vec())
     );
 }
+
+/// `type Tree<T> = {value: T, map: <U>((T) -> U) -> Tree<U>}`, where
+/// `map` is a method, and `fn leaf<T>(value: T): Tree<T>`.
+fn tree() -> [Definition; 2] {
+    let u = || ty::named("U");
+    let of = |member: Type| ty::apply("Tree", [member]);
+    let takes = ty::function([t()], u());
+    let map = ty::generic([("U", None)], ty::function([takes.clone()], of(u())));
+    let fields = [("value", t()), ("map", ty::method(of(t()), map))];
+    let mapped = b::call(b::name("f"), [b::field(b::name("self"), "value")]);
+    let params = [
+        ("self", Some(ty::record([("value", t())]))),
+        ("f", Some(takes)),
+    ];
+    let method = b::lambda(params, b::call(b::name("leaf"), [mapped]));
+    let record = b::record([
+        ("value", b::name("value")),
+        ("map", b::method(b::generic([("U", None)], method))),
+    ]);
+    let leaf = b::function("leaf")
+        .type_param("T")
+        .param("value", t())
+        .returns(of(t()));
+    [
+        b::generic_type("Tree", ["T"], ty::record(fields)),
+        leaf.body(record),
+    ]
+}
+
+#[test]
+fn a_method_gives_its_own_type_at_another_type_argument() {
+    let text = b::lambda([("n", None)], b::to_text(b::name("n")));
+    let mapped = b::send(b::call(b::name("leaf"), [b::int(7)]), "map", [text]);
+    assert_eq!(
+        evaluates(b::field(mapped, "value"), tree()),
+        Value::String("7".into())
+    );
+}
+
+#[test]
+fn a_cell_of_a_type_that_applies_itself_to_other_types_is_tested() {
+    let pairs = |member: Type| ty::apply("Pairs", [member]);
+    let deeper = pairs(ty::tuple([t(), t()]));
+    let node = ty::record([("head", t()), ("next", deeper)]);
+    let definition = b::generic_type("Pairs", ["T"], ty::union([ty::null(), node]));
+    let cell = || b::cell(pairs(ty::int()), b::null());
+    let tests = b::tuple([
+        is(ty::cell(pairs(ty::int())), cell()),
+        is(ty::cell(pairs(ty::string())), cell()),
+    ]);
+    let expected = [true, false].map(Value::Bool);
+    assert_eq!(
+        evaluates(tests, [definition]),
+        Value::Tuple(expected.to_vec())
+    );
+}

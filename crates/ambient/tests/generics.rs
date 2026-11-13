@@ -303,20 +303,52 @@ fn a_generic_function_builds_a_recursive_generic_type() {
     assert!(check([items(), cons, returning(items_of(ty::string()), two)]).is_err());
 }
 
-#[test]
-fn a_recursive_type_applies_itself_only_to_its_own_parameters() {
-    let grows = ty::apply("Bad", [ty::tuple([t(), t()])]);
-    let bad = b::generic_type(
-        "Bad",
-        ["T"],
-        ty::union([ty::null(), ty::record([("next", grows)])]),
-    );
-    let main = b::function("main")
-        .param("x", ty::apply("Bad", [ty::int()]))
-        .returns(ty::unknown())
-        .body(b::name("x"));
+/// `type Pairs<T> = null | {head: T, next: Pairs<(T, T)>}`: each one
+/// further in holds pairs of what the one before held.
+fn pairs() -> Definition {
+    let deeper = ty::apply("Pairs", [ty::tuple([t(), t()])]);
+    let node = ty::record([("head", t()), ("next", deeper)]);
+    b::generic_type("Pairs", ["T"], ty::union([ty::null(), node]))
+}
 
-    assert!(matches!(check([bad, main]), Err(Error::IrregularType(_))));
+fn pairs_of(member: Type) -> Type {
+    ty::apply("Pairs", [member])
+}
+
+#[test]
+fn a_recursive_type_may_apply_itself_to_other_types() {
+    let pair = b::tuple([b::int(2), b::int(3)]);
+    let inner = b::record([("head", pair), ("next", b::null())]);
+    let two = b::record([("head", b::int(1)), ("next", inner)]);
+    let wrong = b::record([("head", b::int(1)), ("next", two.clone())]);
+
+    assert!(check([pairs(), returning(pairs_of(ty::int()), two)]).is_ok());
+    assert!(check([pairs(), returning(pairs_of(ty::int()), wrong)]).is_err());
+}
+
+#[test]
+fn uses_of_such_a_type_are_related_by_their_arguments() {
+    let pass = |from: Type, to: Type| {
+        let main = b::function("main")
+            .param("x", pairs_of(from))
+            .returns(pairs_of(to));
+        check([pairs(), main.body(b::name("x"))]).is_ok()
+    };
+    assert!(pass(ty::integer(1), ty::int()));
+    assert!(!pass(ty::int(), ty::integer(1)));
+    assert!(!pass(ty::int(), ty::string()));
+}
+
+#[test]
+fn two_such_types_that_differ_are_told_apart_without_unfolding_forever() {
+    let triples = ty::apply("Triples", [ty::tuple([t(), t(), t()])]);
+    let node = ty::record([("head", t()), ("next", triples)]);
+    let other = b::generic_type("Triples", ["T"], ty::union([ty::null(), node]));
+    let main = b::function("main")
+        .param("x", pairs_of(ty::int()))
+        .returns(ty::apply("Triples", [ty::int()]))
+        .body(b::name("x"));
+    assert!(check([pairs(), other, main]).is_err());
 }
 
 #[test]

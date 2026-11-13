@@ -1,13 +1,19 @@
 //! The relations between two types: whether one is within the other, and
 //! whether they share no value.
 
-use super::{Env, Ty, booleans, entry, instantiate, primitive_of};
+use super::{Env, Ty, Variance, booleans, entry, instantiate, primitive_of};
 use crate::surface::Reference;
 
 /// The longest chain of assumptions a subtyping proof may build. Regular
 /// types never come near it; it is what makes an irregular one fail rather
 /// than run forever.
 const DEPTH: usize = 256;
+
+/// The same, where a type being unfolded has no end of unfoldings and
+/// each may be larger than the last: it is then being compared with
+/// something other than itself, which a few unfoldings settle or none
+/// will.
+const SHALLOW: usize = 16;
 
 /// A subtyping proof under way.
 #[derive(Default)]
@@ -50,6 +56,40 @@ impl Env {
         holds
     }
 
+    /// Whether one use of a recursive definition is within another use
+    /// of the same one, by how the definition varies with each of its
+    /// arguments; or nothing, if they are not that.
+    fn by_arguments(&self, sub: &Ty, sup: &Ty, proof: &mut Proof) -> Option<bool> {
+        let (
+            Ty::Named(Reference::Definition(name), have),
+            Ty::Named(Reference::Definition(other), want),
+        ) = (sub, sup)
+        else {
+            return None;
+        };
+        let info = self.types.get(name).filter(|_| name == other)?;
+        if info.variance.len() != have.len() || have.len() != want.len() {
+            return None;
+        }
+        let each = info.variance.iter().zip(have.iter().zip(want));
+        Some(each.into_iter().all(|(variance, (have, want))| {
+            let covariant = matches!(variance, Variance::Covariant | Variance::Invariant);
+            let contravariant = matches!(variance, Variance::Contravariant | Variance::Invariant);
+            (!covariant || self.sub(have, want, proof))
+                && (!contravariant || self.sub(want, have, proof))
+        }))
+    }
+
+    /// Whether unfolding `ty`, if it names a definition, is known to end.
+    fn unfolds(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Named(Reference::Definition(symbol), _) => {
+                self.types.get(symbol).is_none_or(|info| info.finite)
+            }
+            _ => true,
+        }
+    }
+
     /// Whether every value `sub` describes is one `sup` describes. Both are
     /// normalized.
     #[must_use]
@@ -67,11 +107,19 @@ impl Env {
             (Ty::Never, _) | (_, Ty::Unknown) => true,
             (Ty::Named(Reference::Definition(_), _), _)
             | (_, Ty::Named(Reference::Definition(_), _)) => {
+                // Two uses of one definition are compared by their
+                // arguments first, and only so if unfolding it may not end.
+                match self.by_arguments(sub, sup, proof) {
+                    Some(true) => return true,
+                    Some(false) if !self.unfolds(sub) => return false,
+                    _ => {}
+                }
                 let judgement = (sub.clone(), sup.clone());
                 if proof.assumed.contains(&judgement) {
                     return true;
                 }
-                if proof.assumed.len() >= DEPTH {
+                let ends = self.unfolds(sub) && self.unfolds(sup);
+                if proof.assumed.len() >= if ends { DEPTH } else { SHALLOW } {
                     return false;
                 }
                 let (below, above) = (self.unfold(sub), self.unfold(sup));
