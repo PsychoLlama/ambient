@@ -50,7 +50,7 @@ pub unsafe extern "C" fn amb_trace(context: *mut Context, definition: Word, posi
 /// holds: a record for each frame, innermost first.
 pub(crate) unsafe fn take(context: *mut Context) -> Word {
     unsafe {
-        let chain = std::mem::take(&mut (*context).trace);
+        let chain = core::mem::take(&mut (*context).trace);
         let length = if chain == 0 { 0 } else { int(words(chain)[3]) };
         let list = amb_sequence_new(1, length as u64);
         let mut frame = chain;
@@ -101,7 +101,7 @@ pub(crate) unsafe fn frames(frames: &[(Word, u64)]) -> Word {
 /// The trace gathered so far, taken out of the context: for an unwinding
 /// that is set aside. Null if there is none.
 pub(crate) unsafe fn detach(context: *mut Context) -> Word {
-    let chain = unsafe { std::mem::take(&mut (*context).trace) };
+    let chain = unsafe { core::mem::take(&mut (*context).trace) };
     if chain == 0 { NULL } else { chain }
 }
 
@@ -109,7 +109,7 @@ pub(crate) unsafe fn detach(context: *mut Context) -> Word {
 /// since.
 pub(crate) unsafe fn attach(context: *mut Context, chain: Word) {
     unsafe {
-        amb_release(std::mem::take(&mut (*context).trace));
+        amb_release(core::mem::take(&mut (*context).trace));
         (*context).trace = if chain == NULL { 0 } else { chain };
     }
 }

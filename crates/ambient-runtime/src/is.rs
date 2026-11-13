@@ -1,5 +1,7 @@
 //! Type tests: whether a descriptor describes a value.
 
+use alloc::vec::Vec;
+
 use crate::cell::made_at;
 use crate::closure::{generic, type_name};
 use crate::iterator::{Tested, tested};
@@ -216,7 +218,7 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
         let ty = ty as usize as *const u64;
         let node = |index: usize| ty.add(index).read();
         let nodes =
-            |start: usize, count: u64| std::slice::from_raw_parts(ty.add(start), count as usize);
+            |start: usize, count: u64| core::slice::from_raw_parts(ty.add(start), count as usize);
         let inside = |holds: bool, inside: Inside| {
             if holds {
                 Look::Inside(inside)

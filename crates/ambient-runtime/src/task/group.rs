@@ -7,6 +7,8 @@
 //! its next suspension in the body, as if cancelled, and the group goes on
 //! unwinding with the task's failure.
 
+use alloc::vec::Vec;
+
 use super::{Join, Task, arriving, interrupted, scheduler, suspend};
 use crate::abort::abandon;
 use crate::number::amb_int_new;

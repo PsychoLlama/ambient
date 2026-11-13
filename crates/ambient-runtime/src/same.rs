@@ -6,6 +6,8 @@
 //! is its members in any order. This is no part of subtyping, which is
 //! decided only where a program is checked.
 
+use alloc::vec::Vec;
+
 use crate::is::descriptor as d;
 use crate::object::bytes;
 use crate::scope::{At, Env, Scope, argument};
@@ -31,7 +33,7 @@ unsafe fn word(node: u64, index: usize) -> u64 {
 
 /// `count` words of a node, from `start`.
 unsafe fn span(node: u64, start: usize, count: u64) -> &'static [u64] {
-    unsafe { std::slice::from_raw_parts((node as usize as *const u64).add(start), count as usize) }
+    unsafe { core::slice::from_raw_parts((node as usize as *const u64).add(start), count as usize) }
 }
 
 impl Types {
@@ -48,7 +50,7 @@ impl Types {
     /// entered before is found again, or a recursive generic type would
     /// never be met twice.
     fn enter(&mut self, nodes: &'static [u64], outer: Env) -> usize {
-        let same = |scope: &Scope| std::ptr::eq(scope.nodes, nodes) && scope.outer == outer;
+        let same = |scope: &Scope| core::ptr::eq(scope.nodes, nodes) && scope.outer == outer;
         self.scopes.iter().position(same).unwrap_or_else(|| {
             self.scopes.push(Scope { nodes, outer });
             self.scopes.len() - 1

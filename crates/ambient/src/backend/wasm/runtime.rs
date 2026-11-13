@@ -193,6 +193,15 @@ impl Runtime {
         Ok(Self::Own(linked))
     }
 
+    /// The pieces of the runtime the module carries: the name and the
+    /// bytes of each.
+    pub(super) fn pieces(&self) -> &[(String, usize)] {
+        match self {
+            Self::Own(linked) => &linked.pieces,
+            Self::Borrowed(_) => &[],
+        }
+    }
+
     /// The index of one of the runtime's functions.
     pub(super) fn function(&self, name: &str) -> Result<u32, String> {
         match self {

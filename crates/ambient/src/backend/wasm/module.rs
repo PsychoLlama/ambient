@@ -157,6 +157,24 @@ fn compiled(parts: &Parts) -> Result<Own, String> {
 }
 
 fn assemble(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Vec<u8>, String> {
+    Ok(assembled(parts, shape, host)?.0)
+}
+
+/// The pieces of the runtime a program carries for a host that calls
+/// `host`: what the runtime's source calls each, and its bytes. See
+/// "Pieces" in `spec/linking.md`.
+///
+/// # Errors
+///
+/// Fails as [`module_for`] does.
+pub fn pieces(parts: &Parts, host: &[&'static str]) -> Result<Vec<(String, usize)>, String> {
+    Ok(assembled(parts, Shape::Program { open: false }, host)?.1)
+}
+
+/// A module, and the pieces of the runtime it carries.
+type Assembled = (Vec<u8>, Vec<(String, usize)>);
+
+fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assembled, String> {
     let loaded = shape == Shape::Unit;
     let open = shape != Shape::Program { open: false };
 
@@ -256,7 +274,7 @@ fn assemble(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Vec<u8
         .section(&DataCountSection { count: data.len() })
         .section(&code)
         .section(&data);
-    Ok(module.finish())
+    Ok((module.finish(), runtime.pieces().to_vec()))
 }
 
 fn global_type(val_type: ValType, mutable: bool) -> GlobalType {

@@ -54,6 +54,9 @@ pub struct Linked {
     pub end: u32,
     /// Where the stack starts: its highest address.
     pub stack: u32,
+    /// Each piece that was linked: what the runtime's source calls it,
+    /// and its bytes.
+    pub pieces: Vec<(String, usize)>,
     /// The index of each function that was asked for.
     named: HashMap<String, u32>,
 }
@@ -152,6 +155,14 @@ pub fn link(roots: &BTreeSet<&str>, space: &Space) -> Result<Linked, String> {
         }
     }
     lay_out(library, &reached, &mut linked, &mut places);
+    for piece in reached.iter().map(|piece| &library.pieces[*piece]) {
+        let size = match &piece.body {
+            Body::Function { code, .. } => code.len(),
+            Body::Data { bytes, .. } => bytes.len(),
+            Body::Import { .. } => 0,
+        };
+        linked.pieces.push((piece.name.clone(), size));
+    }
 
     for (piece, ty) in functions {
         let found = &library.pieces[piece];

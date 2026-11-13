@@ -6,6 +6,8 @@
 //! says where the function was, and the task is resumed at once. Only a
 //! capture pays for a capture.
 
+use alloc::vec::Vec;
+
 use super::{Capture, Scheduler, arriving, scheduler, suspend};
 use crate::trace::{TRACE_LIMIT, frames};
 use crate::{Context, NULL, Word};
@@ -39,7 +41,7 @@ pub unsafe extern "C" fn amb_capture(context: *mut Context) -> Word {
         let arriving = arriving(context);
         let scheduler = scheduler(context);
         if arriving {
-            return match std::mem::take(&mut scheduler.current().capture) {
+            return match core::mem::take(&mut scheduler.current().capture) {
                 Capture::Ready(trace) => trace,
                 _ => NULL,
             };

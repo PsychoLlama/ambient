@@ -20,6 +20,7 @@
 
 // The runtime is where words become pointers and back. These casts are its
 // job, and each is between a `u64` and a pointer or index that fits it.
+#![no_std]
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
@@ -28,6 +29,10 @@
     clippy::missing_safety_doc
 )]
 
+extern crate alloc;
+#[cfg(not(target_arch = "wasm32"))]
+extern crate std;
+
 mod abort;
 mod boundary;
 mod cell;
@@ -35,6 +40,8 @@ mod cleanup;
 mod closure;
 mod convert;
 mod entry;
+#[cfg(target_arch = "wasm32")]
+mod heap;
 mod host;
 mod is;
 mod iterator;
@@ -45,6 +52,7 @@ mod record;
 mod same;
 mod scope;
 mod sequence;
+mod state;
 mod task;
 mod text;
 mod trace;

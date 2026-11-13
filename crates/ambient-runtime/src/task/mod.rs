@@ -13,13 +13,16 @@
 //! Scheduling is first come, first served, on one thread, so a run is
 //! reproducible.
 
+use alloc::vec;
+use alloc::vec::Vec;
+
 mod budget;
 mod capture;
 mod group;
 mod join;
 mod tail;
 
-use std::collections::VecDeque;
+use alloc::collections::VecDeque;
 
 pub use budget::{
     LIMITS, amb_budget_back, amb_budget_caught, amb_budget_current, amb_budget_enter,
@@ -400,8 +403,8 @@ unsafe fn ended(context: *mut Context, id: usize, result: Word) {
         // tasks started with it down, and their starter after them.
         let failure = Failure {
             fault: (*context).fault,
-            token: std::mem::take(&mut (*context).abort_token),
-            args: std::mem::take(&mut (*context).abort_args),
+            token: core::mem::take(&mut (*context).abort_token),
+            args: core::mem::take(&mut (*context).abort_args),
             trace: crate::trace::detach(context),
         };
         (*context).fault = Fault::None as u64;

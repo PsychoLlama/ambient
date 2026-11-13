@@ -70,6 +70,6 @@ pub(crate) unsafe fn abandon(context: *mut Context) {
         if args != 0 {
             amb_release(args);
         }
-        amb_release(std::mem::take(&mut (*context).trace));
+        amb_release(core::mem::take(&mut (*context).trace));
     }
 }

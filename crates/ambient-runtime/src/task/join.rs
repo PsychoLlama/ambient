@@ -1,6 +1,9 @@
 //! Joining: tasks started together, and their starter waiting for them.
 //! See `spec/tasks.md`.
 
+use alloc::vec;
+use alloc::vec::Vec;
+
 use super::{Join, Task, arriving, interrupted, scheduler, suspend};
 use crate::object::{amb_release, amb_retain, fault, words};
 use crate::sequence::{amb_sequence_new, amb_sequence_set};

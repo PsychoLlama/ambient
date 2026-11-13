@@ -45,7 +45,7 @@ fn fold() -> Expr {
 /// The most a program that does nothing may be, for a host that
 /// starts a call and reads nothing. Lower it when the floor falls;
 /// raising it is a decision, not a fix.
-const FLOOR: usize = 24_000;
+const FLOOR: usize = 8_200;
 
 #[test]
 fn a_program_that_does_nothing_is_within_the_floor() {
@@ -64,4 +64,26 @@ fn a_program_pays_for_what_it_reaches_and_no_more() {
 #[test]
 fn a_host_that_reads_no_values_pays_for_no_readers() {
     assert!(size(b::null(), BARE) < size(b::null(), HOST));
+}
+
+#[test]
+#[ignore = "prints what the floor is made of"]
+#[allow(clippy::print_stderr)]
+fn what_the_floor_is_made_of() {
+    let main = b::function("main").returns(ty::unknown()).body(b::null());
+    let workspace = workspace([("app", "main", b::module().define(main))]);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let parts = engine.link(&value("main", "main"), &Wasm).unwrap();
+    let mut pieces = ambient::backend::wasm::pieces(&parts, BARE).unwrap();
+    let module = module_for(&parts, BARE).unwrap();
+    eprintln!("{} bytes in all", module.len());
+    // Somewhere to look at the module itself, if asked for.
+    if let Some(path) = std::env::var_os("FOOTPRINT") {
+        std::fs::write(path, &module).unwrap();
+    }
+    pieces.sort_by_key(|(_, size)| std::cmp::Reverse(*size));
+    for (name, size) in pieces {
+        eprintln!("{size:>6} {name}");
+    }
 }

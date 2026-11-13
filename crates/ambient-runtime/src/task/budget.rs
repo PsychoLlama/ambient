@@ -5,6 +5,8 @@
 //! the task is inside, and the first to run out unwinds the task to it.
 //! Tasks started inside a budget are inside it too.
 
+use alloc::format;
+
 use super::scheduler;
 use crate::boundary::FAULT_PACKAGE;
 use crate::number::amb_int_new;

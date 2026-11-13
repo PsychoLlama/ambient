@@ -35,7 +35,7 @@ mod host {
             if address == 0 {
                 return fault(context, Fault::Native);
             }
-            let run = std::mem::transmute::<usize, super::Native>(address);
+            let run = core::mem::transmute::<usize, super::Native>(address);
             run(context, index, bindings, args)
         }
     }

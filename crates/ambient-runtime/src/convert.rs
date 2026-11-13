@@ -1,6 +1,9 @@
 //! Conversions between integers, floats, and text. See "Conversions" in
 //! `spec/operations.md`.
 
+use alloc::format;
+use alloc::string::ToString;
+
 use crate::number::{amb_float_new, amb_int_new};
 use crate::object::{bytes, float, int};
 use crate::text::amb_string_new;
@@ -22,10 +25,12 @@ pub unsafe extern "C" fn amb_float_int(value: Word) -> Word {
     /// Two to the sixty-third: the first float past every integer.
     const PAST: f64 = 9_223_372_036_854_775_808.0;
     unsafe {
-        let whole = float(value).trunc();
-        if (-PAST..PAST).contains(&whole) {
+        // A float this large has no fraction, so one in range before
+        // its fraction is dropped is in range after; the cast drops it.
+        let float = float(value);
+        if (-PAST..PAST).contains(&float) {
             #[allow(clippy::cast_possible_truncation)]
-            amb_int_new(whole as i64)
+            amb_int_new(float as i64)
         } else {
             NULL
         }
@@ -49,8 +54,8 @@ pub unsafe extern "C" fn amb_float_text(value: Word) -> Word {
 }
 
 /// What a string says, every byte of it, or nothing.
-unsafe fn read<T: std::str::FromStr>(value: Word) -> Option<T> {
-    unsafe { std::str::from_utf8(bytes(value)).ok()?.parse().ok() }
+unsafe fn read<T: core::str::FromStr>(value: Word) -> Option<T> {
+    unsafe { core::str::from_utf8(bytes(value)).ok()?.parse().ok() }
 }
 
 /// The integer a string is, in decimal, or null.

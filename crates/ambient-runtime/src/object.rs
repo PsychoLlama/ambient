@@ -1,7 +1,9 @@
 //! Objects: what a word that is an address points at, and who owns it.
 
-use std::alloc::{Layout, alloc, dealloc};
-use std::cell::Cell;
+use alloc::vec;
+
+use alloc::alloc::{Layout, alloc, dealloc};
+use core::cell::Cell;
 
 use crate::unit::{self, amb_unit_release, amb_unit_retain};
 use crate::{Context, FALSE, Fault, NULL, SMALL_MAX, SMALL_MIN, TRUE, UNWIND, Word};
@@ -117,11 +119,32 @@ pub(crate) unsafe fn payload(word: Word) -> *mut u64 {
     unsafe { (word as usize as *mut u8).add(HEADER).cast() }
 }
 
-thread_local! {
+#[cfg(not(target_arch = "wasm32"))]
+std::thread_local! {
     /// How many objects this thread has made and not yet reclaimed or
     /// pinned. A program that returns to its host with more than it was
     /// given, besides its result, has leaked.
     static LIVE: Cell<u64> = const { Cell::new(0) };
+}
+
+/// The same, of a program that is alone in its memory.
+#[cfg(target_arch = "wasm32")]
+static LIVE: Alone = Alone(Cell::new(0));
+
+#[cfg(target_arch = "wasm32")]
+struct Alone(Cell<u64>);
+
+// There is one thread.
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for Alone {}
+
+#[cfg(target_arch = "wasm32")]
+impl core::ops::Deref for Alone {
+    type Target = Cell<u64>;
+
+    fn deref(&self) -> &Cell<u64> {
+        &self.0
+    }
 }
 
 /// How many objects are live. See [`crate::amb_live`].
@@ -142,7 +165,7 @@ pub(crate) unsafe fn object(kind: u32, size: usize) -> Word {
     unsafe {
         let pointer = alloc(layout(size)).cast::<Header>();
         if pointer.is_null() {
-            std::process::abort();
+            crate::state::abort();
         }
         LIVE.set(LIVE.get() + 1);
         pointer.write(Header {
@@ -265,7 +288,7 @@ pub unsafe extern "C" fn amb_release(word: Word) {
 pub(crate) unsafe fn words<'a>(word: Word) -> &'a mut [u64] {
     unsafe {
         let length = (*header(word)).size as usize / 8;
-        std::slice::from_raw_parts_mut(payload(word), length)
+        core::slice::from_raw_parts_mut(payload(word), length)
     }
 }
 
@@ -280,6 +303,6 @@ pub(crate) unsafe fn kind(word: Word) -> u32 {
 pub(crate) unsafe fn bytes<'a>(word: Word) -> &'a [u8] {
     unsafe {
         let length = (*header(word)).size as usize;
-        std::slice::from_raw_parts(payload(word).cast::<u8>(), length)
+        core::slice::from_raw_parts(payload(word).cast::<u8>(), length)
     }
 }

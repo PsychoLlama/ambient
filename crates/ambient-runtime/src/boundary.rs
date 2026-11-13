@@ -1,6 +1,8 @@
 //! Boundaries: a fault as an error. See `spec/values.md` and
 //! `spec/errors.md`.
 
+use alloc::format;
+
 use crate::object::amb_release;
 use crate::record::{amb_record_new, amb_record_set};
 use crate::text::{amb_intern, amb_string_new, amb_tag};

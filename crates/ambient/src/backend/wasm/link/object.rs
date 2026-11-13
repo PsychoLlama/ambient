@@ -136,6 +136,25 @@ fn value(ty: wasmparser::ValType) -> Result<ValType, String> {
     }
 }
 
+/// What the names of the functions the standard library panics through
+/// hold: everything in `core::panicking`, and the functions that fail
+/// an index, an `expect`, or an allocation. Each is a path as a mangled
+/// name spells it. One that is missing here costs bytes and nothing
+/// else; `tests/footprint.rs` would say.
+const PANICS: &[&str] = &[
+    "4core9panicking",
+    "4core5slice5index16slice_index_fail",
+    "4core6option13expect_failed",
+    "4core6result13unwrap_failed",
+    "4core3str16slice_error_fail",
+    "4core4cell22panic_already_borrowed",
+    "4core4cell30panic_already_mutably_borrowed",
+    "5alloc7raw_vec12handle_error",
+    "5alloc7raw_vec17capacity_overflow",
+    "5alloc5alloc18handle_alloc_error",
+    "alloc_error_handler",
+];
+
 /// What reading an object gathers before it can say what refers to
 /// what: the symbol table comes after everything it names.
 #[derive(Default)]
@@ -229,6 +248,7 @@ impl Library {
             };
             library.place(section, entry, &symbols)?;
         }
+        library.trap();
         Ok(library)
     }
 
@@ -297,6 +317,24 @@ impl Library {
             _ => {}
         }
         Ok(())
+    }
+
+    /// Cuts the functions the standard library panics through down to
+    /// a trap.
+    ///
+    /// A panic in the runtime is a trap: its handler reads nothing. But
+    /// these functions are compiled before the runtime is, to format a
+    /// message first, and what formats would be reached by every
+    /// program. None of them returns, so a trap is all they ever did.
+    fn trap(&mut self) {
+        for piece in &mut self.pieces {
+            let panics = PANICS.iter().any(|name| piece.name.contains(name));
+            if let (true, Body::Function { code, .. }) = (panics, &mut piece.body) {
+                // No locals, and one instruction.
+                *code = vec![0x00, 0x00, 0x0b];
+                piece.relocs.clear();
+            }
+        }
     }
 
     /// What each symbol stands for, naming the pieces as it goes.

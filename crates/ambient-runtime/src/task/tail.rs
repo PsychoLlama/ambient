@@ -9,7 +9,9 @@
 //! ([`amb_start`]), so there is one place a function of any arity is
 //! called from outside compiled code.
 
-use std::mem::transmute;
+use alloc::vec;
+
+use core::mem::transmute;
 
 use super::{Frame, RESUMING, SUSPENDING, scheduler};
 use crate::object::layout::{DEFINITION_CODE, DEFINITION_METERED};

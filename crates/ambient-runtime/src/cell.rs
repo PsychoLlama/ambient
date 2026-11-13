@@ -89,7 +89,7 @@ pub unsafe extern "C" fn amb_cells_drop(first: *mut u64) {
             unlink(cell);
             // Releasing what it held may reclaim other cells, which
             // take themselves from the list.
-            amb_release(std::mem::replace(&mut words(cell)[0], NULL));
+            amb_release(core::mem::replace(&mut words(cell)[0], NULL));
         }
     }
 }
@@ -124,7 +124,7 @@ pub unsafe extern "C" fn amb_cell_replace(
             return boolean(false);
         }
         amb_retain(new);
-        amb_release(std::mem::replace(slot, new));
+        amb_release(core::mem::replace(slot, new));
         wake(context, cell);
         boolean(true)
     }

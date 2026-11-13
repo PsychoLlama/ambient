@@ -1,5 +1,8 @@
 //! For the host: making a context and reading results.
 
+use alloc::boxed::Box;
+use alloc::vec;
+
 use crate::object::layout::DEFINITION_HASH;
 use crate::object::{
     KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_ITERATOR, KIND_LIST, KIND_METHOD, KIND_RECORD,
@@ -96,7 +99,7 @@ pub unsafe extern "C" fn amb_words(count: u64) -> *mut u64 {
 /// refers to any more: the block of a unit that is being reclaimed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_words_free(words: *mut u64, count: u64) {
-    let slice = std::ptr::slice_from_raw_parts_mut(words, count as usize);
+    let slice = core::ptr::slice_from_raw_parts_mut(words, count as usize);
     // SAFETY: the words are a box `amb_words` leaked.
     drop(unsafe { Box::from_raw(slice) });
 }

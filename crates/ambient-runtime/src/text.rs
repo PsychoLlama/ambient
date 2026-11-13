@@ -1,6 +1,8 @@
 //! Strings, and the interned strings that name record fields.
 
-use std::sync::{Mutex, PoisonError};
+use alloc::vec::Vec;
+
+use crate::state::Shared;
 
 use crate::object::{KIND_STRING, KIND_TAG, boolean, bytes, object, payload, pin};
 use crate::{NULL, Word};
@@ -12,7 +14,7 @@ pub unsafe extern "C" fn amb_string_pinned(pointer: *const u8, length: u64) -> W
     unsafe {
         let word = object(KIND_STRING, length as usize);
         pin(word);
-        std::ptr::copy_nonoverlapping(pointer, payload(word).cast::<u8>(), length as usize);
+        core::ptr::copy_nonoverlapping(pointer, payload(word).cast::<u8>(), length as usize);
         word
     }
 }
@@ -22,7 +24,7 @@ pub unsafe extern "C" fn amb_string_pinned(pointer: *const u8, length: u64) -> W
 pub unsafe extern "C" fn amb_string_new(pointer: *const u8, length: u64) -> Word {
     unsafe {
         let word = object(KIND_STRING, length as usize);
-        std::ptr::copy_nonoverlapping(pointer, payload(word).cast::<u8>(), length as usize);
+        core::ptr::copy_nonoverlapping(pointer, payload(word).cast::<u8>(), length as usize);
         word
     }
 }
@@ -31,18 +33,19 @@ pub unsafe extern "C" fn amb_string_new(pointer: *const u8, length: u64) -> Word
 /// their words are equal.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_tag(pointer: *const u8, length: u64) -> Word {
-    static TAGS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+    static TAGS: Shared<Vec<usize>> = Shared::new(Vec::new());
     unsafe {
-        let text = std::slice::from_raw_parts(pointer, length as usize);
-        let mut tags = TAGS.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(known) = tags.iter().find(|known| bytes(**known as Word) == text) {
-            return *known as Word;
-        }
-        let word = object(KIND_TAG, length as usize);
-        pin(word);
-        std::ptr::copy_nonoverlapping(pointer, payload(word).cast::<u8>(), length as usize);
-        tags.push(word as usize);
-        word
+        let text = core::slice::from_raw_parts(pointer, length as usize);
+        TAGS.with(|tags| {
+            if let Some(known) = tags.iter().find(|known| bytes(**known as Word) == text) {
+                return *known as Word;
+            }
+            let word = object(KIND_TAG, length as usize);
+            pin(word);
+            core::ptr::copy_nonoverlapping(pointer, payload(word).cast::<u8>(), length as usize);
+            tags.push(word as usize);
+            word
+        })
     }
 }
 
@@ -53,16 +56,17 @@ pub unsafe extern "C" fn amb_tag(pointer: *const u8, length: u64) -> Word {
 /// loading code with new field names grows by them.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_intern(pointer: *const u8, length: u64) -> Word {
-    static NAMES: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+    static NAMES: Shared<Vec<usize>> = Shared::new(Vec::new());
     unsafe {
-        let name = std::slice::from_raw_parts(pointer, length as usize);
-        let mut names = NAMES.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(known) = names.iter().find(|known| bytes(**known as Word) == name) {
-            return *known as Word;
-        }
-        let word = amb_string_pinned(pointer, length);
-        names.push(word as usize);
-        word
+        let name = core::slice::from_raw_parts(pointer, length as usize);
+        NAMES.with(|names| {
+            if let Some(known) = names.iter().find(|known| bytes(**known as Word) == name) {
+                return *known as Word;
+            }
+            let word = amb_string_pinned(pointer, length);
+            names.push(word as usize);
+            word
+        })
     }
 }
 
@@ -96,7 +100,7 @@ pub unsafe extern "C" fn amb_string_slice(value: Word, start: Word, end: Word) -
     unsafe {
         // Every string is UTF-8: a literal, a host's string, or what
         // these operations made of them.
-        let text = std::str::from_utf8_unchecked(bytes(value));
+        let text = core::str::from_utf8_unchecked(bytes(value));
         match crate::sequence::range(start, end, text.len()) {
             Some(range)
                 if text.is_char_boundary(range.start) && text.is_char_boundary(range.end) =>

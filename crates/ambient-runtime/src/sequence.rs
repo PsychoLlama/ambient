@@ -1,6 +1,6 @@
 //! Tuples and lists.
 
-use std::ops::Range;
+use core::ops::Range;
 
 use crate::object::{KIND_LIST, KIND_TUPLE, amb_retain, boolean, int, kind, object, words};
 use crate::{NULL, Word};

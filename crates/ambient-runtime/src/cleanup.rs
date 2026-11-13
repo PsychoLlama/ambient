@@ -29,9 +29,9 @@ pub unsafe extern "C" fn amb_hold(context: *mut Context) -> Word {
         amb_sequence_set(held, 0, code);
         amb_release(code);
         // The token is kept alive by its provide, and now by this too.
-        let token = std::mem::take(&mut (*context).abort_token);
+        let token = core::mem::take(&mut (*context).abort_token);
         amb_sequence_set(held, 1, if token == 0 { NULL } else { token });
-        let args = std::mem::take(&mut (*context).abort_args);
+        let args = core::mem::take(&mut (*context).abort_args);
         if args != 0 {
             amb_sequence_set(held, 2, args);
             amb_release(args);

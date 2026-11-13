@@ -1,5 +1,7 @@
 //! Integers, floats, and structural equality.
 
+use alloc::vec;
+
 use crate::object::{
     KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_ITERATOR, KIND_LIST, KIND_METHOD, KIND_RECORD,
     KIND_SCOPE, KIND_STRING, KIND_TUPLE, boolean, bytes, fault, float, header, int, is_object,
