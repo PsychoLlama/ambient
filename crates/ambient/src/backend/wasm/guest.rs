@@ -44,7 +44,7 @@ pub struct Guest<S> {
 pub(super) fn must<T, E: std::fmt::Display>(result: Result<T, E>, what: &str) -> T {
     match result {
         Ok(value) => value,
-        Err(error) => panic!("{what}: {error}"),
+        Err(error) => panic!("{what}: {error:#}"),
     }
 }
 

@@ -42,6 +42,8 @@ pub struct Program {
     /// the runtime keeps up to date: a cell outlives the call that made
     /// it, and none outlives the program.
     cells: Box<UnsafeCell<u64>>,
+    /// Whether the program was linked for code to be loaded into it.
+    open: bool,
 }
 
 impl Drop for Program {
@@ -80,6 +82,7 @@ impl Program {
             failure: RefCell::default(),
             error: RefCell::default(),
             cells: Box::default(),
+            open: parts.open,
         };
         program.entry.set(program.place(parts, natives, false)?);
         Ok(program)
@@ -101,6 +104,11 @@ impl Program {
     /// Fails if `natives` lacks an extern the parts reach, or executable
     /// memory cannot be mapped. Nothing is loaded then.
     pub fn add(&self, parts: &Parts, natives: &Natives) -> Result<Word, String> {
+        // What is loaded may suspend in the middle of a call the
+        // program made, and only an open program is compiled for that.
+        if !self.open {
+            return Err(crate::backend::CLOSED.to_owned());
+        }
         self.reclaim();
         self.place(parts, natives, true)
     }

@@ -338,5 +338,9 @@ pub struct Function {
     /// How many slots its definition has. Its constants follow them.
     pub slots: usize,
     pub constants: Vec<Constant>,
+    /// How many points its body has: places its task may suspend in.
+    /// A function with none is never resumed, and is compiled without
+    /// what resuming takes.
+    pub points: usize,
     pub body: Expr,
 }

@@ -22,12 +22,17 @@ impl Emitter {
 
     /// What a function does first: it makes room for its locals, and if
     /// its task is resuming, it takes them back and notes where it was.
-    pub(super) fn enter(&mut self) {
+    /// One that has no point (`resumes`) is never resumed.
+    pub(super) fn enter(&mut self, resumes: bool) {
         self.emit(&Instruction::GlobalGet(STACK));
         self.emit(&Instruction::I32Const(self.size));
         self.emit(&Instruction::I32Sub);
         self.emit(&Instruction::LocalTee(self.frame));
         self.emit(&Instruction::GlobalSet(STACK));
+        if !resumes {
+            self.take_params();
+            return;
+        }
         self.emit(&Instruction::I64Const(-1));
         self.emit(&Instruction::LocalSet(self.target));
         self.mode();
@@ -46,12 +51,16 @@ impl Emitter {
         self.emit(&Instruction::LocalGet(CONTEXT));
         self.frame(Entry::FrameDrop);
         self.emit(&Instruction::Else);
-        // Its parameters are the first of its locals.
+        self.take_params();
+        self.emit(&Instruction::End);
+    }
+
+    /// Its parameters are the first of a function's locals.
+    fn take_params(&mut self) {
         for param in 0..self.params {
             self.emit(&Instruction::LocalGet(PARAMS + param));
             self.set_local(param as usize);
         }
-        self.emit(&Instruction::End);
     }
 
     /// Pushes whether the point being resumed to is one of `points`:

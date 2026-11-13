@@ -88,7 +88,7 @@ impl Loading {
         let (found, main) = (find(&engine), value("main", "main"));
         let compiled = |backend: &dyn Backend| {
             let plugin = Rc::new(engine.link_to_load(&found, backend).unwrap());
-            (engine.link(&main, backend).unwrap(), plugin)
+            (engine.link_open(&main, backend).unwrap(), plugin)
         };
 
         let (program, parts) = compiled(&Native::new().unwrap());

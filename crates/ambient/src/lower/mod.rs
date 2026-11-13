@@ -43,7 +43,11 @@ pub fn lower(definition: &Open, form: &Form) -> Result<lir::Function, Unsupporte
     let function = match &definition.tree {
         Tree::Function(function) => function,
         Tree::Extern { params, .. } => {
-            return Ok(native::native(params.len(), definition.slots.len()));
+            return Ok(native::native(
+                params.len(),
+                definition.slots.len(),
+                form.still,
+            ));
         }
         _ => return Err(Unsupported("definitions that are not functions")),
     };
@@ -83,8 +87,9 @@ pub fn lower(definition: &Open, form: &Form) -> Result<lir::Function, Unsupporte
     let named = lowering.binders + 1;
     renumber(&mut body, named);
     let mut locals = named + lowering.temporaries;
-    let body = resume::resumable(tail::tailed(body, &mut locals));
+    let (body, points) = resume::resumable(tail::tailed(body, &mut locals), form.still);
     Ok(lir::Function {
+        points,
         params: function.params.len() + 1,
         locals,
         slots: definition.slots.len(),

@@ -92,8 +92,14 @@ pub fn module_for(parts: &Parts, host: &[&'static str]) -> Result<Vec<u8>, Strin
 ///
 /// # Errors
 ///
-/// Fails if the program is too large to index.
+/// Fails if the program is too large to index, or was not linked with
+/// [`crate::engine::Engine::link_open`].
 pub fn open_module(parts: &Parts) -> Result<Vec<u8>, String> {
+    // What is loaded may suspend in the middle of a call the program
+    // made, and only an open program is compiled for that.
+    if !parts.open {
+        return Err(crate::backend::CLOSED.to_owned());
+    }
     assemble(parts, Shape::Program { open: true }, HOST)
 }
 

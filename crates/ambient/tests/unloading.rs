@@ -87,7 +87,10 @@ fn compiled<const N: usize>(
         (name.to_owned(), (parts, engine.hash(&symbol).unwrap()))
     };
     let parts = names.into_iter().map(load).collect();
-    (engine.link(&value("main", "main"), backend).unwrap(), parts)
+    (
+        engine.link_open(&value("main", "main"), backend).unwrap(),
+        parts,
+    )
 }
 
 type Natively = Loaded<Program, Parts>;

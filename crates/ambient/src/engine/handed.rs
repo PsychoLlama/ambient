@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use super::Engine;
+use super::compile::Mode;
 use crate::core::Tree;
 use crate::error::Error;
 use crate::lower::Form;
@@ -100,11 +101,12 @@ impl Engine<'_> {
     }
 
     /// What lowering `symbol` takes besides its tree.
-    pub(super) fn form(&self, symbol: &Symbol, metered: bool) -> Result<Form, Error> {
+    pub(super) fn form(&self, symbol: &Symbol, mode: Mode) -> Result<Form, Error> {
         let open = self.check(symbol)?;
         let slots = open.slots.iter().map(|slot| self.handed(slot));
         Ok(Form {
-            metered,
+            metered: mode.metered,
+            still: mode.still,
             handed: self.handed(symbol)?,
             slots: slots.collect::<Result<_, _>>()?,
         })

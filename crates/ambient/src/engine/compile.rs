@@ -34,6 +34,17 @@ pub trait Backend {
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Artifact(pub Vec<u8>);
 
+/// Which of a function's compiled forms: all are code for one hash.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) struct Mode {
+    /// Whether it charges for what it does, as code inside a budget
+    /// calls it.
+    pub metered: bool,
+    /// Whether it is part of a program in which nothing suspends, and
+    /// so is compiled without what resuming takes.
+    pub still: bool,
+}
+
 impl Engine<'_> {
     /// A function's compiled form for one backend.
     ///
@@ -42,27 +53,26 @@ impl Engine<'_> {
     /// Fails if the symbol is not a function, does not check, or the backend
     /// refuses it.
     pub fn compile(&self, symbol: &Symbol, backend: &dyn Backend) -> Query<Artifact> {
-        self.compile_as(symbol, backend, false)
+        self.compile_as(symbol, backend, Mode::default())
     }
 
-    /// A function's compiled form for one backend, metered or not. The
-    /// two are different code for one hash.
+    /// One of a function's compiled forms for one backend.
     pub(super) fn compile_as(
         &self,
         symbol: &Symbol,
         backend: &dyn Backend,
-        metered: bool,
+        mode: Mode,
     ) -> Query<Artifact> {
-        let memo_key = (symbol.clone(), backend.name().to_owned(), metered);
-        deep(|| self.compiled(symbol, backend, metered, &memo_key))
+        let memo_key = (symbol.clone(), backend.name().to_owned(), mode);
+        deep(|| self.compiled(symbol, backend, mode, &memo_key))
     }
 
     fn compiled(
         &self,
         symbol: &Symbol,
         backend: &dyn Backend,
-        metered: bool,
-        memo_key: &(Symbol, String, bool),
+        mode: Mode,
+        memo_key: &(Symbol, String, Mode),
     ) -> Query<Artifact> {
         memo(&self.compile, memo_key, || {
             let open = self.check(symbol)?;
@@ -70,10 +80,11 @@ impl Engine<'_> {
                 return Err(Error::NotCompilable(symbol.clone()));
             }
 
-            let form = self.form(symbol, metered)?;
+            let form = self.form(symbol, mode)?;
             let mut key = Hasher::new("compile");
             key.bytes(backend.name().as_bytes());
-            key.bytes(&[u8::from(metered), u8::from(form.handed)]);
+            let flags = [mode.metered, mode.still, form.handed];
+            key.bytes(&flags.map(u8::from));
             key.bytes(
                 &form
                     .slots

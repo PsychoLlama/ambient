@@ -11,9 +11,33 @@
 use crate::lir::{Expr, Op};
 
 /// Numbers the points in `body` in the order they are reached, and marks
-/// every `Let` with the points its value holds.
-pub(super) fn resumable(body: Expr) -> Expr {
-    rewrite(body, &mut 0)
+/// every `Let` with the points its value holds. Returns how many
+/// points there are.
+///
+/// In a program where nothing suspends (`still`) no operation is a
+/// point. A body with no point is left as it is: its function is never
+/// resumed, so it has nothing to skip.
+pub(super) fn resumable(body: Expr, still: bool) -> (Expr, usize) {
+    if still || !suspends(&body) {
+        return (body, 0);
+    }
+    let mut points = 0;
+    (rewrite(body, &mut points), points)
+}
+
+/// Whether the task may suspend somewhere in `expr`.
+fn suspends(expr: &Expr) -> bool {
+    match expr {
+        Expr::Op(op) => op.suspends(),
+        Expr::Let { value, body, .. } => suspends(value) || suspends(body),
+        Expr::If {
+            then, otherwise, ..
+        } => suspends(then) || suspends(otherwise),
+        Expr::Try { body, recover, .. } => suspends(body) || suspends(recover),
+        Expr::Point { .. } => true,
+        Expr::Resumed { value, .. } => suspends(value),
+        Expr::Fault(_) => false,
+    }
 }
 
 fn rewrite(expr: Expr, next: &mut usize) -> Expr {

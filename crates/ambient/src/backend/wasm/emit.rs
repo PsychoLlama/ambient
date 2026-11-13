@@ -76,7 +76,7 @@ impl Backend for Wasm {
             calls: Vec::new(),
             widest: 0,
         };
-        emitter.enter();
+        emitter.enter(function.points > 0);
         // The outermost block is the one a point leaves to suspend: after
         // it, the function keeps its locals.
         emitter.emit(&Instruction::Block(BlockType::Empty));
@@ -88,8 +88,14 @@ impl Backend for Wasm {
         emitter.leave();
         emitter.emit(&Instruction::Return);
         emitter.emit(&Instruction::End);
-        emitter.save();
-        emitter.leave();
+        // Where a point leaves to. A function that has none never gets
+        // here.
+        if function.points > 0 {
+            emitter.save();
+            emitter.leave();
+        } else {
+            emitter.emit(&Instruction::Unreachable);
+        }
         emitter.emit(&Instruction::End);
         code::artifact(emitter.body.into_raw_body(), &emitter.calls, emitter.widest)
     }
@@ -288,11 +294,13 @@ impl Emitter {
                 self.frames.push(true);
                 // A function going back to a point in `recover` had left
                 // the body already.
-                self.resuming_to(*recovering);
-                self.emit(&Instruction::If(BlockType::Empty));
-                self.emit(&Instruction::I64Const(0));
-                self.emit(&Instruction::Br(1));
-                self.emit(&Instruction::End);
+                if recovering.0 < recovering.1 {
+                    self.resuming_to(*recovering);
+                    self.emit(&Instruction::If(BlockType::Empty));
+                    self.emit(&Instruction::I64Const(0));
+                    self.emit(&Instruction::Br(1));
+                    self.emit(&Instruction::End);
+                }
                 self.expr(body);
                 if !matches!(**body, Expr::Op(_)) {
                     self.check();

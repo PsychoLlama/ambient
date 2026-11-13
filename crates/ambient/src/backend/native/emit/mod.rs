@@ -104,7 +104,7 @@ impl Backend for Native {
         for local in function.params..function.locals {
             emitter.set_local(local, zero);
         }
-        emitter.enter();
+        emitter.enter(function.points > 0);
         let result = emitter.expr(&function.body);
         emitter.builder.ins().jump(exit, &[BlockArg::Value(result)]);
         emitter.save();
@@ -271,14 +271,16 @@ impl Emitter<'_> {
 
         // A function going back to a point in `recover` had left
         // the body already.
-        let recovered = self.resuming_to(recovering);
-        let enter = self.builder.create_block();
-        let zero = self.builder.ins().iconst(I64, 0);
-        let passed = [BlockArg::Value(zero)];
-        self.builder
-            .ins()
-            .brif(recovered, landing, &passed, enter, &[]);
-        self.builder.switch_to_block(enter);
+        if recovering.0 < recovering.1 {
+            let recovered = self.resuming_to(recovering);
+            let enter = self.builder.create_block();
+            let zero = self.builder.ins().iconst(I64, 0);
+            let passed = [BlockArg::Value(zero)];
+            self.builder
+                .ins()
+                .brif(recovered, landing, &passed, enter, &[]);
+            self.builder.switch_to_block(enter);
+        }
 
         self.unwind.push(landing);
         let result = self.expr(body);

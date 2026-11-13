@@ -18,6 +18,10 @@ pub struct Form {
     /// The same of the function in each slot. A slot past the end is
     /// one that is not.
     pub slots: Vec<bool>,
+    /// Whether the function is part of a program in which nothing
+    /// suspends, so that it never has to resume: see "Floor" in
+    /// `spec/linking.md`.
+    pub still: bool,
 }
 
 impl Form {

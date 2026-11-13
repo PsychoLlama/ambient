@@ -27,6 +27,8 @@
 - Compiled code reaches native code only through `amb_native` and an index the loader fills in; a host supplies `Natives` by package and tag.
 - Native code reaches its program only through `native::Running`, which each backend's dispatch implements. What it loads is held until its result is encoded, so nothing of the program is borrowed while it runs.
 - A task suspends by unwinding with the context's mode set, and resumes by its functions being called again (`lower/resume.rs`, `ambient-runtime/src/task.rs`). A host that sees the entry unwind while suspending calls `amb_schedule` and the entry again.
+- A program is linked closed (`Engine::link`) or open to loading (`Engine::link_open`, `Parts::open`); only an open one is loaded into. A closed program in which no core tree `suspends` is compiled `still` (`lower::Form`, `engine::compile::Mode`): no operation is a point.
+- A function with no point (`lir::Function::points`) is left as lowered and emitted without what resuming takes; a backend must not read its resume target.
 - A tail call unwinds with the call pending (`lower/tail.rs`, `Op::Tail`), and every other call is followed by `Op::Bounce`, which makes it (`ambient-runtime/src/task/tail.rs`). Whatever calls compiled code from outside goes through `amb_start`, never a code address.
 - A task's body is a closure that takes nothing; the checker makes one for each branch, spawn, and cleanup (`checker/tasks.rs`), so they capture locals and bindings as any closure does.
 - Whatever must happen on every way out of a block (cleanups, closing a group) is lowered as a `Try` whose recovery holds the unwinding, does the work, and rethrows (`lower/tasks.rs`).

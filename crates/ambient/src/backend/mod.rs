@@ -14,6 +14,10 @@ pub mod native;
 pub mod statics;
 pub mod wasm;
 
+/// Why nothing is loaded into a program that was not linked for it.
+pub(crate) const CLOSED: &str =
+    "the program was not linked to be loaded into: see `Engine::link_open`";
+
 /// The most parameters a function may take.
 ///
 /// TODO: a limit only because each arity needs a signature the host can

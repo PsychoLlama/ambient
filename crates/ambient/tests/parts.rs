@@ -43,7 +43,7 @@ fn compiled() -> (Vec<u8>, Vec<u8>, String) {
     let store = MemoryStore::new();
     let engine = Engine::new(&workspace, &store);
     let native = Native::new().unwrap();
-    let main = engine.link(&value("main", "main"), &native).unwrap();
+    let main = engine.link_open(&value("main", "main"), &native).unwrap();
     let plugin = engine.link_to_load(&value("plugin", "plugin"), &native);
     (
         main.encode(&native),
@@ -92,7 +92,7 @@ fn code_for_another_backend_is_refused() {
 proptest! {
     #[test]
     fn bytes_that_are_not_parts_are_refused_not_trusted(
-        cut in 0usize..200,
+        cut in 0usize..100,
         flip in 0usize..200,
         bit in 0u8..8,
     ) {

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use super::compile::Mode;
 use super::{Artifact, Backend, Engine};
 use crate::core::{self, Tree};
 use crate::error::Error;
@@ -112,6 +113,21 @@ pub struct Parts {
     /// The externs among `parts`, which a host must supply before the
     /// program runs.
     pub natives: Vec<Native>,
+    /// Whether this is a program code can be loaded into, or code to
+    /// load. Only then is every function sure to be able to suspend:
+    /// see [`Engine::link`].
+    pub open: bool,
+}
+
+/// What parts are linked as.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Shape {
+    /// A program nothing is loaded into.
+    Closed,
+    /// A program code can be loaded into.
+    Open,
+    /// Code to load into a program.
+    Loaded,
 }
 
 impl Engine<'_> {
@@ -146,7 +162,12 @@ impl Engine<'_> {
         Ok(found)
     }
 
-    /// Compiles `entry` and everything it reaches.
+    /// Compiles `entry` and everything it reaches, as a program that
+    /// nothing is loaded into.
+    ///
+    /// The whole program is known, so it pays only for what it does:
+    /// if nothing in it can suspend a task, no function is compiled to
+    /// suspend. See "Floor" in `spec/linking.md`.
     ///
     /// Definitions with equal hashes are one part, whatever their symbols.
     ///
@@ -154,6 +175,27 @@ impl Engine<'_> {
     ///
     /// Fails if anything reached does not check or does not compile.
     pub fn link(&self, entry: &Symbol, backend: &dyn Backend) -> Result<Parts, Error> {
+        self.program_parts(entry, backend, Shape::Closed)
+    }
+
+    /// Compiles `entry` and everything it reaches, as a program that
+    /// code can be loaded into: see [`Engine::link_to_load`]. What is
+    /// loaded may suspend a task in the middle of any call, so every
+    /// function is compiled to.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Engine::link`] does.
+    pub fn link_open(&self, entry: &Symbol, backend: &dyn Backend) -> Result<Parts, Error> {
+        self.program_parts(entry, backend, Shape::Open)
+    }
+
+    fn program_parts(
+        &self,
+        entry: &Symbol,
+        backend: &dyn Backend,
+        shape: Shape,
+    ) -> Result<Parts, Error> {
         // Nothing is bound where a host calls from. An entry that takes
         // abilities runs under a target: see [`Engine::program`].
         if let Tree::Function(function) = &self.check(entry)?.tree
@@ -161,7 +203,20 @@ impl Engine<'_> {
         {
             return Err(Error::EntryAbilities(entry.clone()));
         }
-        self.parts(entry, backend, false)
+        self.parts(entry, backend, shape)
+    }
+
+    /// Whether nothing among `symbols`, a whole program, can suspend a
+    /// task.
+    fn still(&self, symbols: &[Symbol]) -> Result<bool, Error> {
+        for symbol in symbols {
+            if let Tree::Function(function) = &self.check(symbol)?.tree
+                && function.body.suspends()
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Compiles `function` and everything it reaches, to be loaded into
@@ -175,14 +230,16 @@ impl Engine<'_> {
     ///
     /// Fails if anything reached does not check or does not compile.
     pub fn link_to_load(&self, function: &Symbol, backend: &dyn Backend) -> Result<Parts, Error> {
-        self.parts(function, backend, true)
+        self.parts(function, backend, Shape::Loaded)
     }
 
-    fn parts(&self, entry: &Symbol, backend: &dyn Backend, loaded: bool) -> Result<Parts, Error> {
-        deep(|| self.reached(entry, backend, loaded))
+    fn parts(&self, entry: &Symbol, backend: &dyn Backend, shape: Shape) -> Result<Parts, Error> {
+        deep(|| self.reached(entry, backend, shape))
     }
 
-    fn reached(&self, entry: &Symbol, backend: &dyn Backend, loaded: bool) -> Result<Parts, Error> {
+    /// Everything `entry` reaches, itself first, each hash once: the
+    /// symbols, and where each hash is among them.
+    fn reach(&self, entry: &Symbol) -> Result<(HashMap<Hash, usize>, Vec<Symbol>), Error> {
         let mut indices: HashMap<Hash, usize> = HashMap::new();
         let mut symbols: Vec<Symbol> = Vec::new();
         let mut pending = vec![entry.clone()];
@@ -195,8 +252,14 @@ impl Engine<'_> {
             pending.extend(self.check(&symbol)?.slots.iter().cloned());
             symbols.push(symbol);
         }
+        Ok((indices, symbols))
+    }
 
-        let metered = if loaded {
+    fn reached(&self, entry: &Symbol, backend: &dyn Backend, shape: Shape) -> Result<Parts, Error> {
+        let (indices, symbols) = self.reach(entry)?;
+
+        let still = shape == Shape::Closed && self.still(&symbols)?;
+        let metered = if shape == Shape::Loaded {
             let hashes = symbols.iter().map(|symbol| self.hash(symbol));
             hashes.collect::<Result<_, _>>()?
         } else {
@@ -237,9 +300,23 @@ impl Engine<'_> {
                     arity: params.len() + 1,
                     signature,
                     types: if handed { bounds.len() } else { 0 },
-                    code: self.compile_as(symbol, backend, false)?,
+                    code: self.compile_as(
+                        symbol,
+                        backend,
+                        Mode {
+                            metered: false,
+                            still,
+                        },
+                    )?,
                     metered: if metered {
-                        Some(self.compile_as(symbol, backend, true)?)
+                        Some(self.compile_as(
+                            symbol,
+                            backend,
+                            Mode {
+                                metered: true,
+                                still,
+                            },
+                        )?)
                     } else {
                         None
                     },
@@ -248,7 +325,7 @@ impl Engine<'_> {
                     // rather than kept beside the code. Those of the
                     // metered form begin with those of the plain one.
                     constants: {
-                        let form = self.form(symbol, metered)?;
+                        let form = self.form(symbol, Mode { metered, still })?;
                         let lowered = lower(&open, &form);
                         lowered.map_or_else(|_| Vec::new(), |function| function.constants)
                     },
@@ -286,6 +363,7 @@ impl Engine<'_> {
             parts,
             entry,
             natives,
+            open: shape != Shape::Closed,
         })
     }
 }

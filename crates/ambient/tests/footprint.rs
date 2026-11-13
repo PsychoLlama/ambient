@@ -58,7 +58,7 @@ fn fold() -> Expr {
 /// The most a program that does nothing may be, for a host that
 /// starts a call and reads nothing. Lower it when the floor falls;
 /// raising it is a decision, not a fix.
-const FLOOR: usize = 7_800;
+const FLOOR: usize = 7_200;
 
 #[test]
 fn a_program_that_does_nothing_is_within_the_floor() {
@@ -83,6 +83,13 @@ fn a_host_that_reads_no_values_pays_for_no_readers() {
 fn only_a_program_that_can_suspend_carries_what_gives_tasks_their_turns() {
     assert!(!carries(b::null(), "amb_schedule"));
     assert!(carries(b::all([b::int(1), b::int(2)]), "amb_schedule"));
+}
+
+#[test]
+fn only_a_program_that_can_suspend_is_compiled_to() {
+    // What keeps a function's locals while its task is suspended.
+    assert!(!carries(fold(), "amb_frame_push"));
+    assert!(carries(b::all([b::int(1), b::int(2)]), "amb_frame_push"));
 }
 
 #[test]

@@ -7,7 +7,7 @@ mod support;
 
 use std::collections::BTreeSet;
 
-use ambient::backend::native::Natives;
+use ambient::backend::native::{Native, Natives, Program};
 use ambient::backend::wasm::{self, HOST, Wasm};
 use ambient::builder::{self as b, pat, ty};
 use ambient::engine::{Engine, Parts};
@@ -42,7 +42,7 @@ fn compiled<const N: usize>(plugins: [Definition; N]) -> (Vec<u8>, [(Parts, BTre
     }
     let store = MemoryStore::new();
     let engine = Engine::new(&workspace, &store);
-    let main = engine.link(&value("main", "main"), &Wasm).unwrap();
+    let main = engine.link_open(&value("main", "main"), &Wasm).unwrap();
     let parts = paths.map(|path| {
         let name = value(&path, "plugin");
         let alone = engine.link(&name, &Wasm).unwrap();
@@ -171,4 +171,20 @@ fn code_brings_the_state_its_target_lacks() {
     assert!(!names.is_empty());
     assert_eq!(addresses.len(), names.len());
     assert!(!addresses.contains(&0));
+}
+
+#[test]
+fn nothing_loads_into_a_program_that_was_not_linked_for_it() {
+    let main = b::function("main").returns(ty::unknown()).body(b::null());
+    let workspace = workspace([("app", "main", b::module().define(main).define(joins()))]);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let (main, plugin) = (value("main", "main"), value("main", "plugin"));
+    let native = Native::new().unwrap();
+    let closed = engine.link(&main, &native).unwrap();
+    let program = Program::load(&closed, &Natives::new()).unwrap();
+    let parts = engine.link_to_load(&plugin, &native).unwrap();
+
+    assert!(program.add(&parts, &Natives::new()).is_err());
+    assert!(wasm::open_module(&engine.link(&main, &Wasm).unwrap()).is_err());
 }

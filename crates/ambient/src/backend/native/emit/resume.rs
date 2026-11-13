@@ -11,10 +11,14 @@ use crate::lir::{self, Expr, Op};
 
 impl Emitter<'_> {
     /// What a function does first: if its task is resuming, it takes its
-    /// locals back and notes where it was.
-    pub(super) fn enter(&mut self) {
+    /// locals back and notes where it was. One that has no point
+    /// (`resumes`) is never resumed.
+    pub(super) fn enter(&mut self, resumes: bool) {
         let running = self.builder.ins().iconst(I64, -1);
         self.builder.def_var(self.target, running);
+        if !resumes {
+            return;
+        }
         let mode = self.load(self.context, Context::MODE);
         let resuming = self.is(mode, RESUMING);
         let (restore, start) = (self.builder.create_block(), self.builder.create_block());

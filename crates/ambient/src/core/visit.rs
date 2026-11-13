@@ -1,9 +1,26 @@
 //! Walking core trees: what is inside an expression, and where each
 //! expression is.
 
-use super::{Expr, Key, Pattern, Slot, Type};
+use super::{Expr, Key, Pattern, Primitive, Slot, Type};
 
 impl Expr {
+    /// Whether a task may suspend somewhere in this: it runs tasks,
+    /// waits on a cell, or reads its own trace, which is read off a
+    /// suspension. See `spec/tasks.md`.
+    #[must_use]
+    pub fn suspends(&self) -> bool {
+        let here = match self {
+            Self::Group(_) | Self::Spawn(_) | Self::All(_) | Self::First(_) => true,
+            Self::Primitive { operation, .. } => {
+                matches!(operation, Primitive::CellWait | Primitive::Capture)
+            }
+            _ => false,
+        };
+        let mut inside = false;
+        self.children(&mut |child| inside = inside || child.suspends());
+        here || inside
+    }
+
     /// Calls `visit` with each expression directly inside this one, in
     /// the order they are encoded.
     pub fn children<'a>(&'a self, visit: &mut impl FnMut(&'a Self)) {
