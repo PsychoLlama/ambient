@@ -138,6 +138,13 @@ fn a_long_iterator_is_folded_and_filtered_in_constant_stack() {
 }
 
 #[test]
+fn a_long_list_is_built_a_member_at_a_time() {
+    // Copying at every push would be twenty billion members copied.
+    let long = to_list(range(0, 200_000));
+    assert_eq!(evaluates(b::length(long)), Value::Int(200_000));
+}
+
+#[test]
 fn what_steps_an_iterator_captures_the_abilities_it_performs() {
     let asked = of_int(b::add(b::name("n"), b::perform("ask", [])));
     let mapped = b::send(range(0, 2), "map", [asked]);

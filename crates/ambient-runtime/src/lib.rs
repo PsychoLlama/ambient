@@ -45,6 +45,7 @@ mod heap;
 mod host;
 mod is;
 mod iterator;
+mod list;
 mod native;
 mod number;
 mod object;
@@ -70,6 +71,7 @@ pub use is::{amb_is, descriptor};
 pub use iterator::{
     amb_int_range, amb_iterator_advance, amb_iterator_new, amb_iterator_stepper, amb_list_iterate,
 };
+pub use list::*;
 pub use native::*;
 pub use number::*;
 pub use object::{amb_release, amb_retain, fixed_closure, layout};

@@ -5,6 +5,7 @@
 //! values that kind keeps. Every word is a value, so an iterator is
 //! held, compared, and reclaimed like a tuple.
 
+use crate::list::members;
 use crate::object::{KIND_ITERATOR, KIND_TUPLE, amb_retain, int, object, small, words};
 use crate::{NULL, Word, amb_int_new};
 
@@ -91,7 +92,7 @@ pub unsafe extern "C" fn amb_iterator_advance(iterator: Word) -> Word {
         match kind(iterator) {
             LIST => {
                 let position = int(held[2]);
-                let Some(item) = words(held[1]).get(position as usize) else {
+                let Some(item) = members(held[1]).get(position as usize) else {
                     return NULL;
                 };
                 amb_retain(*item);
@@ -130,7 +131,7 @@ pub(crate) unsafe fn tested(iterator: Word) -> Tested {
         match kind(iterator) {
             FUNCTION => Tested::Function(held[1]),
             LIST => {
-                let members = words(held[1]);
+                let members = members(held[1]);
                 let from = (int(held[2]) as usize).min(members.len());
                 Tested::Items(&members[from..])
             }

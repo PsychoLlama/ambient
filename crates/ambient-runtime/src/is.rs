@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use crate::cell::made_at;
 use crate::closure::{generic, type_name};
 use crate::iterator::{Tested, tested};
+use crate::list::members;
 use crate::object::{
     KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_ITERATOR, KIND_LIST, KIND_METHOD,
     KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE, boolean, bytes, int, kind, payload, words,
@@ -258,7 +259,7 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
             }
             d::LIST => {
                 let holds = kind(value) == KIND_LIST;
-                let members = if holds { &*words(value) } else { &[] };
+                let members = if holds { members(value) } else { &[] };
                 let node = node(1);
                 return inside(holds, Inside::Every { node, members });
             }

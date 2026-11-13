@@ -10,7 +10,7 @@ use alloc::format;
 use super::scheduler;
 use crate::boundary::FAULT_PACKAGE;
 use crate::number::amb_int_new;
-use crate::object::{KIND_RECORD, fault, header, int, is_object, kind};
+use crate::object::{KIND_LIST, KIND_RECORD, fault, header, int, is_object, kind};
 use crate::record;
 use crate::text::amb_tag;
 use crate::{Context, Fault, NULL, UNWIND, Word};
@@ -181,6 +181,10 @@ pub unsafe extern "C" fn amb_charge_size(context: *mut Context, value: Word) -> 
             0
         } else if kind(value) == KIND_RECORD {
             record::copying(value)
+        } else if kind(value) == KIND_LIST {
+            // The charge ignores sharing: a list counts for its members
+            // wherever they are kept.
+            crate::list::members(value).len() as u64 + 1
         } else {
             (*header(value)).size.div_ceil(8) + 1
         };

@@ -3,6 +3,7 @@
 use alloc::boxed::Box;
 use alloc::vec;
 
+use crate::list::members;
 use crate::object::layout::DEFINITION_HASH;
 use crate::object::{
     KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_ITERATOR, KIND_LIST, KIND_METHOD, KIND_RECORD,
@@ -125,6 +126,7 @@ pub unsafe extern "C" fn amb_length(word: Word) -> u64 {
         match (*header(word)).kind {
             KIND_STRING | KIND_TAG => size,
             KIND_RECORD => size / 16,
+            KIND_LIST => members(word).len() as u64,
             _ => size / 8,
         }
     }
@@ -141,7 +143,7 @@ pub unsafe extern "C" fn amb_string_bytes(word: Word) -> *const u8 {
 /// at the next.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_word_at(word: Word, index: u64) -> Word {
-    unsafe { words(word)[index as usize] }
+    unsafe { members(word)[index as usize] }
 }
 
 /// The hash of the definition a function value is over, as a string,

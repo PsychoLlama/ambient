@@ -1,7 +1,8 @@
-//! Tuples and lists.
+//! Tuples, and what tuples and lists share. Lists are in `list.rs`.
 
 use core::ops::Range;
 
+use crate::list;
 use crate::object::{KIND_LIST, KIND_TUPLE, amb_retain, boolean, int, kind, object, words};
 use crate::{NULL, Word};
 
@@ -10,8 +11,10 @@ use crate::{NULL, Word};
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_sequence_new(list: u64, length: u64) -> Word {
     unsafe {
-        let kind = if list == 0 { KIND_TUPLE } else { KIND_LIST };
-        let word = object(kind, length as usize * 8);
+        if list != 0 {
+            return list::filled(length as usize);
+        }
+        let word = object(KIND_TUPLE, length as usize * 8);
         words(word).fill(NULL);
         word
     }
@@ -22,7 +25,7 @@ pub unsafe extern "C" fn amb_sequence_new(list: u64, length: u64) -> Word {
 pub unsafe extern "C" fn amb_sequence_set(sequence: Word, index: u64, value: Word) {
     unsafe {
         amb_retain(value);
-        words(sequence)[index as usize] = value;
+        list::members_mut(sequence)[index as usize] = value;
     }
 }
 
@@ -30,7 +33,7 @@ pub unsafe extern "C" fn amb_sequence_set(sequence: Word, index: u64, value: Wor
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_sequence_get(sequence: Word, index: u64) -> Word {
     unsafe {
-        let value = words(sequence)[index as usize];
+        let value = list::members(sequence)[index as usize];
         amb_retain(value);
         value
     }
@@ -56,62 +59,4 @@ pub(crate) unsafe fn range(start: Word, end: Word, length: usize) -> Option<Rang
     let start = usize::try_from(start).ok()?;
     let end = usize::try_from(end).ok().filter(|end| *end <= length)?;
     (start <= end).then_some(start..end)
-}
-
-/// A list of `members`, each of which it takes a reference to.
-unsafe fn list(members: &[Word]) -> Word {
-    unsafe {
-        let word = object(KIND_LIST, members.len() * 8);
-        for (slot, member) in words(word).iter_mut().zip(members) {
-            amb_retain(*member);
-            *slot = *member;
-        }
-        word
-    }
-}
-
-/// How many members a list, or a tuple used as one, has.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_list_length(value: Word) -> Word {
-    unsafe { crate::amb_int_new(words(value).len() as i64) }
-}
-
-/// The member at a position, or null if there is none.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_list_get(value: Word, position: Word) -> Word {
-    unsafe {
-        let position = usize::try_from(int(position)).ok();
-        match position.and_then(|position| words(value).get(position)) {
-            Some(member) => {
-                amb_retain(*member);
-                *member
-            }
-            None => NULL,
-        }
-    }
-}
-
-/// A list of the members of one, then `member`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_list_push(value: Word, member: Word) -> Word {
-    unsafe { list(&[&*words(value), &[member]].concat()) }
-}
-
-/// A list of the members of one, then those of another.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_list_join(left: Word, right: Word) -> Word {
-    unsafe { list(&[&*words(left), &*words(right)].concat()) }
-}
-
-/// The members between two positions, or null if the positions are out
-/// of range or out of order.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_list_slice(value: Word, start: Word, end: Word) -> Word {
-    unsafe {
-        let members = words(value);
-        match range(start, end, members.len()) {
-            Some(range) => list(&members[range]),
-            None => NULL,
-        }
-    }
 }

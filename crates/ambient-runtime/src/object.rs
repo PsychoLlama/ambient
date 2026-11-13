@@ -20,6 +20,8 @@ pub(crate) const KIND_TOKEN: u32 = 8;
 pub(crate) const KIND_CELL: u32 = 9;
 /// A tag value: its text, interned, so that equal tags are one object.
 pub(crate) const KIND_TAG: u32 = 10;
+/// Not a value: the room the members of lists are in. See `list.rs`.
+pub(crate) const KIND_BUFFER: u32 = 11;
 /// Not a value: the type arguments a generic function was made at.
 pub(crate) const KIND_SCOPE: u32 = 12;
 /// A method a record holds: a closure whose second capture is the
@@ -250,7 +252,7 @@ pub unsafe extern "C" fn amb_release(word: Word) {
                 continue;
             }
             let held = match (*header).kind {
-                KIND_TUPLE | KIND_LIST | KIND_RECORD | KIND_ITERATOR => words(word),
+                KIND_TUPLE | KIND_LIST | KIND_BUFFER | KIND_RECORD | KIND_ITERATOR => words(word),
                 // After the value and the type arguments it was made
                 // under is the type the cell was made at.
                 KIND_CELL => {

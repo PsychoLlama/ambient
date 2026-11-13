@@ -9,5 +9,8 @@ description = "The part of Ambient that is not compiled from core trees"
 # `cdylib` to build the WebAssembly module that runs beside emitted code.
 crate-type = ["rlib", "cdylib"]
 
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true
