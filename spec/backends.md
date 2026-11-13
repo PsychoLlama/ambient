@@ -36,7 +36,8 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 
 - The runtime is the part of the language that is not compiled from core trees: allocation, counting, structural operations, and shape tests.
 - There is one runtime, compiled for each backend; a backend supplies none of its own.
-- Compiled code reaches the runtime and other definitions only through tables it is handed, so an [artifact](build.md) is position-independent and never patched.
+- Compiled code reaches other definitions only through tables it is handed, so an [artifact](build.md) is position-independent and never patched.
+- A program carries the parts of the runtime it reaches and no others: see [linking](linking.md).
 
 ## Types at run time
 
@@ -97,7 +98,7 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 ## Loading
 
 - Code is [loaded](exchange.md) on both backends, and held and discarded the same way.
-- Loaded code is self-contained: the same bytes load into any program, and use whatever definitions that program already has, by hash.
+- Loaded code uses whatever definitions its program already has, by hash, and brings the rest; [linking](linking.md) says what it carries.
 - A program that accepts loads says where its definitions are; one that does not pays nothing for the feature.
 - In WebAssembly loaded code is one more module over the program's memory and table, and the host links it; the runtime keeps no registry.
 - A host discards loaded code when the runtime says nothing refers to it, not at the moment the last reference goes.
