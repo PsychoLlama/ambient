@@ -5,7 +5,6 @@ use ambient_runtime::{Context, Entry, RESUMING, SUSPENDING};
 use wasm_encoder::{BlockType, Instruction};
 
 use super::emit::{CONTEXT, Emitter, PARAMS, STACK, memory};
-use super::import;
 use crate::lir::{self, Op};
 
 impl Emitter {
@@ -18,7 +17,7 @@ impl Emitter {
     /// Calls an entry point that takes the context and what is on the
     /// stack after it.
     pub(super) fn frame(&mut self, entry: Entry) {
-        self.emit(&Instruction::Call(import(entry)));
+        self.runtime(entry);
     }
 
     /// What a function does first: it makes room for its locals, and if

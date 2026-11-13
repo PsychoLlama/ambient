@@ -32,6 +32,7 @@ dependencies = [
  "serde",
  "stacker",
  "wasm-encoder 0.263.0",
+ "wasmparser 0.263.0",
  "wasmtime",
 ]
 

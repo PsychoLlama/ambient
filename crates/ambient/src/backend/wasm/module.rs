@@ -1,15 +1,17 @@
 //! Putting compiled functions together as a module, with the function
 //! that lays out its statics.
 
-use ambient_runtime::Entry;
 use wasm_encoder::{
-    CodeSection, ConstExpr, DataCountSection, DataSection, ElementSection, Elements, EntityType,
-    ExportKind, ExportSection, FunctionSection, GlobalSection, GlobalType, ImportSection,
-    MemoryType, Module, RefType, TableType, TypeSection, ValType,
+    CodeSection, ConstExpr, DataCountSection, DataSection, ElementSection, Elements, ExportKind,
+    ExportSection, FunctionSection, GlobalSection, GlobalType, ImportSection, Module, TypeSection,
+    ValType,
 };
 
+use super::code::{self, Calls};
+use super::function_type;
 use super::layout::{Globals, initializer, reclaimer};
-use super::{FIRST, RUNTIME_MODULE, function_type};
+pub use super::runtime::HOST;
+use super::runtime::{Runtime, global};
 use crate::backend::MAX_ARITY;
 use crate::backend::statics::{self, Base, Statics};
 use crate::engine::{Body, Part, Parts};
@@ -33,95 +35,25 @@ enum Shape {
     Unit,
 }
 
-/// The types and imports every module has, and the first type after
-/// them.
-fn signatures() -> Result<(TypeSection, ImportSection, u32), String> {
-    let index = |value: usize| u32::try_from(value).map_err(|error| error.to_string());
+/// The first type after those every module starts with: one for each
+/// arity of compiled function, then `init`'s and `drop`'s.
+// There are a handful of arities; this cannot truncate.
+#[allow(clippy::cast_possible_truncation)]
+const INIT_TYPE: u32 = MAX_ARITY as u32 + 1;
+const DROP_TYPE: u32 = INIT_TYPE + 1;
+pub(super) const FIRST_TYPE: u32 = DROP_TYPE + 1;
+
+/// The types every module starts with.
+fn types() -> TypeSection {
     let mut types = TypeSection::new();
     for arity in 0..=MAX_ARITY {
         let mut params = vec![ValType::I32, ValType::I64];
         params.extend(vec![ValType::I64; arity]);
         types.ty().function(params, [ValType::I64]);
     }
-    let mut next_type = index(MAX_ARITY + 1)?;
-    let mut imports = ImportSection::new();
-    imports.import(
-        RUNTIME_MODULE,
-        "memory",
-        EntityType::Memory(MemoryType {
-            minimum: 0,
-            maximum: None,
-            memory64: false,
-            shared: false,
-            page_size_log2: None,
-        }),
-    );
-    // Compiled functions go in the runtime's table, so that the runtime
-    // can call them and they can call each other the same way.
-    imports.import(
-        RUNTIME_MODULE,
-        "__indirect_function_table",
-        EntityType::Table(TableType {
-            element_type: RefType::FUNCREF,
-            minimum: 0,
-            maximum: None,
-            table64: false,
-            shared: false,
-        }),
-    );
-    // The runtime's stack, where a function keeps its locals.
-    imports.import(
-        RUNTIME_MODULE,
-        "__stack_pointer",
-        global(ValType::I32, true),
-    );
-    for entry in Entry::ALL {
-        let mut params = Vec::new();
-        if entry.takes_context() {
-            params.push(ValType::I32);
-        }
-        params.extend(vec![ValType::I64; entry.arity()]);
-        let results: &[ValType] = if entry.returns() {
-            &[ValType::I64]
-        } else {
-            &[]
-        };
-        types.ty().function(params, results.iter().copied());
-        imports.import(
-            RUNTIME_MODULE,
-            entry.name(),
-            EntityType::Function(next_type),
-        );
-        next_type += 1;
-    }
-    // In the order of the indices `super` gives them.
-    let bytes = [ValType::I32, ValType::I64];
-    types.ty().function([ValType::I64], [ValType::I32]);
-    types.ty().function(bytes, [ValType::I64]);
-    types.ty().function(bytes, []);
-    types.ty().function([ValType::I64], []);
-    let others = [
-        ("amb_words", 0),
-        ("amb_string_pinned", 1),
-        ("amb_intern", 1),
-        ("amb_tag", 1),
-        ("amb_string_new", 1),
-        ("amb_words_free", 2),
-        ("amb_unit_retain", 3),
-        ("amb_unit_release", 3),
-    ];
-    for (name, ty) in others {
-        imports.import(RUNTIME_MODULE, name, EntityType::Function(next_type + ty));
-    }
-    Ok((types, imports, next_type + 4))
-}
-
-fn global(val_type: ValType, mutable: bool) -> EntityType {
-    EntityType::Global(GlobalType {
-        val_type,
-        mutable,
-        shared: false,
-    })
+    types.ty().function([], [ValType::I64]);
+    types.ty().function([], []);
+    types
 }
 
 /// Whether a part is laid out: a function or a type, which other code
@@ -131,110 +63,160 @@ fn placed(part: &Part) -> bool {
 }
 
 /// Puts the parts of a program compiled by [`super::Wasm`] together as
-/// a module.
+/// a module, for the host in this crate.
 ///
-/// The module exports `init`, which lays out the program's definitions and
-/// returns the entry's closure, and `entry`, which takes a context, that
-/// closure, and the entry's arguments. For each extern it reaches it
-/// exports a global `native:<package>\t<tag>`, its position among them.
+/// The module is the whole program: its own functions, and the pieces
+/// of the runtime they and the host reach. It exports its `memory`,
+/// those of the runtime's functions its host calls, `init`, which lays
+/// out the program's definitions and returns the entry's closure, and
+/// `entry`, which takes a context, that closure, and the entry's
+/// arguments. For each extern it reaches it exports a global
+/// `native:<package>\t<tag>`, its position among them.
 ///
 /// # Errors
 ///
 /// Fails if the program is too large to index.
 pub fn module(parts: &Parts) -> Result<Vec<u8>, String> {
-    assemble(parts, Shape::Program { open: false })
+    module_for(parts, HOST)
+}
+
+/// A program as [`module`] makes it, for a host that calls only the
+/// functions of the runtime named `host`.
+///
+/// # Errors
+///
+/// Fails if the program is too large to index, or the runtime has no
+/// function of one of those names.
+pub fn module_for(parts: &Parts, host: &[&'static str]) -> Result<Vec<u8>, String> {
+    assemble(parts, Shape::Program { open: false }, host)
 }
 
 /// A program as [`module`] makes it, that code can be loaded into.
 ///
-/// It also exports where it laid everything out, for its host to hand
-/// to a [`unit`]: `base`, the address of its block, and for each
-/// definition `root:<hash>` and `definition:<hash>`, offsets from that,
-/// and `metered:<hash>` if the definition has a metered form.
+/// It has the whole runtime, since what is loaded may call any of it,
+/// and exports all of it with its table and its stack. It also exports
+/// where it laid everything out, for its host to hand to a [`unit`]:
+/// `base`, the address of its block, and for each definition
+/// `root:<hash>` and `definition:<hash>`, offsets from that, and
+/// `metered:<hash>` if the definition has a metered form.
 ///
 /// # Errors
 ///
 /// Fails if the program is too large to index.
 pub fn open_module(parts: &Parts) -> Result<Vec<u8>, String> {
-    assemble(parts, Shape::Program { open: true })
+    assemble(parts, Shape::Program { open: true }, HOST)
 }
 
 /// Puts parts made by [`crate::engine::Engine::link_to_load`] together
 /// as a module to instantiate over a running program's memory and
 /// table.
 ///
-/// Besides what a program imports, it imports what [`HOST_MODULE`] and
-/// [`KNOWN_MODULE`] describe. It exports what [`open_module`] does, but
-/// for `entry`, and `drop`, which gives back everything `init` took and
-/// is called once the runtime says nothing refers to the unit.
+/// It imports the program's memory, table, stack, and runtime, and
+/// what [`HOST_MODULE`] and [`KNOWN_MODULE`] describe. It exports what
+/// [`open_module`] does of itself, but for `entry`, and `drop`, which
+/// gives back everything `init` took and is called once the runtime
+/// says nothing refers to the unit.
 ///
 /// # Errors
 ///
 /// Fails if the parts are too large to index.
 pub fn unit(parts: &Parts) -> Result<Vec<u8>, String> {
-    assemble(parts, Shape::Unit)
+    assemble(parts, Shape::Unit, &[])
 }
 
-fn assemble(parts: &Parts, shape: Shape) -> Result<Vec<u8>, String> {
-    let index = |value: usize| u32::try_from(value).map_err(|error| error.to_string());
+/// The functions a module defines besides the runtime's: each a body
+/// and where it calls the runtime, with its type.
+struct Own {
+    bodies: Vec<(Vec<u8>, Calls, u32)>,
+    /// Where each of [`Parts::codes`] is among them.
+    positions: Vec<u64>,
+    /// How many of them are compiled functions: the rest lay the
+    /// module out and give it back.
+    compiled: u32,
+}
+
+/// Reads the compiled functions of `parts`, in the order of the parts.
+fn compiled(parts: &Parts) -> Result<Own, String> {
+    let codes = parts.codes();
+    let mut own = Own {
+        bodies: Vec::new(),
+        positions: vec![0u64; codes.len()],
+        compiled: 0,
+    };
+    for (position, unit) in codes.iter().enumerate() {
+        let Some((arity, artifact)) = unit else {
+            continue;
+        };
+        own.positions[position] = own.bodies.len() as u64;
+        let (body, calls) = code::read(&artifact.0)?;
+        own.bodies
+            .push((body.to_vec(), calls, function_type(*arity)));
+    }
+    own.compiled = u32::try_from(own.bodies.len()).map_err(|error| error.to_string())?;
+    Ok(own)
+}
+
+fn assemble(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Vec<u8>, String> {
     let loaded = shape == Shape::Unit;
     let open = shape != Shape::Program { open: false };
 
-    let (mut types, mut imports, next_type) = signatures()?;
-    types.ty().function([], [ValType::I64]);
-    types.ty().function([], []);
-    let (init_type, drop_type) = (next_type, next_type + 1);
-
+    let mut types = types();
+    let mut imports = ImportSection::new();
     // The stack pointer is every module's first global.
-    let (mut globals, mut imported) = (Globals::default(), 1);
+    let (mut globals, mut next_global) = (Globals::default(), 1);
+    let mut borrowed = None;
     if loaded {
-        (globals, imported) = told(parts, &mut imports);
+        borrowed = Some(Runtime::borrowed(&mut types, &mut imports));
+        (globals, next_global) = told(parts, &mut imports);
+    }
+    if open {
+        // Where `init` puts the block, and the first of its functions.
+        (globals.base, globals.table) = (Some(next_global), Some(next_global + 1));
     }
 
-    // Functions are numbered, and tabled, in the order of their parts.
+    let base = Base {
+        loaded,
+        ..Base::none()
+    };
+    let plan = statics::plan(parts, &base);
+    let mut own = compiled(parts)?;
+    let (init, calls) = initializer(&plan, &own.positions, own.compiled, &globals)?;
+    own.bodies.push((init.into_raw_body(), calls, INIT_TYPE));
+    if loaded {
+        let (drop, calls) = reclaimer(&plan, own.compiled, &globals)?;
+        own.bodies.push((drop.into_raw_body(), calls, DROP_TYPE));
+    }
+
+    // A unit borrows its program's runtime, and a program has its own:
+    // what its host and its functions call.
+    let runtime = if let Some(borrowed) = borrowed {
+        borrowed
+    } else {
+        let called = own.bodies.iter().flat_map(|(_, calls, _)| calls);
+        let roots = host.iter().copied().chain(called.map(|(_, name)| *name));
+        Runtime::own(roots.collect(), open, &mut types, &mut imports)?
+    };
     let mut functions = FunctionSection::new();
     let mut code = CodeSection::new();
-    let mut table = Vec::new();
-    let codes = parts.codes();
-    let mut positions = vec![0u64; codes.len()];
-    for (position, unit) in codes.iter().enumerate() {
-        let Some((arity, body)) = unit else {
-            continue;
-        };
-        positions[position] = table.len() as u64;
-        functions.function(function_type(*arity));
-        code.raw(&body.0);
-        table.push(FIRST + index(table.len())?);
+    runtime.define(&mut functions, &mut code);
+    let called = |name: &str| runtime.function(name);
+    for (body, calls, ty) in &own.bodies {
+        functions.function(*ty);
+        code.raw(&code::numbered(body, calls, &called)?);
     }
-    // A part's plain code comes before its metered code.
-    let entry = usize::try_from(positions[parts.entry * 2]).unwrap_or(0);
-    let entry = FIRST + index(entry)?;
-    let init = FIRST + index(table.len())?;
-    let size = index(table.len())?;
+    let first = u32::try_from(runtime.count()).map_err(|error| error.to_string())?;
+    let table: Vec<u32> = (first..first + own.compiled).collect();
+    let init = first + own.compiled;
 
-    let plan = statics::plan(
-        parts,
-        &Base {
-            loaded,
-            ..Base::none()
-        },
-    );
     let mut exports = ExportSection::new();
     let mut defined = GlobalSection::new();
-    let mut next_global = imported;
+    runtime.offer(host, open, &mut defined, &mut exports)?;
     if open {
-        // Where `init` put the block, and the first of its functions.
         for name in ["base", "table"] {
-            let ty = GlobalType {
-                val_type: ValType::I32,
-                mutable: true,
-                shared: false,
-            };
-            defined.global(ty, &ConstExpr::i32_const(0));
+            defined.global(global_type(ValType::I32, true), &ConstExpr::i32_const(0));
             exports.export(name, ExportKind::Global, next_global);
             next_global += 1;
         }
-        (globals.base, globals.table) = (Some(imported), Some(imported + 1));
         describe(parts, &plan, &mut defined, &mut exports, &mut next_global)?;
     }
     for (position, native) in parts.natives.iter().enumerate() {
@@ -247,36 +229,42 @@ fn assemble(parts: &Parts, shape: Shape) -> Result<Vec<u8>, String> {
             position,
         )?;
     }
-
-    functions.function(init_type);
-    code.function(&initializer(&plan, &positions, size, &globals)?);
     exports.export("init", ExportKind::Func, init);
     if loaded {
-        functions.function(drop_type);
-        code.function(&reclaimer(&plan, size, &globals)?);
         exports.export("drop", ExportKind::Func, init + 1);
     } else {
-        exports.export("entry", ExportKind::Func, entry);
+        // A part's plain code comes before its metered code.
+        let entry = u32::try_from(own.positions[parts.entry * 2]).unwrap_or(0);
+        exports.export("entry", ExportKind::Func, first + entry);
     }
-    let mut data = DataSection::new();
-    data.passive(plan.text);
 
-    // `init` copies these into the table, after whatever it holds.
+    // `init` copies the first of these into the table, after whatever
+    // it holds.
     let mut elements = ElementSection::new();
     elements.passive(Elements::Functions(table.into()));
+    let mut data = DataSection::new();
+    data.passive(plan.text);
+    runtime.fill(&mut elements, &mut data);
 
     let mut module = Module::new();
+    module.section(&types).section(&imports).section(&functions);
+    runtime.room(&mut module);
     module
-        .section(&types)
-        .section(&imports)
-        .section(&functions)
         .section(&defined)
         .section(&exports)
         .section(&elements)
-        .section(&DataCountSection { count: 1 })
+        .section(&DataCountSection { count: data.len() })
         .section(&code)
         .section(&data);
     Ok(module.finish())
+}
+
+fn global_type(val_type: ValType, mutable: bool) -> GlobalType {
+    GlobalType {
+        val_type,
+        mutable,
+        shared: false,
+    }
 }
 
 /// Imports what a unit is told: what its host keeps, and where the

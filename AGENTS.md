@@ -2,7 +2,7 @@
 
 - `spec/`: source of truth for the language design. The implementation follows it; change the spec first.
 - `crates/ambient`: the implementation, a library plus an empty binary. Module docs name the spec page each module implements.
-- `crates/ambient-runtime`: what compiled code calls. Built natively into the compiler, and for wasm32 by `crates/ambient/build.rs`.
+- `crates/ambient-runtime`: what compiled code calls. Built natively into the compiler, and for wasm32 by `crates/ambient/build.rs` as one relocatable object.
 
 ## Invariants
 
@@ -43,6 +43,8 @@
 - A received definition (`engine/pack.rs`) is an `Open` under a made-up symbol: it is verified, then hashed, compiled, and linked like any other. It has no surface tree and never reaches the store.
 - A definition holds its own hash (`DEFINITION_HASH`), so a host reads a function value as a hash and captures (`value.rs`), and makes one of a definition the program has (`native::Inside`); what it captures is trusted.
 - A native `Program` is units: each `Program::add` lays out a block (`statics::plan` with a `Base`) that refers to what the program already has by address. `Engine::link_to_load` makes the parts, every function with a metered form.
+- A wasm program is one module: its compiled functions and the pieces of the runtime they and its host reach (`backend/wasm/link/`, `spec/linking.md`). A compiled body leaves room where it calls the runtime and says where (`backend/wasm/code.rs`), since no function has an index until the module is put together.
+- What a piece of the runtime refers to is read from the object's relocations (`link/object.rs`), never listed by hand. `tests/footprint.rs` holds the size of a program that does nothing to a budget.
 - Wasm loads a `wasm::unit` module over a `wasm::open_module` program (`backend/wasm/units.rs`, wasmtime), with what loading keeps in the store's `State` so a host call can load too. The unit imports each definition's address by hash (`known`), zero meaning it lays out its own; modules describe themselves through exported globals (`root:`, `definition:`, `metered:`, `native:`).
 - `statics::plan` names a part's root or definition (`Field::Root`, `Field::Definition`) and an extern (`Field::Native`) without saying where; each loader resolves them.
 - A loaded block is a unit (`ambient-runtime/src/unit.rs`): it starts with a count, and a word naming the unit precedes each definition, fixed object, and constant descriptor in it. Closures, cells, type arguments, and dependent units hold the count; `Program::reclaim` drops units at zero.

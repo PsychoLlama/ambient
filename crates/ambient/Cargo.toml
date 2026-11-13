@@ -11,6 +11,7 @@ cranelift-frontend.workspace = true
 cranelift-native.workspace = true
 memmap2.workspace = true
 wasm-encoder.workspace = true
+wasmparser.workspace = true
 blake3.workspace = true
 postcard.workspace = true
 serde.workspace = true

@@ -1,17 +1,16 @@
 //! A program running in a WebAssembly engine, and loading code into it.
 //!
 //! This is the host `spec/backends.md` leaves to an embedder, written
-//! for wasmtime: it instantiates the runtime, then the program over it,
-//! and each unit loaded after that as one more module over the same
+//! for wasmtime: it instantiates the program, and each unit loaded after that as one more module over the same
 //! memory and table. Any other host does the same with the same
 //! modules; nothing here needs the compiler.
 
 use ambient_runtime::{Fault, NULL, SUSPENDING, UNWIND};
 use wasmtime::{Engine, Linker, Module, Store, Val};
 
+use super::RUNTIME_MODULE;
 use super::guest::{Guest, State, native, word};
 use super::units::externs;
-use super::{RUNTIME, RUNTIME_MODULE};
 use crate::backend::native::Natives;
 use crate::hash::Hash;
 use crate::value::{self, Value};
@@ -29,7 +28,7 @@ pub struct Program {
 }
 
 impl Program {
-    /// Instantiates the runtime and, over it, a program put together by
+    /// Instantiates a program put together by
     /// [`super::module`] or [`super::open_module`], with the native
     /// code for its externs.
     ///
@@ -43,17 +42,20 @@ impl Program {
         let mut store = Store::new(&engine, State::default());
         let mut linker = Linker::new(&engine);
         linker.func_wrap("host", "native", native).map_err(text)?;
-        let runtime = Module::new(&engine, RUNTIME).map_err(text)?;
-        let runtime = linker.instantiate(&mut store, &runtime).map_err(text)?;
+        let module = Module::new(&engine, module).map_err(text)?;
+        let instance = linker.instantiate(&mut store, &module).map_err(text)?;
+        // The program is its own runtime; what is loaded into it
+        // borrows that.
+        let runtime = instance;
         store.data_mut().runtime = Some(runtime);
         linker
             .instance(&mut store, RUNTIME_MODULE, runtime)
             .map_err(text)?;
-
-        let module = Module::new(&engine, module).map_err(text)?;
-        let instance = linker.instantiate(&mut store, &module).map_err(text)?;
         let mut guest = Guest { store, runtime };
-        let unused = guest.words("amb_words", &[1]);
+        // Where the runtime lists the units nothing refers to, in a
+        // program that units are loaded into.
+        let open = instance.get_func(&mut guest.store, "amb_unit_take");
+        let unused = open.map_or(0, |_| guest.words("amb_words", &[1]));
         let externs = externs(&module, instance, &mut guest.store);
         let supplied = natives.resolve(&externs)?;
         let state = guest.store.data_mut();

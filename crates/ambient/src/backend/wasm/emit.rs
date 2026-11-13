@@ -6,7 +6,8 @@ use ambient_runtime::layout::{
 use ambient_runtime::{Entry, FALSE, NULL, SMALL_MAX, SMALL_MIN, TRUE, Word};
 use wasm_encoder::{BlockType, Function, Instruction, MemArg, MemArgTarget, ValType};
 
-use super::{function_type, import};
+use super::code;
+use super::function_type;
 use crate::backend::MAX_ARITY;
 use crate::core::Open;
 use crate::engine::Backend;
@@ -72,6 +73,7 @@ impl Backend for Wasm {
             frame: PARAMS + params + 6,
             slots: function.slots,
             frames: Vec::new(),
+            calls: Vec::new(),
         };
         emitter.enter();
         // The outermost block is the one a point leaves to suspend: after
@@ -88,7 +90,7 @@ impl Backend for Wasm {
         emitter.save();
         emitter.leave();
         emitter.emit(&Instruction::End);
-        Ok(emitter.body.into_raw_body())
+        code::artifact(emitter.body.into_raw_body(), &emitter.calls)
     }
 }
 
@@ -116,11 +118,21 @@ pub(super) struct Emitter {
     /// innermost last. `true` marks one that unwinding leaves through: the
     /// body of a `Let`, or of the function.
     pub(super) frames: Vec<bool>,
+    /// Where the body calls the runtime: see [`code`].
+    pub(super) calls: Vec<(usize, Entry)>,
 }
 
 impl Emitter {
     pub(super) fn emit(&mut self, instruction: &Instruction) {
         self.body.instruction(instruction);
+    }
+
+    /// Calls an entry point of the runtime.
+    pub(super) fn runtime(&mut self, entry: Entry) {
+        let mut calls = Vec::new();
+        code::call(&mut self.body, &mut calls, entry.name());
+        self.calls
+            .extend(calls.into_iter().map(|(offset, _)| (offset, entry)));
     }
 
     fn block(&mut self) {
@@ -241,7 +253,7 @@ impl Emitter {
                 self.frames.pop();
                 self.emit(&Instruction::End);
                 self.local(*local);
-                self.emit(&Instruction::Call(import(Entry::Release)));
+                self.runtime(Entry::Release);
             }
             Expr::If {
                 condition,
@@ -292,7 +304,7 @@ impl Emitter {
             Expr::Fault(fault) => {
                 self.emit(&Instruction::LocalGet(CONTEXT));
                 self.constant(*fault as u64);
-                self.emit(&Instruction::Call(import(Entry::Fault)));
+                self.runtime(Entry::Fault);
                 self.emit(&Instruction::Br(self.unwind_depth()));
             }
         }
@@ -303,7 +315,7 @@ impl Emitter {
             Op::Copy(value) => {
                 if value.counted() {
                     self.value(*value);
-                    self.emit(&Instruction::Call(import(Entry::Retain)));
+                    self.runtime(Entry::Retain);
                 }
                 self.value(*value);
             }
@@ -312,16 +324,16 @@ impl Emitter {
                     self.value(lir::Value::Int(*value));
                 } else {
                     self.emit(&Instruction::I64Const(*value));
-                    self.emit(&Instruction::Call(import(Entry::IntNew)));
+                    self.runtime(Entry::IntNew);
                 }
             }
             Op::Float(bits) => {
                 self.constant(*bits);
-                self.emit(&Instruction::Call(import(Entry::FloatNew)));
+                self.runtime(Entry::FloatNew);
             }
             Op::Slot(slot) => {
                 self.in_definition(*slot);
-                self.emit(&Instruction::Call(import(Entry::Retain)));
+                self.runtime(Entry::Retain);
                 self.in_definition(*slot);
             }
             Op::Call {
@@ -358,7 +370,7 @@ impl Emitter {
                             }
                         }
                     }
-                    self.emit(&Instruction::Call(import(step.entry)));
+                    self.runtime(step.entry);
                     // What the first call returns is the result, and what
                     // the others fill in.
                     if position == 0 {

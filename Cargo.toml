@@ -13,6 +13,7 @@ cranelift-frontend = "0.136"
 cranelift-native = "0.136"
 memmap2 = "0.9"
 wasm-encoder = "0.263"
+wasmparser = { version = "0.263", default-features = false, features = ["std"] }
 wasmtime = { version = "49", default-features = false, features = ["cranelift", "runtime", "std"] }
 blake3 = "1.8"
 proptest = "1.12"

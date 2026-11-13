@@ -1,13 +1,11 @@
 //! The functions of a module that lay its statics out in the runtime's
 //! memory, and that give them back.
 
-use ambient_runtime::{Entry, UNIT_LIST};
+use ambient_runtime::UNIT_LIST;
 use wasm_encoder::{Function, HeapType, Instruction, ValType};
 
+use super::code::{Calls, call};
 use super::emit::memory;
-use super::{
-    INTERN, STRING_NEW, STRING_PINNED, TAG, UNIT_RELEASE, UNIT_RETAIN, WORDS, WORDS_FREE, import,
-};
 use crate::backend::statics::{Field, Make, Place, Statics};
 
 /// The globals a module's layout reads and writes, by index. A program
@@ -84,9 +82,10 @@ pub(super) fn initializer(
     positions: &[u64],
     functions: u32,
     globals: &Globals,
-) -> Result<Function, String> {
+) -> Result<(Function, Calls), String> {
     let locals = [ValType::I32, ValType::I32, ValType::I32, ValType::I64];
     let mut body = Function::new_with_locals_types(locals);
+    let mut calls = Calls::new();
     // Room in the table for the module's functions, then the functions.
     body.instruction(&Instruction::RefNull(HeapType::FUNC));
     body.instruction(&Instruction::I32Const(functions.cast_signed()));
@@ -99,13 +98,13 @@ pub(super) fn initializer(
         table: 0,
     });
     body.instruction(&Instruction::I64Const(number(plan.words.max(1))?));
-    body.instruction(&Instruction::Call(WORDS));
+    call(&mut body, &mut calls, "amb_words");
     body.instruction(&Instruction::LocalSet(BASE));
     // The text goes into memory the runtime allocated, since the runtime
     // owns the memory.
     let text = number(plan.text.len().div_ceil(8).max(1))?;
     body.instruction(&Instruction::I64Const(text));
-    body.instruction(&Instruction::Call(WORDS));
+    call(&mut body, &mut calls, "amb_words");
     body.instruction(&Instruction::LocalTee(TEXT));
     body.instruction(&Instruction::I32Const(0));
     body.instruction(&Instruction::I32Const(small(plan.text.len())?));
@@ -152,13 +151,14 @@ pub(super) fn initializer(
                 body.instruction(&Instruction::I32Const(small(offset)?));
                 body.instruction(&Instruction::I32Add);
                 body.instruction(&Instruction::I64Const(number(length)?));
-                body.instruction(&Instruction::Call(match make {
+                let make = match make {
                     // A unit's strings go when it does.
-                    Make::String if plan.loaded => STRING_NEW,
-                    Make::String => STRING_PINNED,
-                    Make::Field => INTERN,
-                    Make::Tag => TAG,
-                }));
+                    Make::String if plan.loaded => "amb_string_new",
+                    Make::String => "amb_string_pinned",
+                    Make::Field => "amb_intern",
+                    Make::Tag => "amb_tag",
+                };
+                call(&mut body, &mut calls, make);
             }
         }
         body.instruction(&Instruction::I64Store(memory(small(word * 8)?)));
@@ -173,7 +173,7 @@ pub(super) fn initializer(
         // The text was copied by whatever was made of it.
         body.instruction(&Instruction::LocalGet(TEXT));
         body.instruction(&Instruction::I64Const(text));
-        body.instruction(&Instruction::Call(WORDS_FREE));
+        call(&mut body, &mut calls, "amb_words_free");
         // The unit's record says where it goes once nothing refers to
         // it. It is held while the entry is taken, so that a unit the
         // entry is not in goes there at once.
@@ -181,15 +181,15 @@ pub(super) fn initializer(
         body.instruction(&Instruction::GlobalGet(globals.unused));
         body.instruction(&Instruction::I64Store(memory(small(UNIT_LIST * 8)?)));
         address(&mut body, BASE, 0)?;
-        body.instruction(&Instruction::Call(UNIT_RETAIN));
+        call(&mut body, &mut calls, "amb_unit_retain");
         body.instruction(&Instruction::LocalGet(ENTRY));
-        body.instruction(&Instruction::Call(import(Entry::Retain)));
+        call(&mut body, &mut calls, "amb_retain");
         address(&mut body, BASE, 0)?;
-        body.instruction(&Instruction::Call(UNIT_RELEASE));
+        call(&mut body, &mut calls, "amb_unit_release");
         body.instruction(&Instruction::LocalGet(ENTRY));
     }
     body.instruction(&Instruction::End);
-    Ok(body)
+    Ok((body, calls))
 }
 
 /// The function that gives back what a unit's `init` took: the strings
@@ -198,11 +198,12 @@ pub(super) fn reclaimer(
     plan: &Statics,
     functions: u32,
     globals: &Globals,
-) -> Result<Function, String> {
+) -> Result<(Function, Calls), String> {
     let (Some(base), Some(table)) = (globals.base, globals.table) else {
         return Err("a unit notes where it is".to_owned());
     };
     let mut body = Function::new_with_locals_types([]);
+    let mut calls = Calls::new();
     for (word, field) in &plan.fields {
         if let Field::Text {
             make: Make::String, ..
@@ -210,7 +211,7 @@ pub(super) fn reclaimer(
         {
             body.instruction(&Instruction::GlobalGet(base));
             body.instruction(&Instruction::I64Load(memory(small(word * 8)?)));
-            body.instruction(&Instruction::Call(import(Entry::Release)));
+            call(&mut body, &mut calls, "amb_release");
         }
     }
     body.instruction(&Instruction::GlobalGet(table));
@@ -219,7 +220,7 @@ pub(super) fn reclaimer(
     body.instruction(&Instruction::TableFill(0));
     body.instruction(&Instruction::GlobalGet(base));
     body.instruction(&Instruction::I64Const(number(plan.words.max(1))?));
-    body.instruction(&Instruction::Call(WORDS_FREE));
+    call(&mut body, &mut calls, "amb_words_free");
     body.instruction(&Instruction::End);
-    Ok(body)
+    Ok((body, calls))
 }

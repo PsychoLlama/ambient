@@ -202,6 +202,11 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
     /// Drops what was loaded and nothing refers to any more: see
     /// [`super::Program::reclaim`].
     pub(super) fn reclaim(&mut self) {
+        // A program nothing is loaded into has nothing to drop, and
+        // not the part of the runtime that says what to.
+        if self.state(|state| state.unused) == 0 {
+            return;
+        }
         loop {
             let unused = self.state(|state| state.unused);
             let unit = self.at("amb_unit_take", unused, &[]);
