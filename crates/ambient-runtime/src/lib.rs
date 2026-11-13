@@ -69,8 +69,8 @@ pub use entry::Entry;
 pub use host::*;
 pub use is::{amb_is, descriptor};
 pub use iterator::{
-    amb_int_range, amb_iterator_advance, amb_iterator_new, amb_iterator_stepper, amb_list_iterate,
-    amb_string_iterate,
+    Source, amb_int_range, amb_iterator_advance, amb_iterator_hold, amb_iterator_new,
+    amb_iterator_of, amb_iterator_stepper, amb_list_iterate, amb_string_iterate,
 };
 pub use list::*;
 pub use native::*;
@@ -190,7 +190,8 @@ pub enum Kind {
     /// A method a record holds: a function with room for the record,
     /// which reading the field fills in.
     Method = 13,
-    /// An iterator. A host sees that it is one and nothing inside it.
+    /// An iterator: its payload is its [`Source`], an integer, and
+    /// the two values that keeps.
     Iterator = 14,
 }
 

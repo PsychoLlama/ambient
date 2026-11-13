@@ -9,14 +9,24 @@ use crate::list::members;
 use crate::object::{KIND_ITERATOR, KIND_TUPLE, amb_retain, bytes, int, object, small, words};
 use crate::{NULL, Word, amb_int_new};
 
-/// Over a function: the function, which is called for each step.
-const FUNCTION: i64 = 0;
-/// Over a list: the list, and the position of the next member.
-const LIST: i64 = 1;
-/// Over integers: the next one, and the one to stop before.
-const RANGE: i64 = 2;
-/// Over a string: the string, and the position of the next character.
-const STRING: i64 = 3;
+/// What steps an iterator, and so what the two values it keeps are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u64)]
+pub enum Source {
+    /// A function, which is called for each step; and null.
+    Function = 0,
+    /// A list, and the position of the next member.
+    List = 1,
+    /// Integers: the next one, and the one to stop before.
+    Range = 2,
+    /// A string, and the position of the next character.
+    String = 3,
+}
+
+const FUNCTION: i64 = Source::Function as i64;
+const LIST: i64 = Source::List as i64;
+const RANGE: i64 = Source::Range as i64;
+const STRING: i64 = Source::String as i64;
 
 /// An iterator of `kind` that owns `first` and `second`.
 unsafe fn iterator(kind: i64, first: Word, second: Word) -> Word {
@@ -39,6 +49,24 @@ unsafe fn step(item: Word, rest: Word) -> Word {
         let word = object(KIND_TUPLE, 16);
         words(word).copy_from_slice(&[item, rest]);
         word
+    }
+}
+
+/// An iterator a [`Source`] steps, that keeps nothing yet: a host
+/// fills it with [`amb_iterator_hold`] before anything else sees it,
+/// with values that are what that source keeps.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_iterator_of(source: u64) -> Word {
+    unsafe { iterator(source as i64, NULL, NULL) }
+}
+
+/// Puts `value` at `index`, zero or one, of what an iterator under
+/// construction keeps.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_iterator_hold(iterator: Word, index: u64, value: Word) {
+    unsafe {
+        amb_retain(value);
+        words(iterator)[1 + index as usize] = value;
     }
 }
 

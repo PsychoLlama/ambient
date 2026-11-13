@@ -5,11 +5,12 @@
 
 mod support;
 
+use ambient::backend::native::Natives;
 use ambient::builder::{self as b, pat, ty};
 use ambient::library;
 use ambient::surface::{Definition, Expr, Type};
-use ambient::value::Value;
-use support::{run_in, workspace};
+use ambient::value::{Source, Value};
+use support::{run_in, run_with, workspace};
 
 fn iterator_of(member: Type) -> Type {
     ty::iterator(member)
@@ -265,4 +266,60 @@ fn stepping_inside_a_budget_is_charged() {
         ],
     );
     assert_eq!(evaluates(b::tuple([steps(1000), spent])), expected);
+}
+
+/// What a program gives when it steps the iterator its host hands it:
+/// the item, and the iterator of the rest, as its host reads that.
+fn stepped_once(source: Source, held: &[Value; 2]) -> Value {
+    let given = b::extern_function("given", "given").returns(ty::unknown());
+    let nothing = b::range(b::int(0), b::int(0));
+    let iterator = b::cast(
+        b::call(b::name("given"), []),
+        iterator_of(ty::unknown()),
+        nothing,
+    );
+    let main = b::function("main")
+        .returns(ty::unknown())
+        .body(b::step(iterator));
+    let natives = || {
+        let handed = Value::Iterator(source, held.to_vec());
+        Natives::new().reaching("app", "given", move |_, _| Ok(handed.clone()))
+    };
+    run_with(None, [given.into(), main], natives).unwrap()
+}
+
+#[test]
+fn an_iterator_crosses_between_a_program_and_its_host() {
+    let rest = |source, held: [Value; 2]| Value::Iterator(source, held.to_vec());
+    let text = |text: &str| Value::String(text.to_owned());
+    let list = || Value::List(vec![Value::Int(7), Value::Int(8)]);
+
+    assert_eq!(
+        stepped_once(Source::Range, &[Value::Int(5), Value::Int(7)]),
+        Value::Tuple(vec![
+            Value::Int(5),
+            rest(Source::Range, [Value::Int(6), Value::Int(7)])
+        ]),
+    );
+    assert_eq!(
+        stepped_once(Source::List, &[list(), Value::Int(1)]),
+        Value::Tuple(vec![
+            Value::Int(8),
+            rest(Source::List, [list(), Value::Int(2)])
+        ]),
+    );
+    assert_eq!(
+        stepped_once(Source::String, &[text("aé"), Value::Int(1)]),
+        Value::Tuple(vec![
+            text("é"),
+            rest(Source::String, [text("aé"), Value::Int(3)])
+        ]),
+    );
+}
+
+#[test]
+fn an_iterator_that_keeps_what_its_source_does_not_is_never_made() {
+    // A place past the end of the list: the program is handed null.
+    let past = [Value::List(Vec::new()), Value::Int(1)];
+    assert_eq!(stepped_once(Source::List, &past), Value::Null);
 }

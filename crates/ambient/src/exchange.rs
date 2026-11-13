@@ -10,15 +10,13 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::hash::{Hash, Hasher};
-use crate::value::{Function, Value};
+use crate::value::{Function, Source, Value};
 
 /// Why a value has no encoding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unsendable {
     /// It contains a cell, which is tied to the program that holds it.
     Cell,
-    /// It contains an iterator, which has no encoding yet.
-    Iterator,
     /// It contains an abort handler, which is tied to a provide that is
     /// still running.
     Abort,
@@ -34,7 +32,6 @@ impl fmt::Display for Unsendable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Cell => write!(f, "a cell never leaves its program"),
-            Self::Iterator => write!(f, "an iterator has no encoding"),
             Self::Abort => write!(f, "an abort handler never leaves its program"),
             Self::Function => write!(f, "a function has no definition to name"),
             Self::Types => write!(f, "a generic function's type arguments have no encoding"),
@@ -68,6 +65,7 @@ const LIST: u8 = 8;
 const RECORD: u8 = 9;
 const FUNCTION: u8 = 10;
 const METHOD: u8 = 11;
+const ITERATOR: u8 = 12;
 
 fn text(text: &str, out: &mut Vec<u8>) {
     out.extend_from_slice(&(text.len() as u64).to_le_bytes());
@@ -149,7 +147,13 @@ pub fn encode(value: &Value) -> Result<Vec<u8>, Unsendable> {
                 );
             }
             Value::Cell => return Err(Unsendable::Cell),
-            Value::Iterator => return Err(Unsendable::Iterator),
+            // An iterator is what steps it and the two values that
+            // keeps, which is all of what it will give.
+            Value::Iterator(source, held) => {
+                out.push(ITERATOR);
+                out.push(source.number().to_le_bytes()[0]);
+                pending.extend(held.iter().rev().map(|kept| (None, kept)));
+            }
             Value::Token => return Err(Unsendable::Abort),
             Value::Types => return Err(Unsendable::Types),
         }
@@ -180,6 +184,10 @@ enum Partial {
         method: bool,
         definition: Hash,
         captures: Vec<Value>,
+    },
+    Iterator {
+        source: Source,
+        held: Vec<Value>,
     },
 }
 
@@ -231,8 +239,10 @@ impl Open {
         Ok(())
     }
 
-    fn finish(self) -> Value {
-        match self.partial {
+    /// The value, if what was read is one: an iterator keeps only
+    /// what its source keeps.
+    fn finish(self) -> Result<Value, Malformed> {
+        Ok(match self.partial {
             Partial::Sequence {
                 list: true,
                 members,
@@ -254,7 +264,11 @@ impl Open {
                     Value::Function(function)
                 }
             }
-        }
+            Partial::Iterator { source, held } if source.keeps(&held) => {
+                Value::Iterator(source, held)
+            }
+            Partial::Iterator { .. } => return Err(Malformed),
+        })
     }
 }
 
@@ -282,6 +296,18 @@ pub fn decode(bytes: &[u8]) -> Result<Value, Malformed> {
                 package: reader.text()?,
                 tag: reader.text()?,
             },
+            ITERATOR => {
+                let source = Source::numbered(u64::from(reader.take(1)?[0])).ok_or(Malformed)?;
+                let partial = Partial::Iterator {
+                    source,
+                    held: Vec::new(),
+                };
+                open.push(Open {
+                    partial,
+                    remaining: 2,
+                });
+                continue;
+            }
             kind @ (TUPLE | LIST | RECORD | FUNCTION | METHOD) => {
                 let partial = match kind {
                     RECORD => Partial::Record {
@@ -303,7 +329,7 @@ pub fn decode(bytes: &[u8]) -> Result<Value, Malformed> {
                 open.push(started);
                 // An empty one is complete at once, like any value.
                 match open.pop_if(|open| open.remaining == 0) {
-                    Some(empty) => empty.finish(),
+                    Some(empty) => empty.finish()?,
                     None => continue,
                 }
             }
@@ -322,7 +348,8 @@ pub fn decode(bytes: &[u8]) -> Result<Value, Malformed> {
                 Partial::Sequence { members, .. }
                 | Partial::Function {
                     captures: members, ..
-                } => members.push(value),
+                }
+                | Partial::Iterator { held: members, .. } => members.push(value),
                 Partial::Record { fields, key } => {
                     fields.insert(std::mem::take(key), value);
                 }
@@ -330,7 +357,7 @@ pub fn decode(bytes: &[u8]) -> Result<Value, Malformed> {
             parent.remaining -= 1;
             parent.next_key(&mut reader)?;
             match open.pop_if(|open| open.remaining == 0) {
-                Some(complete) => value = complete.finish(),
+                Some(complete) => value = complete.finish()?,
                 None => break,
             }
         }

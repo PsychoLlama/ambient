@@ -39,6 +39,8 @@ pub const HOST: &[&str] = &[
     "amb_tag",
     "amb_sequence_new",
     "amb_sequence_set",
+    "amb_iterator_of",
+    "amb_iterator_hold",
     "amb_record_new",
     "amb_record_set",
     "amb_closure_new",

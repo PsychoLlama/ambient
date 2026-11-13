@@ -249,6 +249,14 @@ impl Construct for Inside<'_> {
         Construct::sequence(&mut Host, list, length)
     }
 
+    fn iterator(&mut self, source: u64) -> Word {
+        Construct::iterator(&mut Host, source)
+    }
+
+    fn iterator_set(&mut self, iterator: Word, index: u64, value: Word) {
+        Construct::iterator_set(&mut Host, iterator, index, value);
+    }
+
     fn sequence_set(&mut self, sequence: Word, index: u64, value: Word) {
         Construct::sequence_set(&mut Host, sequence, index, value);
     }
@@ -359,6 +367,14 @@ impl Construct for Host {
 
     fn sequence(&mut self, list: bool, length: u64) -> Word {
         unsafe { ambient_runtime::amb_sequence_new(u64::from(list), length) }
+    }
+
+    fn iterator(&mut self, source: u64) -> Word {
+        unsafe { ambient_runtime::amb_iterator_of(source) }
+    }
+
+    fn iterator_set(&mut self, iterator: Word, index: u64, value: Word) {
+        unsafe { ambient_runtime::amb_iterator_hold(iterator, index, value) }
     }
 
     fn sequence_set(&mut self, sequence: Word, index: u64, value: Word) {

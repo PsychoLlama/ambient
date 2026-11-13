@@ -36,14 +36,70 @@ pub enum Value {
     Method(Function),
     /// A cell. It never leaves its program.
     Cell,
-    /// An iterator. A host sees that it is one and nothing inside it.
-    Iterator,
+    /// An iterator: what steps it, and the two values that keeps.
+    Iterator(Source, Vec<Value>),
     /// What an abort handler is bound to: a hold on a provide that is
     /// still running. It never leaves its program.
     Token,
     /// The type arguments a generic function was made at, which follow
     /// what it captured. Nothing outside its program can read them yet.
     Types,
+}
+
+/// What steps an iterator, and so what it keeps: see
+/// [`ambient_runtime::Source`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Source {
+    /// A function that is called for each step, and null.
+    Function,
+    /// A list, and the position of its next member.
+    List,
+    /// The next integer, and the one to stop before.
+    Range,
+    /// A string, and the position of its next character.
+    String,
+}
+
+impl Source {
+    const ALL: [Self; 4] = [Self::Function, Self::List, Self::Range, Self::String];
+
+    /// The number the runtime knows it by.
+    #[must_use]
+    pub fn number(self) -> u64 {
+        (match self {
+            Self::Function => ambient_runtime::Source::Function,
+            Self::List => ambient_runtime::Source::List,
+            Self::Range => ambient_runtime::Source::Range,
+            Self::String => ambient_runtime::Source::String,
+        }) as u64
+    }
+
+    /// The source the runtime knows by `number`.
+    #[must_use]
+    pub fn numbered(number: u64) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|source| source.number() == number)
+    }
+
+    /// Whether `held` is what an iterator this steps keeps. The
+    /// runtime steps one without looking, so nothing else is made
+    /// into an iterator.
+    #[must_use]
+    pub fn keeps(self, held: &[Value]) -> bool {
+        let within = |at: &i64, fits: &dyn Fn(usize) -> bool| usize::try_from(*at).is_ok_and(fits);
+        match (self, held) {
+            (Self::Function, [Value::Function(_), Value::Null])
+            | (Self::Range, [Value::Int(_), Value::Int(_)]) => true,
+            (Self::List, [Value::List(members), Value::Int(at)]) => {
+                within(at, &|at| at <= members.len())
+            }
+            (Self::String, [Value::String(text), Value::Int(at)]) => {
+                within(at, &|at| text.is_char_boundary(at))
+            }
+            _ => false,
+        }
+    }
 }
 
 /// A function value: a definition, and what it captured where it was
@@ -136,7 +192,16 @@ pub fn decode(word: Word, inspect: &mut impl Inspect) -> Value {
                 return Step::Inside(words(inspect, 1, 1), Box::new(function));
             }
             kind if kind == Kind::Cell as u64 => Value::Cell,
-            kind if kind == Kind::Iterator as u64 => Value::Iterator,
+            // An iterator's payload is its source, and what that keeps.
+            kind if kind == Kind::Iterator as u64 => {
+                let number = inspect.word_at(word, 0);
+                let source = Source::numbered(inspect.int(number).cast_unsigned());
+                let Some(source) = source else {
+                    return Step::Leaf(Value::Null);
+                };
+                let iterator = move |held| Value::Iterator(source, held);
+                return Step::Inside(words(inspect, 1, 1), Box::new(iterator));
+            }
             kind if kind == Kind::Token as u64 => Value::Token,
             kind if kind == Kind::Types as u64 => Value::Types,
             _ => Value::Int(inspect.int(word)),
@@ -170,6 +235,10 @@ pub trait Construct {
     fn capture(&mut self, _function: Word, _index: u64, _value: Word) {}
     /// Makes a function just made a method, for a record to hold.
     fn method(&mut self, _function: Word) {}
+    /// An iterator that the source of this number steps, to fill with
+    /// the two values it keeps.
+    fn iterator(&mut self, source: u64) -> Word;
+    fn iterator_set(&mut self, iterator: Word, index: u64, value: Word);
 }
 
 /// A container being filled: its word, and what is still to go in it.
@@ -185,12 +254,14 @@ struct Filling<'a> {
 enum Members<'a> {
     Sequence(std::slice::Iter<'a, Value>),
     Captures(std::slice::Iter<'a, Value>),
+    Kept(std::slice::Iter<'a, Value>),
     Record(std::collections::btree_map::Iter<'a, String, Value>),
 }
 
 /// A value as a word the caller owns. A function is made only of a
 /// definition `make` has; any other, and a cell or a token, which nothing
-/// makes from outside a program, becomes null.
+/// makes from outside a program, becomes null. So does an iterator that
+/// does not keep what its source [keeps](Source::keeps).
 pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
     let mut open: Vec<Filling> = Vec::new();
     let mut next = value;
@@ -202,7 +273,12 @@ pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
             key: ambient_runtime::NULL,
         };
         let mut ready = match next {
-            Value::Null | Value::Cell | Value::Iterator | Value::Token | Value::Types => {
+            Value::Iterator(source, held) if source.keeps(held) => {
+                let word = make.iterator(source.number());
+                open.push(filling(word, Members::Kept(held.iter())));
+                None
+            }
+            Value::Null | Value::Cell | Value::Iterator(..) | Value::Token | Value::Types => {
                 Some(ambient_runtime::NULL)
             }
             Value::Function(function) | Value::Method(function) => {
@@ -250,13 +326,16 @@ pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
                 match parent.members {
                     Members::Sequence(_) => make.sequence_set(parent.word, parent.index, word),
                     Members::Captures(_) => make.capture(parent.word, parent.index, word),
+                    Members::Kept(_) => make.iterator_set(parent.word, parent.index, word),
                     Members::Record(_) => make.record_set(parent.word, parent.key, word),
                 }
                 parent.index += 1;
                 make.release(word);
             }
             let member = match &mut parent.members {
-                Members::Sequence(members) | Members::Captures(members) => members.next(),
+                Members::Sequence(members)
+                | Members::Captures(members)
+                | Members::Kept(members) => members.next(),
                 Members::Record(fields) => fields.next().map(|(name, member)| {
                     parent.key = make.key(name.as_bytes());
                     member

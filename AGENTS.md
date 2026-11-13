@@ -63,7 +63,7 @@
 - Subtyping is decided only when checking (`types/relate.rs`). The runtime compares two types for sameness alone, for casts to cell types (`ambient-runtime/src/same.rs`); a cast to a function type compares one word, the name of the type (`backend/identity.rs`), which a definition carries.
 - A native `Program` keeps a list of its live cells and empties them when it drops (`ambient-runtime/src/cell.rs`), since counting never reclaims a cell that reaches itself. In wasm the instance's memory goes as a whole.
 - `Parts::encode` is compiled code for a host with no compiler (`engine/parts.rs`), refused by another backend or format. Bump its `FORMAT` when `Parts`, a layout, the calling convention, or a runtime entry changes.
-- A value has one encoding (`exchange.rs`); `decode` accepts only what `encode` produces.
+- A value has one encoding (`exchange.rs`); `decode` accepts only what `encode` produces. A host sees inside an iterator (`value::Source`), and only one that keeps what its source keeps (`Source::keeps`) is decoded or made in a program: the runtime steps without looking.
 - `core::Tree::resolved` defines every hash: the tree's encoding with slots replaced by hashes and unions ordered by that. `Tree::encode` is the stored form, which names can order; never hash it. Changing either or the node set means bumping `FORMAT`.
 
 ## Testing

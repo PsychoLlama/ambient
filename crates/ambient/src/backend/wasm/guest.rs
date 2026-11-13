@@ -177,6 +177,14 @@ impl<S: AsContextMut<Data = State>> Construct for Guest<S> {
         self.words("amb_sequence_set", &[sequence, index, value]);
     }
 
+    fn iterator(&mut self, source: u64) -> u64 {
+        self.words("amb_iterator_of", &[source])
+    }
+
+    fn iterator_set(&mut self, iterator: u64, index: u64, value: u64) {
+        self.words("amb_iterator_hold", &[iterator, index, value]);
+    }
+
     fn record(&mut self, length: u64) -> u64 {
         self.words("amb_record_new", &[length])
     }

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use ambient::exchange::{Malformed, Unsendable, decode, encode, hash};
 use ambient::hash::Hash;
-use ambient::value::{Function, Value};
+use ambient::value::{Function, Source, Value};
 use proptest::prelude::*;
 
 /// A function over the definition with this hash.
@@ -15,6 +15,36 @@ fn function((definition, captures): ([u8; 32], Vec<Value>)) -> Value {
         definition: Some(Hash::from_bytes(definition)),
         captures,
     })
+}
+
+/// An iterator the language steps, at any place in what it walks.
+fn walking() -> impl Strategy<Value = Value> {
+    let range = (any::<i64>(), any::<i64>()).prop_map(|(next, end)| vec![next, end]);
+    let ints = |ints: Vec<i64>| ints.into_iter().map(Value::Int).collect();
+    let list = prop::collection::vec(any::<i64>(), 0..4).prop_flat_map(move |members| {
+        let at = 0..=i64::try_from(members.len()).unwrap();
+        at.prop_map(move |at| vec![Value::List(ints(members.clone())), Value::Int(at)])
+    });
+    let string = ".*".prop_flat_map(|text| {
+        let ends: Vec<usize> = text.char_indices().map(|(at, _)| at).collect();
+        let ends = [ends, vec![text.len()]].concat();
+        prop::sample::select(ends).prop_map(move |at| {
+            vec![
+                Value::String(text.clone()),
+                Value::Int(i64::try_from(at).unwrap()),
+            ]
+        })
+    });
+    prop_oneof![
+        range.prop_map(move |held| Value::Iterator(Source::Range, ints(held))),
+        list.prop_map(|held| Value::Iterator(Source::List, held)),
+        string.prop_map(|held| Value::Iterator(Source::String, held)),
+    ]
+}
+
+/// An iterator that a function steps.
+fn stepped(function: Value) -> Value {
+    Value::Iterator(Source::Function, vec![function, Value::Null])
 }
 
 /// Any value that can be sent.
@@ -26,13 +56,20 @@ fn value() -> impl Strategy<Value = Value> {
         any::<f64>().prop_map(Value::Float),
         ".*".prop_map(Value::String),
         ("[a-z]*", "[a-z]*").prop_map(|(package, tag)| Value::Tag { package, tag }),
+        walking(),
     ];
     leaf.prop_recursive(4, 32, 4, |inner| {
         prop_oneof![
             prop::collection::vec(inner.clone(), 0..4).prop_map(Value::Tuple),
             prop::collection::vec(inner.clone(), 0..4).prop_map(Value::List),
             prop::collection::btree_map("[a-z]*", inner.clone(), 0..4).prop_map(Value::Record),
-            (any::<[u8; 32]>(), prop::collection::vec(inner, 0..4)).prop_map(function),
+            (
+                any::<[u8; 32]>(),
+                prop::collection::vec(inner.clone(), 0..4)
+            )
+                .prop_map(function),
+            (any::<[u8; 32]>(), prop::collection::vec(inner, 0..4))
+                .prop_map(|function| stepped(self::function(function))),
         ]
     })
 }
@@ -167,4 +204,17 @@ fn a_generic_function_has_no_encoding() {
     });
 
     assert_eq!(encode(&generic), Err(Unsendable::Types));
+}
+
+#[test]
+fn an_iterator_keeps_only_what_its_source_does() {
+    // A place past the end of a list, and one inside a character.
+    let past = vec![Value::List(vec![Value::Int(1)]), Value::Int(2)];
+    let inside = vec![Value::String("é".to_owned()), Value::Int(1)];
+    let cases = [(Source::List, past), (Source::String, inside)];
+
+    for (source, held) in cases {
+        let bytes = encode(&Value::Iterator(source, held)).unwrap();
+        assert_eq!(decode(&bytes), Err(Malformed));
+    }
 }

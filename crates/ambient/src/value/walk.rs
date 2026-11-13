@@ -59,7 +59,9 @@ impl Value {
     /// Takes the values directly inside this one out of it.
     fn take_members(&mut self) -> Vec<Value> {
         match self {
-            Self::Tuple(members) | Self::List(members) => std::mem::take(members),
+            Self::Tuple(members) | Self::List(members) | Self::Iterator(_, members) => {
+                std::mem::take(members)
+            }
             Self::Record(fields) => std::mem::take(fields).into_values().collect(),
             Self::Function(function) | Self::Method(function) => {
                 std::mem::take(&mut function.captures)
@@ -91,11 +93,15 @@ impl Clone for Value {
                 tag: tag.clone(),
             }),
             Self::Cell => Step::Leaf(Self::Cell),
-            Self::Iterator => Step::Leaf(Self::Iterator),
             Self::Token => Step::Leaf(Self::Token),
             Self::Types => Step::Leaf(Self::Types),
             Self::Tuple(members) => Step::Inside(members.iter().collect(), Box::new(Self::Tuple)),
             Self::List(members) => Step::Inside(members.iter().collect(), Box::new(Self::List)),
+            Self::Iterator(source, held) => {
+                let source = *source;
+                let iterator = move |held| Self::Iterator(source, held);
+                Step::Inside(held.iter().collect(), Box::new(iterator))
+            }
             Self::Record(fields) => {
                 let record =
                     |values: Vec<Self>| Self::Record(fields.keys().cloned().zip(values).collect());
@@ -128,7 +134,6 @@ impl PartialEq for Value {
             let same = match pair {
                 (Self::Null, Self::Null)
                 | (Self::Cell, Self::Cell)
-                | (Self::Iterator, Self::Iterator)
                 | (Self::Token, Self::Token)
                 | (Self::Types, Self::Types) => true,
                 (Self::Bool(left), Self::Bool(right)) => left == right,
@@ -145,6 +150,10 @@ impl PartialEq for Value {
                 (Self::Tuple(left), Self::Tuple(right)) | (Self::List(left), Self::List(right)) => {
                     pending.extend(left.iter().zip(right));
                     left.len() == right.len()
+                }
+                (Self::Iterator(source, left), Self::Iterator(other, right)) => {
+                    pending.extend(left.iter().zip(right));
+                    source == other && left.len() == right.len()
                 }
                 (Self::Record(left), Self::Record(right)) => {
                     pending.extend(left.values().zip(right.values()));
