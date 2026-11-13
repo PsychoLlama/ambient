@@ -230,6 +230,9 @@ pub enum Op {
     Charge { steps: u64, words: u64 },
     /// Charges for an allocation about as large as a value.
     ChargeSize(Value),
+    /// Charges for what reading a key of a record allocates: a
+    /// function, if a method is held there.
+    ChargeRead { record: Value, key: usize },
     /// A group with no tasks yet.
     Group,
     /// Starts a closure as a task of a group, and is null.

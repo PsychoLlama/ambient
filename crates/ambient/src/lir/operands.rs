@@ -59,7 +59,8 @@ impl Op {
             Self::Record(fields) => fields.iter_mut().map(|(_, member)| member).collect(),
             Self::Field { record, .. }
             | Self::Held { record, .. }
-            | Self::Unbound { record, .. } => vec![record],
+            | Self::Unbound { record, .. }
+            | Self::ChargeRead { record, .. } => vec![record],
             Self::Member { tuple, .. } => vec![tuple],
             Self::HasField { value: subject, .. } | Self::IsTuple { value: subject, .. } => {
                 vec![subject]

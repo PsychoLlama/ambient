@@ -117,6 +117,7 @@ entries! {
     BudgetBack = amb_budget_back, context, 2, word;
     Charge = amb_charge, context, 2, word;
     ChargeSize = amb_charge_size, context, 1, word;
+    ChargeRead = amb_charge_read, context, 2, word;
     Contain = amb_contain, context, 0, word;
     Hold = amb_hold, context, 0, word;
     Rethrow = amb_rethrow, context, 1, word;

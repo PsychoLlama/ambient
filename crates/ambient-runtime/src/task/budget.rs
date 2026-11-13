@@ -8,7 +8,8 @@
 use super::scheduler;
 use crate::boundary::FAULT_PACKAGE;
 use crate::number::amb_int_new;
-use crate::object::{fault, header, int, is_object};
+use crate::object::{KIND_RECORD, fault, header, int, is_object, kind};
+use crate::record;
 use crate::text::amb_tag;
 use crate::{Context, Fault, NULL, UNWIND, Word};
 
@@ -174,11 +175,23 @@ pub unsafe extern "C" fn amb_budget_back(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_charge_size(context: *mut Context, value: Word) -> Word {
     unsafe {
-        let words = if is_object(value) {
-            (*header(value)).size.div_ceil(8) + 1
-        } else {
+        let words = if !is_object(value) {
             0
+        } else if kind(value) == KIND_RECORD {
+            record::copying(value)
+        } else {
+            (*header(value)).size.div_ceil(8) + 1
         };
         amb_charge(context, 0, words)
+    }
+}
+
+/// Charges for what reading `key` of `record` allocates: a function,
+/// if the record holds a method there.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_charge_read(context: *mut Context, record: Word, key: Word) -> Word {
+    unsafe {
+        let held = record::find(record, key).unwrap_or(NULL);
+        amb_charge(context, 0, record::binding(held))
     }
 }

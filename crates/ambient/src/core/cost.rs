@@ -64,8 +64,9 @@ impl Expr {
     ///
     /// A step for each call: a call, a perform, a task started, a cleanup
     /// run. Allocation for each value made, by its size. A merge costs
-    /// besides as much as the records it merges hold, which is known only
-    /// when it runs.
+    /// besides as much as the records it merges hold, and reading a
+    /// field as much as the function it makes if the field is a method;
+    /// both are known only when they run.
     #[must_use]
     pub fn cost(&self) -> Cost {
         match self {

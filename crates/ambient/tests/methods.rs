@@ -229,3 +229,28 @@ fn a_host_sees_a_method_as_a_method() {
     assert_eq!(fields["x"], Value::Int(3));
     assert!(matches!(fields["double"], Value::Method(_)));
 }
+
+/// `body` in a budget that affords `words` of allocation.
+fn affords(words: i64, body: Expr) -> Expr {
+    b::budget(b::int(1000), b::int(words), body)
+}
+
+#[test]
+fn calling_a_method_makes_no_function() {
+    // Two words are the sum `double` gives; a function would be four.
+    let body = b::let_("p", point(3), affords(2, send(b::name("p"), "double", [])));
+    assert_eq!(evaluates(body), Value::Int(6));
+}
+
+#[test]
+fn reading_a_method_is_charged_for_the_function_it_makes() {
+    let read = |words| {
+        b::let_(
+            "p",
+            point(3),
+            affords(words, b::field(b::name("p"), "double")),
+        )
+    };
+    assert!(matches!(evaluates(read(4)), Value::Function(_)));
+    assert!(matches!(evaluates(read(3)), Value::Tag { .. }));
+}

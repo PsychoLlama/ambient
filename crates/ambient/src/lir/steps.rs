@@ -56,6 +56,7 @@ impl Op {
             }
             | Self::Charge { .. }
             | Self::ChargeSize(_)
+            | Self::ChargeRead { .. }
             | Self::GroupClose { .. }
             | Self::GroupEnd { .. }
             | Self::Cleanup(Cleanup::Failed) => true,
@@ -193,6 +194,7 @@ impl Op {
             | Self::BudgetBack { .. }
             | Self::Charge { .. }
             | Self::ChargeSize(_)
+            | Self::ChargeRead { .. }
             | Self::Group
             | Self::Spawn { .. }
             | Self::GroupClose { .. }
@@ -322,6 +324,12 @@ impl Op {
                 vec![step(Entry::Charge, [Raw(*steps), Raw(*words)])]
             }
             Self::ChargeSize(sized) => vec![step(Entry::ChargeSize, [value(sized)])],
+            Self::ChargeRead { record, key: field } => {
+                vec![step(
+                    Entry::ChargeRead,
+                    [value(record), Arg::Value(Value::Constant(*field))],
+                )]
+            }
             Self::Group => vec![step(Entry::GroupNew, [])],
             Self::Spawn { group, thunk } => {
                 vec![step(Entry::Spawn, [value(group), value(thunk)])]

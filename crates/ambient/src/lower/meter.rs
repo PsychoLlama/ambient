@@ -33,6 +33,14 @@ impl Lowering {
         Op::Primitive { operation, args }
     }
 
+    /// Charges for the function reading `key` of `record` makes if a
+    /// method is held there, if this is metered code.
+    pub(super) fn charge_read(&mut self, record: Value, key: usize, scope: &mut Scope) {
+        if self.metered {
+            self.bound(Op::ChargeRead { record, key }, scope);
+        }
+    }
+
     /// Charges for a copy of each of `values`, if this is metered code:
     /// what merging them allocates.
     pub(super) fn charge_copies(&mut self, values: &[Value], scope: &mut Scope) {

@@ -302,10 +302,12 @@ impl Lowering {
                 Op::Record(lowered)
             }
             core::Expr::Method(closure) => Op::Method(self.operand(closure, &mut scope)?),
-            core::Expr::Field { target, key } => Op::Field {
-                record: self.operand(target, &mut scope)?,
-                key: self.key(key),
-            },
+            core::Expr::Field { target, key } => {
+                let record = self.operand(target, &mut scope)?;
+                let key = self.key(key);
+                self.charge_read(record, key, &mut scope);
+                Op::Field { record, key }
+            }
             core::Expr::Send { target, key, args } => self.send(target, key, args, &mut scope)?,
             core::Expr::Merge { .. } => self.merge(expr, &mut scope)?,
             core::Expr::Match { subject, arms } => {
