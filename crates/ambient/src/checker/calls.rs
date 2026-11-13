@@ -49,7 +49,19 @@ impl Checker<'_> {
         {
             return self.generic_call(function, &signature, args);
         }
-        let (core_callee, ty) = self.infer(callee)?;
+        // A method is called with the record it is read from, so the
+        // read that would bind the two is never made.
+        let mut sent = None;
+        let (core_callee, ty) = match callee {
+            Expr::Field { target, key } => {
+                let (record, found) = self.infer(target)?;
+                let method = self.env.method(&found, key);
+                let read = self.field(record, &found, key)?;
+                sent = method.map(|_| self.key(key));
+                read
+            }
+            callee => self.infer(callee)?,
+        };
         let Ty::Function { params, ret, row } = self.env.unfold(&ty) else {
             return Err(Error::NotCallable {
                 symbol: self.symbol.clone(),
@@ -75,9 +87,16 @@ impl Checker<'_> {
         for (arg, param) in args.iter().zip(&params) {
             core_args.push(self.check(arg, param)?);
         }
-        let core = core::Expr::Call {
-            callee: Box::new(core_callee),
-            args: core_args,
+        let core = match (sent, core_callee) {
+            (Some(key), core::Expr::Field { target, .. }) => core::Expr::Send {
+                target,
+                key,
+                args: core_args,
+            },
+            (_, callee) => core::Expr::Call {
+                callee: Box::new(callee),
+                args: core_args,
+            },
         };
         Ok((core, *ret))
     }

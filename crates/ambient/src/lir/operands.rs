@@ -57,7 +57,9 @@ impl Op {
             Self::Closure { captures, .. } => captures.iter_mut().collect(),
             Self::Sequence { members, .. } => members.iter_mut().collect(),
             Self::Record(fields) => fields.iter_mut().map(|(_, member)| member).collect(),
-            Self::Field { record, .. } | Self::Held { record, .. } => vec![record],
+            Self::Field { record, .. }
+            | Self::Held { record, .. }
+            | Self::Unbound { record, .. } => vec![record],
             Self::Member { tuple, .. } => vec![tuple],
             Self::HasField { value: subject, .. } | Self::IsTuple { value: subject, .. } => {
                 vec![subject]

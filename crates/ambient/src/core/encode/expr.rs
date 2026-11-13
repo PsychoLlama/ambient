@@ -83,23 +83,7 @@ pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
             out.push(7);
             encode_exprs(members, out);
         }
-        Expr::Field { target, key } => {
-            out.push(8);
-            encode_expr(target, out);
-            encode_key(key, out);
-        }
-        Expr::Merge {
-            left,
-            right,
-            keys,
-            methods,
-        } => {
-            out.push(17);
-            encode_expr(left, out);
-            encode_expr(right, out);
-            encode_keys(keys, out);
-            encode_keys(methods, out);
-        }
+        Expr::Field { .. } | Expr::Send { .. } | Expr::Merge { .. } => encode_record(expr, out),
         Expr::Let { value, body } => {
             out.push(9);
             encode_expr(value, out);
@@ -148,6 +132,36 @@ pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
         | Expr::Spawn(_) => {
             encode_binding(expr, out);
         }
+    }
+}
+
+/// The nodes that read a record or make one of others.
+fn encode_record(expr: &Expr, out: &mut Sink<'_>) {
+    match expr {
+        Expr::Field { target, key } => {
+            out.push(8);
+            encode_expr(target, out);
+            encode_key(key, out);
+        }
+        Expr::Send { target, key, args } => {
+            out.push(30);
+            encode_expr(target, out);
+            encode_key(key, out);
+            encode_exprs(args, out);
+        }
+        Expr::Merge {
+            left,
+            right,
+            keys,
+            methods,
+        } => {
+            out.push(17);
+            encode_expr(left, out);
+            encode_expr(right, out);
+            encode_keys(keys, out);
+            encode_keys(methods, out);
+        }
+        _ => {}
     }
 }
 

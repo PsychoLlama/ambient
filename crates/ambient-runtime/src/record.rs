@@ -109,6 +109,17 @@ pub unsafe extern "C" fn amb_record_held(record: Word, key: Word) -> Word {
     }
 }
 
+/// The function of the method a record holds under `key`: what a call
+/// of the method calls with the record, making no bound function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_record_method(record: Word, key: Word) -> Word {
+    unsafe {
+        let function = words(find(record, key).unwrap_or(NULL))[RECEIVER - 1];
+        amb_retain(function);
+        function
+    }
+}
+
 /// Whether a value is a record with the field `key`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_record_has(value: Word, key: Word) -> Word {

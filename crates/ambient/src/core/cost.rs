@@ -69,7 +69,9 @@ impl Expr {
     #[must_use]
     pub fn cost(&self) -> Cost {
         match self {
-            Self::Call { .. } | Self::Perform { .. } | Self::Spawn(_) => Cost::steps(1),
+            Self::Call { .. } | Self::Send { .. } | Self::Perform { .. } | Self::Spawn(_) => {
+                Cost::steps(1)
+            }
             // A task for each, and the tuple of what they give.
             Self::All(tasks) | Self::First(tasks) => {
                 Cost::steps(tasks.len()).and(Cost::object(tasks.len()))

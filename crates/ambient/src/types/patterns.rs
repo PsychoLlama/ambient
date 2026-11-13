@@ -184,6 +184,23 @@ impl Env {
         }
     }
 
+    /// What reading the method under `key` of a value of type `ty`
+    /// gives, if every such value is a record whose type lists a method
+    /// there.
+    #[must_use]
+    pub fn method(&self, ty: &Ty, key: &TyKey) -> Option<Ty> {
+        match self.unfold(ty) {
+            Ty::Named(Reference::Parameter(position), _) => {
+                self.method(self.bounds.get(position)?, key)
+            }
+            Ty::Record(fields) => match entry(&fields, key)? {
+                Ty::Method { function, .. } => Some(self.unfold(function)),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// The type of member `index` of a tuple-shaped value of type `ty`.
     #[must_use]
     pub fn member(&self, ty: &Ty, index: usize) -> Ty {

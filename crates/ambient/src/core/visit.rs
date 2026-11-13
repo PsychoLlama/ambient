@@ -18,6 +18,10 @@ impl Expr {
                 visit(callee);
                 args.iter().for_each(visit);
             }
+            Self::Send { target, args, .. } => {
+                visit(target);
+                args.iter().for_each(visit);
+            }
             Self::Record(fields) => fields.iter().for_each(|(_, value)| visit(value)),
             Self::Tuple(exprs)
             | Self::List(exprs)

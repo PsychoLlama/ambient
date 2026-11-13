@@ -13,9 +13,6 @@
 //!
 //! TODO: the receiver's type must be written. One left out should be
 //! the type of the record the method is written in.
-//!
-//! TODO: calling a method reads it first, which makes a function. A
-//! call could reach the method's function with the record directly.
 
 use super::Checker;
 use crate::core;

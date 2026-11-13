@@ -306,6 +306,7 @@ impl Lowering {
                 record: self.operand(target, &mut scope)?,
                 key: self.key(key),
             },
+            core::Expr::Send { target, key, args } => self.send(target, key, args, &mut scope)?,
             core::Expr::Merge { .. } => self.merge(expr, &mut scope)?,
             core::Expr::Match { subject, arms } => {
                 let subject = self.operand(subject, &mut scope)?;
@@ -378,7 +379,7 @@ impl Lowering {
         }))
     }
 
-    fn operands(
+    pub(super) fn operands(
         &mut self,
         exprs: &[core::Expr],
         scope: &mut Scope,

@@ -81,9 +81,19 @@ impl Checker<'_> {
         key: &TyKey,
     ) -> Result<(core::Expr, Ty), Error> {
         let (core, ty) = self.infer(target)?;
-        let field = self.env.field(&ty, key).ok_or_else(|| Error::NoField {
+        self.field(core, &ty, key)
+    }
+
+    /// Reads what `record`, of type `ty`, holds under `key`.
+    pub(super) fn field(
+        &mut self,
+        core: core::Expr,
+        ty: &Ty,
+        key: &TyKey,
+    ) -> Result<(core::Expr, Ty), Error> {
+        let field = self.env.field(ty, key).ok_or_else(|| Error::NoField {
             symbol: self.symbol.clone(),
-            ty: self.env.show(&ty),
+            ty: self.env.show(ty),
             name: Self::key_name(key),
         })?;
         let core = core::Expr::Field {

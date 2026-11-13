@@ -166,6 +166,7 @@ impl Op {
             | Self::Method(_)
             | Self::Field { .. }
             | Self::Held { .. }
+            | Self::Unbound { .. }
             | Self::Merge { .. } => self.record_steps(),
             Self::Token => vec![step(Entry::TokenNew, [])],
             Self::Expire(token) => vec![step(Entry::TokenExpire, [value(token)])],
@@ -236,6 +237,9 @@ impl Op {
             }
             Self::Held { record, key: field } => {
                 vec![step(Entry::RecordHeld, [value(record), key(field)])]
+            }
+            Self::Unbound { record, key: field } => {
+                vec![step(Entry::RecordMethod, [value(record), key(field)])]
             }
             Self::Merge {
                 base,

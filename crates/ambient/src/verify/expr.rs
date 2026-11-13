@@ -175,6 +175,21 @@ impl Body<'_, '_> {
                 let field = env.field(&found, &self.key(key)?);
                 field.ok_or_else(|| Invalid::Shape("a field is read that may be missing".into()))?
             }
+            Expr::Send { target, key, args } => {
+                let found = self.infer(target)?;
+                let Some(Ty::Function { params, ret, row }) = env.method(&found, &self.key(key)?)
+                else {
+                    return shape("a method is called that may be missing");
+                };
+                if params.len() != args.len() {
+                    return Err(Invalid::Arity);
+                }
+                self.require_all(&row)?;
+                for (arg, param) in args.iter().zip(&params) {
+                    self.check(arg, param)?;
+                }
+                *ret
+            }
             Expr::Merge {
                 left,
                 right,

@@ -136,6 +136,23 @@ impl Lowering {
         })
     }
 
+    /// A call of a method: its function, with the record it is held
+    /// by and then the arguments.
+    pub(super) fn send(
+        &mut self,
+        target: &core::Expr,
+        key: &core::Key,
+        args: &[core::Expr],
+        scope: &mut Scope,
+    ) -> Result<Op, Unsupported> {
+        let record = self.operand(target, scope)?;
+        let key = self.key(key);
+        let function = self.bound(Op::Unbound { record, key }, scope);
+        let mut all = vec![self.bindings, record];
+        all.extend(self.operands(args, scope)?);
+        Ok(self.call_value(function, all))
+    }
+
     /// A merge of two records: see [`core::Expr::Merge`].
     pub(super) fn merge(
         &mut self,

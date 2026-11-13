@@ -152,4 +152,5 @@ entries! {
     StringFloat = amb_string_float, plain, 1, word;
     Method = amb_method, plain, 1, word;
     RecordHeld = amb_record_held, plain, 2, word;
+    RecordMethod = amb_record_method, plain, 2, word;
 }

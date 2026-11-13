@@ -168,6 +168,9 @@ pub enum Op {
     /// What a record holds under a key it has, as it holds it: for a
     /// method, the method, bound to nothing.
     Held { record: Value, key: usize },
+    /// The function of the method a record holds under a key: what a
+    /// call of the method calls, with the record.
+    Unbound { record: Value, key: usize },
     /// A record with the fields of both, `overlay`'s where both have one.
     /// `base` may be null, for no fields. This is how bindings are
     /// extended.

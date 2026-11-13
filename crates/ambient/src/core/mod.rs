@@ -161,6 +161,14 @@ pub enum Expr {
         target: Box<Expr>,
         key: Key,
     },
+    /// A call of the method `target` holds under `key`: the method's
+    /// function is called with the record and then `args`, so no
+    /// function bound to the record is made.
+    Send {
+        target: Box<Expr>,
+        key: Key,
+        args: Vec<Expr>,
+    },
     /// `left` with each of `keys` taken from `right` instead. The keys
     /// are those `right` is known to have: anything else it holds is left
     /// behind, because nothing is known of its type.
