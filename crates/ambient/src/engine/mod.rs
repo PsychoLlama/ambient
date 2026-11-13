@@ -46,7 +46,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::error::Error;
-use crate::hash::{Hash, encode};
+use crate::hash::{Hash, Hasher, encode};
 use crate::store::Store;
 use crate::symbol::{ModuleId, Symbol};
 use crate::workspace::Sources;
@@ -212,6 +212,9 @@ impl<'a> Engine<'a> {
     where
         T: Serialize + DeserializeOwned,
     {
+        // The compiler is an input to every stage, and no key covers it:
+        // a result is stored under its key and the build that made it.
+        let key = kept(&key, BUILD);
         // An entry that does not decode is treated as missing: the store is
         // only ever a cache.
         let stored = self
@@ -235,6 +238,17 @@ impl<'a> Engine<'a> {
     }
 }
 
+/// This build of the compiler: see `build.rs`.
+const BUILD: &str = env!("AMBIENT_BUILD");
+
+/// Where the result under `key` is kept by one build of the compiler.
+fn kept(key: &Hash, build: &str) -> Hash {
+    Hasher::new("stage")
+        .hash(key)
+        .bytes(build.as_bytes())
+        .finish()
+}
+
 /// The answer already given for `key`, or `compute`'s, remembered.
 fn memo<K, T>(memo: &Memo<K, T>, key: &K, compute: impl FnOnce() -> Query<T>) -> Query<T>
 where
@@ -246,4 +260,17 @@ where
     let answer = compute();
     memo.borrow_mut().insert(key.clone(), answer.clone());
     answer
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn another_build_keeps_a_result_somewhere_else() {
+        let key = Hasher::new("check").finish();
+
+        assert_eq!(kept(&key, "one"), kept(&key, "one"));
+        assert_ne!(kept(&key, "one"), kept(&key, "two"));
+    }
 }

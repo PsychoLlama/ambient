@@ -8,6 +8,7 @@
 
 - No text syntax. Programs are made with `ambient::builder`; do not add a parser or a printer that can be parsed back.
 - Every stage result is stored under a key derived from the content of its inputs (`engine/mod.rs`). A stage's compute function reads nothing that is not in its key.
+- The compiler itself is an input no key names: `build.rs` hashes its source into `AMBIENT_BUILD`, and `Engine::stage_if` stores under the key and that.
 - A comptime call takes only abilities its package is granted (`Sources::grants`), checked at the call before it runs; the check key of a definition with comptime calls covers the grants.
 - Checking is re-entrant: a comptime call compiles and runs its callee mid-check (`engine/run.rs`). The check key covers the callee's hash, which is what keeps the result a function of the key.
 - A result that observed the world is stored with what it observed and reused through `Engine::stage_if`, which looks again. Only native code is outside a key, so a trace is the native calls a run made.

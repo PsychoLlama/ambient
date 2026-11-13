@@ -1,10 +1,13 @@
 //! Builds the runtime for WebAssembly as one relocatable object, so the
 //! compiler can link into each module the parts of it the module
-//! reaches. See `spec/linking.md`.
+//! reaches. See `spec/linking.md`. Also names the build, for the
+//! store.
 
-use std::env;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::{env, fs};
 
 const TARGET: &str = "wasm32-unknown-unknown";
 
@@ -28,8 +31,34 @@ fn linker() -> PathBuf {
         .join("bin/rust-lld")
 }
 
+/// Feeds every file under `path` to `hasher`, in a fixed order.
+fn feed(path: &Path, hasher: &mut DefaultHasher) {
+    let Ok(entries) = fs::read_dir(path) else {
+        fs::read(path).unwrap_or_default().hash(hasher);
+        return;
+    };
+    let mut paths: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
+    paths.sort();
+    for path in paths {
+        path.file_name().hash(hasher);
+        feed(&path, hasher);
+    }
+}
+
+/// Names this build of the compiler: its source, the runtime's, and
+/// the versions of what both depend on. A stored result is only reused
+/// by the build that made it (`Engine::stage_if`).
+fn identify() {
+    let mut hasher = DefaultHasher::new();
+    for input in ["src", "../ambient-runtime/src", "../../Cargo.lock"] {
+        println!("cargo::rerun-if-changed={input}");
+        feed(Path::new(input), &mut hasher);
+    }
+    println!("cargo::rustc-env=AMBIENT_BUILD={:016x}", hasher.finish());
+}
+
 fn main() {
-    println!("cargo::rerun-if-changed=../ambient-runtime/src");
+    identify();
     println!("cargo::rerun-if-changed=../ambient-runtime/Cargo.toml");
 
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap_or_default());
