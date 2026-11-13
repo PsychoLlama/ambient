@@ -40,4 +40,4 @@ An iterator is a value that gives the next item and an iterator of the rest. It 
 - Those are functions of the standard library written over a step; only making an iterator and stepping one are the language's.
 - A step is not an [operation](operations.md), since it may call the function that steps.
 - Any construct the language gains for looping takes an iterator and nothing else.
-- TODO: a step allocates a tuple and an iterator, and collecting into a list [copies at every push](values.md); iterating a list is dearer than indexing it until both are dealt with.
+- TODO: a step allocates a tuple and an iterator, so iterating a list is dearer than indexing it.

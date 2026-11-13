@@ -17,8 +17,10 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 
 - Values are shared freely, between tasks included; sharing never copies.
 - An update yields a new value that shares structure with the old one.
-- An update to a value nothing else holds happens in place; programs may rely on this for cost.
-- TODO: no update happens in place yet: every [push, join, and slice](operations.md) copies, so building a list a member at a time is quadratic.
+- A list shares its members with the lists made from it: a [push or a join](operations.md) onto the newest of them adds only what is new, and a slice copies nothing.
+- Programs may rely on this for cost: building a list a member at a time takes time in proportion to its length.
+- It does not depend on who else holds the list. Pushing twice onto one list copies it the second time, since the first push took the room after it.
+- TODO: a slice keeps every member of the list it was cut from alive, and a list keeps what was pushed onto it and since dropped.
 
 ## Serialization
 
