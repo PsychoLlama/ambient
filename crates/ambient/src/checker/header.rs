@@ -4,7 +4,7 @@
 use super::Checker;
 use crate::core::{self, Open, Tree};
 use crate::error::Error;
-use crate::surface::{Ability, Function, Reference, TypeDefinition};
+use crate::surface::{Ability, Function, KeyDefinition, Reference, TypeDefinition};
 use crate::symbol::Symbol;
 use crate::types::{Env, Ty, abilities};
 
@@ -79,6 +79,31 @@ pub fn check_ability(
             tag: ability.tag.clone(),
             params,
             ret,
+        },
+        slots: checker.finish().slots,
+        lambdas: Vec::new(),
+    })
+}
+
+/// Checks a key and lowers it to its core tree.
+///
+/// # Errors
+///
+/// Fails if its type is ill-formed.
+pub fn check_key(
+    symbol: &Symbol,
+    key: &KeyDefinition<Reference>,
+    package: &str,
+    env: &Env,
+) -> Result<Open, Error> {
+    let mut checker = Checker::new(symbol, env);
+    checker.well_formed(&key.ty)?;
+    let ty = checker.lower(&env.normalize(&key.ty));
+    Ok(Open {
+        tree: Tree::Key {
+            package: package.to_owned(),
+            tag: key.tag.clone(),
+            ty,
         },
         slots: checker.finish().slots,
         lambdas: Vec::new(),

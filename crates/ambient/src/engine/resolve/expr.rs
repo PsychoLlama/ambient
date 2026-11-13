@@ -166,7 +166,12 @@ impl Resolver<'_> {
     pub(super) fn key(&self, key: &Key) -> Result<Key<Reference>, Error> {
         Ok(match key {
             Key::Field(name) => Key::Field(name.clone()),
-            Key::Ability(path) => Key::Ability(self.ability(path)?),
+            // A key is named where an ability is: an ability if there
+            // is one of that name, and a key if not.
+            Key::Ability(path) => Key::Ability(self.ability(path).or_else(|unknown| {
+                let key = self.lookup(Namespace::Key, path);
+                key.map(Reference::Definition).map_err(|_| unknown)
+            })?),
         })
     }
 

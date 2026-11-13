@@ -13,7 +13,8 @@ mod validate;
 mod world;
 
 pub use definition::{
-    AbilityBuilder, FunctionBuilder, ModuleBuilder, ability, function, generic_type, module, type_,
+    AbilityBuilder, FunctionBuilder, ModuleBuilder, ability, function, generic_type, key, module,
+    type_,
 };
 pub use error::BuildError;
 pub use world::{ExternBuilder, TargetBuilder, extern_function, native_handler, target};
@@ -253,6 +254,35 @@ pub fn handler(bundle: Expr, ability: &str) -> Expr {
     Expr::Field {
         target: Box::new(bundle),
         key: Key::Ability(Path::parse(ability)),
+    }
+}
+
+/// What a record holds under the key at a dotted path.
+#[must_use]
+pub fn at(record: Expr, key: &str) -> Expr {
+    handler(record, key)
+}
+
+/// `record`, a record written out, holding `value` besides under the
+/// key at a dotted path.
+#[must_use]
+pub fn keyed(record: Expr, key: &str, value: Expr) -> Expr {
+    match record {
+        Expr::Record(mut fields) => {
+            fields.push((Key::Ability(Path::parse(key)), value));
+            Expr::Record(fields)
+        }
+        other => other,
+    }
+}
+
+/// A call of the method `target` holds under the key at a dotted path.
+pub fn send_key(target: Expr, key: &str, args: impl IntoIterator<Item = Expr>) -> Expr {
+    Expr::Send {
+        target: Box::new(target),
+        method: Key::Ability(Path::parse(key)),
+        args: args.into_iter().collect(),
+        shapes: Vec::new(),
     }
 }
 

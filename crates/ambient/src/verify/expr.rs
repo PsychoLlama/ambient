@@ -118,8 +118,12 @@ impl Body<'_, '_> {
         Ok(match key {
             core::Key::Field(name) => Key::Field(name.clone()),
             core::Key::Ability(slot) => {
-                let (ability, _) = self.verifier.ability(*slot)?;
-                Key::Ability(Reference::Definition(ability.clone()))
+                let named = self.verifier.symbol(*slot)?;
+                let env = &self.verifier.env;
+                if !env.abilities.contains_key(named) && !env.keys.contains_key(named) {
+                    return Err(Invalid::Slot);
+                }
+                Key::Ability(Reference::Definition(named.clone()))
             }
         })
     }
@@ -276,6 +280,9 @@ impl Body<'_, '_> {
                 Expr::Method(closure) => self.method(closure)?,
                 value => self.infer(value)?,
             };
+            if !self.verifier.env.holds(&key, &ty) {
+                return shape("a record holds under a key what is not of the key's type");
+            }
             types.push((key, ty));
         }
         types.sort_by(|(a, _), (b, _)| a.cmp(b));

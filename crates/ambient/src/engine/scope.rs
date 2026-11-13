@@ -238,7 +238,7 @@ impl Engine<'_> {
         reach(&parent)?;
         let members = self.members(&parent)?;
         let mut found = false;
-        for namespace in [Namespace::Type, Namespace::Value, Namespace::Ability] {
+        for namespace in Namespace::ALL {
             let Some(member) = members.0.get(&(namespace, name.clone())) else {
                 continue;
             };

@@ -69,6 +69,12 @@ impl ModuleId {
         self.symbol(Namespace::Type, name)
     }
 
+    /// The symbol of a key defined in this module.
+    #[must_use]
+    pub fn key(&self, name: &str) -> Symbol {
+        self.symbol(Namespace::Key, name)
+    }
+
     /// The symbol of an ability defined in this module.
     #[must_use]
     pub fn ability(&self, name: &str) -> Symbol {
@@ -88,6 +94,13 @@ pub enum Namespace {
     Type,
     Value,
     Ability,
+    /// The keys a record holds a value under besides names. See
+    /// `spec/methods.md`.
+    Key,
+}
+
+impl Namespace {
+    pub const ALL: [Self; 4] = [Self::Type, Self::Value, Self::Ability, Self::Key];
 }
 
 /// The one canonical name of a definition within a workspace.

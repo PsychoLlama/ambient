@@ -13,14 +13,15 @@ pub type Slots<'a> = &'a mut dyn FnMut(&Symbol) -> Slot;
 
 impl Env {
     /// The entries of a record type in the order a core tree holds them:
-    /// fields by name, then handlers by their abilities' tags. Neither
+    /// fields by name, then what is keyed by a definition, by its tag. Neither
     /// depends on what anything is called.
     #[must_use]
     pub fn ordered<'t>(&self, fields: &'t [(TyKey, Ty)]) -> Vec<(&'t TyKey, &'t Ty)> {
         let handler = |key: &TyKey| matches!(key, Key::Ability(_));
         let tag = |key: &TyKey| match key {
-            Key::Ability(Reference::Definition(ability)) => {
-                self.abilities.get(ability).map(|info| &info.tag)
+            Key::Ability(Reference::Definition(named)) => {
+                let ability = self.abilities.get(named).map(|info| &info.tag);
+                ability.or_else(|| self.keys.get(named).map(|info| &info.tag))
             }
             _ => None,
         };

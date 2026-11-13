@@ -33,7 +33,7 @@ use crate::types::{Env, Ty};
 use crate::value::Value;
 use abilities::Layer;
 pub(crate) use generics::function_type;
-pub use header::{check_ability, check_type, encode_header};
+pub use header::{check_ability, check_key, check_type, encode_header};
 use header::{header, visit_types};
 pub use world::{check_extern, check_target};
 
@@ -428,6 +428,10 @@ impl<'a> Checker<'a> {
     fn well_formed(&self, ty: &Ty) -> Result<(), Error> {
         let mut result = Ok(());
         visit_types(ty, &mut |ty| {
+            if let Ty::Record(fields) = ty {
+                let held = fields.iter().try_for_each(|(key, ty)| self.held(key, ty));
+                result = std::mem::replace(&mut result, Ok(())).and(held);
+            }
             let Ty::Named(name, args) = ty else { return };
             let expected = match name {
                 Reference::Definition(symbol) => self.env.types.get(symbol).map(|info| info.params),

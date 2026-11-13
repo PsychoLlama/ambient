@@ -110,6 +110,19 @@ pub fn bundle<'a>(handlers: impl IntoIterator<Item = (&'a str, Type)>) -> Type {
     )
 }
 
+/// `record`, a record type, with a value of type `ty` besides under
+/// the key at a dotted path.
+#[must_use]
+pub fn keyed(record: Type, key: &str, ty: Type) -> Type {
+    match record {
+        Type::Record(mut fields) => {
+            fields.push((Key::Ability(Path::parse(key)), ty));
+            Type::Record(fields)
+        }
+        other => other,
+    }
+}
+
 /// A function that takes no abilities from its caller.
 pub fn function(params: impl IntoIterator<Item = Type>, ret: Type) -> Type {
     function_row(params, [], ret)

@@ -19,7 +19,7 @@ use crate::hash::{Hash, Hasher, encode};
 use crate::lower::deep;
 use crate::surface::{DefinitionKind, ExternKind, Function, Param, Reference};
 use crate::symbol::{Namespace, Symbol};
-use crate::types::{AbilityInfo, Env, Signature, Ty, TypeInfo, abilities};
+use crate::types::{AbilityInfo, Env, KeyInfo, Signature, Ty, TypeInfo, abilities};
 
 /// A checked function, kept with the runs its content came from.
 #[derive(Serialize, Deserialize)]
@@ -118,9 +118,30 @@ impl Engine<'_> {
                     };
                     env.abilities.insert(symbol, info);
                 }
+                Namespace::Key if !env.keys.contains_key(&symbol) => {
+                    let resolved = self.resolve(&symbol)?;
+                    let DefinitionKind::Key(key) = &resolved.definition.kind else {
+                        return Err(Error::UnknownSymbol(symbol.clone()));
+                    };
+                    pending.extend(type_definitions(&key.ty));
+                    let package = self.sources.identity(&symbol.module.package);
+                    let info = KeyInfo {
+                        tag: (package, key.tag.clone()),
+                        ty: key.ty.clone(),
+                    };
+                    env.keys.insert(symbol, info);
+                }
                 _ => {}
             }
         }
+        let keys = std::mem::take(&mut env.keys);
+        env.keys = keys
+            .into_iter()
+            .map(|(symbol, info)| {
+                let ty = env.normalize(&info.ty);
+                (symbol, KeyInfo { ty, ..info })
+            })
+            .collect();
         // Signatures are read in normal form everywhere.
         let abilities = std::mem::take(&mut env.abilities);
         env.abilities = abilities
@@ -140,7 +161,8 @@ impl Engine<'_> {
     /// Adds the digest of everything `env` holds to `key`: what checking a
     /// type or an ability reads.
     fn reachable(&self, env: &Env, key: &mut Hasher) -> Result<(), Error> {
-        for reachable in env.types.keys().chain(env.abilities.keys()) {
+        let named = env.types.keys().chain(env.abilities.keys());
+        for reachable in named.chain(env.keys.keys()) {
             key.hash(&self.resolve(reachable)?.digest);
         }
         Ok(())
@@ -170,6 +192,7 @@ impl Engine<'_> {
                 // target nothing but its bindings.
                 DefinitionKind::Type(_)
                 | DefinitionKind::Ability(_)
+                | DefinitionKind::Key(_)
                 | DefinitionKind::Extern(_)
                 | DefinitionKind::Target(_) => self.hash(symbol)?,
                 DefinitionKind::Function(function) => {
@@ -287,6 +310,14 @@ impl Engine<'_> {
                     checker::check_ability(symbol, ability, &package, &env)
                 })
             }
+            DefinitionKind::Key(definition) => {
+                self.tags(&symbol.module.package)?;
+                self.gather(vec![symbol.clone()], &mut env)?;
+                self.reachable(&env, &mut key)?;
+                self.stage(Stage::Check, symbol, key.finish(), || {
+                    checker::check_key(symbol, definition, &package, &env)
+                })
+            }
             DefinitionKind::Extern(native) => {
                 self.tags(&symbol.module.package)?;
                 let env = self.environment(used, &mut key)?;
@@ -361,7 +392,7 @@ impl Engine<'_> {
         let mut roots = Vec::new();
         for used in used {
             match used.namespace {
-                Namespace::Type | Namespace::Ability => {
+                Namespace::Type | Namespace::Ability | Namespace::Key => {
                     key.hash(&self.hash(&used)?);
                     roots.push(used);
                 }

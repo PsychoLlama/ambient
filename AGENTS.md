@@ -18,6 +18,7 @@
 - Every function's first parameter is its bindings: a record keyed by ability, or null. The checker tracks what is bound (`checker/abilities.rs`); lowering only threads the record (`lower/abilities.rs`).
 - A record holds a method as a closure of its own kind over a function the checker writes (`checker/methods.rs`), with a null capture for the record; `amb_record_get` fills it in on a copy, so a record never holds itself. Anything that copies a field out of a record goes through `record::read`.
 - A method call (`surface::Expr::Send`) means a field if the receiver's type has one, and otherwise the function its shape's module of the standard library has by that name; resolution lists those per shape (`Scope::methods`), so they are in the check key, and the checker picks (`checker/sends.rs`).
+- A key is a definition in a namespace of its own (`Namespace::Key`); a record names one where it names an ability (`Key::Ability`), and `Env::holds` is the one rule for what may be held under it, which both checkers ask.
 - A merge names the keys whose methods receive the merged record (`core::Expr::Merge::methods`): exactly those its type lists as methods. The runtime binds every other method to the record it came from, so no method meets a receiver nothing checked.
 - A row is ordered by tag wherever it reaches a core tree, never by name or by the order it was written in.
 - A program is `Engine::program(entry, target)`: a root function the engine writes (`engine/program.rs`) and then checks, hashes, and compiles like any other.

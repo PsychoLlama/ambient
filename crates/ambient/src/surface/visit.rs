@@ -254,6 +254,7 @@ impl<N> Definition<N> {
                 function.header_names(visit);
                 function.body.names(visit);
             }
+            DefinitionKind::Key(key) => key.ty.names(visit),
             DefinitionKind::Ability(ability) => {
                 ability
                     .params

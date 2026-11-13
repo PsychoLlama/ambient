@@ -70,6 +70,7 @@ fn read(module: &Module) -> Read {
                 Namespace::Value
             }
             DefinitionKind::Ability(_) => Namespace::Ability,
+            DefinitionKind::Key(_) => Namespace::Key,
         };
         table.0.insert(
             (namespace, definition.name.clone()),

@@ -98,6 +98,7 @@ pub enum DefinitionKind<N = Path> {
     Type(TypeDefinition<N>),
     Function(Function<N>),
     Ability(Ability<N>),
+    Key(KeyDefinition<N>),
     Extern(Extern<N>),
     Target(Target<N>),
 }
@@ -138,6 +139,16 @@ pub struct Ability<N = Path> {
     pub ret: Type<N>,
 }
 
+/// A key: what a record holds a value under without reserving a name.
+/// See `spec/methods.md`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyDefinition<N = Path> {
+    /// What tells this key from another of the same type.
+    pub tag: String,
+    /// The type of what a record holds under the key.
+    pub ty: Type<N>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TypeDefinition<N = Path> {
     /// The names of its type parameters.
@@ -172,8 +183,8 @@ pub struct Param<N = Path> {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Key<N = Path> {
     Field(String),
-    /// The handler for an ability. A record keyed only by abilities is a
-    /// bundle.
+    /// A definition: an ability, for its handler, or a key. A record
+    /// keyed only by abilities is a bundle.
     Ability(N),
 }
 

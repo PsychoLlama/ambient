@@ -305,6 +305,13 @@ pub enum Tree {
         params: Vec<Type>,
         ret: Type,
     },
+    /// A key of records: its package's ID, its tag, and the type of
+    /// what a record holds under it.
+    Key {
+        package: String,
+        tag: String,
+        ty: Type,
+    },
     /// A definition implemented in native code, found by its tag.
     Extern {
         package: String,

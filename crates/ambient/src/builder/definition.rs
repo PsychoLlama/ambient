@@ -8,8 +8,8 @@ use super::validate::{
 };
 use super::{BuildError, null, ty};
 use crate::surface::{
-    Ability, Definition, DefinitionKind, Expr, Function, Import, Module, Param, Path,
-    TypeDefinition, TypeParam,
+    Ability, Definition, DefinitionKind, Expr, Function, Import, KeyDefinition, Module, Param,
+    Path, TypeDefinition, TypeParam,
 };
 use crate::symbol::Namespace;
 
@@ -108,6 +108,21 @@ pub fn type_(name: &str, ty: crate::surface::Type) -> Definition {
         doc: None,
         kind: DefinitionKind::Type(TypeDefinition {
             params: Vec::new(),
+            ty,
+        }),
+    }
+}
+
+/// A private key: what a record holds a value of type `ty` under.
+/// `tag` tells it from every other key of its package.
+#[must_use]
+pub fn key(name: &str, tag: &str, ty: crate::surface::Type) -> Definition {
+    Definition {
+        name: name.to_owned(),
+        public: false,
+        doc: None,
+        kind: DefinitionKind::Key(KeyDefinition {
+            tag: tag.to_owned(),
             ty,
         }),
     }
@@ -317,6 +332,10 @@ impl ModuleBuilder {
                     check_params(&definition.name, &ability.params)?;
                     check_type(&ability.ret)?;
                     Namespace::Ability
+                }
+                DefinitionKind::Key(key) => {
+                    check_type(&key.ty)?;
+                    Namespace::Key
                 }
                 DefinitionKind::Extern(native) => {
                     check_extern(&definition.name, native)?;

@@ -65,6 +65,13 @@ pub enum Error {
         ty: String,
         name: String,
     },
+    /// A record holds under a key a value that is not of the key's
+    /// type.
+    KeyType {
+        symbol: Symbol,
+        name: String,
+        found: String,
+    },
     /// A method is called on a value whose type has none of that name.
     NoMethod {
         symbol: Symbol,
@@ -190,13 +197,12 @@ impl fmt::Display for Error {
                 expected,
                 found,
             } => write!(f, "{symbol}: expected `{expected}`, found `{found}`"),
-            Self::NotCallable { symbol, found } => {
-                write!(f, "{symbol}: `{found}` is not a function")
-            }
             Self::Operands { symbol, found } => {
                 write!(f, "{symbol}: no operator for `{found}`")
             }
-            Self::NoField { .. }
+            Self::NotCallable { .. }
+            | Self::NoField { .. }
+            | Self::KeyType { .. }
             | Self::NoMethod { .. }
             | Self::Method { .. }
             | Self::Receiver { .. } => self.fmt_method(f),
@@ -396,9 +402,17 @@ impl std::error::Error for Error {}
 impl Error {
     fn fmt_method(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NotCallable { symbol, found } => {
+                write!(f, "{symbol}: `{found}` is not a function")
+            }
             Self::NoField { symbol, ty, name } => {
                 write!(f, "{symbol}: `{ty}` may have no field `{name}`")
             }
+            Self::KeyType {
+                symbol,
+                name,
+                found,
+            } => write!(f, "{symbol}: `{found}` is not what the key `{name}` holds"),
             Self::NoMethod { symbol, ty, name } => {
                 write!(f, "{symbol}: `{ty}` has no method `{name}`")
             }

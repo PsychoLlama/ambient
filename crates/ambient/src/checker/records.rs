@@ -36,6 +36,18 @@ impl Checker<'_> {
         })
     }
 
+    /// Fails unless a value of type `ty` may be held under `key`.
+    pub(super) fn held(&self, key: &TyKey, ty: &Ty) -> Result<(), Error> {
+        if self.env.holds(key, ty) {
+            return Ok(());
+        }
+        Err(Error::KeyType {
+            symbol: self.symbol.clone(),
+            name: Self::key_name(key),
+            found: self.env.show(ty),
+        })
+    }
+
     pub(super) fn record(
         &mut self,
         fields: &[(TyKey, Expr<Reference>)],
@@ -102,6 +114,9 @@ impl Checker<'_> {
         let own = Ty::Record(own);
         for (index, value) in waiting {
             (cores[index].1, types[index].1) = self.method(value, Some(&own))?;
+        }
+        for (key, ty) in &types {
+            self.held(key, ty)?;
         }
         types.sort_by(|(a, _), (b, _)| a.cmp(b));
         Ok((core::Expr::Record(cores), Ty::Record(types)))

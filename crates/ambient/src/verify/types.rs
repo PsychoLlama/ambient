@@ -100,6 +100,7 @@ impl Verifier<'_> {
     fn well_formed(&self, ty: &Ty) -> Result<(), Invalid> {
         let ability = |name: &Reference| match name {
             Reference::Definition(symbol) if self.env.abilities.contains_key(symbol) => Ok(()),
+            Reference::Definition(symbol) if self.env.keys.contains_key(symbol) => Ok(()),
             _ => Err(Invalid::Slot),
         };
         let all = |types: &[Ty]| types.iter().try_for_each(|ty| self.well_formed(ty));
@@ -116,6 +117,11 @@ impl Verifier<'_> {
             Ty::Record(fields) => fields.iter().try_for_each(|(key, ty)| {
                 if let Key::Ability(name) = key {
                     ability(name)?;
+                }
+                if !self.env.holds(key, ty) {
+                    return Err(Invalid::Shape(
+                        "a record type holds under a key what is not of the key's type".into(),
+                    ));
                 }
                 self.well_formed(ty)
             }),

@@ -51,6 +51,16 @@ pub struct AbilityInfo {
     pub ret: Ty,
 }
 
+/// A key, as a record that holds a value under it sees it.
+#[derive(Clone, Debug)]
+pub struct KeyInfo {
+    /// The package that declares it and its tag: its identity apart from
+    /// its type, and what a record's keys are ordered by.
+    pub tag: (String, String),
+    /// The type of what a record holds under it.
+    pub ty: Ty,
+}
+
 /// Everything about other definitions that checking one definition reads.
 #[derive(Debug, Default)]
 pub struct Env {
@@ -60,6 +70,8 @@ pub struct Env {
     pub functions: BTreeMap<Symbol, Signature>,
     /// Every ability it refers to, or that a type it reaches does.
     pub abilities: BTreeMap<Symbol, AbilityInfo>,
+    /// Every key it refers to, or that a type it reaches does.
+    pub keys: BTreeMap<Symbol, KeyInfo>,
     /// The bound of each type parameter of the definition being checked.
     pub bounds: Vec<Ty>,
 }

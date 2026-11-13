@@ -244,7 +244,7 @@ impl Engine<'_> {
                     params, ret, row, ..
                 } => function(false, params, ret, row)?,
                 Tree::Type { ty, .. } => Body::Type(ty.clone()),
-                Tree::Ability { .. } | Tree::Target { .. } => Body::Inert,
+                Tree::Ability { .. } | Tree::Key { .. } | Tree::Target { .. } => Body::Inert,
             };
             let native = match &open.tree {
                 Tree::Extern { package, tag, .. } => {

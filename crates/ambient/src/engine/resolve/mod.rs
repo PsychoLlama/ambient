@@ -10,8 +10,8 @@ use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest};
 use crate::surface::{
-    Ability, Definition, DefinitionKind, Extern, ExternKind, Function, Param, Path, Reference,
-    Target, Type, TypeDefinition, TypeParam,
+    Ability, Definition, DefinitionKind, Extern, ExternKind, Function, KeyDefinition, Param, Path,
+    Reference, Target, Type, TypeDefinition, TypeParam,
 };
 use crate::symbol::{Namespace, Symbol};
 
@@ -92,6 +92,10 @@ impl Resolver<'_> {
                 tag: ability.tag.clone(),
                 params: self.params(&ability.params)?,
                 ret: self.ty(&ability.ret)?,
+            }),
+            DefinitionKind::Key(key) => DefinitionKind::Key(KeyDefinition {
+                tag: key.tag.clone(),
+                ty: self.ty(&key.ty)?,
             }),
             DefinitionKind::Extern(native) => DefinitionKind::Extern(Extern {
                 tag: native.tag.clone(),

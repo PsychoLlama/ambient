@@ -26,6 +26,7 @@ impl Engine<'_> {
                 for definition in &self.read(&id)?.definitions {
                     let (namespace, tag) = match &definition.kind {
                         DefinitionKind::Ability(ability) => (Namespace::Ability, &ability.tag),
+                        DefinitionKind::Key(key) => (Namespace::Key, &key.tag),
                         DefinitionKind::Extern(native) => (Namespace::Value, &native.tag),
                         _ => continue,
                     };
