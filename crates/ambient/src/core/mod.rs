@@ -164,10 +164,15 @@ pub enum Expr {
     /// `left` with each of `keys` taken from `right` instead. The keys
     /// are those `right` is known to have: anything else it holds is left
     /// behind, because nothing is known of its type.
+    ///
+    /// `methods` are the keys the merged record holds a method under,
+    /// by its type: each receives the merged record. Any other method
+    /// either record holds stays bound to the record it had.
     Merge {
         left: Box<Expr>,
         right: Box<Expr>,
         keys: Vec<Key>,
+        methods: Vec<Key>,
     },
     /// Binds the next local to `value` for the extent of `body`.
     Let {

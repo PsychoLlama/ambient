@@ -306,7 +306,7 @@ impl Lowering {
                 record: self.operand(target, &mut scope)?,
                 key: self.key(key),
             },
-            core::Expr::Merge { left, right, keys } => self.merge(left, right, keys, &mut scope)?,
+            core::Expr::Merge { .. } => self.merge(expr, &mut scope)?,
             core::Expr::Match { subject, arms } => {
                 let subject = self.operand(subject, &mut scope)?;
                 let unmatched = self.traced(expr, Expr::Fault(Fault::NoMatch));

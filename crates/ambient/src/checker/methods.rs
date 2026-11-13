@@ -6,6 +6,11 @@
 //! calls the first with the second. The record is filled in when the
 //! field is read, so the record never holds itself.
 //!
+//! A merge hands each method its operands' types list the merged
+//! record, and holds the merged record to what each needs
+//! (`records.rs`). A method no type lists stays bound to the record it
+//! had, which the runtime sees to.
+//!
 //! TODO: the receiver's type must be written. One left out should be
 //! the type of the record the method is written in.
 //!

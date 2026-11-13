@@ -17,6 +17,7 @@
 - Layouts and the calling convention are defined once, in `ambient-runtime`; never restate an offset in a backend.
 - Every function's first parameter is its bindings: a record keyed by ability, or null. The checker tracks what is bound (`checker/abilities.rs`); lowering only threads the record (`lower/abilities.rs`).
 - A record holds a method as a closure of its own kind over a function the checker writes (`checker/methods.rs`), with a null capture for the record; `amb_record_get` fills it in on a copy, so a record never holds itself. Anything that copies a field out of a record goes through `record::read`.
+- A merge names the keys whose methods receive the merged record (`core::Expr::Merge::methods`): exactly those its type lists as methods. The runtime binds every other method to the record it came from, so no method meets a receiver nothing checked.
 - A row is ordered by tag wherever it reaches a core tree, never by name or by the order it was written in.
 - A program is `Engine::program(entry, target)`: a root function the engine writes (`engine/program.rs`) and then checks, hashes, and compiles like any other.
 - Compiled code reaches native code only through `amb_native` and an index the loader fills in; a host supplies `Natives` by package and tag.

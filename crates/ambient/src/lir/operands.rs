@@ -42,8 +42,12 @@ impl Op {
             | Self::BudgetEnter {
                 steps: base,
                 words: overlay,
-            }
-            | Self::Merge { base, overlay } => vec![base, overlay],
+            } => vec![base, overlay],
+            Self::Merge {
+                base,
+                overlay,
+                methods,
+            } => vec![base, overlay, methods],
             Self::GroupClose { group, .. } => vec![group],
             Self::Abort { token, args } => vec![token, args],
             Self::Tail { callee, args, .. } => vec![callee, args],
@@ -53,7 +57,7 @@ impl Op {
             Self::Closure { captures, .. } => captures.iter_mut().collect(),
             Self::Sequence { members, .. } => members.iter_mut().collect(),
             Self::Record(fields) => fields.iter_mut().map(|(_, member)| member).collect(),
-            Self::Field { record, .. } => vec![record],
+            Self::Field { record, .. } | Self::Held { record, .. } => vec![record],
             Self::Member { tuple, .. } => vec![tuple],
             Self::HasField { value: subject, .. } | Self::IsTuple { value: subject, .. } => {
                 vec![subject]

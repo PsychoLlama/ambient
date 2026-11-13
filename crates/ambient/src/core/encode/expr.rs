@@ -43,6 +43,13 @@ fn encode_exprs(exprs: &[Expr], out: &mut Sink<'_>) {
     }
 }
 
+fn encode_keys(keys: &[Key], out: &mut Sink<'_>) {
+    unsigned(keys.len() as u64, out);
+    for key in keys {
+        encode_key(key, out);
+    }
+}
+
 pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
     match expr {
         Expr::Null => out.push(0),
@@ -68,10 +75,6 @@ pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
             out.push(5);
             encode_fields(fields, out);
         }
-        Expr::Method(closure) => {
-            out.push(29);
-            encode_expr(closure, out);
-        }
         Expr::Tuple(members) => {
             out.push(6);
             encode_exprs(members, out);
@@ -85,14 +88,17 @@ pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
             encode_expr(target, out);
             encode_key(key, out);
         }
-        Expr::Merge { left, right, keys } => {
+        Expr::Merge {
+            left,
+            right,
+            keys,
+            methods,
+        } => {
             out.push(17);
             encode_expr(left, out);
             encode_expr(right, out);
-            unsigned(keys.len() as u64, out);
-            for key in keys {
-                encode_key(key, out);
-            }
+            encode_keys(keys, out);
+            encode_keys(methods, out);
         }
         Expr::Let { value, body } => {
             out.push(9);
@@ -129,6 +135,7 @@ pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
             encode_expr(value, out);
         }
         Expr::Closure { .. }
+        | Expr::Method(_)
         | Expr::Perform { .. }
         | Expr::Provide { .. }
         | Expr::AbilityId(_)
@@ -144,7 +151,7 @@ pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
     }
 }
 
-/// The nodes that have to do with abilities.
+/// The nodes that have to do with closures and abilities.
 fn encode_binding(expr: &Expr, out: &mut Sink<'_>) {
     match expr {
         Expr::Closure {
@@ -158,6 +165,10 @@ fn encode_binding(expr: &Expr, out: &mut Sink<'_>) {
             encode_types(type_args, out);
             encode_exprs(captures, out);
             encode_slots(bindings, out);
+        }
+        Expr::Method(closure) => {
+            out.push(29);
+            encode_expr(closure, out);
         }
         Expr::AbilityId(ability) => {
             out.push(18);

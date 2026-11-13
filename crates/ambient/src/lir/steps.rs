@@ -153,17 +153,6 @@ impl Op {
                 }
                 steps
             }
-            Self::Record(fields) => {
-                let mut steps = vec![step(Entry::RecordNew, [count(fields.len())])];
-                for (field, member) in fields {
-                    steps.push(step(Entry::RecordSet, [Object, key(field), value(member)]));
-                }
-                steps
-            }
-            Self::Method(closure) => vec![step(Entry::Method, [value(closure)])],
-            Self::Field { record, key: field } => {
-                vec![step(Entry::RecordGet, [value(record), key(field)])]
-            }
             Self::Member { tuple, index } => {
                 vec![step(Entry::SequenceGet, [value(tuple), count(*index)])]
             }
@@ -173,9 +162,11 @@ impl Op {
             | Self::Is { .. }
             | Self::Cell { .. }
             | Self::Types(_) => self.type_steps(),
-            Self::Merge { base, overlay } => {
-                vec![step(Entry::RecordMerge, [value(base), value(overlay)])]
-            }
+            Self::Record(_)
+            | Self::Method(_)
+            | Self::Field { .. }
+            | Self::Held { .. }
+            | Self::Merge { .. } => self.record_steps(),
             Self::Token => vec![step(Entry::TokenNew, [])],
             Self::Expire(token) => vec![step(Entry::TokenExpire, [value(token)])],
             Self::Abort { token, args } => {
@@ -221,6 +212,41 @@ impl Op {
                 )]
             }
         })
+    }
+}
+
+impl Op {
+    /// The steps of an operation that makes or reads a record.
+    fn record_steps(&self) -> Vec<Step> {
+        use Arg::{Object, Raw};
+        let value = |value: &Value| Arg::Value(*value);
+        let key = |key: &usize| Arg::Value(Value::Constant(*key));
+        let count = |length: usize| Raw(length as u64);
+        match self {
+            Self::Record(fields) => {
+                let mut steps = vec![step(Entry::RecordNew, [count(fields.len())])];
+                for (field, member) in fields {
+                    steps.push(step(Entry::RecordSet, [Object, key(field), value(member)]));
+                }
+                steps
+            }
+            Self::Method(closure) => vec![step(Entry::Method, [value(closure)])],
+            Self::Field { record, key: field } => {
+                vec![step(Entry::RecordGet, [value(record), key(field)])]
+            }
+            Self::Held { record, key: field } => {
+                vec![step(Entry::RecordHeld, [value(record), key(field)])]
+            }
+            Self::Merge {
+                base,
+                overlay,
+                methods,
+            } => {
+                let merged = [value(base), value(overlay), value(methods)];
+                vec![step(Entry::RecordMerge, merged)]
+            }
+            _ => Vec::new(),
+        }
     }
 }
 

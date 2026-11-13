@@ -98,6 +98,17 @@ pub unsafe extern "C" fn amb_record_get(record: Word, key: Word) -> Word {
     unsafe { read(record, find(record, key).unwrap_or(NULL)) }
 }
 
+/// What a record holds under `key`, which it must have, as it holds
+/// it: a method comes bound to nothing, for another record to hold.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_record_held(record: Word, key: Word) -> Word {
+    unsafe {
+        let held = find(record, key).unwrap_or(NULL);
+        amb_retain(held);
+        held
+    }
+}
+
 /// Whether a value is a record with the field `key`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_record_has(value: Word, key: Word) -> Word {
@@ -113,9 +124,14 @@ pub unsafe extern "C" fn amb_record_is(value: Word) -> Word {
 /// A record with every field of `base` and of `overlay`, taking the
 /// overlay's value where both have a field. `base` may be null, for no
 /// fields.
+///
+/// `methods` is a tuple of the keys whose methods receive the new
+/// record, or null for none: nothing checked any other method against
+/// it, so each of those stays bound to the record it is taken from.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_record_merge(base: Word, overlay: Word) -> Word {
+pub unsafe extern "C" fn amb_record_merge(base: Word, overlay: Word, methods: Word) -> Word {
     unsafe {
+        let kept: &[u64] = if methods == NULL { &[] } else { words(methods) };
         if base == NULL {
             amb_retain(overlay);
             return overlay;
@@ -142,9 +158,13 @@ pub unsafe extern "C" fn amb_record_merge(base: Word, overlay: Word) -> Word {
                 high += 2;
                 (overlay, &above[high - 2..high])
             };
-            // A method stays bound to the record it had.
             pair[0] = source[0];
-            pair[1] = read(from, source[1]);
+            pair[1] = if kept.contains(&source[0]) {
+                amb_retain(source[1]);
+                source[1]
+            } else {
+                read(from, source[1])
+            };
         }
         word
     }

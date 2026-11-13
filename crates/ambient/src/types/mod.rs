@@ -340,6 +340,16 @@ pub fn field<'a>(fields: &'a [(TyKey, Ty)], name: &str) -> Option<&'a Ty> {
         .map(|(_, ty)| ty)
 }
 
+/// The keys among `fields` that hold a method, in the order a core
+/// tree lists keys.
+#[must_use]
+pub fn methods(env: &Env, fields: &[(TyKey, Ty)]) -> Vec<TyKey> {
+    let held = env.ordered(fields).into_iter();
+    held.filter(|(_, ty)| matches!(ty, Ty::Method { .. }))
+        .map(|(key, _)| key.clone())
+        .collect()
+}
+
 /// The type under `key` among `fields`.
 #[must_use]
 pub fn entry<'a>(fields: &'a [(TyKey, Ty)], key: &TyKey) -> Option<&'a Ty> {

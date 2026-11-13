@@ -139,6 +139,49 @@ fn records_with_the_same_methods_and_fields_are_equal() {
 }
 
 #[test]
+fn a_merge_hands_its_methods_the_merged_record() {
+    let merged = b::merge(point(3), b::record([("x", b::int(10))]));
+    assert_eq!(evaluates(send(merged, "double", [])), Value::Int(20));
+}
+
+#[test]
+fn a_method_written_in_a_merge_sees_what_is_merged_over() {
+    let added = b::record([("double", b::method(b::name("double")))]);
+    let merged = b::merge(b::record([("x", b::int(4))]), added);
+    assert_eq!(evaluates(send(merged, "double", [])), Value::Int(8));
+}
+
+#[test]
+fn a_merge_overrides_a_method_for_the_methods_that_reach_it() {
+    let twice = || send(b::name("self"), "double", []);
+    let quadruple = b::lambda([("self", Some(doubles()))], b::add(twice(), twice()));
+    let base = b::record([
+        ("x", b::int(3)),
+        ("double", b::method(b::name("double"))),
+        ("quadruple", b::method(quadruple)),
+    ]);
+    let hundred = b::lambda([("self", Some(has_x()))], b::int(100));
+    let merged = b::merge(base, b::record([("double", b::method(hundred))]));
+    assert_eq!(evaluates(send(merged, "quadruple", [])), Value::Int(200));
+}
+
+#[test]
+fn a_method_taken_from_a_record_that_is_not_written_there_is_still_a_method() {
+    // Were `double` bound to `from` by the first merge, the second
+    // would not change what it sees.
+    let first = b::merge(b::record([("y", b::int(0))]), b::name("from"));
+    let second = b::merge(first, b::record([("x", b::int(10))]));
+    let body = b::let_("from", point(3), send(second, "double", []));
+    assert_eq!(evaluates(body), Value::Int(20));
+}
+
+#[test]
+fn a_merge_that_takes_what_a_method_needs_is_refused() {
+    let merged = b::merge(point(3), b::record([("x", b::string("three"))]));
+    assert!(matches!(refused(merged), Error::Receiver { name, .. } if name == "double"));
+}
+
+#[test]
 fn a_method_typed_as_a_function_stays_with_its_record_through_a_merge() {
     // `moved` sees `double` as a function, so nothing checked it
     // against the record the merge makes.

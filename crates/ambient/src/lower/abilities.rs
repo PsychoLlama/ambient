@@ -26,6 +26,7 @@ impl Lowering {
             Op::Merge {
                 base: captured,
                 overlay: passed,
+                methods: Value::Null,
             },
             &mut scope,
         );
@@ -135,23 +136,59 @@ impl Lowering {
         })
     }
 
+    /// A merge of two records: see [`core::Expr::Merge`].
     pub(super) fn merge(
         &mut self,
-        left: &core::Expr,
-        right: &core::Expr,
-        keys: &[core::Key],
+        merge: &core::Expr,
         scope: &mut Scope,
     ) -> Result<Op, Unsupported> {
+        let core::Expr::Merge {
+            left,
+            right,
+            keys,
+            methods,
+        } = merge
+        else {
+            return Err(Unsupported("a merge of what is not one"));
+        };
         let base = self.operand(left, scope)?;
         let mut overlay = self.operand(right, scope)?;
+        let methods: Vec<usize> = methods.iter().map(|key| self.key(key)).collect();
         // A record written in place holds exactly its keys. Any other is
-        // cut down to the keys it is known to hold.
-        if !matches!(right, core::Expr::Record(_)) {
-            let keys: Vec<usize> = keys.iter().map(|key| self.key(key)).collect();
-            overlay = self.select(overlay, &keys, scope);
+        // cut down to the keys it is known to hold. A method that is to
+        // receive the merged record is taken as it is held; any other
+        // is read, which binds it to the record it is read from.
+        if !matches!(**right, core::Expr::Record(_)) {
+            let mut fields = Vec::new();
+            for key in keys {
+                let (record, key) = (overlay, self.key(key));
+                let taken = if methods.contains(&key) {
+                    Op::Held { record, key }
+                } else {
+                    Op::Field { record, key }
+                };
+                fields.push((key, self.bound(taken, scope)));
+            }
+            overlay = self.bound(Op::Record(fields), scope);
         }
         self.charge_copies(&[base, overlay], scope);
-        Ok(Op::Merge { base, overlay })
+        let methods = if methods.is_empty() {
+            Value::Null
+        } else {
+            let members = methods.into_iter().map(Value::Constant).collect();
+            self.bound(
+                Op::Sequence {
+                    list: false,
+                    members,
+                },
+                scope,
+            )
+        };
+        Ok(Op::Merge {
+            base,
+            overlay,
+            methods,
+        })
     }
 
     /// The arguments of a call: the bindings the callee is handed, then
@@ -225,7 +262,15 @@ impl Lowering {
             overlay
         } else {
             let base = outer;
-            self.bound(Op::Merge { base, overlay }, &mut scope)
+            let methods = Value::Null;
+            self.bound(
+                Op::Merge {
+                    base,
+                    overlay,
+                    methods,
+                },
+                &mut scope,
+            )
         };
         let body = self.expr(body);
         self.bindings = outer;

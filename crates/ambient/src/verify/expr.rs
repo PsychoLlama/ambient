@@ -161,20 +161,7 @@ impl Body<'_, '_> {
                 *ret
             }
             Expr::Record(fields) => {
-                let mut types: Vec<(TyKey, Ty)> = Vec::new();
-                for (key, value) in fields {
-                    let key = self.key(key)?;
-                    if entry(&types, &key).is_some() {
-                        return shape("a record has one key twice");
-                    }
-                    let ty = match value {
-                        Expr::Method(closure) => self.method(closure)?,
-                        value => self.infer(value)?,
-                    };
-                    types.push((key, ty));
-                }
-                types.sort_by(|(a, _), (b, _)| a.cmp(b));
-                let record = Ty::Record(types);
+                let record = self.fields(fields)?;
                 self.receives(&record)?;
                 record
             }
@@ -188,7 +175,12 @@ impl Body<'_, '_> {
                 let field = env.field(&found, &self.key(key)?);
                 field.ok_or_else(|| Invalid::Shape("a field is read that may be missing".into()))?
             }
-            Expr::Merge { left, right, keys } => self.merge(left, right, keys)?,
+            Expr::Merge {
+                left,
+                right,
+                keys,
+                methods,
+            } => self.merge(left, right, keys, methods)?,
             Expr::Let { value, body } => {
                 let value = self.infer(value)?;
                 let scope = self.locals.len();
@@ -255,6 +247,26 @@ impl Body<'_, '_> {
         Ok(env.normalize(&function_type(signature, &args)))
     }
 
+    /// The type of a record written out, before its methods are held
+    /// to what they need: one written to be merged is part of a larger
+    /// record.
+    fn fields(&mut self, fields: &[(core::Key, Expr)]) -> Result<Ty, Invalid> {
+        let mut types: Vec<(TyKey, Ty)> = Vec::new();
+        for (key, value) in fields {
+            let key = self.key(key)?;
+            if entry(&types, &key).is_some() {
+                return shape("a record has one key twice");
+            }
+            let ty = match value {
+                Expr::Method(closure) => self.method(closure)?,
+                value => self.infer(value)?,
+            };
+            types.push((key, ty));
+        }
+        types.sort_by(|(a, _), (b, _)| a.cmp(b));
+        Ok(Ty::Record(types))
+    }
+
     /// A method of a record: a closure over the function that reads
     /// it, which captures the method's function and then the record.
     /// The record is not there until the field is read, and what the
@@ -299,10 +311,22 @@ impl Body<'_, '_> {
         Ok(())
     }
 
-    fn merge(&mut self, left: &Expr, right: &Expr, keys: &[core::Key]) -> Result<Ty, Invalid> {
+    fn merge(
+        &mut self,
+        left: &Expr,
+        right: &Expr,
+        keys: &[core::Key],
+        methods: &[core::Key],
+    ) -> Result<Ty, Invalid> {
         let env = &self.verifier.env;
-        let left = self.infer(left)?;
-        let right = self.infer(right)?;
+        // A record written here is held to what its methods need only
+        // as part of the merged one.
+        let mut operand = |expr: &Expr| match expr {
+            Expr::Record(fields) => self.fields(fields),
+            expr => self.infer(expr),
+        };
+        let left = operand(left)?;
+        let right = operand(right)?;
         let (Ty::Record(mut fields), Ty::Record(over)) = (env.unfold(&left), env.unfold(&right))
         else {
             return shape("something that is not a record is merged");
@@ -316,11 +340,15 @@ impl Body<'_, '_> {
         fields.retain(|(key, _)| entry(&over, key).is_none());
         fields.extend(over);
         fields.sort_by(|(a, _), (b, _)| a.cmp(b));
-        // A merge leaves each method bound to the record it had.
-        for (_, ty) in &mut fields {
-            *ty = ty.read();
+        // Each method the merged record lists receives it, and must be
+        // listed, or it would stay bound to the record it had.
+        let held: Result<Vec<TyKey>, Invalid> = methods.iter().map(|key| self.key(key)).collect();
+        if held? != crate::types::methods(env, &fields) {
+            return shape("a merge does not hand the merged record to the methods it lists");
         }
-        Ok(Ty::Record(fields))
+        let merged = Ty::Record(fields);
+        self.receives(&merged)?;
+        Ok(merged)
     }
 
     fn primitive(&mut self, operation: Primitive, args: &[Expr]) -> Result<Ty, Invalid> {

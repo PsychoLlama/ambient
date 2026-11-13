@@ -165,10 +165,21 @@ pub enum Op {
         ty: usize,
         scope: Value,
     },
+    /// What a record holds under a key it has, as it holds it: for a
+    /// method, the method, bound to nothing.
+    Held { record: Value, key: usize },
     /// A record with the fields of both, `overlay`'s where both have one.
     /// `base` may be null, for no fields. This is how bindings are
     /// extended.
-    Merge { base: Value, overlay: Value },
+    ///
+    /// `methods` is a tuple of the keys whose methods receive the new
+    /// record, or null for none. Any other method stays bound to the
+    /// record it is taken from.
+    Merge {
+        base: Value,
+        overlay: Value,
+        methods: Value,
+    },
     /// A new token: what a provide binds an abort handler to.
     Token,
     /// Expires a token, and is null.

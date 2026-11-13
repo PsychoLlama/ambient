@@ -92,7 +92,7 @@ entries! {
     ClosureSet = amb_closure_set, plain, 3, nothing;
     Is = amb_is, plain, 3, word;
     Trace = amb_trace, context, 2, word;
-    RecordMerge = amb_record_merge, plain, 2, word;
+    RecordMerge = amb_record_merge, plain, 3, word;
     TokenNew = amb_token_new, plain, 0, word;
     TokenExpire = amb_token_expire, plain, 1, word;
     Abort = amb_abort, context, 2, word;
@@ -151,4 +151,5 @@ entries! {
     StringInt = amb_string_int, plain, 1, word;
     StringFloat = amb_string_float, plain, 1, word;
     Method = amb_method, plain, 1, word;
+    RecordHeld = amb_record_held, plain, 2, word;
 }

@@ -5,7 +5,7 @@ use super::Checker;
 use crate::core;
 use crate::error::Error;
 use crate::surface::{Expr, Key, Reference};
-use crate::types::{Ty, TyKey, entry};
+use crate::types::{Ty, TyKey, entry, methods};
 
 impl Checker<'_> {
     /// A key as a core tree holds it.
@@ -40,6 +40,16 @@ impl Checker<'_> {
         &mut self,
         fields: &[(TyKey, Expr<Reference>)],
     ) -> Result<(core::Expr, Ty), Error> {
+        let (core, record) = self.fields(fields)?;
+        if let Ty::Record(types) = &record {
+            self.receives(&record, types)?;
+        }
+        Ok((core, record))
+    }
+
+    /// A record written out, before its methods are held to what they
+    /// need: one written to be merged is part of a larger record.
+    fn fields(&mut self, fields: &[(TyKey, Expr<Reference>)]) -> Result<(core::Expr, Ty), Error> {
         let mut cores = Vec::new();
         let mut types: Vec<(TyKey, Ty)> = Vec::new();
         for (key, value) in fields {
@@ -61,11 +71,7 @@ impl Checker<'_> {
             types.push((key.clone(), ty));
         }
         types.sort_by(|(a, _), (b, _)| a.cmp(b));
-        let record = Ty::Record(types);
-        if let Ty::Record(types) = &record {
-            self.receives(&record, types)?;
-        }
-        Ok((core::Expr::Record(cores), record))
+        Ok((core::Expr::Record(cores), Ty::Record(types)))
     }
 
     /// Reads what a record holds under `key`.
@@ -97,8 +103,14 @@ impl Checker<'_> {
         left: &Expr<Reference>,
         right: &Expr<Reference>,
     ) -> Result<(core::Expr, Ty), Error> {
-        let (core_left, left) = self.infer(left)?;
-        let (core_right, right) = self.infer(right)?;
+        // A record written here is whole only once merged, so its
+        // methods are held to the merged record alone.
+        let mut operand = |expr: &Expr<Reference>| match expr {
+            Expr::Record(fields) => self.fields(fields),
+            expr => self.infer(expr),
+        };
+        let (core_left, left) = operand(left)?;
+        let (core_right, right) = operand(right)?;
         let (Ty::Record(mut fields), Ty::Record(over)) =
             (self.env.unfold(&left), self.env.unfold(&right))
         else {
@@ -117,17 +129,20 @@ impl Checker<'_> {
         fields.retain(|(key, _)| entry(&over, key).is_none());
         fields.extend(over);
         fields.sort_by(|(a, _), (b, _)| a.cmp(b));
-        // TODO: a method the operands list should receive the merged
-        // record, checked against it here. Until then every method
-        // stays bound to the record it had.
-        for (_, ty) in &mut fields {
-            *ty = ty.read();
-        }
+        // Each method the operands list receives the merged record.
+        let merged = Ty::Record(fields);
+        let Ty::Record(fields) = &merged else {
+            return Ok((core::Expr::Null, merged));
+        };
+        self.receives(&merged, fields)?;
+        let methods = methods(self.env, fields);
+        let methods = methods.iter().map(|key| self.key(key)).collect();
         let core = core::Expr::Merge {
             left: Box::new(core_left),
             right: Box::new(core_right),
             keys,
+            methods,
         };
-        Ok((core, Ty::Record(fields)))
+        Ok((core, merged))
     }
 }
