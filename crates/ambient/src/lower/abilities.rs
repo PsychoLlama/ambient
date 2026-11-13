@@ -252,16 +252,33 @@ impl Lowering {
         Ok(all)
     }
 
+    /// A perform: a call of the handler bound to the ability, or, if
+    /// the ability does not return, an abort to where it was bound. A
+    /// handler for a generic ability is instantiated first.
     pub(super) fn perform(
         &mut self,
-        ability: Slot,
-        args: &[core::Expr],
-        returns: bool,
+        perform: &core::Expr,
         scope: &mut Scope,
     ) -> Result<Op, Unsupported> {
+        let core::Expr::Perform {
+            ability,
+            args,
+            returns,
+            types,
+        } = perform
+        else {
+            return Err(Unsupported("a perform that is not one"));
+        };
+        let (ability, returns) = (*ability, *returns);
         let key = self.ability_key(ability);
         let record = self.bindings;
-        let binding = self.bound(Op::Field { record, key }, scope);
+        let mut binding = self.bound(Op::Field { record, key }, scope);
+        if !types.is_empty() {
+            self.charge_copies(&[binding], scope);
+            let types = self.type_arguments(types, scope);
+            let function = binding;
+            binding = self.bound(Op::Instantiate { function, types }, scope);
+        }
         if returns {
             // A handler took what it needs where it was provided.
             let args = self.arguments(Value::Null, args, scope)?;

@@ -88,11 +88,15 @@ impl Resolver<'_> {
             DefinitionKind::Function(function) => {
                 DefinitionKind::Function(self.function(function)?)
             }
-            DefinitionKind::Ability(ability) => DefinitionKind::Ability(Ability {
-                tag: ability.tag.clone(),
-                params: self.params(&ability.params)?,
-                ret: self.ty(&ability.ret)?,
-            }),
+            DefinitionKind::Ability(ability) => {
+                let type_params = self.type_params(&ability.type_params)?;
+                DefinitionKind::Ability(Ability {
+                    tag: ability.tag.clone(),
+                    type_params,
+                    params: self.params(&ability.params)?,
+                    ret: self.ty(&ability.ret)?,
+                })
+            }
             DefinitionKind::Key(key) => DefinitionKind::Key(KeyDefinition {
                 tag: key.tag.clone(),
                 ty: self.ty(&key.ty)?,
@@ -133,15 +137,12 @@ impl Resolver<'_> {
         })
     }
 
-    fn function(&mut self, function: &Function) -> Result<Function<Reference>, Error> {
-        // A bound may mention any type parameter of the function.
-        self.type_params = function
-            .type_params
-            .iter()
-            .map(|p| p.name.clone())
-            .collect();
+    /// The type parameters of a definition, which are in scope from
+    /// here on: a bound may mention any of them.
+    fn type_params(&mut self, written: &[TypeParam]) -> Result<Vec<TypeParam<Reference>>, Error> {
+        self.type_params = written.iter().map(|p| p.name.clone()).collect();
         let mut type_params = Vec::new();
-        for param in &function.type_params {
+        for param in written {
             type_params.push(TypeParam {
                 name: param.name.clone(),
                 bound: param
@@ -151,6 +152,11 @@ impl Resolver<'_> {
                     .transpose()?,
             });
         }
+        Ok(type_params)
+    }
+
+    fn function(&mut self, function: &Function) -> Result<Function<Reference>, Error> {
+        let type_params = self.type_params(&function.type_params)?;
         let params = self.params(&function.params)?;
         let ret = self.ty(&function.ret)?;
         let row = self.row(&function.row)?;

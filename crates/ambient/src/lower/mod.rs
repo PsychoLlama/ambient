@@ -269,11 +269,7 @@ impl Lowering {
                 captures,
                 bindings,
             } => self.closure(*slot, type_args, captures, bindings, &mut scope)?,
-            core::Expr::Perform {
-                ability,
-                args,
-                returns,
-            } => self.perform(*ability, args, *returns, &mut scope)?,
+            core::Expr::Perform { .. } => self.perform(expr, &mut scope)?,
             core::Expr::Cleanup { .. }
             | core::Expr::Group(_)
             | core::Expr::Budget { .. }

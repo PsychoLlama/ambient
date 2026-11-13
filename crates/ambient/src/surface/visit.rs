@@ -343,6 +343,9 @@ impl<N> Definition<N> {
             }
             DefinitionKind::Key(key) => key.ty.names(visit),
             DefinitionKind::Ability(ability) => {
+                for bound in ability.type_params.iter().filter_map(|p| p.bound.as_ref()) {
+                    bound.names(visit);
+                }
                 ability
                     .params
                     .iter()

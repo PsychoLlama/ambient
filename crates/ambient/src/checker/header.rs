@@ -66,17 +66,34 @@ pub fn check_ability(
     env: &Env,
 ) -> Result<Open, Error> {
     let mut checker = Checker::new(symbol, env);
+    let mut type_params = Vec::new();
+    for bound in ability.type_params.iter().map(|param| &param.bound) {
+        type_params.push(match bound {
+            Some(bound) => {
+                checker.well_formed(bound)?;
+                checker.lower(&env.normalize(bound))
+            }
+            None => core::Type::Unknown,
+        });
+    }
     let mut params = Vec::new();
     for param in &ability.params {
         checker.well_formed(&param.ty)?;
         params.push(checker.lower(&env.normalize(&param.ty)));
     }
     checker.well_formed(&ability.ret)?;
-    let ret = checker.lower(&env.normalize(&ability.ret));
+    let ret = env.normalize(&ability.ret);
+    // Nothing comes back from an ability that does not return, so a
+    // type parameter of one would relate nothing to what was passed.
+    if ret == Ty::Never && !type_params.is_empty() {
+        return Err(Error::GenericAbort(symbol.clone()));
+    }
+    let ret = checker.lower(&ret);
     Ok(Open {
         tree: Tree::Ability {
             package: package.to_owned(),
             tag: ability.tag.clone(),
+            type_params,
             params,
             ret,
         },

@@ -72,7 +72,7 @@ impl<'a> Sink<'a> {
 
 /// The version named by every encoding. Changing the node set or the
 /// encoding means changing this, which changes every hash.
-const FORMAT: u8 = 24;
+const FORMAT: u8 = 25;
 
 impl Tree {
     /// The encoding of the tree as it is stored: slots by index.
@@ -110,12 +110,14 @@ impl Tree {
             Self::Ability {
                 package,
                 tag,
+                type_params,
                 params,
                 ret,
             } => {
                 out.push(2);
                 text(package, out);
                 text(tag, out);
+                encode_types(type_params, out);
                 encode_types(params, out);
                 encode_type(ret, out);
             }

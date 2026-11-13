@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use super::Checker;
-use super::generics::function_type;
+use super::generics::generic_type;
 use crate::core::{Open, Tree};
 use crate::error::Error;
 use crate::surface::{Extern, ExternKind, Reference};
@@ -91,23 +91,15 @@ pub fn check_target(
             handler: handler.clone(),
         };
         let info = env.abilities.get(ability).ok_or_else(not_handler)?;
-        let signature = env
-            .functions
-            .get(handler)
-            .filter(|signature| signature.type_params.is_empty())
-            .ok_or_else(not_handler)?;
+        let signature = env.functions.get(handler).ok_or_else(not_handler)?;
         // A handler may take whatever the target offers, and one for an
         // ability that does not return may return anything.
         let ret = match &info.ret {
             Ty::Never => Ty::Unknown,
             ret => ret.clone(),
         };
-        let expected = Ty::Function {
-            params: info.params.clone(),
-            ret: Box::new(ret),
-            row: offered.clone(),
-        };
-        let found = env.normalize(&function_type(signature, &[]));
+        let expected = env.normalize(&info.handler(ret, offered.clone()));
+        let found = env.normalize(&generic_type(signature));
         if !env.subtype(&found, &expected) {
             return Err(checker.mismatch(&expected, &found));
         }

@@ -43,6 +43,7 @@ pub fn ability(name: &str, tag: &str) -> AbilityBuilder {
         public: false,
         doc: None,
         ability: Ability {
+            type_params: Vec::new(),
             tag: tag.to_owned(),
             params: Vec::new(),
             ret: ty::null(),
@@ -76,6 +77,16 @@ impl AbilityBuilder {
         self.ability.params.push(Param {
             name: name.to_owned(),
             ty,
+        });
+        self
+    }
+
+    /// A type parameter of the ability's signature.
+    #[must_use]
+    pub fn type_param(mut self, name: &str) -> Self {
+        self.ability.type_params.push(TypeParam {
+            name: name.to_owned(),
+            bound: None,
         });
         self
     }

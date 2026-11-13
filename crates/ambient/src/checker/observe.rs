@@ -12,7 +12,7 @@ use crate::core;
 use crate::error::Error;
 use crate::surface::{Expr, Key, Reference};
 use crate::symbol::Symbol;
-use crate::types::{AbilityInfo, Ty};
+use crate::types::{AbilityInfo, Ty, substitute};
 
 /// What an observer is called with.
 fn event() -> Ty {
@@ -96,7 +96,19 @@ impl Checker<'_> {
         // It captures the binding it forwards to where it is made, which
         // is outside the recording.
         self.require(ability)?;
+        // For a generic ability it is generic too: its type parameters
+        // stand for the ability's, and it performs at them.
+        let outer = self.env.parameters();
+        let own: Vec<Ty> = (outer..outer + info.type_params.len())
+            .map(|position| Ty::Named(Reference::Parameter(position), Vec::new()))
+            .collect();
+        let at = |ty: &Ty| self.env.normalize(&substitute(ty, &own));
+        let bounds: Vec<Ty> = info.type_params.iter().map(at).collect();
+        let (params, ret): (Vec<Ty>, Ty) = (info.params.iter().map(at).collect(), at(&info.ret));
+        let types = own.iter().map(|ty| self.lower(ty)).collect();
+        self.env.inner.borrow_mut().extend(bounds);
         self.enter(Vec::new());
+        self.frame().generic = own.len();
         self.frame().bindings = vec![ability.clone()];
 
         let ability = self.slot(ability);
@@ -119,6 +131,7 @@ impl Checker<'_> {
             ability,
             args: args(),
             returns,
+            types,
         };
         let sequence = |first: core::Expr, then: core::Expr| core::Expr::Let {
             value: Box::new(first),
@@ -132,12 +145,9 @@ impl Checker<'_> {
             // Nothing comes back, so the observer is told first.
             sequence(report(core::Expr::Null), forward)
         };
-        let made = self.leave(
-            std::slice::from_ref(observer_ty),
-            &info.params,
-            &info.ret,
-            body,
-        );
+        let made = self.leave(std::slice::from_ref(observer_ty), &params, &ret, body);
+        let depth = outer - self.env.bounds.len();
+        self.env.inner.borrow_mut().truncate(depth);
         Ok(made.closure(vec![observer]))
     }
 }

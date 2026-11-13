@@ -187,7 +187,9 @@ impl Expr {
                     found.own |= arms.iter().any(|(pattern, _)| pattern.mentions_parameter());
                 }
                 // Nothing says whether the function needs them.
-                Self::Instantiate { types, .. } | Self::Send { types, .. } => {
+                Self::Instantiate { types, .. }
+                | Self::Send { types, .. }
+                | Self::Perform { types, .. } => {
                     found.own |= types.iter().any(Type::mentions_parameter);
                 }
                 Self::Reference(slot, types)

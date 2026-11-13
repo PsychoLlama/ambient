@@ -103,6 +103,8 @@ pub enum Error {
     /// A generic function is used where its type arguments cannot be
     /// worked out.
     CannotInfer { symbol: Symbol, function: Symbol },
+    /// An ability that does not return takes type parameters.
+    GenericAbort(Symbol),
     /// A comptime argument's value is not known from its type.
     NotComptime { symbol: Symbol, found: String },
     /// A comptime call's result has no literal form.
@@ -220,12 +222,7 @@ impl fmt::Display for Error {
                 f,
                 "{symbol}: expected {expected} type arguments, found {found}"
             ),
-            Self::CannotInfer { symbol, function } => {
-                write!(
-                    f,
-                    "{symbol}: cannot infer the type arguments of `{function}`"
-                )
-            }
+            Self::GenericAbort(_) | Self::CannotInfer { .. } => self.fmt_generic(f),
             Self::NotComptime { symbol, found } => write!(
                 f,
                 "{symbol}: a comptime argument must have one possible value, found `{found}`"
@@ -400,6 +397,21 @@ impl Error {
 impl std::error::Error for Error {}
 
 impl Error {
+    /// The errors about type parameters and type arguments.
+    fn fmt_generic(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::GenericAbort(symbol) => write!(
+                f,
+                "{symbol}: an ability that does not return takes no type parameters"
+            ),
+            Self::CannotInfer { symbol, function } => write!(
+                f,
+                "{symbol}: cannot infer the type arguments of `{function}`"
+            ),
+            _ => Ok(()),
+        }
+    }
+
     fn fmt_method(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotCallable { symbol, found } => {

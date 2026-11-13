@@ -113,6 +113,11 @@ impl Engine<'_> {
                             self.sources.identity(&symbol.module.package),
                             ability.tag.clone(),
                         ),
+                        type_params: ability
+                            .type_params
+                            .iter()
+                            .map(|p| p.bound.clone().unwrap_or(Ty::Unknown))
+                            .collect(),
                         params: ability.params.iter().map(|p| p.ty.clone()).collect(),
                         ret: ability.ret.clone(),
                     };
@@ -148,6 +153,7 @@ impl Engine<'_> {
             .into_iter()
             .map(|(symbol, info)| {
                 let info = AbilityInfo {
+                    type_params: info.type_params.iter().map(|b| env.normalize(b)).collect(),
                     params: info.params.iter().map(|p| env.normalize(p)).collect(),
                     ret: env.normalize(&info.ret),
                     tag: info.tag,

@@ -90,6 +90,7 @@ impl Body<'_, '_> {
                 ability,
                 args,
                 returns,
+                types,
             } => {
                 let (ability, info) = verifier.ability(*ability)?;
                 if info.params.len() != args.len() {
@@ -99,10 +100,20 @@ impl Body<'_, '_> {
                     return shape("a perform is wrong about whether its ability returns");
                 }
                 self.require(ability)?;
-                for (arg, param) in args.iter().zip(&info.params) {
+                // What the handler is at these type arguments.
+                let handler = info.handler(info.ret.clone(), Vec::new());
+                let handler = if types.is_empty() {
+                    handler
+                } else {
+                    self.applied(&handler, types)?
+                };
+                let Ty::Function { params, ret, .. } = handler else {
+                    return shape("a generic ability is performed at no type arguments");
+                };
+                for (arg, param) in args.iter().zip(&params) {
                     self.check(arg, param)?;
                 }
-                info.ret.clone()
+                *ret
             }
             Expr::Provide {
                 handlers,
@@ -134,15 +145,12 @@ impl Body<'_, '_> {
             if handler.abort != aborts.then_some(info.params.len()) {
                 return shape("a handler is wrong about whether its ability returns");
             }
-            let expected = Ty::Function {
-                params: info.params.clone(),
-                ret: Box::new(if aborts {
-                    Ty::Unknown
-                } else {
-                    info.ret.clone()
-                }),
-                row: Vec::new(),
+            let gives = if aborts {
+                Ty::Unknown
+            } else {
+                info.ret.clone()
             };
+            let expected = env.normalize(&info.handler(gives, Vec::new()));
             if aborts {
                 // It runs at the provide, so it may take what is bound
                 // there, and what it gives the provide gives.

@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::checker::function_type;
+use crate::checker::generic_type;
 use crate::core::{self, Open, Slot, Tree};
 use crate::surface::Reference;
 use crate::symbol::Symbol;
@@ -129,9 +129,20 @@ pub fn verify(open: &Open, root: bool, lookup: Lookup<'_>) -> Result<(), Invalid
             verifier.env.bounds = vec![Ty::Unknown; *params];
             verifier.sound(ty).map(drop)
         }
-        Tree::Ability { params, ret, .. } => {
+        Tree::Ability {
+            type_params,
+            params,
+            ret,
+            ..
+        } => {
+            verifier.env.bounds = vec![Ty::Unknown; type_params.len()];
+            verifier.sound_all(type_params)?;
             verifier.sound_all(params)?;
-            verifier.sound(ret).map(drop)
+            let ret = verifier.sound(ret)?;
+            if ret == Ty::Never && !type_params.is_empty() {
+                return shape("an ability that does not return has type parameters");
+            }
+            Ok(())
         }
         Tree::Key { ty, .. } => verifier.sound(ty).map(drop),
         Tree::Extern {
@@ -221,11 +232,13 @@ impl Verifier<'_> {
                 Tree::Ability {
                     package,
                     tag,
+                    type_params,
                     params,
                     ret,
                 } => {
                     let info = AbilityInfo {
                         tag: (package.clone(), tag.clone()),
+                        type_params: all(type_params)?,
                         params: all(params)?,
                         ret: raise(ret)?,
                     };
@@ -302,6 +315,7 @@ impl Verifier<'_> {
             .map(|(symbol, info)| {
                 let info = AbilityInfo {
                     tag: info.tag.clone(),
+                    type_params: all(&info.type_params),
                     params: all(&info.params),
                     ret: env.normalize(&info.ret),
                 };
@@ -370,22 +384,16 @@ impl Verifier<'_> {
             let handler = self.symbol(*handler)?;
             let signature = self.env.functions.get(handler).ok_or(Invalid::Slot)?;
             let held = self.held.get(handler).ok_or(Invalid::Slot)?;
-            if !signature.type_params.is_empty()
-                || !held.captures.is_empty()
-                || !held.bindings.is_empty()
-            {
+            if !held.captures.is_empty() || !held.bindings.is_empty() {
                 return shape("a target's handler is a function that stands alone");
             }
             let ret = match &info.ret {
                 Ty::Never => Ty::Unknown,
                 ret => ret.clone(),
             };
-            let expected = Ty::Function {
-                params: info.params.clone(),
-                ret: Box::new(ret),
-                row: offered.iter().cloned().map(Reference::Definition).collect(),
-            };
-            let found = self.env.normalize(&function_type(signature, &[]));
+            let row = offered.iter().cloned().map(Reference::Definition).collect();
+            let expected = self.env.normalize(&info.handler(ret, row));
+            let found = self.env.normalize(&generic_type(signature));
             if !self.env.subtype(&found, &expected) {
                 return Err(self.mismatch(&expected, &found));
             }

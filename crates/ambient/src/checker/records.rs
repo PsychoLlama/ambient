@@ -29,11 +29,7 @@ impl Checker<'_> {
             return None;
         };
         let info = self.env.abilities.get(ability)?;
-        Some(Ty::Function {
-            params: info.params.clone(),
-            ret: Box::new(Ty::Unknown),
-            row: Vec::new(),
-        })
+        Some(info.handler(Ty::Unknown, Vec::new()))
     }
 
     /// Fails unless a value of type `ty` may be held under `key`.

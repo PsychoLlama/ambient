@@ -296,6 +296,8 @@ pub enum Expr {
         ability: Slot,
         args: Vec<Expr>,
         returns: bool,
+        /// The type arguments of an ability whose signature is generic.
+        types: Vec<Type>,
     },
     /// Binds handlers for the extent of `body`. Handlers are evaluated in
     /// order, outside the bindings they make. With `only`, the body sees no
@@ -346,6 +348,8 @@ pub enum Tree {
         /// The ID of the package that declares it, and its tag.
         package: String,
         tag: String,
+        /// The bound of each type parameter of its signature.
+        type_params: Vec<Type>,
         params: Vec<Type>,
         ret: Type,
     },

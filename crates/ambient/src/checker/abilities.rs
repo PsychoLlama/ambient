@@ -6,7 +6,7 @@ use crate::core::{self, Slot};
 use crate::error::Error;
 use crate::surface::{Expr, Key, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Ty, TyKey, abilities};
+use crate::types::{Ty, TyKey, abilities, generalize, instantiate};
 
 /// Abilities bound for part of a definition: by its row, or by a provide.
 pub(super) struct Layer {
@@ -97,6 +97,20 @@ impl Checker<'_> {
             });
         }
         self.require(ability)?;
+        // An ability whose signature is generic is performed at
+        // whatever type arguments its arguments require.
+        if !info.type_params.is_empty() {
+            let signature = info.signature();
+            let solved = self.generic_arguments(Some(ability), &signature, 0, None, args)?;
+            let types = solved.types.iter().map(|ty| self.lower(ty)).collect();
+            let core = core::Expr::Perform {
+                ability: self.slot(ability),
+                args: solved.args,
+                returns: true,
+                types,
+            };
+            return Ok((core, solved.ret));
+        }
         let mut core_args = Vec::new();
         for (arg, param) in args.iter().zip(&info.params) {
             core_args.push(self.check(arg, param)?);
@@ -105,6 +119,7 @@ impl Checker<'_> {
             ability: self.slot(ability),
             args: core_args,
             returns: info.ret != Ty::Never,
+            types: Vec::new(),
         };
         Ok((core, info.ret))
     }
@@ -160,11 +175,7 @@ impl Checker<'_> {
             } else {
                 // Bound in place: whatever the handler takes from its
                 // caller it takes here, so a perform passes it nothing.
-                let expected = Ty::Function {
-                    params: info.params.clone(),
-                    ret: Box::new(info.ret.clone()),
-                    row: Vec::new(),
-                };
+                let expected = info.handler(info.ret.clone(), Vec::new());
                 let (handler, found) = self.bind_row(read, found, &expected)?;
                 if !self.env.subtype(&found, &expected) {
                     return Err(self.mismatch(&expected, &found));
@@ -231,15 +242,34 @@ impl Checker<'_> {
 
     /// A function value at the row expected of it. Abilities it takes
     /// beyond that row are bound here: the result is a closure that
-    /// captures them and the value.
+    /// captures them and the value. A generic function expected to be
+    /// one with as many type parameters is bound the same way, by a
+    /// closure that has them too.
     pub(super) fn bind_row(
         &mut self,
         value: core::Expr,
         found: Ty,
         expected: &Ty,
     ) -> Result<(core::Expr, Ty), Error> {
+        let outer = self.env.parameters();
+        let parts = |ty: &Ty| match self.env.unfold(ty) {
+            Ty::Generic { bounds, function } => (bounds, *function),
+            other => (Vec::new(), other),
+        };
+        let ((bounds, written), (wanted_bounds, wanted)) = (parts(&found), parts(expected));
+        if bounds.len() != wanted_bounds.len() {
+            return Ok((value, found));
+        }
+        let own: Vec<Ty> = (outer..outer + bounds.len())
+            .map(|position| Ty::Named(Reference::Parameter(position), Vec::new()))
+            .collect();
+        // What is not generic is already as it will be read.
+        let open = |ty: &Ty| match own.len() {
+            0 => ty.clone(),
+            _ => self.env.normalize(&instantiate(ty, &own)),
+        };
         let (Ty::Function { params, ret, row }, Ty::Function { row: wanted, .. }) =
-            (self.env.unfold(&found), self.env.unfold(expected))
+            (open(&written), open(&wanted))
         else {
             return Ok((value, found));
         };
@@ -250,17 +280,34 @@ impl Checker<'_> {
         }
         self.require_all(&excess)?;
 
+        let bounds: Vec<Ty> = bounds.iter().map(open).collect();
+        self.env.inner.borrow_mut().extend(bounds.iter().cloned());
         self.enter(abilities(&kept));
+        self.frame().generic = own.len();
         self.frame().bindings = abilities(&excess);
+        let callee = match own.len() {
+            0 => core::Expr::Captured(0),
+            _ => self.instantiated(core::Expr::Captured(0), &own),
+        };
         let body = core::Expr::Call {
-            callee: Box::new(core::Expr::Captured(0)),
+            callee: Box::new(callee),
             args: (0..params.len()).map(core::Expr::Local).collect(),
         };
         let made = self.leave(std::slice::from_ref(&found), &params, &ret, body);
-        let ty = Ty::Function {
+        let depth = outer - self.env.bounds.len();
+        self.env.inner.borrow_mut().truncate(depth);
+        let function = Ty::Function {
             params,
             ret,
             row: kept,
+        };
+        let close = |ty: &Ty| generalize(ty, outer, own.len());
+        let ty = match own.len() {
+            0 => function,
+            _ => Ty::Generic {
+                bounds: bounds.iter().map(close).collect(),
+                function: Box::new(close(&function)),
+            },
         };
         Ok((made.closure(vec![value]), ty))
     }

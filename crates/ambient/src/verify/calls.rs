@@ -51,7 +51,7 @@ impl Body<'_, '_> {
     }
 
     /// A generic function type at type arguments.
-    fn applied(&self, found: &Ty, types: &[core::Type]) -> Result<Ty, Invalid> {
+    pub(super) fn applied(&self, found: &Ty, types: &[core::Type]) -> Result<Ty, Invalid> {
         let env = &self.verifier.env;
         let Ty::Generic { bounds, function } = env.unfold(found) else {
             return shape("type arguments are given to what takes none");

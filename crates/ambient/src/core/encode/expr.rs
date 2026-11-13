@@ -244,11 +244,13 @@ fn encode_binding(expr: &Expr, out: &mut Sink<'_>) {
             ability,
             args,
             returns,
+            types,
         } => {
             out.push(15);
             out.slot(*ability);
             encode_exprs(args, out);
             out.push(u8::from(*returns));
+            encode_types(types, out);
         }
         Expr::Provide {
             handlers,

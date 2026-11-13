@@ -135,6 +135,9 @@ pub struct Target<N = Path> {
 pub struct Ability<N = Path> {
     /// What tells this ability from another with the same signature.
     pub tag: String,
+    /// The type parameters of its signature. A handler for it is then
+    /// a generic function.
+    pub type_params: Vec<TypeParam<N>>,
     pub params: Vec<Param<N>>,
     pub ret: Type<N>,
 }

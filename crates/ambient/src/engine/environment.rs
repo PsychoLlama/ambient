@@ -153,8 +153,11 @@ impl Engine<'_> {
                     let DefinitionKind::Ability(ability) = &ability.definition.kind else {
                         return Ok(None);
                     };
+                    let bounds = ability.type_params.iter();
                     Signature {
-                        type_params: Vec::new(),
+                        type_params: bounds
+                            .map(|p| p.bound.clone().unwrap_or(Ty::Unknown))
+                            .collect(),
                         params: types(&ability.params),
                         ret: ability.ret.clone(),
                         row: row(takes),

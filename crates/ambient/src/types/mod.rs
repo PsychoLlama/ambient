@@ -50,6 +50,8 @@ pub struct AbilityInfo {
     /// The package that declares it and its tag: its identity apart from
     /// its signature, and what a row is ordered by.
     pub tag: (String, String),
+    /// The bound of each type parameter of its signature.
+    pub type_params: Vec<Ty>,
     pub params: Vec<Ty>,
     pub ret: Ty,
 }
@@ -85,33 +87,6 @@ pub struct Env {
     /// definition's, numbered after them. It changes as checking goes
     /// in and out of them, which is the one thing here that changes.
     pub inner: std::cell::RefCell<Vec<Ty>>,
-}
-
-impl Env {
-    /// How many type parameters are in scope.
-    #[must_use]
-    pub fn parameters(&self) -> usize {
-        self.bounds.len() + self.inner.borrow().len()
-    }
-
-    /// The bound of the type parameter at `position`, if one is in
-    /// scope there.
-    #[must_use]
-    pub fn bound(&self, position: usize) -> Option<Ty> {
-        let inner = || {
-            self.inner
-                .borrow()
-                .get(position - self.bounds.len())
-                .cloned()
-        };
-        self.bounds.get(position).cloned().or_else(inner)
-    }
-
-    /// The bound of every type parameter in scope, in order.
-    #[must_use]
-    pub fn all_bounds(&self) -> Vec<Ty> {
-        [self.bounds.clone(), self.inner.borrow().clone()].concat()
-    }
 }
 
 /// `ty` with each type parameter replaced by the argument in its position.
