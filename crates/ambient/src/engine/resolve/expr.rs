@@ -1,12 +1,10 @@
 //! Resolving patterns and expressions: the part of a definition that
 //! binds names.
 
-use ambient_runtime::FAULT_PACKAGE;
-
 use super::Resolver;
 use crate::error::Error;
 use crate::surface::{Arm, Expr, Key, Pattern, Reference, TypeParam};
-use crate::symbol::{ModuleId, Namespace};
+use crate::symbol::Namespace;
 
 impl Resolver<'_> {
     /// Resolves a pattern and brings its binders into scope. A binder is
@@ -72,11 +70,7 @@ impl Resolver<'_> {
                 right: Box::new(self.expr(right)?),
             },
             Expr::Let { name, value, body } => self.let_(name, value, body)?,
-            Expr::Using {
-                pattern,
-                value,
-                body,
-            } => self.using(pattern, value, body)?,
+            Expr::Using { name, value, body } => self.using(name, value, body)?,
             Expr::Operation { operator, operands } => Expr::Operation {
                 operator: *operator,
                 operands: operands
@@ -200,47 +194,19 @@ impl Resolver<'_> {
         })
     }
 
-    /// A using, as what it means: the value is held, the function it
-    /// carries under the standard library's key is read from it, and
-    /// that is called when the body exits. The pattern only names the
-    /// value's parts. See "Registering" in `spec/cleanup.md`.
-    fn using(
-        &mut self,
-        pattern: &Pattern,
-        value: &Expr,
-        body: &Expr,
-    ) -> Result<Expr<Reference>, Error> {
+    /// A using binds as a let does, and then a binder no program
+    /// names: what releases the value.
+    fn using(&mut self, name: &str, value: &Expr, body: &Expr) -> Result<Expr<Reference>, Error> {
         let value = Box::new(self.expr(value)?);
-        // Two binders no program names: the value, and what releases it.
-        let (held, release) = (self.next, self.next + 1);
-        self.next += 2;
-        let local = |number| Box::new(Expr::Name(Reference::Local(number)));
         let scope = self.locals.len();
-        let pattern = self.pattern(pattern)?;
-        let body = self.expr(body)?;
+        self.bind(name);
+        self.next += 1;
+        let body = Box::new(self.expr(body)?);
         self.locals.truncate(scope);
-        let dispose = ModuleId::new(FAULT_PACKAGE, "cleanup").key("dispose");
-        let cleanup = Expr::Cleanup {
-            cleanup: Box::new(Expr::Call {
-                callee: local(release),
-                args: Vec::new(),
-            }),
-            body: Box::new(Expr::Match {
-                subject: local(held),
-                arms: vec![Arm { pattern, body }],
-            }),
-        };
-        Ok(Expr::Let {
-            name: "held".to_owned(),
+        Ok(Expr::Using {
+            name: name.to_owned(),
             value,
-            body: Box::new(Expr::Let {
-                name: "release".to_owned(),
-                value: Box::new(Expr::Field {
-                    target: local(held),
-                    key: Key::Ability(Reference::Definition(dispose)),
-                }),
-                body: Box::new(cleanup),
-            }),
+            body,
         })
     }
 

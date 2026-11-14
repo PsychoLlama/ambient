@@ -240,7 +240,6 @@ fn check_node(expr: &Expr) -> Result<(), BuildError> {
         Expr::Match { arms, .. } => arms
             .iter()
             .try_for_each(|arm| check_pattern(&arm.pattern, &mut BTreeSet::new())),
-        Expr::Using { pattern, .. } => check_pattern(pattern, &mut BTreeSet::new()),
         Expr::Cleanup { .. } => Err(BuildError::BareCleanup),
         Expr::Cell { ty, .. } => ty.iter().try_for_each(check_type),
         Expr::Cast { ty, .. } => check_type(ty),

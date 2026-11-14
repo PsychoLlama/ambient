@@ -30,6 +30,12 @@ const SOURCES: [(&str, &str); 14] = [
     ("system", include_str!("system.ab")),
 ];
 
+/// The key a value holds what releases it under, which a using reads.
+#[must_use]
+pub fn dispose() -> crate::symbol::Symbol {
+    ModuleId::new(FAULT_PACKAGE, "cleanup").key("dispose")
+}
+
 /// The library module: `Error`, and a tag for the kind of each fault
 /// and for each limit of a budget, named as the runtime names it. It
 /// lists the module of each shape.

@@ -375,6 +375,11 @@ impl Engine<'_> {
                 sends.push(name.to_owned());
             }
         });
+        // A using reads a key its tree does not name.
+        let mut used = used;
+        if function.body.releases() {
+            used.push(crate::library::dispose());
+        }
         let env = self.environment(used, &sends, &mut key)?;
         // What a comptime call returns is content of this definition, and
         // depends on everything its callee is.

@@ -204,7 +204,7 @@ fn a_trace_is_kept_while_a_cleanup_runs() {
     let body = support::cleanup(b::lambda([], b::int(0)), overflows());
 
     // The fault is in the body, after everything the using held.
-    assert_eq!(trace(body, []), [at("main", 12)]);
+    assert_eq!(trace(body, []), [at("main", 10)]);
 }
 
 #[test]

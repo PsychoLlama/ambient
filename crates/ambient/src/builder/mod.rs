@@ -282,14 +282,8 @@ pub fn spawn(task: Expr) -> Expr {
 /// `dispose` key, read now and called then.
 #[must_use]
 pub fn using(name: &str, value: Expr, body: Expr) -> Expr {
-    using_as(pat::bind(name), value, body)
-}
-
-/// [`using`], with the value taken apart by a pattern.
-#[must_use]
-pub fn using_as(pattern: crate::surface::Pattern, value: Expr, body: Expr) -> Expr {
     Expr::Using {
-        pattern,
+        name: name.to_owned(),
         value: Box::new(value),
         body: Box::new(body),
     }

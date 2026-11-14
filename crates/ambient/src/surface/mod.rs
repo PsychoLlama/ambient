@@ -411,14 +411,15 @@ pub enum Expr<N = Path> {
     },
     /// Evaluates `body`, and then `cleanup`, however `body` ended. Is what
     /// `body` gave. See `spec/cleanup.md`.
-    /// Binds a value that carries its own cleanup. Resolution writes it
-    /// as the bindings and the [`Expr::Cleanup`] it means.
+    /// Binds a value that carries its own cleanup, as a let does, and
+    /// calls what the value holds under the standard library's key
+    /// when `body` exits.
     Using {
-        pattern: Pattern<N>,
+        name: String,
         value: Box<Expr<N>>,
         body: Box<Expr<N>>,
     },
-    /// What a [`Expr::Using`] resolves to; no builder accepts one.
+    /// What a [`Expr::Using`] registers; no builder accepts one.
     Cleanup {
         cleanup: Box<Expr<N>>,
         body: Box<Expr<N>>,

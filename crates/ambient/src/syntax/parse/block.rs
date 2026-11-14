@@ -207,11 +207,32 @@ impl Parser {
                     body: self.arrange(rest)?,
                 }],
             }),
-            Statement::Using(pattern, value) => Ok(Expr::Using {
-                pattern,
-                value: Box::new(value),
-                body: Box::new(self.arrange(rest)?),
-            }),
+            Statement::Using(Pattern::Bind(name, inner), value)
+                if matches!(*inner, Pattern::Wildcard) =>
+            {
+                Ok(Expr::Using {
+                    name,
+                    value: Box::new(value),
+                    body: Box::new(self.arrange(rest)?),
+                })
+            }
+            // The value is held whole under a name of the reader's, and
+            // the pattern names its parts.
+            Statement::Using(pattern, value) => {
+                let held = self.made_up("held");
+                let arm = Arm {
+                    pattern,
+                    body: self.arrange(rest)?,
+                };
+                Ok(Expr::Using {
+                    value: Box::new(value),
+                    body: Box::new(Expr::Match {
+                        subject: Box::new(super::expr::name(&held)),
+                        arms: vec![arm],
+                    }),
+                    name: held,
+                })
+            }
             Statement::Expr(value) => Ok(dropped(value, self.arrange(rest)?)),
             Statement::Branch(subject, arms) => self.branch(subject, arms, rest),
         }

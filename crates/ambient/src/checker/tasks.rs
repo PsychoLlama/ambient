@@ -5,7 +5,7 @@ use super::Checker;
 use super::abilities::Layer;
 use crate::core::{self, Primitive};
 use crate::error::Error;
-use crate::surface::{CellOp, Expr, Reference};
+use crate::surface::{CellOp, Expr, Key, Reference};
 use crate::symbol::Symbol;
 use crate::types::{Ty, error, trace};
 
@@ -77,6 +77,39 @@ impl Checker<'_> {
             body: Box::new(body),
         };
         Ok((node, ty))
+    }
+
+    /// A using holds its value, reads what the value carries under the
+    /// standard library's key, and registers a call of that: what runs
+    /// is fixed before the body does anything. See "Registering" in
+    /// `spec/cleanup.md`.
+    pub(super) fn using(
+        &mut self,
+        value: &Expr<Reference>,
+        body: &Expr<Reference>,
+    ) -> Result<(core::Expr, Ty), Error> {
+        let local = |number| Box::new(Expr::Name(Reference::Local(number)));
+        let (value, ty) = self.infer(value)?;
+        let held = self.next;
+        self.bind_local(ty);
+        let (release, releases) = self.infer(&Expr::Field {
+            target: local(held),
+            key: Key::Ability(Reference::Definition(crate::library::dispose())),
+        })?;
+        let call = Expr::Call {
+            callee: local(self.next),
+            args: Vec::new(),
+        };
+        self.bind_local(releases);
+        let (cleanup, ty) = self.cleanup(&call, body)?;
+        let core = core::Expr::Let {
+            value: Box::new(value),
+            body: Box::new(core::Expr::Let {
+                value: Box::new(release),
+                body: Box::new(cleanup),
+            }),
+        };
+        Ok((core, ty))
     }
 
     /// An all is the tuple of what its branches give; a first is any one

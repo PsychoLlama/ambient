@@ -162,7 +162,6 @@ impl<N> Expr<N> {
             Self::Field { key, .. } => key.names(visit),
             Self::Send { method, .. } => method.names(visit),
             Self::Match { arms, .. } => arms.iter().for_each(|arm| arm.pattern.names(visit)),
-            Self::Using { pattern, .. } => pattern.names(visit),
             Self::Lambda {
                 type_params,
                 params,
@@ -210,8 +209,8 @@ impl<N> Expr<N> {
             Self::Let { .. } | Self::Provide { .. } | Self::Observe { .. } => 1,
             Self::Lambda { params, .. } => params.len(),
             Self::Match { arms, .. } => arms.iter().map(|arm| arm.pattern.binders()).sum(),
-            // What it holds, what releases that, and what it names.
-            Self::Using { pattern, .. } => 2 + pattern.binders(),
+            // What it holds, and what releases that.
+            Self::Using { .. } => 2,
             _ => 0,
         };
         let mut inside = 0;
@@ -232,6 +231,13 @@ impl<N> Expr<N> {
             visit(name);
         }
         self.children(&mut |child| child.sends(visit));
+    }
+
+    /// Whether a using is anywhere inside the expression.
+    pub fn releases(&self) -> bool {
+        let mut found = matches!(self, Self::Using { .. });
+        self.children(&mut |child| found = found || child.releases());
+        found
     }
 
     /// Calls `visit` with the callee of every comptime call inside the
