@@ -95,6 +95,15 @@ impl Env {
         }
     }
 
+    /// How a type varies with each of `count` type parameters in scope
+    /// where it is written.
+    #[must_use]
+    pub fn variance(&self, ty: &Ty, count: usize) -> Vec<Variance> {
+        let mut found = vec![Variance::Unused; count];
+        self.varies(&self.normal(ty, false), Variance::Covariant, &mut found);
+        found
+    }
+
     /// Adds to `found` how a type in a place that varies as `at` varies
     /// with each type parameter it mentions.
     fn varies(&self, ty: &Ty, at: Variance, found: &mut [Variance]) {

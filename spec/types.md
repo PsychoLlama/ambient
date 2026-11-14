@@ -105,6 +105,8 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - Type and function definitions take type parameters; a bound is a subtype bound.
 - Type arguments are inferred at the use site or written explicitly.
 - An inferred type argument is the least type the arguments require: the union of what they supply for that parameter.
+- Where the result holds the parameter to more than being read, a literal type inferred for it is its primitive: a list made of `1` and `2` is a list of those, and a dictionary made of them takes any integer.
+- A parameter inside a union is inferred from the member an argument fits, so a node is accepted where a node or null is expected.
 - An inferred argument that violates its bound is an error; inference never widens to the bound.
 - Inside its definition a type parameter is known only by its bound, and an unbounded one supports no operations.
 - A function type may take type parameters of its own, each with an optional bound; their names are not part of the type.

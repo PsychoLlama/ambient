@@ -130,6 +130,36 @@ fn a_union_with_a_parameter_takes_what_its_other_members_do_not() {
 }
 
 #[test]
+fn a_union_without_a_bare_parameter_is_read_member_by_member() {
+    let slot = |held| ty::record([("value", held)]);
+    let held = b::function("held")
+        .type_param("T")
+        .param("slot", ty::union([slot(t()), ty::null()]))
+        .returns(ty::union([t(), ty::null()]))
+        .body(b::null());
+    let main = b::function("main")
+        .param("x", slot(ty::int()))
+        .returns(ty::union([ty::int(), ty::null()]))
+        .body(call("held", [b::name("x")]));
+
+    assert!(check([held, main]).is_ok());
+}
+
+#[test]
+fn a_literal_is_widened_where_the_result_holds_it_to_more_than_reading() {
+    // `fn keeper<T>(v: T): fn(T): T`
+    let keeper = b::function("keeper")
+        .type_param("T")
+        .param("v", t())
+        .returns(ty::function([t()], t()))
+        .body(b::lambda([("x", Some(t()))], b::name("x")));
+    let kept = ty::function([ty::int()], ty::int());
+
+    // A function of `1` alone would be of no use; `id(1)` is still `1`.
+    assert!(check([keeper, returning(kept, call("keeper", [b::int(1)]))]).is_ok());
+}
+
+#[test]
 fn a_type_parameter_is_opaque_inside_its_function() {
     let leak = b::function("main")
         .type_param("T")

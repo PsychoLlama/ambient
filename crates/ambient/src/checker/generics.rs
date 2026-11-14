@@ -7,7 +7,9 @@ use crate::error::Error;
 use crate::literal::Literal;
 use crate::surface::{Expr, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Signature, Ty, abilities, entry, generalize, instantiate, substitute};
+use crate::types::{
+    Signature, Ty, Variance, abilities, entry, generalize, instantiate, substitute,
+};
 
 /// A generic call, once its type arguments are known.
 pub(super) struct Solved {
@@ -273,6 +275,11 @@ impl Checker<'_> {
                     .iter()
                     .partition(|member| matches!(member, Ty::Named(Reference::Parameter(_), _)));
                 let [parameter] = parameters.as_slice() else {
+                    // `Node<T> | null` against a node: each member says
+                    // what it can, and one of another shape says nothing.
+                    for member in rest {
+                        self.collect_within(member, &found, lower, depth);
+                    }
                     return;
                 };
                 let rest = self.env.union(rest.into_iter().cloned().collect());
@@ -350,7 +357,15 @@ impl Checker<'_> {
         own: usize,
         lower: Vec<Vec<Ty>>,
     ) -> Result<Vec<Ty>, Error> {
-        let args = self.least(own, lower);
+        let mut args = self.least(own, lower);
+        // A literal type is no use where the result holds the parameter
+        // to more than being read: a dictionary of `1 | 2` takes no `3`.
+        let held = self.env.variance(&signature.ret, args.len());
+        for (arg, held) in args.iter_mut().zip(held).skip(own) {
+            if matches!(held, Variance::Invariant | Variance::Contravariant) {
+                *arg = self.widened(arg);
+            }
+        }
         match (self.within_bounds(signature, &args), function) {
             (Ok(()), _) => Ok(args),
             (Err(_), Some(function)) => Err(Error::CannotInfer {
