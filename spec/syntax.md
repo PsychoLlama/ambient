@@ -1,6 +1,6 @@
 # Syntax
 
-Source text is braces and statements, read by anyone who reads TypeScript, Rust, or Swift. Every form here is a way of writing a [tree](trees.md) node or a fixed arrangement of them; nothing exists only as syntax.
+Source text is braces and statements, read by anyone who reads TypeScript, Rust, or Swift. Every form here is a way of writing a node of the [tree as written](trees.md); where a form is shorthand, this page says what it stands for.
 
 ## Statements
 
@@ -83,7 +83,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 ## Files
 
 - A source file is a module and ends in `.ab`.
-- TODO: the reader keeps no [metadata](trees.md) but doc comments and positions, so a file cannot yet be written back from its trees.
+- What the reader does not yet keep, and so what cannot be written back, is listed under "Source" in [trees](trees.md).
 
 ## Positions
 
