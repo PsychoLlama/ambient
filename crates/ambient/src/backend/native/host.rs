@@ -80,26 +80,26 @@ impl Natives {
     fn offer(
         mut self,
         package: &str,
-        tag: &str,
+        path: &str,
         verifiable: bool,
         native: impl Fn(&mut dyn Running, &[Value]) -> Result<Value, String> + 'static,
     ) -> Self {
         let run: NativeFn = Rc::new(native);
-        let key = (package.to_owned(), tag.to_owned());
+        let key = (package.to_owned(), path.to_owned());
         self.0.insert(key, Offered { run, verifiable });
         self
     }
 
-    /// Adds native code for the extern tagged `tag` in `package`. It is
-    /// volatile: a run that called it is never reused.
+    /// Adds native code for the extern of `package` whose module path
+    /// and name are `path`, as `util.math.double`. It is volatile: a run that called it is never reused.
     #[must_use]
     pub fn with(
         self,
         package: &str,
-        tag: &str,
+        path: &str,
         native: impl Fn(&[Value]) -> Result<Value, String> + 'static,
     ) -> Self {
-        self.offer(package, tag, false, move |_, args| native(args))
+        self.offer(package, path, false, move |_, args| native(args))
     }
 
     /// Adds native code that is handed the program that called it, as
@@ -108,10 +108,10 @@ impl Natives {
     pub fn reaching(
         self,
         package: &str,
-        tag: &str,
+        path: &str,
         native: impl Fn(&mut dyn Running, &[Value]) -> Result<Value, String> + 'static,
     ) -> Self {
-        self.offer(package, tag, false, native)
+        self.offer(package, path, false, native)
     }
 
     /// Adds native code that can be called again, cheaply and without
@@ -120,16 +120,16 @@ impl Natives {
     pub fn verifiable(
         self,
         package: &str,
-        tag: &str,
+        path: &str,
         native: impl Fn(&[Value]) -> Result<Value, String> + 'static,
     ) -> Self {
-        self.offer(package, tag, true, move |_, args| native(args))
+        self.offer(package, path, true, move |_, args| native(args))
     }
 
     /// The native code offered for one extern.
     #[must_use]
     pub fn get(&self, native: &Native) -> Option<&Offered> {
-        self.0.get(&(native.package.clone(), native.tag.clone()))
+        self.0.get(&(native.package.clone(), native.path.clone()))
     }
 
     /// The native code for each of `externs`, in their order.
@@ -144,7 +144,7 @@ impl Natives {
                 self.get(native).cloned().ok_or_else(|| {
                     format!(
                         "no native code for `{}` of package `{}`",
-                        native.tag, native.package
+                        native.path, native.package
                     )
                 })
             })

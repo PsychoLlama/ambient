@@ -74,10 +74,10 @@ pub(super) fn externs(
     let mut found = exported(module, instance, store, "native:");
     found.sort_by_key(|(_, position)| *position);
     let native = |(name, _): (String, u64)| {
-        let (package, tag) = name.split_once('\t')?;
+        let (package, path) = name.split_once('\t')?;
         Some(Native {
             package: package.to_owned(),
-            tag: tag.to_owned(),
+            path: path.to_owned(),
         })
     };
     found.into_iter().filter_map(native).collect()

@@ -269,7 +269,7 @@ fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assem
         runtime.tell(&mut defined, &mut exports, &mut next_global);
     }
     for (position, native) in parts.natives.iter().enumerate() {
-        let name = format!("native:{}\t{}", native.package, native.tag);
+        let name = format!("native:{}\t{}", native.package, native.path);
         constant(
             &mut defined,
             &mut exports,

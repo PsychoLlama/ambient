@@ -190,7 +190,7 @@ impl Verifier<'_> {
             abilities.push(self.ability(*slot)?.0.clone());
         }
         if self.env.row(&abilities) != abilities {
-            return shape("a row is not ordered by tag");
+            return shape("a row is not ordered by identity");
         }
         Ok(abilities)
     }
@@ -233,13 +233,13 @@ impl Verifier<'_> {
                 }
                 Tree::Ability {
                     package,
-                    tag,
+                    path,
                     type_params,
                     params,
                     ret,
                 } => {
                     let info = AbilityInfo {
-                        tag: (package.clone(), tag.clone()),
+                        identity: (package.clone(), path.clone()),
                         type_params: all(type_params)?,
                         params: all(params)?,
                         ret: raise(ret)?,
@@ -248,9 +248,9 @@ impl Verifier<'_> {
                     header.push(info.ret.clone());
                     self.env.abilities.insert(symbol, info);
                 }
-                Tree::Key { package, tag, ty } => {
+                Tree::Key { package, path, ty } => {
                     let info = KeyInfo {
-                        tag: (package.clone(), tag.clone()),
+                        identity: (package.clone(), path.clone()),
                         ty: raise(ty)?,
                     };
                     header.push(info.ty.clone());
@@ -319,7 +319,7 @@ impl Verifier<'_> {
             .iter()
             .map(|(symbol, info)| {
                 let info = AbilityInfo {
-                    tag: info.tag.clone(),
+                    identity: info.identity.clone(),
                     type_params: all(&info.type_params),
                     params: all(&info.params),
                     ret: env.normalize(&info.ret),
@@ -343,8 +343,8 @@ impl Verifier<'_> {
             .collect();
         let keys = env.keys.iter().map(|(symbol, info)| {
             let ty = env.normalize(&info.ty);
-            let tag = info.tag.clone();
-            (symbol.clone(), KeyInfo { tag, ty })
+            let identity = info.identity.clone();
+            (symbol.clone(), KeyInfo { identity, ty })
         });
         let keys = keys.collect();
         for held in self.held.values_mut() {

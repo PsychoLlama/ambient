@@ -109,27 +109,27 @@ impl Tree {
             }
             Self::Ability {
                 package,
-                tag,
+                path,
                 type_params,
                 params,
                 ret,
             } => {
                 out.push(2);
                 text(package, out);
-                text(tag, out);
+                text(path, out);
                 encode_types(type_params, out);
                 encode_types(params, out);
                 encode_type(ret, out);
             }
-            Self::Key { package, tag, ty } => {
+            Self::Key { package, path, ty } => {
                 out.push(5);
                 text(package, out);
-                text(tag, out);
+                text(path, out);
                 encode_type(ty, out);
             }
             Self::Extern {
                 package,
-                tag,
+                path,
                 params,
                 ret,
                 handles,
@@ -137,7 +137,7 @@ impl Tree {
             } => {
                 out.push(3);
                 text(package, out);
-                text(tag, out);
+                text(path, out);
                 encode_types(params, out);
                 encode_type(ret, out);
                 encode_slots(handles.as_slice(), out);

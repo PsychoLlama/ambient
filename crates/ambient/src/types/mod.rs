@@ -55,9 +55,10 @@ pub struct Signature {
 /// An ability, as a perform or a handler sees it.
 #[derive(Clone, Debug)]
 pub struct AbilityInfo {
-    /// The package that declares it and its tag: its identity apart from
-    /// its signature, and what a row is ordered by.
-    pub tag: (String, String),
+    /// The ID of the package that declares it, and its module path and
+    /// name: what tells it apart besides its signature, and what a row
+    /// is ordered by.
+    pub identity: (String, String),
     /// The bound of each type parameter of its signature.
     pub type_params: Vec<Ty>,
     pub params: Vec<Ty>,
@@ -67,9 +68,9 @@ pub struct AbilityInfo {
 /// A key, as a record that holds a value under it sees it.
 #[derive(Clone, Debug)]
 pub struct KeyInfo {
-    /// The package that declares it and its tag: its identity apart from
-    /// its type, and what a record's keys are ordered by.
-    pub tag: (String, String),
+    /// As an ability's: what tells it apart besides its type, and what
+    /// a record's keys are ordered by.
+    pub identity: (String, String),
     /// The type of what a record holds under it.
     pub ty: Ty,
 }

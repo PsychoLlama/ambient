@@ -24,9 +24,9 @@
 - A tag (`DefinitionKind::Tag`) resolves to a type definition: the literal type of the tag its identity names. A name in value position falls back to the type namespace, and the checker gives the value only for such a definition (`Checker::tag`).
 - A key is a definition in a namespace of its own (`Namespace::Key`); a record names one where it names an ability (`Key::Ability`), and `Env::holds` is the one rule for what may be held under it, which both checkers ask.
 - A merge names the keys whose methods receive the merged record (`core::Expr::Merge::methods`): exactly those its type lists as methods. The runtime binds every other method to the record it came from, so no method meets a receiver nothing checked.
-- A row is ordered by tag wherever it reaches a core tree, never by name or by the order it was written in.
+- A row is ordered by identity wherever it reaches a core tree, never by the order it was written in.
 - A program is `Engine::program(entry, target)`: a root function the engine writes (`engine/program.rs`) and then checks, hashes, and compiles like any other.
-- Compiled code reaches native code only through `amb_native` and an index the loader fills in; a host supplies `Natives` by package and tag.
+- Compiled code reaches native code only through `amb_native` and an index the loader fills in; a host supplies `Natives` by package and the extern's module path and name.
 - Native code reaches its program only through `native::Running`, which each backend's dispatch implements. What it loads is held until its result is encoded, so nothing of the program is borrowed while it runs.
 - A task suspends by unwinding with the context's mode set, and resumes by its functions being called again (`lower/resume.rs`, `ambient-runtime/src/task.rs`). A host that sees the entry unwind while suspending calls `amb_schedule` and the entry again.
 - A program is linked closed (`Engine::link`) or open to loading (`Engine::link_open`, `Parts::open`); only an open one is loaded into. A closed program in which no core tree `suspends` is compiled `still` (`lower::Form`, `engine::compile::Mode`): no operation is a point.

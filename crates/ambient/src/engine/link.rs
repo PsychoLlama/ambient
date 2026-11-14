@@ -31,7 +31,8 @@ pub struct Part {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Native {
     pub package: String,
-    pub tag: String,
+    /// The extern's module path and name, as one text.
+    pub path: String,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -373,10 +374,10 @@ impl Engine<'_> {
                 Tree::Ability { .. } | Tree::Key { .. } | Tree::Target { .. } => Body::Inert,
             };
             let native = match &open.tree {
-                Tree::Extern { package, tag, .. } => {
+                Tree::Extern { package, path, .. } => {
                     natives.push(Native {
                         package: package.clone(),
-                        tag: tag.clone(),
+                        path: path.clone(),
                     });
                     Some(natives.len() - 1)
                 }

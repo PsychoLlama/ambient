@@ -18,29 +18,29 @@ impl Env {
     #[must_use]
     pub fn ordered<'t>(&self, fields: &'t [(TyKey, Ty)]) -> Vec<(&'t TyKey, &'t Ty)> {
         let handler = |key: &TyKey| matches!(key, Key::Ability(_));
-        let tag = |key: &TyKey| match key {
+        let identity = |key: &TyKey| match key {
             Key::Ability(Reference::Definition(named)) => {
-                let ability = self.abilities.get(named).map(|info| &info.tag);
-                ability.or_else(|| self.keys.get(named).map(|info| &info.tag))
+                let ability = self.abilities.get(named).map(|info| &info.identity);
+                ability.or_else(|| self.keys.get(named).map(|info| &info.identity))
             }
             _ => None,
         };
         let mut entries: Vec<_> = fields.iter().map(|(key, ty)| (key, ty)).collect();
         entries.sort_by(|(a, _), (b, _)| {
-            (handler(a), tag(a))
-                .cmp(&(handler(b), tag(b)))
+            (handler(a), identity(a))
+                .cmp(&(handler(b), identity(b)))
                 .then_with(|| a.cmp(b))
         });
         entries
     }
 
-    /// A row ordered by tag, each ability once: the one order that
+    /// A row ordered by identity, each ability once: the one order that
     /// depends on neither names nor where the row was written.
     #[must_use]
     pub fn row(&self, row: &[Symbol]) -> Vec<Symbol> {
-        let tag = |ability: &Symbol| self.abilities.get(ability).map(|info| &info.tag);
+        let identity = |ability: &Symbol| self.abilities.get(ability).map(|info| &info.identity);
         let mut row = row.to_vec();
-        row.sort_by(|a, b| tag(a).cmp(&tag(b)).then_with(|| a.cmp(b)));
+        row.sort_by(|a, b| identity(a).cmp(&identity(b)).then_with(|| a.cmp(b)));
         row.dedup();
         row
     }

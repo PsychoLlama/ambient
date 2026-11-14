@@ -328,7 +328,7 @@ fn native_code_goes_with_the_code_that_reaches_it() {
     let natives = Natives::new().with("app", "plugin.seven", |_| Ok(Value::Int(7)));
     let seven = engine::Native {
         package: "app".to_owned(),
-        tag: "plugin.seven".to_owned(),
+        path: "plugin.seven".to_owned(),
     };
     // How many hold the native code: this list, and each load of it.
     let held = || Rc::strong_count(&natives.get(&seven).unwrap().run);

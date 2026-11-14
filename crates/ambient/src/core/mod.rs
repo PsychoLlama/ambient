@@ -347,34 +347,37 @@ pub enum Tree {
     },
     Function(Function),
     Ability {
-        /// The ID of the package that declares it, and its tag.
+        /// What tells it from every other: the ID of the package that
+        /// declares it, and its module path and name as one text. See
+        /// "Identity" in `spec/definitions.md`.
         package: String,
-        tag: String,
+        path: String,
         /// The bound of each type parameter of its signature.
         type_params: Vec<Type>,
         params: Vec<Type>,
         ret: Type,
     },
-    /// A key of records: its package's ID, its tag, and the type of
-    /// what a record holds under it.
+    /// A key of records: its identity, as an ability's, and the type
+    /// of what a record holds under it.
     Key {
         package: String,
-        tag: String,
+        path: String,
         ty: Type,
     },
-    /// A definition implemented in native code, found by its tag.
+    /// A definition implemented in native code, found by its identity,
+    /// as an ability's.
     Extern {
         package: String,
-        tag: String,
+        path: String,
         params: Vec<Type>,
         ret: Type,
         /// The ability it handles, if it is a native handler.
         handles: Option<Slot>,
-        /// The abilities it performs, ordered by tag.
+        /// The abilities it performs, ordered by identity.
         row: Vec<Slot>,
     },
     /// A handler for each ability a world offers, ordered by the
-    /// abilities' tags.
+    /// abilities' identities.
     Target {
         bindings: Vec<(Slot, Slot)>,
     },

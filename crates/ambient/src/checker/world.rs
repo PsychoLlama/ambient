@@ -56,7 +56,7 @@ pub fn check_extern(
     Ok(Open {
         tree: Tree::Extern {
             package: package.to_owned(),
-            tag: symbol.identity(),
+            path: symbol.identity(),
             params,
             ret,
             handles,

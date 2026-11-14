@@ -134,8 +134,9 @@ impl Symbol {
     }
 
     /// What tells a definition from every other of its package, where
-    /// structure cannot: its module path and its name, as one text. See
-    /// "Identity" in `spec/definitions.md`.
+    /// structure cannot: its module path and its name, as one text. With
+    /// the package's ID it is the definition's identity. See "Identity"
+    /// in `spec/definitions.md`.
     #[must_use]
     pub fn identity(&self) -> String {
         let path = self.module.path.0.iter().map(String::as_str);

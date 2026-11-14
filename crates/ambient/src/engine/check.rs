@@ -111,7 +111,7 @@ impl Engine<'_> {
                         resolved.definition.names(&mut |name| visit(name));
                     }));
                     let info = AbilityInfo {
-                        tag: (
+                        identity: (
                             self.sources.identity(&symbol.module.package),
                             symbol.identity(),
                         ),
@@ -133,7 +133,7 @@ impl Engine<'_> {
                     pending.extend(type_definitions(&key.ty));
                     let package = self.sources.identity(&symbol.module.package);
                     let info = KeyInfo {
-                        tag: (package, symbol.identity()),
+                        identity: (package, symbol.identity()),
                         ty: key.ty.clone(),
                     };
                     env.keys.insert(symbol, info);
@@ -159,7 +159,7 @@ impl Engine<'_> {
                     type_params: info.type_params.iter().map(|b| env.normalize(b)).collect(),
                     params: info.params.iter().map(|p| env.normalize(p)).collect(),
                     ret: env.normalize(&info.ret),
-                    tag: info.tag,
+                    identity: info.identity,
                 };
                 (symbol, info)
             })
