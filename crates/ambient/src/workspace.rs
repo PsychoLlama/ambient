@@ -42,8 +42,8 @@ pub enum WorkspaceError {
     FileAndDirectory(ModuleId),
     /// `pkg` always means a module's own package.
     ReservedName,
-    /// The standard library could not be built.
-    Library,
+    /// The standard library could not be built, and why.
+    Library(String),
 }
 
 impl fmt::Display for WorkspaceError {
@@ -51,7 +51,7 @@ impl fmt::Display for WorkspaceError {
         match self {
             Self::FileAndDirectory(id) => write!(f, "`{id}` is both a module and a directory"),
             Self::ReservedName => write!(f, "`{OWN_PACKAGE}` cannot name a dependency"),
-            Self::Library => write!(f, "the standard library does not build"),
+            Self::Library(why) => write!(f, "the standard library does not build: {why}"),
         }
     }
 }

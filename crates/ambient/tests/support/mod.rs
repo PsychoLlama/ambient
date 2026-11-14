@@ -168,7 +168,7 @@ pub fn verify_all(engine: &ambient::engine::Engine, entry: &Symbol) {
             continue;
         }
         if let Err(error) = engine.verify(&symbol) {
-            panic!("the core checker refuses what checking made: {error}");
+            panic!("a definition does not check, or the core checker refuses it: {error}");
         }
         pending.extend(engine.check(&symbol).unwrap().slots.iter().cloned());
     }

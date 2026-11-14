@@ -1,0 +1,195 @@
+/// A dictionary: values by string key, kept in the order of their keys.
+/// Changing one gives another and leaves the first as it was.
+pub type Dict<V> = {
+    tree: Tree<V>,
+    // How many keys it has.
+    size(self): int,
+    // What is under `key`, or null if nothing is.
+    get(self, key: string): V | null,
+    // Whether anything is under `key`.
+    has(self, key: string): bool,
+    // This with `value` under `key`, in place of what was there.
+    set(self, key: string, value: V): Dict<V>,
+    // This with what `change` makes of what is under `key`, which is
+    // null if nothing is.
+    update(self, key: string, change: fn(V | null): V): Dict<V>,
+    // This with nothing under `key`.
+    remove(self, key: string): Dict<V>,
+    // The keys, in order.
+    keys(self): List<string>,
+    // The values, in the order of their keys.
+    values(self): List<V>,
+    // Each key with its value, in the order of the keys.
+    entries(self): List<(string, V)>,
+};
+
+/// A balanced tree: the keys to the left of a node come before its key,
+/// and neither side holds over three times what the other does.
+type Tree<V> = Node<V> | null;
+type Node<V> = { key: string, value: V, left: Tree<V>, right: Tree<V>, count: int };
+
+/// A dictionary with nothing in it.
+pub fn empty<V>(): Dict<V> => over::<V>(null);
+
+/// A dictionary of each key and its value. A later one replaces an
+/// earlier one of the same key.
+pub fn of<V>(entries: List<(string, V)>): Dict<V> =>
+    over::<V>(entries.iter().fold(null, fn(tree: Tree<V>, entry: (string, V)): Tree<V> {
+        let (key, value) = entry;
+        return insert(tree, key, value);
+    }));
+
+fn over<V>(tree: Tree<V>): Dict<V> => {
+    tree,
+    size(self): int => count(self.tree),
+    get(self, key: string): V | null => find(self.tree, key),
+    has(self, key: string): bool => holds(self.tree, key),
+    set(self, key: string, value: V): Dict<V> => over(insert(self.tree, key, value)),
+    update(self, key: string, change: fn(V | null): V): Dict<V> =>
+        over(insert(self.tree, key, change(find(self.tree, key)))),
+    remove(self, key: string): Dict<V> => over(delete(self.tree, key)),
+    keys(self): List<string> =>
+        walk(self.tree, [], fn(found: List<string>, node: Node<V>) => found.push(node.key)),
+    values(self): List<V> =>
+        walk(self.tree, [], fn(found: List<V>, node: Node<V>) => found.push(node.value)),
+    entries(self): List<(string, V)> =>
+        walk(self.tree, [], fn(found: List<(string, V)>, node: Node<V>) =>
+            found.push((node.key, node.value))),
+};
+
+fn count<V>(tree: Tree<V>): int =>
+    match tree {
+        null => 0,
+        let node => node.count,
+    };
+
+fn node<V>(key: string, value: V, left: Tree<V>, right: Tree<V>): Node<V> =>
+    { key, value, left, right, count: count(left) + count(right) + 1 };
+
+fn find<V>(tree: Tree<V>, key: string): V | null {
+    match tree {
+        null => { return null; }
+        let node => {
+            if key < node.key { return find(node.left, key); }
+            if node.key < key { return find(node.right, key); }
+            return node.value;
+        }
+    }
+}
+
+fn holds<V>(tree: Tree<V>, key: string): bool {
+    match tree {
+        null => { return false; }
+        let node => {
+            if key < node.key { return holds(node.left, key); }
+            if node.key < key { return holds(node.right, key); }
+            return true;
+        }
+    }
+}
+
+/// What `visit` makes of `found` and each node in turn, in key order.
+fn walk<V, A>(tree: Tree<V>, found: A, visit: fn(A, Node<V>): A): A =>
+    match tree {
+        null => found,
+        let node => walk(node.right, visit(walk(node.left, found, visit), node), visit),
+    };
+
+fn insert<V>(tree: Tree<V>, key: string, value: V): Node<V> {
+    match tree {
+        null => { return node(key, value, null, null); }
+        let at => {
+            if key < at.key {
+                return balance(at.key, at.value, insert(at.left, key, value), at.right);
+            }
+            if at.key < key {
+                return balance(at.key, at.value, at.left, insert(at.right, key, value));
+            }
+            return node(key, value, at.left, at.right);
+        }
+    }
+}
+
+fn delete<V>(tree: Tree<V>, key: string): Tree<V> {
+    match tree {
+        null => { return null; }
+        let at => {
+            if key < at.key {
+                return balance(at.key, at.value, delete(at.left, key), at.right);
+            }
+            if at.key < key {
+                return balance(at.key, at.value, at.left, delete(at.right, key));
+            }
+            return glue(at.left, at.right);
+        }
+    }
+}
+
+/// One tree of two, every key of the first before every key of the
+/// second: the first of the second goes on top.
+fn glue<V>(left: Tree<V>, right: Tree<V>): Tree<V> {
+    match right {
+        null => { return left; }
+        let rest => {
+            let top = least(rest);
+            return balance(top.key, top.value, left, delete(rest, top.key));
+        }
+    }
+}
+
+fn least<V>(at: Node<V>): Node<V> =>
+    match at.left {
+        null => at,
+        let left => least(left),
+    };
+
+/// A node of two sides that were balanced before one of them gained or
+/// lost a key, turned so that they are again.
+fn balance<V>(key: string, value: V, left: Tree<V>, right: Tree<V>): Node<V> {
+    if count(left) + count(right) < 2 {
+        return node(key, value, left, right);
+    }
+    if count(right) > 3 * count(left) {
+        return match right {
+            null => node(key, value, left, right),
+            let heavy => lean_left(key, value, left, heavy),
+        };
+    }
+    if count(left) > 3 * count(right) {
+        return match left {
+            null => node(key, value, left, right),
+            let heavy => lean_right(key, value, heavy, right),
+        };
+    }
+    return node(key, value, left, right);
+}
+
+/// Lifts the right side, or its left child if that is the heavier.
+fn lean_left<V>(key: string, value: V, left: Tree<V>, right: Node<V>): Node<V> {
+    match right.left {
+        null => {}
+        let inner => {
+            if count(inner) >= 2 * count(right.right) {
+                let under = node(key, value, left, inner.left);
+                let beside = node(right.key, right.value, inner.right, right.right);
+                return node(inner.key, inner.value, under, beside);
+            }
+        }
+    }
+    return node(right.key, right.value, node(key, value, left, right.left), right.right);
+}
+
+/// Lifts the left side, or its right child if that is the heavier.
+fn lean_right<V>(key: string, value: V, left: Node<V>, right: Tree<V>): Node<V> {
+    match left.right {
+        null => {}
+        let inner => {
+            if count(inner) >= 2 * count(left.left) {
+                let beside = node(left.key, left.value, left.left, inner.left);
+                let under = node(key, value, inner.right, right);
+                return node(inner.key, inner.value, beside, under);
+            }
+        }
+    }
+    return node(left.key, left.value, left.left, node(key, value, left.right, right));
+}

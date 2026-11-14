@@ -45,6 +45,7 @@
 - Compiled code is position-independent: it reaches definitions through slots and the runtime through entry points, never by address.
 - A name reaches a definition through a module's members (`engine/scope.rs`): its own definitions and its re-exports, which keep the symbol of what they alias. Another package is reached only through its library module and the modules that lists.
 - The standard library is a package installed into a workspace on request (`library/`). Its modules are `.ab` source, embedded and read at install; only its library module is built, since fault kinds and budget limits are tags named by the runtime, never restated.
+- A collection that is not a runtime shape is a record of methods over a private tree, written in the library (`library/dict.ab`); `get` of a missing key is null, as for a list.
 - A method of a built-in shape is a public function in `library/<shape>.ab` whose first parameter is `self`. Generic library code narrows with a match and a binder, never a cast to a type parameter, which would make it need type arguments as it runs.
 - The reader (`syntax/`) resolves nothing: it tracks only the locals of the function being read, to tell `record.field` from `module.definition`. Statements, early returns, `if`, and the operators the language lacks are arranged into existing nodes (`syntax/parse/block.rs`, `expr.rs`); do not add a surface node for something an arrangement can say.
 - Names the reader makes up start with `__`, which no program may write.

@@ -13,9 +13,10 @@ use crate::workspace::{Workspace, WorkspaceError};
 
 /// The modules written as source: the path of each, and its text. One
 /// named for a shape is that shape's methods.
-const SOURCES: [(&str, &str); 13] = [
+const SOURCES: [(&str, &str); 14] = [
     ("cell", include_str!("cell.ab")),
     ("cleanup", include_str!("cleanup.ab")),
+    ("dict", include_str!("dict.ab")),
     ("float", include_str!("float.ab")),
     ("int", include_str!("int.ab")),
     ("iterator", include_str!("iterator.ab")),
@@ -59,10 +60,13 @@ pub fn module() -> ModuleBuilder {
 /// Fails if the workspace already has a module where the library goes.
 pub fn install(workspace: &mut Workspace) -> Result<(), WorkspaceError> {
     let id = ModuleId::new(FAULT_PACKAGE, "");
-    let module = module().build().map_err(|_| WorkspaceError::Library)?;
+    let module = module()
+        .build()
+        .map_err(|error| WorkspaceError::Library(error.to_string()))?;
     workspace.set(id.clone(), module)?;
     for (path, source) in SOURCES {
-        let module = crate::syntax::parse(source).map_err(|_| WorkspaceError::Library)?;
+        let module = crate::syntax::parse(source)
+            .map_err(|error| WorkspaceError::Library(format!("{path}.ab:{error}")))?;
         workspace.set(ModuleId::new(FAULT_PACKAGE, path), module)?;
     }
     workspace.standard(vec![id]);
