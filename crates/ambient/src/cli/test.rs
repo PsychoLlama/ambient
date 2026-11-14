@@ -20,9 +20,10 @@ use crate::workspace::Sources;
 const PREFIX: &str = "test_";
 
 impl Session<'_> {
-    /// Runs every test of the package at `path`, says how each went,
-    /// and gives the code to exit with: zero if none failed.
-    pub(super) fn test(&self, path: &Path) -> Result<i32, Vec<String>> {
+    /// Runs the tests of the package at `path`, says how each went, and
+    /// gives the code to exit with: zero if none failed. With `only`,
+    /// the tests are those whose module path and name hold it.
+    pub(super) fn test(&self, path: &Path, only: Option<&str>) -> Result<i32, Vec<String>> {
         let project = self.open(path)?;
         let engine = Engine::new(&project.workspace, self.store);
         let launch = Launch {
@@ -31,7 +32,8 @@ impl Session<'_> {
         };
         let target = ModuleId::new(FAULT_PACKAGE, "system").value("tests");
         let (mut passed, mut failed) = (0, 0);
-        for test in tests(&project) {
+        let chosen = |test: &Symbol| only.is_none_or(|only| test.identity().contains(only));
+        for test in tests(&project).into_iter().filter(chosen) {
             let unmet = Rc::new(RefCell::new(Vec::new()));
             let ended = launch.run(&test, &target, &checks(&unmet));
             let mut problems = unmet.take();

@@ -319,6 +319,8 @@ pub fn main(): null with console.print {
 }
 ```
 
+`ambient test --only ledger` runs the tests whose module path and name hold `ledger`.
+
 A test is given no world: it provides what the code under test needs, as above, so it says exactly what the world held.
 
 ## The standard library

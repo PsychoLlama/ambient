@@ -222,8 +222,14 @@ fn a_directory_without_a_manifest_is_not_a_package() {
 }
 
 fn test(files: &Files) -> (i32, Scripted) {
+    testing(files, None)
+}
+
+/// Runs the tests of `files` whose names hold `only`, or all of them.
+fn testing(files: &Files, only: Option<&str>) -> (i32, Scripted) {
     let path = PathBuf::from("app");
-    Scripted::default().execute(files, &ambient::cli::Command::Test { path })
+    let only = only.map(str::to_owned);
+    Scripted::default().execute(files, &ambient::cli::Command::Test { path, only })
 }
 
 #[test]
@@ -278,6 +284,20 @@ fn a_test_that_throws_fails_with_what_it_threw() {
         in app:main.test_throws at app/src/main.ab:4:45
 0 passed, 1 failed
 "
+    );
+}
+
+#[test]
+fn only_the_tests_asked_for_are_run() {
+    let source = "
+        fn test_one(): null => null;
+        fn test_two(): int => 1 / 0;
+    ";
+
+    let (code, world) = testing(&app(source), Some("main.test_o"));
+    assert_eq!(
+        (code, world.out.as_str()),
+        (0, "ok    app:main.test_one\n1 passed, 0 failed\n")
     );
 }
 

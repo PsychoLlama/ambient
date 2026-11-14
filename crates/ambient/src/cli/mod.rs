@@ -59,6 +59,9 @@ pub enum Command {
         /// The package's directory.
         #[arg(default_value = ".")]
         path: PathBuf,
+        /// Runs only the tests whose module path and name hold this.
+        #[arg(long)]
+        only: Option<String>,
     },
 }
 
@@ -80,7 +83,7 @@ impl Session<'_> {
         let done = match command {
             Command::Run { path, entry, .. } => self.run(path, entry),
             Command::Check { path } => self.check(path).map(|()| 0),
-            Command::Test { path } => self.test(path),
+            Command::Test { path, only } => self.test(path, only.as_deref()),
         };
         done.unwrap_or_else(|problems| {
             let mut world = self.world.borrow_mut();

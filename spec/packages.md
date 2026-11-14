@@ -69,4 +69,5 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A check that does not hold fails its test and the test goes on, so one run reports every check that does not hold; a [fault](values.md) fails it and ends it.
 - A test reaches no world: one whose function needs an ability [provides](handlers.md) it, which is how a test says what the world holds.
 - A test that names an ability its target does not bind is not a program, and fails for that.
-- TODO: nothing selects which tests run, and a test that never ends is never stopped.
+- A run may be of only the tests whose module path and name hold a given text.
+- TODO: a test that never ends is never stopped.

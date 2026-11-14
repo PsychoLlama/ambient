@@ -34,7 +34,7 @@ fn every_example_checks() {
 fn every_test_of_an_example_passes() {
     for entry in std::fs::read_dir(example("")).unwrap() {
         let path = entry.unwrap().path();
-        let (code, world) = Scripted::default().execute(&Disk, &Command::Test { path });
+        let (code, world) = Scripted::default().execute(&Disk, &Command::Test { path, only: None });
 
         assert_eq!((code, world.err.as_str()), (0, ""), "{}", world.out);
     }
