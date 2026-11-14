@@ -384,3 +384,19 @@ fn a_function_in_a_block_may_call_itself() {
 
     assert_eq!(int(source), 12);
 }
+
+#[test]
+fn a_let_that_states_a_type_holds_its_value_to_it_and_tests_nothing() {
+    // A function type cannot be tested for, and each value takes from
+    // the type what it leaves out: a parameter's type, a member's.
+    let source = "
+        fn main(): int {
+            let add: fn(int): int = fn(n) => n + 1;
+            let none: List<int> = [];
+            let wide: int | null = 2;
+            return add(none.length()) + (wide as int else 0);
+        }
+    ";
+
+    assert_eq!(int(source), 3);
+}

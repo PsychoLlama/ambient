@@ -16,6 +16,12 @@ impl Checker<'_> {
         arms: &[Arm<Reference>],
         expected: Option<&Ty>,
     ) -> Result<(core::Expr, Ty), Error> {
+        if let [arm] = arms
+            && let Pattern::Bind(_, inner) = &arm.pattern
+            && let Pattern::Is(stated) = &**inner
+        {
+            return self.ascribed(subject, stated, &arm.body, expected);
+        }
         let (subject, mut remaining) = self.infer(subject)?;
         for arm in arms {
             let mut result = Ok(());
@@ -53,6 +59,29 @@ impl Checker<'_> {
             arms: core_arms,
         };
         Ok((core, self.env.union(results)))
+    }
+
+    /// A match whose one arm binds the subject as a type: it leaves
+    /// nothing only if the subject is of that type, so nothing is
+    /// tested. The subject is held to the type, which is what a `let`
+    /// that states one means, and bound as it.
+    fn ascribed(
+        &mut self,
+        subject: &Expr<Reference>,
+        stated: &crate::surface::Type<Reference>,
+        body: &Expr<Reference>,
+        expected: Option<&Ty>,
+    ) -> Result<(core::Expr, Ty), Error> {
+        self.well_formed(stated)?;
+        let stated = self.env.normalize(stated);
+        let value = self.check(subject, &stated)?;
+        self.bind_local(stated);
+        let (body, ty) = self.infer_to(body, expected)?;
+        let core = core::Expr::Let {
+            value: Box::new(value),
+            body: Box::new(body),
+        };
+        Ok((core, ty))
     }
 
     /// `expr` held to `expected`, if anything is expected of it, and

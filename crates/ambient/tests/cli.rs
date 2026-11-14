@@ -110,6 +110,11 @@ fn an_error_is_reported_at_the_expression_that_is_wrong() {
         wrong_at("fn f(): int {\n  let a = 1;\n  return a + b;\n}"),
         "3:14"
     );
+    // What a let says it binds, at the value that is not that.
+    assert_eq!(
+        wrong_at("fn f(): int {\n  let a: int = \"a\";\n  return a;\n}"),
+        "2:16"
+    );
     // A method the value lacks, at its name.
     assert_eq!(wrong_at("fn f(): int => 1\n  .missing();"), "2:4");
 }
