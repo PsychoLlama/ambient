@@ -1,6 +1,16 @@
 # Cleanup
 
-A cleanup is code registered in a block to run when that block exits, by any route. It is the only mechanism for releasing what a block acquired, and it is written next to the acquisition.
+A cleanup is code registered in a block to run when that block exits, by any route. It is the only mechanism for releasing what a block acquired, and it travels with what was acquired.
+
+## Registering
+
+- A value carries its own cleanup: it is a record that holds a function under a [key](methods.md) of the standard library.
+- A using binds such a value for the rest of its block and registers that function as a cleanup of the block.
+- Whoever makes the value decides how it is released, and whoever binds it cannot forget to.
+- A using may bind by a pattern. The value is released whole; the pattern only names its parts.
+- There is no other way to register a cleanup: code that has only something to run binds a record that holds it.
+- The function is read from the value when the using is evaluated, so what runs is fixed before the block does anything.
+- TODO: the implementation still registers a cleanup as a bare expression beside a block, and has no using.
 
 ## Running
 
