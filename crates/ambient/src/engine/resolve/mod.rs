@@ -10,8 +10,8 @@ use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest};
 use crate::surface::{
-    Ability, Definition, DefinitionKind, Extern, ExternKind, Function, KeyDefinition, Param, Path,
-    Reference, Target, Type, TypeDefinition, TypeParam,
+    Ability, Definition, DefinitionKind, Expr, Extern, ExternKind, Function, KeyDefinition, Param,
+    Path, Reference, Target, Type, TypeDefinition, TypeParam,
 };
 use crate::symbol::{Namespace, Symbol};
 
@@ -51,19 +51,34 @@ impl Engine<'_> {
             }
             let key = key.finish();
             self.stage(Stage::Resolve, symbol, key, || {
-                let definition = Resolver {
-                    scope: &scoped.scope,
-                    symbol,
-                    package: &package,
-                    type_params: Vec::new(),
-                    locals: Vec::new(),
-                    next: 0,
-                }
-                .definition(definition)?;
+                let definition =
+                    Resolver::new(&scoped.scope, symbol, &package).definition(definition)?;
                 let digest = digest("resolved", &definition);
                 Ok(Resolved { definition, digest })
             })
         })
+    }
+}
+
+impl Engine<'_> {
+    /// The node of a function's body that keeps it from resolving, if
+    /// one does: its place in the order [`Expr::children`] walks them.
+    /// Resolving is done again to find it, since only an error is kept.
+    pub(super) fn unresolved_at(&self, symbol: &Symbol) -> Option<usize> {
+        let module = self.read(&symbol.module).ok()?;
+        let entry = module
+            .table
+            .0
+            .get(&(symbol.namespace, symbol.name.clone()))?;
+        let definition = &module.definitions[entry.index];
+        let DefinitionKind::Function(function) = &definition.kind else {
+            return None;
+        };
+        let scoped = self.scope(&symbol.module).ok()?;
+        let package = self.sources.identity(&symbol.module.package);
+        let mut resolver = Resolver::new(&scoped.scope, symbol, &package);
+        resolver.definition(definition).err()?;
+        function.body.index_of(resolver.blamed?)
     }
 }
 
@@ -77,9 +92,23 @@ struct Resolver<'a> {
     /// Binders in scope, innermost last, with their numbers.
     locals: Vec<(String, usize)>,
     next: usize,
+    /// The innermost expression the first error was at.
+    blamed: Option<*const Expr>,
 }
 
-impl Resolver<'_> {
+impl<'a> Resolver<'a> {
+    fn new(scope: &'a Scope, symbol: &'a Symbol, package: &'a str) -> Self {
+        Self {
+            scope,
+            symbol,
+            package,
+            type_params: Vec::new(),
+            locals: Vec::new(),
+            next: 0,
+            blamed: None,
+        }
+    }
+
     fn definition(&mut self, definition: &Definition) -> Result<Definition<Reference>, Error> {
         let kind = match &definition.kind {
             DefinitionKind::Type(definition) => {
@@ -274,6 +303,14 @@ impl Resolver<'_> {
         self.lookup(Namespace::Value, path)
             .or_else(|unknown| self.lookup(Namespace::Type, path).map_err(|_| unknown))
             .map(Reference::Definition)
+            // The likeliest slip: an ability called without its mark.
+            .map_err(|unknown| match self.lookup(Namespace::Ability, path) {
+                Ok(_) => Error::NotPerformed {
+                    symbol: self.symbol.clone(),
+                    path: path.clone(),
+                },
+                Err(_) => unknown,
+            })
     }
 
     /// A definition named directly, or through one imported module.

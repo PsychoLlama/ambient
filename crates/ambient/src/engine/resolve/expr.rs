@@ -37,7 +37,17 @@ impl Resolver<'_> {
         exprs.iter().map(|expr| self.expr(expr)).collect()
     }
 
+    /// Resolves an expression, and notes it as where an error is
+    /// unless an expression inside it already was.
     pub(super) fn expr(&mut self, expr: &Expr) -> Result<Expr<Reference>, Error> {
+        let resolved = self.node(expr);
+        if resolved.is_err() && self.blamed.is_none() {
+            self.blamed = Some(std::ptr::from_ref(expr));
+        }
+        resolved
+    }
+
+    fn node(&mut self, expr: &Expr) -> Result<Expr<Reference>, Error> {
         Ok(match expr {
             Expr::Null => Expr::Null,
             Expr::Trace => Expr::Trace,

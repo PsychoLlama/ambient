@@ -38,6 +38,8 @@ pub enum Error {
     UnknownName { symbol: Symbol, path: Path },
     /// A name reached through a module is private to that module.
     PrivateName { symbol: Symbol, path: Path },
+    /// An ability is named where a value is expected. It is performed.
+    NotPerformed { symbol: Symbol, path: Path },
     /// A call passes the wrong number of arguments.
     Arity {
         symbol: Symbol,
@@ -192,6 +194,7 @@ impl Error {
             }
             | Self::UnknownName { symbol, .. }
             | Self::PrivateName { symbol, .. }
+            | Self::NotPerformed { symbol, .. }
             | Self::Arity { symbol, .. }
             | Self::Mismatch { symbol, .. }
             | Self::NotCallable { symbol, .. }
@@ -236,7 +239,8 @@ impl fmt::Display for Error {
             | Self::ExportCycle(_)
             | Self::DuplicateName { .. }
             | Self::UnknownName { .. }
-            | Self::PrivateName { .. } => self.fmt_name(f),
+            | Self::PrivateName { .. }
+            | Self::NotPerformed { .. } => self.fmt_name(f),
             Self::Arity {
                 symbol,
                 callee,
@@ -371,6 +375,10 @@ impl Error {
                 write!(f, "{symbol}: `{path}` names nothing")
             }
             Self::PrivateName { symbol, path } => write!(f, "{symbol}: `{path}` is private"),
+            Self::NotPerformed { symbol, path } => write!(
+                f,
+                "{symbol}: `{path}` is an ability, which is performed: `{path}!(...)`"
+            ),
             _ => Ok(()),
         }
     }

@@ -115,6 +115,22 @@ fn an_error_is_reported_at_the_expression_that_is_wrong() {
 }
 
 #[test]
+fn a_name_that_is_wrong_is_reported_where_it_is_wrong() {
+    // The ability is performed on the line before, and that is fine.
+    let source = "ability say(text: string): null;
+fn f(): null with say {
+  say!(\"a\");
+  say(\"b\");
+}";
+    let (_, world) = check(&app(source));
+
+    assert_eq!(
+        world.err,
+        "error: app/src/main.ab:4:3: app:main.f: `say` is an ability, which is performed: `say!(...)`\n"
+    );
+}
+
+#[test]
 fn what_a_block_gives_is_wrong_at_the_return_that_gives_it() {
     let after = "fn f(): int {\n  let a = 1;\n  return \"a\";\n}";
     let branch = "fn f(n: int): int {\n  if n > 0 {\n    return \"a\";\n  }\n  return 1;\n}";
