@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
 use crate::hash::{Hash, digest};
-use crate::surface::{Definition, DefinitionKind, Import, Module};
+use crate::surface::{Definition, Import, Module};
 use crate::symbol::{ModuleId, ModulePath, Namespace};
 
 /// What a module defines, without any body.
@@ -64,15 +64,7 @@ fn read(module: &Module) -> Read {
     let mut table = Table::default();
     let mut digests = Vec::new();
     for (index, definition) in module.definitions().iter().enumerate() {
-        let namespace = match definition.kind {
-            // A tag is named as a type, and through that as a value.
-            DefinitionKind::Type(_) | DefinitionKind::Tag => Namespace::Type,
-            DefinitionKind::Function(_) | DefinitionKind::Extern(_) | DefinitionKind::Target(_) => {
-                Namespace::Value
-            }
-            DefinitionKind::Ability(_) => Namespace::Ability,
-            DefinitionKind::Key(_) => Namespace::Key,
-        };
+        let namespace = definition.kind.namespace();
         table.0.insert(
             (namespace, definition.name.clone()),
             Entry {

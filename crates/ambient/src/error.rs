@@ -161,6 +161,68 @@ pub enum Error {
     Pack(Refused),
 }
 
+impl Error {
+    /// The definition the error is in, if it is in one.
+    #[must_use]
+    pub fn symbol(&self) -> Option<&Symbol> {
+        match self {
+            Self::UnknownModule(_)
+            | Self::UnknownPackage { .. }
+            | Self::UnknownImport { .. }
+            | Self::PrivateImport { .. }
+            | Self::ExportsModule { .. }
+            | Self::ExportCycle(_)
+            | Self::InternalModule { .. }
+            | Self::DuplicateName { .. }
+            | Self::Pack(_) => None,
+            Self::UnknownSymbol(symbol)
+            | Self::GenericAbort(symbol)
+            | Self::ComptimeCycle(symbol)
+            | Self::NotTarget(symbol)
+            | Self::TargetCycle(symbol)
+            | Self::GenericEntry(symbol)
+            | Self::SpawnOutsideGroup(symbol)
+            | Self::ComptimeAbilities(symbol)
+            | Self::EntryAbilities(symbol)
+            | Self::Uncontractive(symbol)
+            | Self::Nesting(symbol)
+            | Self::NotCompilable(symbol)
+            | Self::ComptimeFault {
+                function: symbol, ..
+            }
+            | Self::UnknownName { symbol, .. }
+            | Self::PrivateName { symbol, .. }
+            | Self::Arity { symbol, .. }
+            | Self::Mismatch { symbol, .. }
+            | Self::NotCallable { symbol, .. }
+            | Self::NoField { symbol, .. }
+            | Self::KeyType { symbol, .. }
+            | Self::NoMethod { symbol, .. }
+            | Self::Method { symbol, .. }
+            | Self::Receiver { symbol, .. }
+            | Self::Operands { symbol, .. }
+            | Self::NotExhaustive { symbol, .. }
+            | Self::UnreachableArm { symbol, .. }
+            | Self::TypeArguments { symbol, .. }
+            | Self::CannotInfer { symbol, .. }
+            | Self::NotComptime { symbol, .. }
+            | Self::NotSpliceable { symbol }
+            | Self::NotBundle { symbol, .. }
+            | Self::DuplicateHandler { symbol, .. }
+            | Self::NotValue { symbol, .. }
+            | Self::NotHandler { symbol, .. }
+            | Self::TargetConflict { symbol, .. }
+            | Self::Unbound { symbol, .. }
+            | Self::SpawnBinding { symbol, .. }
+            | Self::Ungranted { symbol, .. }
+            | Self::UntypedParameter { symbol, .. }
+            | Self::Untestable { symbol, .. }
+            | Self::Backend { symbol, .. }
+            | Self::Invalid { symbol, .. } => Some(symbol),
+        }
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

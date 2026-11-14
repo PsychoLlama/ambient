@@ -16,7 +16,7 @@ use crate::host::{self, World};
 use crate::project::{self, Files, Project};
 use crate::store::Store;
 use crate::surface::DefinitionKind;
-use crate::symbol::{ModuleId, Namespace, Symbol};
+use crate::symbol::{ModuleId, Symbol};
 use crate::value::Value;
 use crate::workspace::Sources;
 
@@ -88,13 +88,10 @@ impl Session<'_> {
         let (module, name) = entry.rsplit_once('.').unwrap_or(("", entry));
         let entry = ModuleId::new(&project.root, module).value(name);
         let failed = |message: String| vec![message];
-        let root = engine
-            .program(&entry, &host::target())
-            .map_err(|error| failed(error.to_string()))?;
+        let refused = |error: crate::error::Error| vec![project.report(&error)];
+        let root = engine.program(&entry, &host::target()).map_err(refused)?;
         let backend = Native::new().map_err(failed)?;
-        let parts = engine
-            .link(&root, &backend)
-            .map_err(|error| failed(error.to_string()))?;
+        let parts = engine.link(&root, &backend).map_err(refused)?;
         let program = Program::load(&parts, &host::natives(&self.world)).map_err(failed)?;
         match program.run(&[]) {
             // A program that gives a number exits with it.
@@ -118,28 +115,19 @@ impl Session<'_> {
         let project = self.open(path)?;
         let engine = Engine::new(&project.workspace, self.store);
         let mut problems = BTreeSet::new();
-        for (id, file) in &project.modules {
-            let Some(module) = project.workspace.module(id) else {
+        for read in &project.modules {
+            let Some(module) = project.workspace.module(&read.module) else {
                 continue;
             };
             for definition in module.definitions() {
-                let (namespace, function) = match &definition.kind {
-                    DefinitionKind::Function(_) => (Namespace::Value, true),
-                    DefinitionKind::Extern(_) | DefinitionKind::Target(_) => {
-                        (Namespace::Value, false)
-                    }
-                    DefinitionKind::Type(_) | DefinitionKind::Tag => (Namespace::Type, false),
-                    DefinitionKind::Ability(_) => (Namespace::Ability, false),
-                    DefinitionKind::Key(_) => (Namespace::Key, false),
-                };
-                let symbol = id.symbol(namespace, &definition.name);
-                let checked = if function {
-                    engine.check(&symbol).map(|_| ())
-                } else {
-                    engine.interface(&symbol).map(|_| ())
+                let namespace = definition.kind.namespace();
+                let symbol = read.module.symbol(namespace, &definition.name);
+                let checked = match definition.kind {
+                    DefinitionKind::Function(_) => engine.check(&symbol).map(|_| ()),
+                    _ => engine.interface(&symbol).map(|_| ()),
                 };
                 if let Err(error) = checked {
-                    problems.insert(format!("{}: {error}", file.display()));
+                    problems.insert(project.report(&error));
                 }
             }
         }

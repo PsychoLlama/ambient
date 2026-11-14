@@ -36,13 +36,30 @@ impl fmt::Display for SyntaxError {
 
 impl std::error::Error for SyntaxError {}
 
+/// A source file, read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Source {
+    pub module: Module,
+    /// Where each of the module's definitions begins, in their order.
+    pub definitions: Vec<Position>,
+}
+
+/// The module a source file is, and where its definitions are.
+///
+/// # Errors
+///
+/// The text is not a module: where it stops being one, and why.
+pub fn read(source: &str) -> Result<Source, SyntaxError> {
+    let lexed = lex::lex(source)?;
+    // A tree may nest as deeply as the text does, and reading recurses.
+    crate::lower::deep(|| parse::Parser::new(lexed).module())
+}
+
 /// The module a source file is.
 ///
 /// # Errors
 ///
 /// The text is not a module: where it stops being one, and why.
 pub fn parse(source: &str) -> Result<Module, SyntaxError> {
-    let lexed = lex::lex(source)?;
-    // A tree may nest as deeply as the text does, and reading recurses.
-    crate::lower::deep(|| parse::Parser::new(lexed).module())
+    read(source).map(|source| source.module)
 }

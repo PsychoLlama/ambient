@@ -121,11 +121,12 @@ fn checking_reports_every_definition_that_is_wrong() {
     let problems: Vec<&str> = world.err.lines().collect();
     assert_eq!(code, 1);
     assert_eq!(problems.len(), 3, "{problems:?}");
-    assert!(
-        problems
-            .iter()
-            .all(|line| line.starts_with("error: app/src/main.ab: app:main."))
+    assert_eq!(
+        problems[0],
+        "error: app/src/main.ab:2: app:main.one: expected `int`, found `\"one\"`"
     );
+    assert!(problems[1].starts_with("error: app/src/main.ab:3: app:main.two: "));
+    assert!(problems[2].starts_with("error: app/src/main.ab:5: app:main.Broken: "));
 
     assert_eq!(check(&app("fn fine(): int => 3;")).0, 0);
 }

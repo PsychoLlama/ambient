@@ -11,15 +11,19 @@ use crate::syntax::SyntaxError;
 
 impl Parser {
     /// The whole file.
-    pub(in crate::syntax) fn module(mut self) -> Parsed<crate::surface::Module> {
+    pub(in crate::syntax) fn module(mut self) -> Parsed<crate::syntax::Source> {
         let mut module = b::module();
         while *self.peek() != Token::End {
             module = self.item(module)?;
         }
         // What a builder refuses is about the module as a whole.
-        module.build().map_err(|error| SyntaxError {
+        let module = module.build().map_err(|error| SyntaxError {
             message: error.to_string(),
             at: crate::syntax::Position { line: 1, column: 1 },
+        })?;
+        Ok(crate::syntax::Source {
+            module,
+            definitions: self.defined,
         })
     }
 
@@ -41,6 +45,7 @@ impl Parser {
             self.expect(";")?;
             return Ok(module.expose(&path.to_string()));
         }
+        self.defined.push(self.position());
         let (name, kind) = self.definition()?;
         Ok(module.define(Definition {
             name,

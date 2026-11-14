@@ -110,6 +110,21 @@ pub enum DefinitionKind<N = Path> {
 }
 
 /// A definition implemented in native code. See `spec/externs.md`.
+impl<N> DefinitionKind<N> {
+    /// The namespace a definition of this kind is named in. A tag is
+    /// named as a type, and through that as a value.
+    #[must_use]
+    pub fn namespace(&self) -> crate::symbol::Namespace {
+        use crate::symbol::Namespace;
+        match self {
+            Self::Type(_) | Self::Tag => Namespace::Type,
+            Self::Function(_) | Self::Extern(_) | Self::Target(_) => Namespace::Value,
+            Self::Ability(_) => Namespace::Ability,
+            Self::Key(_) => Namespace::Key,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Extern<N = Path> {
     pub kind: ExternKind<N>,

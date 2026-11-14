@@ -18,9 +18,11 @@ use serde::Deserialize;
 pub use files::{Disk, Files};
 
 use crate::builder::OWN_PACKAGE;
-use crate::symbol::ModuleId;
-use crate::syntax::SyntaxError;
-use crate::workspace::{Workspace, WorkspaceError};
+use crate::error::Error;
+use crate::surface::Definition;
+use crate::symbol::{ModuleId, Symbol};
+use crate::syntax::{Position, SyntaxError};
+use crate::workspace::{Sources, Workspace, WorkspaceError};
 
 /// The name of a package's manifest.
 pub const MANIFEST: &str = "ambient.toml";
@@ -131,16 +133,43 @@ pub struct Project {
     pub workspace: Workspace,
     /// The package the project was opened at.
     pub root: String,
-    /// Each module read from a file, and the file.
-    pub modules: Vec<(ModuleId, PathBuf)>,
+    /// Each module read from a file.
+    pub modules: Vec<Read>,
+}
+
+/// A module read from a file.
+#[derive(Clone, Debug)]
+pub struct Read {
+    pub module: ModuleId,
+    pub file: PathBuf,
+    /// Where each of the module's definitions begins, in their order.
+    pub definitions: Vec<Position>,
 }
 
 impl Project {
-    /// The file a module was read from, if it was read from one.
+    /// The file a definition is in and where it begins there, if its
+    /// module was read from one.
     #[must_use]
-    pub fn file(&self, module: &ModuleId) -> Option<&Path> {
-        let found = self.modules.iter().find(|(id, _)| id == module);
-        found.map(|(_, path)| path.as_path())
+    pub fn locate(&self, symbol: &Symbol) -> Option<(&Path, Position)> {
+        let read = self
+            .modules
+            .iter()
+            .find(|read| read.module == symbol.module)?;
+        let module = self.workspace.module(&read.module)?;
+        let named = |definition: &Definition| {
+            definition.name == symbol.name && definition.kind.namespace() == symbol.namespace
+        };
+        let index = module.definitions().iter().position(named)?;
+        Some((read.file.as_path(), *read.definitions.get(index)?))
+    }
+
+    /// `error`, after the file and line of the definition it is in.
+    #[must_use]
+    pub fn report(&self, error: &Error) -> String {
+        match error.symbol().and_then(|symbol| self.locate(symbol)) {
+            Some((file, at)) => format!("{}:{}: {error}", file.display(), at.line),
+            None => error.to_string(),
+        }
     }
 }
 
@@ -171,7 +200,7 @@ struct Opening<'a> {
     workspace: Workspace,
     /// Where each package opened so far is.
     opened: BTreeMap<String, PathBuf>,
-    modules: Vec<(ModuleId, PathBuf)>,
+    modules: Vec<Read>,
 }
 
 /// `path` with `.` and `..` worked out, as far as they can be.
@@ -288,15 +317,19 @@ impl Opening<'_> {
                 return Err(ProjectError::Unnamed { path });
             };
             let source = self.read(&path)?;
-            let parsed = crate::syntax::parse(&source).map_err(|error| ProjectError::Syntax {
+            let read = crate::syntax::read(&source).map_err(|error| ProjectError::Syntax {
                 path: path.clone(),
                 error,
             })?;
             let id = ModuleId::new(package, &module);
             self.workspace
-                .set(id.clone(), parsed)
+                .set(id.clone(), read.module)
                 .map_err(ProjectError::Workspace)?;
-            self.modules.push((id, path));
+            self.modules.push(Read {
+                module: id,
+                file: path,
+                definitions: read.definitions,
+            });
         }
         Ok(())
     }

@@ -33,6 +33,8 @@ pub(super) struct Parser {
     own: Option<Type>,
     /// How many names the reader has made up.
     made: usize,
+    /// Where each definition read so far begins.
+    defined: Vec<Position>,
 }
 
 impl Parser {
@@ -44,6 +46,7 @@ impl Parser {
             locals: Vec::new(),
             own: None,
             made: 0,
+            defined: Vec::new(),
         }
     }
 
