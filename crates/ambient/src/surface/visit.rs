@@ -301,11 +301,7 @@ impl<N> Expr<N> {
                 visit(bundle);
                 visit(body);
             }
-            Self::Observe { observer, body }
-            | Self::Cleanup {
-                cleanup: observer,
-                body,
-            } => {
+            Self::Observe { observer, body } => {
                 visit(observer);
                 visit(body);
             }

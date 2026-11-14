@@ -97,7 +97,7 @@ impl Resolver<'_> {
             }
             Expr::AbilityId(ability) => Expr::AbilityId(self.ability(ability)?),
             Expr::Group(body) => Expr::Group(Box::new(self.expr(body)?)),
-            Expr::Budget { .. } | Expr::Cleanup { .. } | Expr::Cell { .. } => self.block(expr)?,
+            Expr::Budget { .. } | Expr::Cell { .. } => self.block(expr)?,
             Expr::Boundary(body) => Expr::Boundary(Box::new(self.expr(body)?)),
             Expr::Spawn(task) => Expr::Spawn(Box::new(self.expr(task)?)),
             Expr::All(branches) => Expr::All(self.exprs(branches)?),
@@ -164,7 +164,7 @@ impl Resolver<'_> {
         })
     }
 
-    /// A budget, a cleanup, or a cell operation: each resolves what it
+    /// A budget or a cell operation: each resolves what it
     /// holds and binds nothing.
     fn block(&mut self, expr: &Expr) -> Result<Expr<Reference>, Error> {
         Ok(match expr {
@@ -175,10 +175,6 @@ impl Resolver<'_> {
             } => Expr::Budget {
                 steps: Box::new(self.expr(steps)?),
                 allocation: Box::new(self.expr(allocation)?),
-                body: Box::new(self.expr(body)?),
-            },
-            Expr::Cleanup { cleanup, body } => Expr::Cleanup {
-                cleanup: Box::new(self.expr(cleanup)?),
                 body: Box::new(self.expr(body)?),
             },
             Expr::Cell {

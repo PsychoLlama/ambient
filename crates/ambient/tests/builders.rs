@@ -76,14 +76,3 @@ fn an_omitted_return_type_is_null() {
         .build();
     assert_eq!(module, explicit);
 }
-
-#[test]
-fn a_cleanup_is_registered_only_by_a_using() {
-    let bare = ambient::surface::Expr::Cleanup {
-        cleanup: Box::new(b::null()),
-        body: Box::new(b::null()),
-    };
-    let module = b::module().define(b::function("f").body(bare));
-
-    assert_eq!(module.build(), Err(BuildError::BareCleanup));
-}

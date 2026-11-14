@@ -419,11 +419,6 @@ pub enum Expr<N = Path> {
         value: Box<Expr<N>>,
         body: Box<Expr<N>>,
     },
-    /// What a [`Expr::Using`] registers; no builder accepts one.
-    Cleanup {
-        cleanup: Box<Expr<N>>,
-        body: Box<Expr<N>>,
-    },
     /// Evaluates `body` within limits, both integers: a number of steps
     /// and an amount of allocation. Is what it gave, or the limit that ran
     /// out. See `spec/budgets.md`.
