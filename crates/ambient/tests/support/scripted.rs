@@ -2,7 +2,14 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+use std::cell::RefCell;
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use ambient::cli::{Command, Session};
 use ambient::host::{Failure, Kind, World};
+use ambient::project::Files;
+use ambient::store::MemoryStore;
 
 /// A world held in memory.
 #[derive(Clone, Default)]
@@ -14,6 +21,50 @@ pub struct Scripted {
     pub args: Vec<String>,
     /// What the clock says; sleeping moves it on.
     pub time: i64,
+}
+
+impl Scripted {
+    /// What a command over `files` exits with in this world, and the
+    /// world it leaves.
+    pub fn execute(self, files: &dyn Files, command: &Command) -> (i32, Self) {
+        let scripted = Rc::new(RefCell::new(self));
+        let world: Rc<RefCell<dyn World>> = scripted.clone();
+        let store = MemoryStore::new();
+        let session = Session {
+            files,
+            store: &store,
+            world,
+        };
+        let code = session.execute(command);
+        let after = scripted.borrow().clone();
+        (code, after)
+    }
+}
+
+/// The files of a package `app` whose `main` module is `source`.
+pub fn app(source: &str) -> BTreeMap<PathBuf, String> {
+    let file = |(path, text): (&str, &str)| (PathBuf::from(path), text.to_owned());
+    let files = [
+        ("app/ambient.toml", "name = \"app\""),
+        ("app/src/main.ab", source),
+    ];
+    files.into_iter().map(file).collect()
+}
+
+/// Checks the package `app` of `files`.
+pub fn check(files: &dyn Files) -> (i32, Scripted) {
+    let path = PathBuf::from("app");
+    Scripted::default().execute(files, &Command::Check { path })
+}
+
+/// Runs `main` of module `main` of the package `app` of `files`.
+pub fn run(files: &dyn Files) -> (i32, Scripted) {
+    let command = Command::Run {
+        path: PathBuf::from("app"),
+        entry: "main.main".to_owned(),
+        args: Vec::new(),
+    };
+    Scripted::default().execute(files, &command)
 }
 
 impl World for Scripted {

@@ -1,0 +1,52 @@
+import ambient.console;
+import ambient.dict;
+import ambient.dict.{Dict};
+import ambient.env;
+import ambient.fs;
+import ambient.Error;
+
+/// Prints the words a file uses most, and how often it uses each.
+pub fn main(): int with console.print, console.warn, env.args, fs.read {
+    match env.args!().first() {
+        null => {
+            console.warn!("usage: tally <file>");
+            return 2;
+        }
+        let path => { return report(path); }
+    }
+}
+
+fn report(path: string): int with console.print, console.warn, fs.read {
+    match fs.read!(path) {
+        let error: Error => {
+            console.warn!(path ++ ": " ++ error.message);
+            return 1;
+        }
+        let text: string => {
+            most(count(text), 10).each(fn(entry) => console.print!(line(entry)));
+            return 0;
+        }
+    }
+}
+
+/// How often each word of `text` is in it.
+fn count(text: string): Dict<int> =>
+    words(text).fold(dict.empty::<int>(), fn(seen: Dict<int>, word: string): Dict<int> =>
+        seen.update(word, fn(times) => (times as int else 0) + 1));
+
+/// The words of `text`: what its spaces and line endings separate.
+fn words(text: string): List<string> =>
+    text.lines().fold([], fn(found: List<string>, line: string): List<string> =>
+        found ++ line.split(" ").filter(fn(word) => !word.is_empty()));
+
+/// The `limit` entries counted most, the most first. Entries counted
+/// alike stay in the order of their words.
+fn most(counts: Dict<int>, limit: int): List<(string, int)> =>
+    counts.entries()
+        .sort_by(fn(one, other) => match (one, other) { ((_, let a), (_, let b)) => a > b })
+        .iter().take(limit).to_list();
+
+fn line(entry: (string, int)): string {
+    let (word, times) = entry;
+    return times.to_text() ++ " " ++ word;
+}

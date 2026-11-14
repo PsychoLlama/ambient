@@ -5,58 +5,16 @@
 
 mod support;
 
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::rc::Rc;
 
-use ambient::cli::{Command, Session};
-use ambient::host::World;
-use ambient::store::MemoryStore;
-use support::scripted::Scripted;
+use support::scripted::{app, check, run};
 
 type Files = BTreeMap<PathBuf, String>;
 
 fn files<const N: usize>(files: [(&str, &str); N]) -> Files {
     let file = |(path, text): (&str, &str)| (PathBuf::from(path), text.to_owned());
     files.into_iter().map(file).collect()
-}
-
-/// What a command exits with, and the world it leaves.
-fn execute(files: &Files, command: &Command) -> (i32, Scripted) {
-    let scripted = Rc::new(RefCell::new(Scripted::default()));
-    let world: Rc<RefCell<dyn World>> = scripted.clone();
-    let store = MemoryStore::new();
-    let session = Session {
-        files,
-        store: &store,
-        world,
-    };
-    let code = session.execute(command);
-    let after = scripted.borrow().clone();
-    (code, after)
-}
-
-fn run(files: &Files) -> (i32, Scripted) {
-    let command = Command::Run {
-        path: PathBuf::from("app"),
-        entry: "main.main".to_owned(),
-        args: Vec::new(),
-    };
-    execute(files, &command)
-}
-
-fn check(files: &Files) -> (i32, Scripted) {
-    let path = PathBuf::from("app");
-    execute(files, &Command::Check { path })
-}
-
-/// A package `app` whose `main` module is `source`.
-fn app(source: &str) -> Files {
-    files([
-        ("app/ambient.toml", "name = \"app\""),
-        ("app/src/main.ab", source),
-    ])
 }
 
 #[test]
