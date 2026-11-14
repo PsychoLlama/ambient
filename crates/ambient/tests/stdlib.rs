@@ -149,3 +149,51 @@ fn a_character_and_its_scalar_value_convert_both_ways() {
     assert_eq!(character("1114112"), "none");
     assert_eq!(character("(0 - 1)"), "none");
 }
+
+#[test]
+fn a_string_is_replaced_in_and_padded() {
+    assert_eq!(evaluates(r#""a-b-c".replace("-", ", ")"#), "a, b, c");
+    assert_eq!(evaluates(r#""abc".replace("", "x")"#), "abc");
+    assert_eq!(
+        evaluates(r#""7".pad_start(3, "0") ++ "|" ++ "é".pad_end(3, ".")"#),
+        "007|é.."
+    );
+    assert_eq!(
+        evaluates(r#""wide".pad_start(2, " ") ++ "héllo".count().to_text()"#),
+        "wide5"
+    );
+}
+
+#[test]
+fn a_float_is_rounded_to_a_whole_number() {
+    let rounded = |float: &str| {
+        evaluates(&format!(
+            "[{float}.floor(), {float}.ceil(), {float}.round(), {float}.abs()].map(fn(n) => n.to_text()).join_with(\" \")"
+        ))
+    };
+
+    assert_eq!(rounded("2.5"), "2.0 3.0 3.0 2.5");
+    assert_eq!(rounded("(-2.5)"), "-3.0 -2.0 -3.0 2.5");
+    assert_eq!(rounded("4.0"), "4.0 4.0 4.0 4.0");
+    // Too large to have a fraction.
+    assert_eq!(rounded("1e300"), "1e300 1e300 1e300 1e300");
+    assert_eq!(
+        evaluates("1.5.min(2.5).to_text() ++ 1.5.max(2.5).to_text()"),
+        "1.52.5"
+    );
+}
+
+#[test]
+fn a_list_is_asked_about_its_members() {
+    let source = r#"
+        fn main(): int {
+            let words = ["a", "bb", "ccc"];
+            let has = words.contains("bb") && !words.contains("z") ? 1 : 0;
+            let found = (words.find(fn(word) => word.length() > 1) as string else "").length() * 10;
+            let asked = words.some(fn(word) => word == "a") && !words.every(fn(word) => word == "a") ? 100 : 0;
+            return has + found + asked + words.take(2).length() * 1000 + words.skip(2).length() * 10000;
+        }
+    "#;
+
+    assert_eq!(int(source), 12121);
+}

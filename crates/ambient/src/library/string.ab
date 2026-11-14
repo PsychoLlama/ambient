@@ -172,3 +172,22 @@ pub fn repeat(self: string, count: int): string {
     }
     return @join(self, repeat(self, count - 1));
 }
+
+/// The string with `other` wherever `part` was. A part that holds
+/// nothing is nowhere.
+pub fn replace(self: string, part: string, other: string): string =>
+    split(self, part).join_with(other);
+
+/// How many characters the string has, which its length in bytes is
+/// only for text that is all ASCII.
+pub fn count(self: string): int => @iterate(self).count();
+
+/// The string after as many of `fill`, a character, as make it `width`
+/// characters; itself if it is that wide already.
+pub fn pad_start(self: string, width: int, fill: string): string =>
+    @join(repeat(fill, width - count(self)), self);
+
+/// The string before as many of `fill`, a character, as make it
+/// `width` characters; itself if it is that wide already.
+pub fn pad_end(self: string, width: int, fill: string): string =>
+    @join(self, repeat(fill, width - count(self)));

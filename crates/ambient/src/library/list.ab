@@ -95,3 +95,22 @@ pub fn join_with(self: List<string>, separator: string): string {
 
 /// The integers of the list added up.
 pub fn sum(self: List<int>): int => @iterate(self).fold(0, fn(total: int, member: int): int => total + member);
+
+/// Whether `member` is one of the members.
+pub fn contains<T>(self: List<T>, member: T): bool =>
+    @iterate(self).some(fn(each: T): bool => each == member);
+
+/// The first member `wanted` takes, or null if there is none.
+pub fn find<T>(self: List<T>, wanted: fn(T): bool): T | null => @iterate(self).find(wanted);
+
+/// Whether `holds` takes any member.
+pub fn some<T>(self: List<T>, holds: fn(T): bool): bool => @iterate(self).some(holds);
+
+/// Whether `holds` takes every member.
+pub fn every<T>(self: List<T>, holds: fn(T): bool): bool => @iterate(self).every(holds);
+
+/// The first `count` members, or all of them if there are fewer.
+pub fn take<T>(self: List<T>, count: int): List<T> => @iterate(self).take(count).to_list();
+
+/// The members after the first `count`.
+pub fn skip<T>(self: List<T>, count: int): List<T> => @iterate(self).skip(count).to_list();
