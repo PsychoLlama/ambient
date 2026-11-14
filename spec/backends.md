@@ -66,7 +66,7 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 - A call inside a block that does something on the way out is not in tail position: a [cleanup](cleanup.md), a group, a budget, a boundary, or a provide with an abort handler.
 - A tail call is made after its function has left: the function unwinds with the call pending, and whatever called it makes the call.
 - A loop written as tail calls therefore runs in constant stack on any backend, and a backend needs no tail call of its own.
-- A tail call allocates, for the arguments it leaves with.
+- A tail call allocates nothing, so a loop written as tail calls costs what its body does.
 - TODO: a call that is not a tail call takes stack, and recursion deeper than the stack crashes the program instead of faulting.
 
 ## Bindings
