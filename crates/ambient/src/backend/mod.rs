@@ -20,6 +20,6 @@ pub(crate) const CLOSED: &str =
 
 /// The most parameters a function may take.
 ///
-/// TODO: a limit only because each arity needs a signature the host can
-/// name; nothing else depends on it.
-pub const MAX_ARITY: usize = 16;
+/// TODO: a limit only because the runtime calls a function of each
+/// arity by a signature it names; nothing else depends on it.
+pub const MAX_ARITY: usize = ambient_runtime::ARGUMENTS;

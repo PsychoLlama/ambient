@@ -16,25 +16,20 @@ use core::mem::transmute;
 use super::{Frame, RESUMING, SUSPENDING, scheduler};
 use crate::object::layout::{DEFINITION_CODE, DEFINITION_METERED};
 use crate::object::{amb_release, amb_retain, fault, words};
-use crate::{Context, Fault, NULL, UNWIND, Word};
+use crate::{ARGUMENTS, Context, Fault, NULL, UNWIND, Word};
 
 /// The point of a frame that is not a function's: the call
 /// [`amb_bounce`] was making when its task suspended.
 const BOUNCE: u64 = u64::MAX;
 
-/// Leaves the function that is running to call `callee` with `args`, a
-/// tuple of the bindings it is handed and then its arguments, in its
-/// metered form if `metered` is not zero. Always returns [`UNWIND`].
+/// Leaves the function that is running to call `callee`, in its
+/// metered form if `metered` is not zero. What it is called with, the
+/// bindings it is handed and then its arguments, follows one at a time
+/// through [`amb_tail_arg`]. Always returns [`UNWIND`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_tail(
-    context: *mut Context,
-    callee: Word,
-    args: Word,
-    metered: u64,
-) -> Word {
+pub unsafe extern "C" fn amb_tail(context: *mut Context, callee: Word, metered: u64) -> Word {
     unsafe {
         amb_retain(callee);
-        amb_retain(args);
         let form = if metered == 0 {
             DEFINITION_CODE
         } else {
@@ -43,8 +38,64 @@ pub unsafe extern "C" fn amb_tail(
         let definition = words(callee)[0] as usize as *const u8;
         (*context).tail = definition.add(form as usize).cast::<u64>().read();
         (*context).abort_token = callee;
-        (*context).abort_args = args;
+        (*context).tail_count = 0;
         fault(context, Fault::Tail)
+    }
+}
+
+/// Adds `value` to what the pending call is made with. The context
+/// keeps the arguments itself, so a loop written as calls allocates
+/// nothing to go round.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_tail_arg(context: *mut Context, value: Word) {
+    unsafe {
+        let count = (*context).tail_count as usize;
+        // No function takes more: a backend refuses to compile one.
+        if count < ARGUMENTS {
+            amb_retain(value);
+            (*context).tail_args[count] = value;
+            (*context).tail_count += 1;
+        }
+    }
+}
+
+/// A call waiting to be made: the code, the closure, and how many
+/// arguments, each of which whoever takes it owns.
+struct Pending {
+    code: u64,
+    callee: Word,
+    count: usize,
+}
+
+impl Pending {
+    /// The call the unwinding in `context` is for, if it is for one: the
+    /// call a function left to make, or the one [`amb_bounce`] was
+    /// making when its task suspended. Its arguments are put in `args`.
+    unsafe fn take(context: *mut Context, args: &mut [Word; ARGUMENTS]) -> Option<Self> {
+        unsafe {
+            if bounced(context) {
+                let frame = scheduler(context).current().frames.pop()?;
+                let (callee, held) = frame.locals.split_first()?;
+                args[..held.len()].copy_from_slice(held);
+                Some(Self {
+                    code: frame.position,
+                    callee: *callee,
+                    count: held.len(),
+                })
+            } else if (*context).fault == Fault::Tail as u64 {
+                (*context).fault = Fault::None as u64;
+                // Whatever is past the count is left from an earlier
+                // call, and is not this one's.
+                *args = (*context).tail_args;
+                Some(Self {
+                    code: (*context).tail,
+                    callee: core::mem::take(&mut (*context).abort_token),
+                    count: core::mem::take(&mut (*context).tail_count) as usize,
+                })
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -56,9 +107,10 @@ unsafe fn bounced(context: *mut Context) -> bool {
     }
 }
 
-/// Calls `callee` with `args`, as [`amb_tail`] takes them, from outside
-/// compiled code: a host, or the scheduler. Called again with the same
-/// once the task that suspended in it is to resume.
+/// Calls `callee` with the members of `args`, a tuple of the bindings
+/// it is handed and then its arguments, from outside compiled code: a
+/// host, or the scheduler. Called again with the same once the task
+/// that suspended in it is to resume.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_start(
     context: *mut Context,
@@ -69,7 +121,10 @@ pub unsafe extern "C" fn amb_start(
     unsafe {
         // A call that is kept is made again from where it is kept.
         if !bounced(context) {
-            amb_tail(context, callee, args, metered);
+            amb_tail(context, callee, metered);
+            for arg in words(args).iter() {
+                amb_tail_arg(context, *arg);
+            }
         }
         amb_bounce(context)
     }
@@ -82,41 +137,41 @@ pub unsafe extern "C" fn amb_start(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_bounce(context: *mut Context) -> Word {
     unsafe {
-        loop {
-            let (code, callee, args) = if bounced(context) {
-                let frame = scheduler(context).current().frames.pop();
-                let Some(frame) = frame else { return UNWIND };
-                (frame.position, frame.locals[0], frame.locals[1])
-            } else if (*context).fault == Fault::Tail as u64 {
-                (*context).fault = Fault::None as u64;
-                let pending = (
-                    (*context).tail,
-                    (*context).abort_token,
-                    (*context).abort_args,
-                );
-                ((*context).abort_token, (*context).abort_args) = (0, 0);
-                pending
-            } else {
-                return UNWIND;
-            };
-            let result = call(context, code as usize, callee, words(args));
+        // What the call is made with is copied out of the context,
+        // since what is called may leave for a call of its own.
+        let mut args = [NULL; ARGUMENTS];
+        while let Some(Pending {
+            code,
+            callee,
+            count,
+        }) = Pending::take(context, &mut args)
+        {
+            let args = &args[..count];
+            let result = call(context, code as usize, callee, args);
             if result == UNWIND && (*context).mode == SUSPENDING {
                 // The call is kept, to be made again when the task
                 // resumes: what it called has kept where it was.
+                let mut locals = vec![callee];
+                for arg in args {
+                    locals.push(*arg);
+                }
                 scheduler(context).current().frames.push(Frame {
                     point: BOUNCE,
                     definition: NULL,
                     position: code,
-                    locals: vec![callee, args],
+                    locals,
                 });
                 return UNWIND;
             }
             amb_release(callee);
-            amb_release(args);
+            for arg in args {
+                amb_release(*arg);
+            }
             if result != UNWIND {
                 return result;
             }
         }
+        UNWIND
     }
 }
 

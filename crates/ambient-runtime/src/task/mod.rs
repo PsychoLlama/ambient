@@ -31,7 +31,7 @@ pub use budget::{
 pub use capture::amb_capture;
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
 pub use join::{amb_all, amb_first};
-pub use tail::{amb_bounce, amb_start, amb_tail};
+pub use tail::{amb_bounce, amb_start, amb_tail, amb_tail_arg};
 
 use crate::object::amb_release;
 use crate::{Context, Fault, NULL, UNWIND, Word};

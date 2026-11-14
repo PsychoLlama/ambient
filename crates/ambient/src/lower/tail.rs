@@ -66,8 +66,8 @@ fn rewrite(expr: Expr, last: bool, locals: &mut usize) -> Expr {
     }
 }
 
-/// `call` as leaving the function: its callee, and its arguments as
-/// one tuple, which the call is then made with.
+/// `call` as leaving the function: its callee, as a value, and the
+/// arguments the call is then made with.
 fn leave(call: Op, locals: &mut usize) -> Expr {
     let mut bound = Vec::new();
     let mut bind = |op: Op| {
@@ -76,7 +76,7 @@ fn leave(call: Op, locals: &mut usize) -> Expr {
         bound.push((local, op));
         Value::Local(local)
     };
-    let (callee, members, metered) = match call {
+    let (callee, args, metered) = match call {
         Op::Call {
             slot,
             args,
@@ -89,8 +89,6 @@ fn leave(call: Op, locals: &mut usize) -> Expr {
         } => (callee, args, metered),
         other => return Expr::Op(other),
     };
-    let list = false;
-    let args = bind(Op::Sequence { list, members });
     let tail = Expr::Op(Op::Tail {
         callee,
         args,

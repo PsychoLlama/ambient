@@ -27,6 +27,8 @@ pub unsafe extern "C" fn amb_context_new() -> *mut Context {
         trace: 0,
         cells: 0,
         tail: 0,
+        tail_args: [0; crate::ARGUMENTS],
+        tail_count: 0,
     }))
 }
 

@@ -84,7 +84,7 @@ pub use task::{
     amb_budget_current, amb_budget_enter, amb_budget_leave, amb_budget_switch, amb_capture,
     amb_charge, amb_charge_read, amb_charge_size, amb_first, amb_frame_drop, amb_frame_load,
     amb_frame_point, amb_frame_push, amb_frame_save, amb_group_close, amb_group_end, amb_group_new,
-    amb_schedule, amb_spawn, amb_start, amb_tail,
+    amb_schedule, amb_spawn, amb_start, amb_tail, amb_tail_arg,
 };
 pub use text::*;
 pub use trace::{TRACE_LIMIT, amb_trace};
@@ -94,6 +94,11 @@ pub type Word = u64;
 
 /// Not a value: the result of a call that is unwinding.
 pub const UNWIND: Word = 0;
+
+/// The most a function is called with, its bindings among them: the
+/// runtime calls a function of each arity up to this from outside
+/// compiled code (`task/tail.rs`).
+pub const ARGUMENTS: usize = 16;
 pub const NULL: Word = 0b0010;
 pub const FALSE: Word = 0b0110;
 pub const TRUE: Word = 0b1010;
@@ -229,8 +234,12 @@ pub struct Context {
     /// zero if it keeps none: see [`amb_cells_drop`].
     pub cells: u64,
     /// While a function leaves for a call: the code to call. The callee
-    /// and its arguments are where an abort's token and arguments go.
+    /// is where an abort's token goes.
     pub tail: u64,
+    /// The arguments of that call, which this context owns, and how
+    /// many they are: see [`amb_tail_arg`].
+    pub tail_args: [u64; ARGUMENTS],
+    pub tail_count: u64,
 }
 
 impl Context {

@@ -143,7 +143,8 @@ entries! {
     ListPush = amb_list_push, plain, 2, word;
     ListJoin = amb_list_join, plain, 2, word;
     ListSlice = amb_list_slice, plain, 3, word;
-    Tail = amb_tail, context, 3, word;
+    Tail = amb_tail, context, 2, word;
+    TailArg = amb_tail_arg, context, 1, nothing;
     Bounce = amb_bounce, context, 0, word;
     IntFloat = amb_int_float, plain, 1, word;
     FloatInt = amb_float_int, plain, 1, word;

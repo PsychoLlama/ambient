@@ -183,8 +183,12 @@ impl Op {
                 args,
                 metered,
             } => {
+                // The call is pending from the first step, which is what
+                // the operation gives; each argument then joins it.
                 let metered = Raw(u64::from(*metered));
-                vec![step(Entry::Tail, [value(callee), value(args), metered])]
+                let mut steps = vec![step(Entry::Tail, [value(callee), metered])];
+                steps.extend(args.iter().map(|arg| step(Entry::TailArg, [value(arg)])));
+                steps
             }
             Self::Bounce => vec![step(Entry::Bounce, [])],
             Self::Hold
