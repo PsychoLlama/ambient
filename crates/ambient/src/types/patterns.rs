@@ -8,6 +8,41 @@ use crate::surface::{Key, Pattern, Reference, Shape};
 type Pat = Pattern<Reference>;
 
 impl Env {
+    /// The nearest type to `ty` that a value can be tested for: `ty`
+    /// itself if it can be, and otherwise `ty` without its methods and
+    /// with unknown for each part no test can tell. A test for it lets
+    /// through every value of `ty`, and perhaps others.
+    #[must_use]
+    pub fn nearest_test(&self, ty: &Ty) -> Ty {
+        if self.testable(ty) {
+            return ty.clone();
+        }
+        let part = |ty: &Ty| {
+            if self.testable(ty) {
+                ty.clone()
+            } else {
+                Ty::Unknown
+            }
+        };
+        match self.unfold(ty) {
+            Ty::Record(fields) => {
+                let held = fields
+                    .iter()
+                    .filter(|(_, ty)| !matches!(ty, Ty::Method { .. }));
+                Ty::Record(held.map(|(key, ty)| (key.clone(), part(ty))).collect())
+            }
+            Ty::Tuple(members) => Ty::Tuple(members.iter().map(part).collect()),
+            Ty::List(member) => Ty::List(Box::new(part(&member))),
+            Ty::Union(members) => self.union(
+                members
+                    .iter()
+                    .map(|member| self.nearest_test(member))
+                    .collect(),
+            ),
+            _ => Ty::Unknown,
+        }
+    }
+
     /// The values of type `ty` that `pattern` matches, as a type; `None` if
     /// there are none.
     #[must_use]

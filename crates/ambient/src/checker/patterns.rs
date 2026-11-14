@@ -23,30 +23,22 @@ impl Checker<'_> {
             return self.ascribed(subject, stated, &arm.body, expected);
         }
         let (subject, mut remaining) = self.infer(subject)?;
-        for arm in arms {
-            let mut result = Ok(());
-            pattern_types(&arm.pattern, &mut |ty| {
-                if result.is_ok() {
-                    result = self.tested(ty);
-                }
-            });
-            result?;
-        }
         let mut core_arms = Vec::new();
         let mut results = Vec::new();
         for (index, arm) in arms.iter().enumerate() {
             // An arm sees only what earlier arms let through.
-            let Some(matched) = self.env.narrow(&remaining, &arm.pattern) else {
+            let asked = self.asked(&remaining, &arm.pattern)?;
+            let Some(matched) = self.env.narrow(&remaining, &asked) else {
                 return Err(Error::UnreachableArm {
                     symbol: self.symbol.clone(),
                     arm: index,
                 });
             };
-            let pattern = self.bind(&matched, &arm.pattern);
+            let pattern = self.bind(&matched, &asked);
             let (body, ty) = self.infer_to(&arm.body, expected)?;
             core_arms.push((pattern, body));
             results.push(ty);
-            remaining = self.env.remainder(&remaining, &arm.pattern);
+            remaining = self.env.remainder(&remaining, &asked);
         }
         if remaining != Ty::Never {
             return Err(Error::NotExhaustive {
@@ -82,6 +74,50 @@ impl Checker<'_> {
             body: Box::new(body),
         };
         Ok((core, ty))
+    }
+
+    /// `pattern` as it is tested against a value of type `subject`:
+    /// each type in it that no value can be tested for is the nearest
+    /// one that can be. That stands only where it tells as much: what
+    /// the nearer test lets through of `subject` is all of the type
+    /// that was written.
+    pub(super) fn asked(&self, subject: &Ty, pattern: &Pat) -> Result<Pat, Error> {
+        Ok(match pattern {
+            Pattern::Wildcard | Pattern::Literal(_) => pattern.clone(),
+            Pattern::Bind(name, inner) => {
+                Pattern::Bind(name.clone(), Box::new(self.asked(subject, inner)?))
+            }
+            Pattern::Is(written) => {
+                self.well_formed(written)?;
+                let written = self.env.normalize(written);
+                let near = Pattern::Is(self.env.nearest_test(&written));
+                let through = self.env.narrow(subject, &near);
+                if through.is_some_and(|through| !self.env.subtype(&through, &written)) {
+                    return Err(Error::Untestable {
+                        symbol: self.symbol.clone(),
+                        found: self.env.show(&written),
+                    });
+                }
+                near
+            }
+            Pattern::Tuple(members) => {
+                let subject = self.env.unfold(subject);
+                let asked = members
+                    .iter()
+                    .enumerate()
+                    .map(|(index, member)| self.asked(&self.env.member(&subject, index), member));
+                Pattern::Tuple(asked.collect::<Result<_, _>>()?)
+            }
+            Pattern::Record(fields) => {
+                let subject = self.env.unfold(subject);
+                let asked = fields.iter().map(|(name, field)| {
+                    let key = Key::Field(name.clone());
+                    let held = self.env.field(&subject, &key).unwrap_or(Ty::Unknown);
+                    Ok((name.clone(), self.asked(&held, field)?))
+                });
+                Pattern::Record(asked.collect::<Result<_, Error>>()?)
+            }
+        })
     }
 
     /// `expr` held to `expected`, if anything is expected of it, and
@@ -136,16 +172,5 @@ impl Checker<'_> {
                     .collect(),
             ),
         }
-    }
-}
-
-/// Calls `visit` with every type a pattern tests against.
-fn pattern_types(pattern: &Pat, visit: &mut impl FnMut(&Ty)) {
-    match pattern {
-        Pattern::Wildcard | Pattern::Literal(_) => {}
-        Pattern::Record(fields) => fields.iter().for_each(|(_, p)| pattern_types(p, visit)),
-        Pattern::Tuple(members) => members.iter().for_each(|p| pattern_types(p, visit)),
-        Pattern::Is(ty) => visit(ty),
-        Pattern::Bind(_, inner) => pattern_types(inner, visit),
     }
 }

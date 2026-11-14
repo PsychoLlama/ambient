@@ -115,6 +115,13 @@ fn an_error_is_reported_at_the_expression_that_is_wrong() {
         wrong_at("fn f(): int {\n  let a: int = \"a\";\n  return a;\n}"),
         "2:16"
     );
+    // A test that cannot tell what it is asked: any record passes it.
+    assert_eq!(
+        wrong_at(
+            "import ambient.dict.{Dict};\nfn f(v: unknown): int =>\n  (v as Dict<int> else null) as int else 0;"
+        ),
+        "3:6"
+    );
     // A method the value lacks, at its name.
     assert_eq!(wrong_at("fn f(): int => 1\n  .missing();"), "2:4");
 }

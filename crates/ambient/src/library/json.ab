@@ -29,10 +29,10 @@ pub fn write(value: Json): string {
         let number: int => { return number.to_text(); }
         let number: float => { return number - number == 0.0 ? number.to_text() : "null"; }
         let text: string => { return quote(text); }
-        let items: List<unknown> => {
+        let items: List<Json> => {
             return "[" ++ items.map(write).join_with(",") ++ "]";
         }
-        let members: {} => {
+        let members: Dict<Json> => {
             let each = fn((name, member): (string, Json)): string => quote(name) ++ ":" ++ write(member);
             return "{" ++ members.entries().map(each).join_with(",") ++ "}";
         }
@@ -43,9 +43,8 @@ pub fn write(value: Json): string {
 /// or if `value` is no object.
 pub fn get(value: Json, name: string): Json {
     match value {
-        null => { return null; }
-        let _: bool | int | float | string | List<unknown> => { return null; }
-        let members: {} => { return members.get(name); }
+        let members: Dict<Json> => { return members.get(name); }
+        _ => { return null; }
     }
 }
 
@@ -53,7 +52,7 @@ pub fn get(value: Json, name: string): Json {
 /// if `value` is no array.
 pub fn at(value: Json, position: int): Json {
     match value {
-        let items: List<unknown> => { return items.get(position); }
+        let items: List<Json> => { return items.get(position); }
         _ => { return null; }
     }
 }

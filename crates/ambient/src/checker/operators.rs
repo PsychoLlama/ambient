@@ -3,7 +3,7 @@
 use super::Checker;
 use crate::core::{self, Primitive};
 use crate::error::Error;
-use crate::surface::{Expr, Operator, Reference};
+use crate::surface::{Expr, Operator, Pattern, Reference};
 use crate::types::Ty;
 
 impl Checker<'_> {
@@ -15,7 +15,10 @@ impl Checker<'_> {
         ty: &Ty,
         otherwise: &Expr<Reference>,
     ) -> Result<(core::Expr, Ty), Error> {
-        let (value, _) = self.infer(value)?;
+        let (value, found) = self.infer(value)?;
+        if !self.env.testable(ty) {
+            return self.cast_near(value, &found, ty, otherwise);
+        }
         self.tested(ty)?;
         let target = self.env.normalize(ty);
         let (otherwise, alternative) = self.infer(otherwise)?;
@@ -25,6 +28,42 @@ impl Checker<'_> {
             otherwise: Box::new(otherwise),
         };
         Ok((core, self.env.union(vec![target, alternative])))
+    }
+
+    /// A cast to a type no value can be tested for, which is one to the
+    /// nearest type that can be where that tells as much
+    /// ([`Self::asked`]). What it gives is then what the test lets
+    /// through of the value's type, which a cast does not say: so it
+    /// is a match, of one arm that binds what passes and one for
+    /// `otherwise`.
+    fn cast_near(
+        &mut self,
+        value: core::Expr,
+        found: &Ty,
+        ty: &Ty,
+        otherwise: &Expr<Reference>,
+    ) -> Result<(core::Expr, Ty), Error> {
+        let asked = self.asked(found, &Pattern::Is(ty.clone()))?;
+        let (Some(through), Pattern::Is(near)) = (self.env.narrow(found, &asked), &asked) else {
+            return self.tested(ty).map(|()| (value, Ty::Never));
+        };
+        // The arm's binder is a local nothing in the text names.
+        let frame = self.frame();
+        let passed = frame.locals.len();
+        frame.locals.insert(usize::MAX - passed, passed);
+        let tested = core::Pattern::Is(self.lower(near));
+        let (otherwise, alternative) = self.infer(otherwise)?;
+        let core = core::Expr::Match {
+            subject: Box::new(value),
+            arms: vec![
+                (
+                    core::Pattern::Bind(Box::new(tested)),
+                    core::Expr::Local(passed),
+                ),
+                (core::Pattern::Wildcard, otherwise),
+            ],
+        };
+        Ok((core, self.env.union(vec![through, alternative])))
     }
 
     /// An operator applied to operands: the first operation it can mean

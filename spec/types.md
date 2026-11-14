@@ -86,6 +86,9 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - A record pattern matches any record that has at least its fields; a tuple pattern matches a tuple of exactly its length.
 - A field a record pattern names that the subject's type does not mention is tested as `unknown`.
 - A binder has the type of the values its pattern matches, not the type of the subject.
+- A type no value can be tested for, as one that holds a [method](methods.md) is, is tested as the nearest type that can be: itself without its methods, and `unknown` for each part no test can tell.
+- That stands only where it tells as much: what the nearer test lets through of the subject's type is all of the type that was written. Otherwise the test is an error.
+- A [cast](#unknown-and-casts) to such a type is tested the same way, and gives what the test lets through.
 - Each arm sees the subject's type less what earlier arms always match.
 - A match is exhaustive over the static type of its subject: after the last arm nothing is left.
 - An arm that can match nothing is an error.

@@ -14,7 +14,7 @@ pub tag refused;
 /// The count under each name that the text of a file holds.
 pub fn read(text: string): Dict<int> with throw {
     match json.parse(text) {
-        let members: {} => {
+        let members: Dict<Json> => {
             return dict.of(members.entries().map(fn((name, held)) => (name, count_of(name, held))));
         }
         _ => { return fail(not_a_ledger, "the file does not hold an object"); }

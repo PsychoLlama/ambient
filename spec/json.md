@@ -25,4 +25,4 @@ The standard library reads and writes JSON. It is written in the language, over 
 ## Reaching in
 
 - A member is reached by name and an item by position; reaching into a value that is not an object or an array gives null, as reaching for what is absent does.
-- TODO: an object cannot be [tested](types.md) for by its type, since a dictionary holds methods; a match tells it from the rest as the record it is, or by being what is left.
+- A value read is told apart by the types it may be: an object is a dictionary and an array a list, each [tested](types.md) as far as a test can tell, which among the members of the union is far enough.
