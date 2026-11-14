@@ -3,7 +3,7 @@
 use std::io::{self, BufRead, Write};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use super::{Failure, Kind, World};
+use super::{Failure, Kind, Ran, World};
 
 /// The process the compiler is running in: its streams, files,
 /// environment, and clocks.
@@ -103,6 +103,16 @@ impl World for System {
 
     fn make_directory(&mut self, path: &str) -> Result<(), Failure> {
         std::fs::create_dir_all(path).map_err(|error| failure(&error))
+    }
+
+    fn run(&mut self, command: &str, args: &[String]) -> Result<Ran, Failure> {
+        let done = std::process::Command::new(command).args(args).output();
+        let done = done.map_err(|error| failure(&error))?;
+        Ok(Ran {
+            code: done.status.code().map_or(-1, i64::from),
+            out: String::from_utf8_lossy(&done.stdout).into_owned(),
+            err: String::from_utf8_lossy(&done.stderr).into_owned(),
+        })
     }
 
     fn now(&mut self) -> i64 {

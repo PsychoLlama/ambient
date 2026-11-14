@@ -22,6 +22,7 @@ extern handler clock_now for clock.now;
 extern handler clock_elapsed for clock.elapsed;
 extern handler clock_sleep for clock.sleep;
 extern handler process_exit for process.exit;
+extern handler process_run for process.run;
 extern handler test_check for test.check;
 extern handler thrown for errors.throw;
 
@@ -43,6 +44,7 @@ pub target cli {
     clock.elapsed: clock_elapsed,
     clock.sleep: clock_sleep,
     process.exit: process_exit,
+    process.run: process_run,
     errors.throw: thrown,
 }
 

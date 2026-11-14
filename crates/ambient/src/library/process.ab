@@ -1,2 +1,14 @@
+import pkg.Error;
+
+/// What a command gave: the code it exited with, which is -1 if it was
+/// ended from outside, and what it wrote to each of its streams.
+pub type Output = { code: int, out: string, err: string };
+
 /// Ends the program with an exit code.
 pub ability exit(code: int): never;
+
+/// Runs a command with arguments, and waits until it is over. The
+/// command is found as the system finds one; no shell reads it. One
+/// that exits with a code that is not zero has still run: only a
+/// command that could not be started is an error.
+pub ability run(command: string, args: List<string>): Output | Error;

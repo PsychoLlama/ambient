@@ -44,6 +44,15 @@ pub struct Failure {
     pub message: String,
 }
 
+/// What a command that was run gave.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Ran {
+    /// What it exited with, or -1 if it was ended from outside.
+    pub code: i64,
+    pub out: String,
+    pub err: String,
+}
+
 /// What a program run from a command line can reach.
 pub trait World {
     /// Writes to standard output.
@@ -86,6 +95,12 @@ pub trait World {
     ///
     /// The directory cannot be made.
     fn make_directory(&mut self, path: &str) -> Result<(), Failure>;
+    /// Runs a command with arguments, and waits until it is over.
+    ///
+    /// # Errors
+    ///
+    /// The command cannot be started.
+    fn run(&mut self, command: &str, args: &[String]) -> Result<Ran, Failure>;
     /// Milliseconds since the start of 1970.
     fn now(&mut self) -> i64;
     /// Nanoseconds since a fixed moment.
@@ -129,6 +144,26 @@ fn int(args: &[Value], position: usize) -> Result<i64, String> {
     }
 }
 
+fn texts(args: &[Value], position: usize) -> Result<Vec<String>, String> {
+    let Some(Value::List(items)) = args.get(position) else {
+        return Err(format!("argument {position} is not a list"));
+    };
+    (0..items.len())
+        .map(|item| text(items, item).map(str::to_owned))
+        .collect()
+}
+
+/// What a command gave, as `ambient.process.Output` describes it.
+fn output(ran: Ran) -> Value {
+    let fields = [
+        ("code", Value::Int(ran.code)),
+        ("out", Value::String(ran.out)),
+        ("err", Value::String(ran.err)),
+    ];
+    let named = |(name, value): (&str, Value)| (name.to_owned(), value);
+    Value::Record(fields.into_iter().map(named).collect::<BTreeMap<_, _>>())
+}
+
 fn optional(text: Option<String>) -> Value {
     text.map_or(Value::Null, Value::String)
 }
@@ -142,7 +177,7 @@ fn strings(items: Vec<String>) -> Value {
 #[must_use]
 pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
     type Handler = fn(&mut dyn World, &[Value]) -> Result<Value, String>;
-    let handlers: [(&str, Handler); 16] = [
+    let handlers: [(&str, Handler); 17] = [
         ("console_write", |world, args| {
             world.write(text(args, 0)?);
             Ok(Value::Null)
@@ -184,6 +219,10 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
         ("fs_make_directory", |world, args| {
             let made = world.make_directory(text(args, 0)?);
             Ok(made.map_or_else(|failure| error(&failure), |()| Value::Null))
+        }),
+        ("process_run", |world, args| {
+            let ran = world.run(text(args, 0)?, &texts(args, 1)?);
+            Ok(ran.map_or_else(|failure| error(&failure), output))
         }),
         ("clock_now", |world, _| Ok(Value::Int(world.now()))),
         ("clock_elapsed", |world, _| Ok(Value::Int(world.elapsed()))),

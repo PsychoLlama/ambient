@@ -336,7 +336,7 @@ Import a module by path; its public definitions are reached through its name, or
 | `ambient.env`                                                | `args`, `variable`                                            |
 | `ambient.fs`                                                 | `read`, `write`, `list`, `exists`, `remove`, `make_directory` |
 | `ambient.clock`                                              | `now`, `elapsed`, `sleep`                                     |
-| `ambient.process`                                            | `exit`                                                        |
+| `ambient.process`                                            | `exit`, `run`                                                 |
 | `ambient.cleanup`                                            | the `dispose` key a `using` reads                             |
 
 ```ab

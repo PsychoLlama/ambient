@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use ambient::cli::{Command, Session};
-use ambient::host::{Failure, Kind, World};
+use ambient::host::{Failure, Kind, Ran, World};
 use ambient::project::Files;
 use ambient::store::MemoryStore;
 
@@ -19,6 +19,9 @@ pub struct Scripted {
     pub input: VecDeque<String>,
     pub files: BTreeMap<String, String>,
     pub args: Vec<String>,
+    /// What each command gives, by the command and its arguments with
+    /// a space between.
+    pub commands: BTreeMap<String, Ran>,
     /// What the clock says; sleeping moves it on.
     pub time: i64,
 }
@@ -119,6 +122,14 @@ impl World for Scripted {
     /// A file is anywhere it is written, so there is nothing to make.
     fn make_directory(&mut self, _path: &str) -> Result<(), Failure> {
         Ok(())
+    }
+
+    fn run(&mut self, command: &str, args: &[String]) -> Result<Ran, Failure> {
+        let line = [&[command.to_owned()], args].concat().join(" ");
+        self.commands.get(&line).cloned().ok_or_else(|| Failure {
+            kind: Kind::NotFound,
+            message: format!("no command {command}"),
+        })
     }
 
     fn now(&mut self) -> i64 {

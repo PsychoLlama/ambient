@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ambient::engine::Engine;
-use ambient::host::{self, World};
+use ambient::host::{self, Ran, World};
 use ambient::store::MemoryStore;
 use ambient::value::Value;
 use support::scripted::Scripted;
@@ -117,6 +117,37 @@ fn a_file_is_taken_away_once() {
         Ok(Value::String("no file at notes/a.txt".to_owned()))
     );
     assert!(after.files.is_empty());
+}
+
+#[test]
+fn a_command_is_run_and_what_it_gave_is_read() {
+    let source = r#"
+        import ambient.process;
+        import ambient.process.{Output};
+        import ambient.Error;
+
+        fn ran(command: string): string with process.run {
+            match process.run!(command, ["status", "--short"]) {
+                let error: Error => { return error.message; }
+                let output: Output => { return "${output.code}: ${output.out.trim()}"; }
+            }
+        }
+        fn main(): string with process.run => ran("git") ++ ", " ++ ran("hg");
+    "#;
+    let gave = Ran {
+        code: 1,
+        out: " M notes\n".to_owned(),
+        ..Ran::default()
+    };
+    let world = Scripted {
+        commands: [("git status --short".to_owned(), gave)].into(),
+        ..Scripted::default()
+    };
+
+    assert_eq!(
+        run(source, &world).0,
+        Ok(Value::String("1: M notes, no command hg".to_owned()))
+    );
 }
 
 #[test]
