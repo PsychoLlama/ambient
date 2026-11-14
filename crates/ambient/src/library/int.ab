@@ -1,0 +1,29 @@
+/// The float nearest this integer.
+pub fn to_float(self: int): float => @to_float(self);
+
+/// This integer in decimal.
+pub fn to_text(self: int): string => @to_text(self);
+
+/// This integer without its sign.
+pub fn abs(self: int): int {
+    if self < 0 {
+        return 0 - self;
+    }
+    return self;
+}
+
+/// The lesser of this integer and `other`.
+pub fn min(self: int, other: int): int {
+    if other < self {
+        return other;
+    }
+    return self;
+}
+
+/// The greater of this integer and `other`.
+pub fn max(self: int, other: int): int {
+    if self < other {
+        return other;
+    }
+    return self;
+}

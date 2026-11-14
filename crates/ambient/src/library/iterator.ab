@@ -1,0 +1,126 @@
+/// An iterator that `step` steps: it gives null at the end, or an item
+/// and an iterator of the rest.
+pub fn from<T>(step: fn(): null | (T, Iterator<T>)): Iterator<T> => @iterator(step);
+
+/// Null at the end, or the next item and an iterator of the rest.
+pub fn step<T>(self: Iterator<T>): null | (T, Iterator<T>) => @step(self);
+
+/// Each integer from `start` up to `end`, which it leaves out.
+pub fn range(start: int, end: int): Iterator<int> => @range(start, end);
+
+/// What `f` makes of each item.
+pub fn map<T, U>(self: Iterator<T>, f: fn(T): U): Iterator<U> =>
+    @iterator(fn() => match @step(self) {
+        null => null,
+        (let item, let rest) => (f(item), map(rest, f)),
+    });
+
+/// The items `keep` takes.
+pub fn filter<T>(self: Iterator<T>, keep: fn(T): bool): Iterator<T> =>
+    @iterator(fn() => seek(self, keep));
+
+/// The first item `keep` takes, and a filter of what follows it. It
+/// calls itself in tail position past each item `keep` refuses, so a
+/// long run of them takes no stack.
+fn seek<T>(items: Iterator<T>, keep: fn(T): bool): null | (T, Iterator<T>) {
+    match @step(items) {
+        null => { return null; }
+        (let item, let rest) => {
+            if keep(item) {
+                return (item, filter(rest, keep));
+            }
+            return seek(rest, keep);
+        }
+    }
+}
+
+/// The first `count` items.
+pub fn take<T>(self: Iterator<T>, count: int): Iterator<T> =>
+    @iterator(fn() {
+        if count < 1 {
+            return null;
+        }
+        return match @step(self) {
+            null => null,
+            (let item, let rest) => (item, take(rest, count - 1)),
+        };
+    });
+
+/// What is left after the first `count` items.
+pub fn skip<T>(self: Iterator<T>, count: int): Iterator<T> {
+    if count < 1 {
+        return self;
+    }
+    match @step(self) {
+        null => { return self; }
+        (_, let rest) => { return skip(rest, count - 1); }
+    }
+}
+
+/// The items of this iterator, and then those of `other`.
+pub fn chain<T>(self: Iterator<T>, other: Iterator<T>): Iterator<T> =>
+    @iterator(fn() => match @step(self) {
+        null => @step(other),
+        (let item, let rest) => (item, chain(rest, other)),
+    });
+
+/// Each item with its position, counted from zero.
+pub fn enumerate<T>(self: Iterator<T>): Iterator<(int, T)> => numbered(self, 0);
+
+fn numbered<T>(items: Iterator<T>, position: int): Iterator<(int, T)> =>
+    @iterator(fn() => match @step(items) {
+        null => null,
+        (let item, let rest) => ((position, item), numbered(rest, position + 1)),
+    });
+
+/// What `f` makes of `initial` and each item in turn.
+pub fn fold<T, A>(self: Iterator<T>, initial: A, f: fn(A, T): A): A {
+    match @step(self) {
+        null => { return initial; }
+        (let item, let rest) => { return fold(rest, f(initial, item), f); }
+    }
+}
+
+/// Calls `f` with each item, for what it does.
+pub fn each<T, R>(self: Iterator<T>, f: fn(T): R): null {
+    match @step(self) {
+        null => { return null; }
+        (let item, let rest) => {
+            f(item);
+            return each(rest, f);
+        }
+    }
+}
+
+/// How many items there are.
+pub fn count<T>(self: Iterator<T>): int => fold(self, 0, fn(seen: int, item: T): int => seen + 1);
+
+/// The first item `wanted` takes, or null if there is none.
+pub fn find<T>(self: Iterator<T>, wanted: fn(T): bool): T | null {
+    match seek(self, wanted) {
+        null => { return null; }
+        (let item, _) => { return item; }
+    }
+}
+
+/// Whether `holds` takes any item.
+pub fn some<T>(self: Iterator<T>, holds: fn(T): bool): bool =>
+    match seek(self, holds) {
+        null => false,
+        _ => true,
+    };
+
+/// Whether `holds` takes every item.
+pub fn every<T>(self: Iterator<T>, holds: fn(T): bool): bool =>
+    !some(self, fn(item: T): bool => !holds(item));
+
+/// Every item, in order.
+pub fn to_list<T>(self: Iterator<T>): List<T> => collect(self, []);
+
+/// `into` followed by every item of `items`.
+fn collect<T>(items: Iterator<T>, into: List<T>): List<T> {
+    match @step(items) {
+        null => { return into; }
+        (let item, let rest) => { return collect(rest, @push(into, item)); }
+    }
+}

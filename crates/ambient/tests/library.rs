@@ -165,3 +165,28 @@ fn a_union_of_shapes_has_no_methods_until_it_is_narrowed() {
     let unnarrowed = widen(b::send(b::name("either"), "length", []));
     assert!(matches!(refused(unnarrowed), Error::NoMethod { .. }));
 }
+
+#[test]
+fn every_definition_of_the_library_checks() {
+    use ambient::surface::DefinitionKind;
+    use ambient::symbol::PackageId;
+    use ambient::workspace::{Sources, Workspace};
+
+    let mut workspace = Workspace::new();
+    library::install(&mut workspace).unwrap();
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let mut refused = Vec::new();
+    for id in workspace.modules(&PackageId("ambient".to_owned())) {
+        let module = workspace.module(&id).unwrap();
+        let functions = module.definitions().iter();
+        let functions = functions.filter(|each| matches!(each.kind, DefinitionKind::Function(_)));
+        for function in functions {
+            if let Err(error) = engine.verify(&id.value(&function.name)) {
+                refused.push(error.to_string());
+            }
+        }
+    }
+
+    assert_eq!(refused, Vec::<String>::new());
+}

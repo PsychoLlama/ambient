@@ -1,0 +1,5 @@
+/// This float with its fraction dropped, or null if that is no integer.
+pub fn to_int(self: float): int | null => @to_int(self);
+
+/// The shortest decimal that reads back as this float.
+pub fn to_text(self: float): string => @to_text(self);

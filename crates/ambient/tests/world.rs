@@ -12,10 +12,7 @@ use std::rc::Rc;
 use ambient::engine::Engine;
 use ambient::host::{self, Failure, Kind, World};
 use ambient::store::MemoryStore;
-use ambient::symbol::ModuleId;
-use ambient::syntax::parse;
 use ambient::value::Value;
-use ambient::workspace::Workspace;
 use support::{Outcome, run_entry, value};
 
 /// A world held in memory.
@@ -88,11 +85,7 @@ impl World for Scripted {
 /// Runs `main` under the command-line target in `world`, on every
 /// backend, and gives what it gave and the world it left.
 fn run(source: &str, world: &Scripted) -> (Outcome, Scripted) {
-    let mut workspace = Workspace::new();
-    ambient::library::install(&mut workspace).unwrap();
-    workspace.depend("app", "ambient", "ambient").unwrap();
-    let module = parse(source).unwrap_or_else(|error| panic!("{error}"));
-    workspace.set(ModuleId::new("app", "main"), module).unwrap();
+    let workspace = support::text::workspace(source);
     let store = MemoryStore::new();
     let engine = Engine::new(&workspace, &store);
     let entry = engine

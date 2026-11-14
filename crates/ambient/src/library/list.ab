@@ -1,0 +1,97 @@
+/// How many members the list has.
+pub fn length<T>(self: List<T>): int => @length(self);
+
+/// The members of this list followed by those of `other`.
+pub fn join<T>(self: List<T>, other: List<T>): List<T> => @join(self, other);
+
+/// The members between two positions, or null if they are out of range
+/// or out of order.
+pub fn slice<T>(self: List<T>, start: int, end: int): List<T> | null => @slice(self, start, end);
+
+/// An iterator over the members, in order.
+pub fn iter<T>(self: List<T>): Iterator<T> => @iterate(self);
+
+/// The member at a position, or null if there is none.
+pub fn get<T>(self: List<T>, position: int): T | null => @get(self, position);
+
+/// This list with `member` after the others.
+pub fn push<T>(self: List<T>, member: T): List<T> => @push(self, member);
+
+/// Whether the list has no members.
+pub fn is_empty<T>(self: List<T>): bool => @length(self) == 0;
+
+/// The first member, or null if there is none.
+pub fn first<T>(self: List<T>): T | null => @get(self, 0);
+
+/// The last member, or null if there is none.
+pub fn last<T>(self: List<T>): T | null => @get(self, @length(self) - 1);
+
+/// What `f` makes of each member.
+pub fn map<T, U>(self: List<T>, f: fn(T): U): List<U> => @iterate(self).map(f).to_list();
+
+/// The members `keep` takes.
+pub fn filter<T>(self: List<T>, keep: fn(T): bool): List<T> => @iterate(self).filter(keep).to_list();
+
+/// What `f` makes of `initial` and each member in turn.
+pub fn fold<T, A>(self: List<T>, initial: A, f: fn(A, T): A): A => @iterate(self).fold(initial, f);
+
+/// Calls `f` with each member, for what it does.
+pub fn each<T, R>(self: List<T>, f: fn(T): R): null => @iterate(self).each(f);
+
+/// The members in the opposite order.
+pub fn reverse<T>(self: List<T>): List<T> => reversed(self, @length(self), []);
+
+fn reversed<T>(members: List<T>, left: int, into: List<T>): List<T> {
+    if left < 1 {
+        return into;
+    }
+    match @step(@iterate(members).skip(left - 1)) {
+        null => { return into; }
+        (let member, _) => { return reversed(members, left - 1, @push(into, member)); }
+    }
+}
+
+/// The members in order, where `before` says whether one comes before
+/// another. Members neither of which comes before the other keep the
+/// order they had.
+pub fn sort_by<T>(self: List<T>, before: fn(T, T): bool): List<T> {
+    let count = @length(self);
+    if count < 2 {
+        return self;
+    }
+    let middle = count / 2;
+    let left = sort_by(@iterate(self).take(middle).to_list(), before);
+    let right = sort_by(@iterate(self).skip(middle).to_list(), before);
+    return merge(@iterate(left), @iterate(right), before, []);
+}
+
+/// Two sorted runs as one, after `into`.
+fn merge<T>(left: Iterator<T>, right: Iterator<T>, before: fn(T, T): bool, into: List<T>): List<T> {
+    match @step(left) {
+        null => { return @join(into, right.to_list()); }
+        (let a, let more_left) => {
+            match @step(right) {
+                null => { return @join(into, left.to_list()); }
+                (let b, let more_right) => {
+                    if before(b, a) {
+                        return merge(left, more_right, before, @push(into, b));
+                    }
+                    return merge(more_left, right, before, @push(into, a));
+                }
+            }
+        }
+    }
+}
+
+/// The strings of the list as one, with `separator` between each two.
+pub fn join_with(self: List<string>, separator: string): string {
+    match @step(@iterate(self)) {
+        null => { return ""; }
+        (let head, let rest) => {
+            return rest.fold(head, fn(joined: string, piece: string): string => joined ++ separator ++ piece);
+        }
+    }
+}
+
+/// The integers of the list added up.
+pub fn sum(self: List<int>): int => @iterate(self).fold(0, fn(total: int, member: int): int => total + member);

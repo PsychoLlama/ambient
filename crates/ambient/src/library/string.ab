@@ -1,0 +1,167 @@
+/// The size of the string in bytes.
+pub fn length(self: string): int => @length(self);
+
+/// This string followed by `other`.
+pub fn join(self: string, other: string): string => @join(self, other);
+
+/// The string between two positions, or null if they are out of range,
+/// out of order, or inside a character.
+pub fn slice(self: string, start: int, end: int): string | null => @slice(self, start, end);
+
+/// The integer the whole string is, or null if it is not one.
+pub fn to_int(self: string): int | null => @to_int(self);
+
+/// The float the whole string is, or null if it is not one.
+pub fn to_float(self: string): float | null => @to_float(self);
+
+/// The characters of the string, in order.
+pub fn chars(self: string): Iterator<string> => @iterate(self);
+
+/// Whether the string holds nothing.
+pub fn is_empty(self: string): bool => @length(self) == 0;
+
+/// Whether the string begins with `prefix`.
+pub fn starts_with(self: string, prefix: string): bool =>
+    match @slice(self, 0, @length(prefix)) {
+        null => false,
+        let head => head == prefix,
+    };
+
+/// Whether the string ends with `suffix`.
+pub fn ends_with(self: string, suffix: string): bool =>
+    match @slice(self, @length(self) - @length(suffix), @length(self)) {
+        null => false,
+        let tail => tail == suffix,
+    };
+
+/// The position `part` first begins at, or null if it is not there.
+pub fn find(self: string, part: string): int | null => find_from(self, part, 0);
+
+fn find_from(text: string, part: string, at: int): int | null {
+    let end = at + @length(part);
+    if @length(text) < end {
+        return null;
+    }
+    match @slice(text, at, end) {
+        null => {}
+        let found => {
+            if found == part {
+                return at;
+            }
+        }
+    }
+    return find_from(text, part, at + 1);
+}
+
+/// Whether `part` is anywhere in the string.
+pub fn contains(self: string, part: string): bool =>
+    match find(self, part) {
+        null => false,
+        _ => true,
+    };
+
+/// What is left of the string from a position on, or nothing if the
+/// position is not one.
+fn from(text: string, start: int): string =>
+    match @slice(text, start, @length(text)) {
+        null => "",
+        let rest => rest,
+    };
+
+/// What is in the string before a position, or nothing if the position
+/// is not one.
+fn before(text: string, end: int): string =>
+    match @slice(text, 0, end) {
+        null => "",
+        let head => head,
+    };
+
+/// The pieces of the string between each `separator`. A separator that
+/// holds nothing separates nothing.
+pub fn split(self: string, separator: string): List<string> {
+    if @length(separator) == 0 {
+        return [self];
+    }
+    return split_into(self, separator, []);
+}
+
+fn split_into(text: string, separator: string, pieces: List<string>): List<string> {
+    match find(text, separator) {
+        null => { return @push(pieces, text); }
+        let at => {
+            let rest = from(text, at + @length(separator));
+            return split_into(rest, separator, @push(pieces, before(text, at)));
+        }
+    }
+}
+
+/// The lines of the string. A line's ending is not part of it, and a
+/// last line that is empty is not a line.
+pub fn lines(self: string): List<string> {
+    let pieces = split(self, "\n").iter().map(fn(line: string): string {
+        if ends_with(line, "\r") {
+            return before(line, @length(line) - 1);
+        }
+        return line;
+    }).to_list();
+    match @get(pieces, @length(pieces) - 1) {
+        "" => { return from_list(pieces, @length(pieces) - 1); }
+        _ => { return pieces; }
+    }
+}
+
+/// The first `count` of `pieces`.
+fn from_list(pieces: List<string>, count: int): List<string> =>
+    match @slice(pieces, 0, count) {
+        null => pieces,
+        let kept => kept,
+    };
+
+fn is_space(character: string): bool =>
+    character == " " || character == "\t" || character == "\n" || character == "\r";
+
+/// The position of the first character at or after `at` that is not
+/// space.
+fn leading(text: string, at: int): int {
+    match @slice(text, at, at + 1) {
+        null => {}
+        let character => {
+            if is_space(character) {
+                return leading(text, at + 1);
+            }
+        }
+    }
+    return at;
+}
+
+/// The position after the last character before `end` that is not
+/// space.
+fn trailing(text: string, end: int): int {
+    match @slice(text, end - 1, end) {
+        null => {}
+        let character => {
+            if is_space(character) {
+                return trailing(text, end - 1);
+            }
+        }
+    }
+    return end;
+}
+
+/// The string without the space at its ends.
+pub fn trim(self: string): string {
+    let start = leading(self, 0);
+    let end = trailing(self, @length(self));
+    if end <= start {
+        return "";
+    }
+    return before(from(self, start), end - start);
+}
+
+/// The string `count` times over.
+pub fn repeat(self: string, count: int): string {
+    if count < 1 {
+        return "";
+    }
+    return @join(self, repeat(self, count - 1));
+}

@@ -4,35 +4,8 @@
 
 mod support;
 
-use ambient::syntax::parse;
 use ambient::value::Value;
-use ambient::workspace::Workspace;
-use support::{Outcome, run_in};
-
-/// Runs `main` of a program written as one module, with the standard
-/// library beside it.
-fn run(source: &str) -> Outcome {
-    let module = parse(source).unwrap_or_else(|error| panic!("{error}"));
-    let mut workspace = Workspace::new();
-    ambient::library::install(&mut workspace).unwrap();
-    let id = ambient::symbol::ModuleId::new("app", "main");
-    workspace.set(id, module).unwrap();
-    run_in(&workspace)
-}
-
-fn int(source: &str) -> i64 {
-    match run(source) {
-        Ok(Value::Int(value)) => value,
-        other => panic!("expected an integer, got {other:?}"),
-    }
-}
-
-fn text(source: &str) -> String {
-    match &run(source) {
-        Ok(Value::String(value)) => value.clone(),
-        other => panic!("expected a string, got {other:?}"),
-    }
-}
+use support::text::{int, run, text};
 
 #[test]
 fn operators_bind_as_arithmetic_does() {

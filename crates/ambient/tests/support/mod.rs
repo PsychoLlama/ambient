@@ -4,6 +4,7 @@
 #![allow(dead_code, clippy::unwrap_used)]
 
 pub mod tasks;
+pub mod text;
 
 use std::cell::RefCell;
 

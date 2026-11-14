@@ -15,11 +15,11 @@ use crate::surface::{Path, Type};
 pub(super) type Parsed<T> = Result<T, SyntaxError>;
 
 /// Words that never name anything.
-const RESERVED: [&str; 34] = [
+const RESERVED: [&str; 32] = [
     "fn", "let", "return", "if", "else", "match", "type", "ability", "key", "tag", "extern",
     "target", "import", "pub", "with", "as", "try", "budget", "provide", "only", "observe",
-    "group", "spawn", "all", "first", "cell", "comptime", "using", "true", "false", "null",
-    "never", "unknown", "module",
+    "group", "spawn", "cell", "comptime", "using", "true", "false", "null", "never", "unknown",
+    "module",
 ];
 
 pub(super) struct Parser {

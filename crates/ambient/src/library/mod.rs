@@ -5,9 +5,6 @@
 //! of, are tags this package declares in its library module, which a
 //! workspace has in scope unless it lists preludes of its own.
 
-mod iterator;
-mod shapes;
-
 use ambient_runtime::{FAULT_PACKAGE, Fault, LIMITS};
 
 use crate::builder::{self as b, ModuleBuilder, ty};
@@ -16,8 +13,13 @@ use crate::workspace::{Workspace, WorkspaceError};
 
 /// The modules written as source: the path of each, and its text. One
 /// named for a shape is that shape's methods.
-const SOURCES: [(&str, &str); 7] = [
+const SOURCES: [(&str, &str); 12] = [
     ("cell", include_str!("cell.ab")),
+    ("float", include_str!("float.ab")),
+    ("int", include_str!("int.ab")),
+    ("iterator", include_str!("iterator.ab")),
+    ("list", include_str!("list.ab")),
+    ("string", include_str!("string.ab")),
     ("clock", include_str!("clock.ab")),
     ("console", include_str!("console.ab")),
     ("env", include_str!("env.ab")),
@@ -40,10 +42,7 @@ pub fn module() -> ModuleBuilder {
     ]);
     let kinds = Fault::ALL.iter().filter_map(|fault| fault.describe());
     let tags = kinds.map(|(kind, _)| kind).chain(LIMITS);
-    let built = shapes::modules()
-        .into_iter()
-        .map(|(shape, _)| shape.module());
-    let paths = built.chain(SOURCES.map(|(path, _)| path));
+    let paths = SOURCES.map(|(path, _)| path).into_iter();
     let module = paths.fold(b::module(), ModuleBuilder::expose);
     let module = module
         .define(b::type_("Frame", frame).public())
@@ -61,10 +60,6 @@ pub fn install(workspace: &mut Workspace) -> Result<(), WorkspaceError> {
     let id = ModuleId::new(FAULT_PACKAGE, "");
     let module = module().build().map_err(|_| WorkspaceError::Library)?;
     workspace.set(id.clone(), module)?;
-    for (shape, module) in shapes::modules() {
-        let module = module.build().map_err(|_| WorkspaceError::Library)?;
-        workspace.set(ModuleId::new(FAULT_PACKAGE, shape.module()), module)?;
-    }
     for (path, source) in SOURCES {
         let module = crate::syntax::parse(source).map_err(|_| WorkspaceError::Library)?;
         workspace.set(ModuleId::new(FAULT_PACKAGE, path), module)?;
