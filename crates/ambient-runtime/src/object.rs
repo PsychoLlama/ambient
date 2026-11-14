@@ -1,6 +1,6 @@
 //! Objects: what a word that is an address points at, and who owns it.
 
-use alloc::vec;
+use alloc::vec::Vec;
 
 use alloc::alloc::{Layout, alloc, dealloc};
 use core::cell::Cell;
@@ -227,30 +227,75 @@ pub unsafe extern "C" fn amb_retain(word: Word) {
     }
 }
 
+/// Gives up one reference to a value, and says whether that was the
+/// last one to an object, which is then to be reclaimed.
+unsafe fn dropped(word: Word) -> bool {
+    if !is_object(word) {
+        return false;
+    }
+    unsafe {
+        let header = header(word);
+        match (*header).count {
+            PINNED => false,
+            LOADED => {
+                amb_unit_release(unit::of(word));
+                false
+            }
+            _ => {
+                (*header).count -= 1;
+                (*header).count == 0
+            }
+        }
+    }
+}
+
 /// Gives up one reference to a value, reclaiming it if that was the last.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_release(word: Word) {
-    // A value can be nested arbitrarily deep, so the values an object held
-    // are queued here, never released by recursion.
-    let mut pending = vec![word];
-    while let Some(word) = pending.pop() {
-        if !is_object(word) {
-            continue;
+    unsafe {
+        if dropped(word) {
+            reclaim(word);
         }
+    }
+}
+
+/// Objects nothing refers to, waiting to be reclaimed. Most objects
+/// are the last to hold at most one other, so the first waits here and
+/// nothing is allocated for it.
+struct Dead {
+    first: Option<Word>,
+    rest: Vec<Word>,
+}
+
+impl Dead {
+    /// Gives up one reference to `word`, which waits to be reclaimed if
+    /// that was the last.
+    unsafe fn release(&mut self, word: Word) {
+        if unsafe { dropped(word) }
+            && let Some(first) = self.first.replace(word)
+        {
+            self.rest.push(first);
+        }
+    }
+
+    fn next(&mut self) -> Option<Word> {
+        self.first.take().or_else(|| self.rest.pop())
+    }
+}
+
+/// Reclaims an object nothing refers to, and every object that leaves
+/// nothing referring to.
+#[inline(never)]
+unsafe fn reclaim(word: Word) {
+    // A value can be nested arbitrarily deep, so what an object held
+    // is queued, never reclaimed by recursion.
+    let mut dead = Dead {
+        first: Some(word),
+        rest: Vec::new(),
+    };
+    while let Some(word) = dead.next() {
         unsafe {
             let header = header(word);
-            match (*header).count {
-                PINNED => continue,
-                LOADED => {
-                    amb_unit_release(unit::of(word));
-                    continue;
-                }
-                _ => {}
-            }
-            (*header).count -= 1;
-            if (*header).count != 0 {
-                continue;
-            }
             let held = match (*header).kind {
                 KIND_TUPLE | KIND_LIST | KIND_BUFFER | KIND_RECORD | KIND_ITERATOR => words(word),
                 // After the value and the type arguments it was made
@@ -273,13 +318,15 @@ pub unsafe extern "C" fn amb_release(word: Word) {
                         if entry[0] != NULL {
                             amb_unit_release(unit::of(entry[0]));
                         }
-                        pending.push(entry[1]);
+                        dead.release(entry[1]);
                     }
                     &[]
                 }
                 _ => &[],
             };
-            pending.extend_from_slice(held);
+            for value in held {
+                dead.release(*value);
+            }
             let size = (*header).size as usize;
             dealloc(header.cast(), layout(size));
             LIVE.set(LIVE.get() - 1);
