@@ -7,6 +7,7 @@
 //! These types are plain data that anything may read. A [`Module`] can only
 //! be made by a [`crate::builder`], which is what rejects ill-formed trees.
 
+mod operator;
 mod shape;
 mod visit;
 
@@ -14,6 +15,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+pub use operator::Operator;
 pub use shape::Shape;
 
 use crate::literal::Literal;
@@ -261,42 +263,6 @@ pub enum Type<N = Path> {
     /// one around it. A name is not part of a type, so two generic
     /// function types that differ only in names are one type.
     Bound(usize),
-}
-
-/// An operator. Which primitive operation it means depends on its operands.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Operator {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Remainder,
-    Less,
-    Equal,
-    /// How long a string or a list is.
-    Length,
-    /// The member of a list at a position.
-    Get,
-    /// A list with one more member.
-    Push,
-    /// One string or list followed by another.
-    Join,
-    /// What lies between two positions of a string or a list.
-    Slice,
-    /// A float or a string as an integer.
-    ToInt,
-    /// An integer or a string as a float.
-    ToFloat,
-    /// A number as a string.
-    ToText,
-    /// An iterator that a function steps.
-    Iterator,
-    /// An iterator over the members of a list.
-    Iterate,
-    /// An iterator over the integers from one up to another.
-    Range,
-    /// What an iterator gives next, and the iterator of the rest.
-    Step,
 }
 
 /// What can be done with a cell. See `spec/cells.md`.

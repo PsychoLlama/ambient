@@ -172,6 +172,7 @@ impl Checker<'_> {
         let (Ty::Record(mut fields), Ty::Record(over)) = (below, self.env.unfold(&right)) else {
             return Err(Error::Operands {
                 symbol: self.symbol.clone(),
+                operator: "...".to_owned(),
                 found: format!("{}, {}", self.env.show(&left), self.env.show(&right)),
             });
         };

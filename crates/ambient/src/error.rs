@@ -85,7 +85,12 @@ pub enum Error {
         found: String,
     },
     /// An operator is applied to types it is not defined for.
-    Operands { symbol: Symbol, found: String },
+    Operands {
+        symbol: Symbol,
+        /// The operator as it is written.
+        operator: String,
+        found: String,
+    },
     /// A match leaves some values of its subject unhandled.
     NotExhaustive { symbol: Symbol, remaining: String },
     /// A match arm can never be taken.
@@ -255,8 +260,12 @@ impl fmt::Display for Error {
                 expected,
                 found,
             } => write!(f, "{symbol}: expected `{expected}`, found `{found}`"),
-            Self::Operands { symbol, found } => {
-                write!(f, "{symbol}: no operator for `{found}`")
+            Self::Operands {
+                symbol,
+                operator,
+                found,
+            } => {
+                write!(f, "{symbol}: `{operator}` is not defined for `{found}`")
             }
             Self::NotCallable { .. }
             | Self::NoField { .. }
