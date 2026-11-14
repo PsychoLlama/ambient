@@ -237,6 +237,8 @@ impl Lowering {
     fn node(&mut self, expr: &core::Expr) -> Result<Expr, Unsupported> {
         let mut scope = Scope::default();
         let op = match expr {
+            // A mark is no part of a tree: the checker takes each out.
+            core::Expr::At(_, marked) => return self.node(marked),
             core::Expr::Null => Op::Copy(Value::Null),
             core::Expr::Literal(literal) => match literal {
                 Literal::Bool(value) => Op::Copy(Value::Bool(*value)),

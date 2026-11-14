@@ -243,6 +243,8 @@ impl Checker<'_> {
         let row = self.row(&row);
         let frame = self.frames.pop().unwrap_or_default();
         let symbol = self.symbol.lambda(&frame.path);
+        let mut body = body;
+        self.origins.insert(frame.path.clone(), body.origins(0));
         self.frame().lambdas.push(Open {
             tree: Tree::Function(core::Function {
                 type_params,

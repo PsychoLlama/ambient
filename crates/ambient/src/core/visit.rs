@@ -3,6 +3,93 @@
 
 use super::{Expr, Key, Pattern, Primitive, Slot, Type};
 
+/// The expressions directly inside one, in the order they are encoded,
+/// for a walk that only looks and for one that changes them: written
+/// once, so the two agree.
+macro_rules! children {
+    ($self:expr, $visit:ident, $iter:ident $(, $mutable:tt)?) => {
+        match $self {
+            Self::Null
+            | Self::Literal(_)
+            | Self::Local(_)
+            | Self::Captured(_)
+            | Self::Reference(..)
+            | Self::AbilityId(_) => {}
+            Self::Call { callee, args } => {
+                $visit(callee);
+                args.$iter().for_each($visit);
+            }
+            Self::Send { target, args, .. } => {
+                $visit(target);
+                args.$iter().for_each($visit);
+            }
+            Self::Record(fields) => fields.$iter().for_each(|(_, value)| $visit(value)),
+            Self::Tuple(exprs)
+            | Self::List(exprs)
+            | Self::All(exprs)
+            | Self::First(exprs)
+            | Self::Primitive { args: exprs, .. }
+            | Self::Perform { args: exprs, .. }
+            | Self::Closure {
+                captures: exprs, ..
+            } => exprs.$iter().for_each($visit),
+            Self::Field { target: inner, .. }
+            | Self::Instantiate {
+                function: inner, ..
+            }
+            | Self::Method(inner)
+            | Self::Step(inner)
+            | Self::Cell { value: inner, .. }
+            | Self::Boundary(inner)
+            | Self::Group(inner)
+            | Self::Spawn(inner)
+            | Self::At(_, inner) => $visit(inner),
+            Self::Merge {
+                left: first,
+                right: second,
+                ..
+            }
+            | Self::Let {
+                value: first,
+                body: second,
+            }
+            | Self::Cast {
+                value: first,
+                otherwise: second,
+                ..
+            }
+            | Self::Cleanup {
+                cleanup: first,
+                body: second,
+            } => {
+                $visit(first);
+                $visit(second);
+            }
+            Self::Match { subject, arms } => {
+                $visit(subject);
+                for (_, body) in arms {
+                    $visit(body);
+                }
+            }
+            Self::Budget {
+                steps,
+                allocation,
+                body,
+            } => {
+                $visit(steps);
+                $visit(allocation);
+                $visit(body);
+            }
+            Self::Provide { handlers, body, .. } => {
+                for handler in handlers {
+                    $visit(&$($mutable)? handler.handler);
+                }
+                $visit(body);
+            }
+        }
+    };
+}
+
 impl Expr {
     /// Whether a task may suspend somewhere in this: it runs tasks,
     /// waits on a cell, or reads its own trace, which is read off a
@@ -24,84 +111,30 @@ impl Expr {
     /// Calls `visit` with each expression directly inside this one, in
     /// the order they are encoded.
     pub fn children<'a>(&'a self, visit: &mut impl FnMut(&'a Self)) {
-        match self {
-            Self::Null
-            | Self::Literal(_)
-            | Self::Local(_)
-            | Self::Captured(_)
-            | Self::Reference(..)
-            | Self::AbilityId(_) => {}
-            Self::Call { callee, args } => {
-                visit(callee);
-                args.iter().for_each(visit);
+        children!(self, visit, iter);
+    }
+
+    /// [`Self::children`], for changing them.
+    pub fn children_mut(&mut self, visit: &mut impl FnMut(&mut Self)) {
+        children!(self, visit, iter_mut, mut);
+    }
+
+    /// Takes every mark out of this tree, and gives what each said:
+    /// the surface node each expression was checked from, by
+    /// [position](Self::positions). One no mark is around is from the
+    /// node whatever holds it is from, and `from` at the top.
+    pub fn origins(&mut self, from: u32) -> Vec<u32> {
+        fn lift(expr: &mut Expr, mut from: u32, origins: &mut Vec<u32>) {
+            while let Expr::At(marked, inner) = expr {
+                from = *marked;
+                *expr = std::mem::replace(&mut **inner, Expr::Null);
             }
-            Self::Send { target, args, .. } => {
-                visit(target);
-                args.iter().for_each(visit);
-            }
-            Self::Record(fields) => fields.iter().for_each(|(_, value)| visit(value)),
-            Self::Tuple(exprs)
-            | Self::List(exprs)
-            | Self::All(exprs)
-            | Self::First(exprs)
-            | Self::Primitive { args: exprs, .. }
-            | Self::Perform { args: exprs, .. }
-            | Self::Closure {
-                captures: exprs, ..
-            } => exprs.iter().for_each(visit),
-            Self::Field { target: inner, .. }
-            | Self::Instantiate {
-                function: inner, ..
-            }
-            | Self::Method(inner)
-            | Self::Step(inner)
-            | Self::Cell { value: inner, .. }
-            | Self::Boundary(inner)
-            | Self::Group(inner)
-            | Self::Spawn(inner) => visit(inner),
-            Self::Merge {
-                left: first,
-                right: second,
-                ..
-            }
-            | Self::Let {
-                value: first,
-                body: second,
-            }
-            | Self::Cast {
-                value: first,
-                otherwise: second,
-                ..
-            }
-            | Self::Cleanup {
-                cleanup: first,
-                body: second,
-            } => {
-                visit(first);
-                visit(second);
-            }
-            Self::Match { subject, arms } => {
-                visit(subject);
-                for (_, body) in arms {
-                    visit(body);
-                }
-            }
-            Self::Budget {
-                steps,
-                allocation,
-                body,
-            } => {
-                visit(steps);
-                visit(allocation);
-                visit(body);
-            }
-            Self::Provide { handlers, body, .. } => {
-                for handler in handlers {
-                    visit(&handler.handler);
-                }
-                visit(body);
-            }
+            origins.push(from);
+            expr.children_mut(&mut |child| lift(child, from, origins));
         }
+        let mut origins = Vec::new();
+        lift(self, from, &mut origins);
+        origins
     }
 
     /// Every expression in this one, each before what is inside it. An

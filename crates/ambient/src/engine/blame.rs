@@ -5,6 +5,7 @@
 
 use super::Engine;
 use crate::error::Error;
+use crate::symbol::Symbol;
 
 impl Engine<'_> {
     /// The node of its definition's body that `error` is at, if it is
@@ -14,5 +15,18 @@ impl Engine<'_> {
         let symbol = error.symbol()?;
         let checked = self.blamed.borrow().get(symbol).copied();
         checked.or_else(|| self.unresolved_at(symbol))
+    }
+
+    /// The node of its definition's surface body that the expression
+    /// at `position` of a function's core body was checked from: what
+    /// turns a frame of a trace into a place in the text. `function`
+    /// may be a lambda, whose nodes are its named definition's.
+    #[must_use]
+    pub fn origin(&self, function: &Symbol, position: usize) -> Option<usize> {
+        let named = function.lambda(&[]);
+        self.check(&named).ok()?;
+        let origins = self.origins.borrow();
+        let node = origins.get(&named)?.get(&function.lambda)?.get(position)?;
+        usize::try_from(*node).ok()
     }
 }

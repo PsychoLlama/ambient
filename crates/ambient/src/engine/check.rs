@@ -26,8 +26,8 @@ use crate::types::{AbilityInfo, Env, KeyInfo, Ty, TypeInfo};
 struct Checked {
     result: Result<Open, Error>,
     runs: Vec<Dependency>,
-    /// The node of the body an error is at, if it is at one.
-    at: Option<usize>,
+    /// Where things are in the body: of the key's making, as the tree is.
+    noted: checker::Noted,
 }
 
 /// What dependents check against.
@@ -408,14 +408,23 @@ impl Engine<'_> {
         };
         let checked = self.stage_if(Stage::Check, symbol, key.finish(), still, || {
             self.begin_runs();
-            let mut at = None;
-            let result = checker::check_function(symbol, function, env, self, root, &mut at);
+            let mut noted = checker::Noted::default();
+            let result = checker::check_function(symbol, function, env, self, root, &mut noted);
             let runs = self.end_runs();
-            Ok(Checked { result, runs, at })
+            Ok(Checked {
+                result,
+                runs,
+                noted,
+            })
         })?;
-        if let Some(at) = checked.at {
+        if let Some(at) = checked.noted.at {
             self.blamed.borrow_mut().insert(symbol.clone(), at);
         }
+        let mut origins = self.origins.borrow_mut();
+        if !origins.contains_key(symbol) {
+            origins.insert(symbol.clone(), checked.noted.origins.clone());
+        }
+        drop(origins);
         checked.result.clone().map(Arc::new)
     }
 }

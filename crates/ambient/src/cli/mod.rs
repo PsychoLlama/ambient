@@ -4,9 +4,10 @@
 //! test drives the same code a terminal does.
 
 mod test;
+mod trace;
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -22,6 +23,7 @@ use crate::surface::DefinitionKind;
 use crate::symbol::{ModuleId, Symbol};
 use crate::value::Value;
 use crate::workspace::Sources;
+use trace::{Named, describe};
 
 /// The Ambient programming language.
 #[derive(Debug, Parser)]
@@ -173,7 +175,7 @@ impl Launch<'_> {
             });
         let program = Program::load(&parts, &natives).map_err(failed)?;
         let traced = |said: String, error: Option<&Value>| {
-            let named = Named::reached(engine, &root);
+            let named = Named::reached(project, engine, &root);
             let mut lines = vec![said];
             lines.extend(error.iter().flat_map(|error| named.trace(error)));
             vec![lines.join("\n")]
@@ -191,69 +193,5 @@ impl Launch<'_> {
             Some(error) => Err(traced(describe(&error), Some(&error))),
             None => Ok(gave),
         }
-    }
-}
-
-/// What an error value says went wrong: its kind and its message.
-fn describe(error: &Value) -> String {
-    let Value::Record(fields) = error else {
-        return "the program faulted".to_owned();
-    };
-    let kind = match fields.get("kind") {
-        Some(Value::Tag { tag, .. }) => tag.as_str(),
-        _ => "fault",
-    };
-    match fields.get("message") {
-        Some(Value::String(message)) if !message.is_empty() => format!("{kind}: {message}"),
-        _ => kind.to_owned(),
-    }
-}
-
-/// The definitions a program reaches, by hash: what turns a trace's
-/// frames back into names.
-struct Named(BTreeMap<String, Option<Symbol>>);
-
-impl Named {
-    fn reached(engine: &Engine, root: &Symbol) -> Self {
-        let mut names = BTreeMap::new();
-        let mut seen = BTreeSet::new();
-        let mut pending = vec![root.clone()];
-        while let Some(symbol) = pending.pop() {
-            if !seen.insert(symbol.clone()) {
-                continue;
-            }
-            // The root is a function nobody wrote, so no frame names it.
-            if let Ok(hash) = engine.hash(&symbol) {
-                let written = (symbol != *root).then(|| symbol.clone());
-                names.insert(hash.to_string(), written);
-            }
-            if let Ok(open) = engine.check(&symbol) {
-                pending.extend(open.slots.iter().cloned());
-            }
-        }
-        Self(names)
-    }
-
-    /// A line for each frame of an error's trace, nearest first.
-    fn trace(&self, error: &Value) -> Vec<String> {
-        let Value::Record(fields) = error else {
-            return Vec::new();
-        };
-        let Some(Value::List(frames)) = fields.get("trace") else {
-            return Vec::new();
-        };
-        let line = |frame: &Value| {
-            let Value::Record(frame) = frame else {
-                return None;
-            };
-            let Some(Value::String(hash)) = frame.get("definition") else {
-                return None;
-            };
-            match self.0.get(hash) {
-                Some(symbol) => symbol.as_ref().map(|symbol| format!("  in {symbol}")),
-                None => Some(format!("  in {hash}")),
-            }
-        };
-        frames.iter().filter_map(line).collect()
     }
 }

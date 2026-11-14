@@ -24,7 +24,7 @@ mod sends;
 mod tasks;
 mod world;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::core::{self, Open, Slot, Tree};
 use crate::error::Error;
@@ -34,6 +34,7 @@ use crate::symbol::{PackageId, Symbol};
 use crate::types::{Env, Ty};
 use crate::value::Value;
 use abilities::Layer;
+pub use blame::{Noted, Origins};
 pub(crate) use generics::{function_type, generic_type};
 pub use header::{check_ability, check_key, check_type, encode_header};
 use header::{header, visit_types};
@@ -43,19 +44,19 @@ pub use world::{check_extern, check_target};
 ///
 /// # Errors
 ///
-/// Returns the first type error in the function, and sets `at` to the
-/// node of its body the error is at: its place in the order
-/// [`Expr::children`] walks them.
+/// Returns the first type error in the function. Either way, `noted`
+/// is what checking found out about where things are.
 pub fn check_function(
     symbol: &Symbol,
     function: &Function<Reference>,
     mut env: Env,
     evaluator: &dyn Evaluate,
     root: bool,
-    at: &mut Option<usize>,
+    noted: &mut Noted,
 ) -> Result<Open, Error> {
     let header = header(symbol, function, &mut env)?;
     let mut checker = Checker::new(symbol, &env);
+    checker.place(&function.body);
     checker.evaluator = Some(evaluator);
     checker.root = root;
     let type_params = env.bounds.iter().map(|ty| checker.lower(ty)).collect();
@@ -71,8 +72,10 @@ pub fn check_function(
         checker.bind_local(param);
     }
     let body = checker.check(&function.body, &header.ret);
-    *at = checker.blamed_in(&function.body);
-    let body = body?;
+    noted.at = checker.blamed_in(&function.body);
+    let mut body = body?;
+    checker.origins.insert(Vec::new(), body.origins(0));
+    noted.origins = std::mem::take(&mut checker.origins);
     let frame = checker.finish();
     Ok(Open {
         tree: Tree::Function(core::Function {
@@ -157,6 +160,11 @@ struct Checker<'a> {
     nesting: usize,
     /// The innermost expression the first error was at.
     blamed: Option<*const Expr<Reference>>,
+    /// The number of each node of the body being checked.
+    places: HashMap<*const Expr<Reference>, u32>,
+    /// What each definition finished so far was checked from: see
+    /// [`Noted::origins`].
+    origins: Origins,
 }
 
 impl<'a> Checker<'a> {
@@ -172,6 +180,8 @@ impl<'a> Checker<'a> {
             next: 0,
             nesting: 0,
             blamed: None,
+            places: HashMap::new(),
+            origins: BTreeMap::new(),
         }
     }
 
@@ -319,7 +329,8 @@ impl<'a> Checker<'a> {
     /// The core form of `expr` and its type, normalized.
     fn infer(&mut self, expr: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {
         let inferred = self.entered(|checker| checker.infer_node(expr));
-        self.blame(expr, inferred)
+        let (core, ty) = self.blame(expr, inferred)?;
+        Ok((self.marked(expr, core), ty))
     }
 
     /// The value a name gives if what it names is a tag: a type that is

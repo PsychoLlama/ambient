@@ -3,11 +3,31 @@
 //! An error is at the innermost expression it passed through, noted by
 //! address: the resolved tree stays where it is while it is checked.
 
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
 use super::Checker;
 use crate::core;
 use crate::error::Error;
 use crate::surface::{Expr, Reference};
 use crate::types::Ty;
+
+/// For a function, and for each lambda in it by its path: the node of
+/// the surface body each expression of its core body was checked from,
+/// by [position](core::Expr::positions).
+pub type Origins = BTreeMap<Vec<usize>, Vec<u32>>;
+
+/// What checking a function notes beside its tree, about the nodes of
+/// its surface body: each by its place in the order [`Expr::children`]
+/// walks them. None of it reaches a hash.
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct Noted {
+    /// The node the first error is at, if it is at one.
+    pub at: Option<usize>,
+    /// What each expression that was made came from.
+    pub origins: Origins,
+}
 
 impl Checker<'_> {
     /// Checks that `expr` has a subtype of `expected`.
@@ -17,7 +37,31 @@ impl Checker<'_> {
         expected: &Ty,
     ) -> Result<core::Expr, Error> {
         let checked = self.entered(|checker| checker.check_node(expr, expected));
-        self.blame(expr, checked)
+        let core = self.blame(expr, checked)?;
+        Ok(self.marked(expr, core))
+    }
+
+    /// Numbers every node of `body`, the tree about to be checked, so
+    /// that what is made from one can say so.
+    pub(super) fn place(&mut self, body: &Expr<Reference>) {
+        let mut pending = vec![body];
+        while let Some(expr) = pending.pop() {
+            let number = u32::try_from(self.places.len()).unwrap_or(u32::MAX);
+            self.places.insert(std::ptr::from_ref(expr), number);
+            let from = pending.len();
+            expr.children(&mut |child| pending.push(child));
+            // The first child is to be numbered first.
+            pending[from..].reverse();
+        }
+    }
+
+    /// `core`, marked as made from `expr`, if `expr` is a node of the
+    /// body: what the checker wrote itself is from whatever holds it.
+    pub(super) fn marked(&self, expr: &Expr<Reference>, core: core::Expr) -> core::Expr {
+        match self.places.get(&std::ptr::from_ref(expr)) {
+            Some(node) => core::Expr::At(*node, Box::new(core)),
+            None => core,
+        }
     }
 
     /// Does `inside` one level further into the tree, which has room

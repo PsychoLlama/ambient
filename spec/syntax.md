@@ -82,7 +82,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 ## Files
 
 - A source file is a module and ends in `.ab`.
-- TODO: the reader keeps no [metadata](trees.md) but doc comments, so a file cannot yet be written back from its trees, and an error names a definition and not a place in it.
+- TODO: the reader keeps no [metadata](trees.md) but doc comments and positions, so a file cannot yet be written back from its trees.
 
 ## Positions
 
@@ -90,4 +90,6 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - The reader keeps, beside each definition, where every node of its body was written; a node the reader made up is where the text it was made for is.
 - An error in a definition says which node it is at, and is reported at that node's line and column.
 - A value that does not fit is wrong where it is given: at the `return`, not at the block that holds it.
-- TODO: the frames of a [trace](errors.md) name nodes of the core tree, which no table yet ties to the text, so a fault is reported by definition only.
+- Checking says, beside the [core tree](trees.md) it makes, which node of the body each of its nodes was made from; like a position, that is no part of the tree.
+- A frame of a [trace](errors.md) is therefore reported at a line and column too: its node of the core tree, the node of the body that was made from, and where that was written.
+- A frame in a definition that was not read from text, as one of the standard library is not, is reported by name alone.

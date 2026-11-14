@@ -52,6 +52,8 @@ fn encode_keys(keys: &[Key], out: &mut Sink<'_>) {
 
 pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
     match expr {
+        // A mark is no part of a tree: the checker takes each out.
+        Expr::At(_, marked) => encode_expr(marked, out),
         Expr::Null => out.push(0),
         Expr::Literal(literal) => {
             out.push(1);

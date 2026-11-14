@@ -168,7 +168,23 @@ fn a_fault_is_reported_with_the_functions_it_left() {
     assert_eq!(code, 1);
     assert_eq!(
         world.err,
-        "error: divide_by_zero: an integer was divided by zero\n  in app:main.divide\n  in app:main.main\n"
+        "error: divide_by_zero: an integer was divided by zero\n  in app:main.divide at app/src/main.ab:2:39\n  in app:main.main at app/src/main.ab:4:26\n"
+    );
+}
+
+#[test]
+fn a_frame_in_a_lambda_is_where_the_lambda_is_written() {
+    let source = "fn main(): int =>\n  [1, 0].map(fn(n) =>\n    10 / n).sum();";
+
+    let (_, world) = run(&app(source));
+    let frames: Vec<&str> = world.err.lines().skip(1).collect();
+    assert_eq!(
+        frames.first(),
+        Some(&"  in app:main.main#0 at app/src/main.ab:3:8")
+    );
+    assert_eq!(
+        frames.last(),
+        Some(&"  in app:main.main at app/src/main.ab:2:10")
     );
 }
 
@@ -193,7 +209,7 @@ fn an_error_nothing_catches_ends_the_program_and_is_reported() {
     assert_eq!(code, 1);
     assert_eq!(
         world.err,
-        "error: main.too_big: 12 is not small\n  in ambient:errors.fail\n  in app:main.small\n  in app:main.main\n"
+        "error: main.too_big: 12 is not small\n  in ambient:errors.fail\n  in app:main.small at app/src/main.ab:6:24\n  in app:main.main at app/src/main.ab:12:28\n"
     );
 }
 
@@ -238,7 +254,7 @@ FAIL  app:main.test_is_wrong
       does not hold: nothing doubles to one
 FAIL  app:main.test_faults
       divide_by_zero: an integer was divided by zero
-        in app:main.test_faults
+        in app:main.test_faults at app/src/main.ab:13:36
 1 passed, 2 failed
 "
     );
@@ -259,7 +275,7 @@ fn a_test_that_throws_fails_with_what_it_threw() {
         "FAIL  app:main.test_throws
       main.unready: not yet
         in ambient:errors.fail
-        in app:main.test_throws
+        in app:main.test_throws at app/src/main.ab:4:45
 0 passed, 1 failed
 "
     );

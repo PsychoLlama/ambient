@@ -367,7 +367,7 @@ pub fn main(): string {
 
 ## What will trip you up
 
-- A type error is reported at its line and column. A fault while running names only the functions it left.
+- A type error is reported at its line and column, and so is each function a fault or an uncaught error left: `in app:main.divide at src/main.ab:2:39`. A frame inside the standard library has a name and no place.
 - `all` and `first` followed by `(` always start tasks, so a function cannot be called by those names.
 - A record type that names a key says its type again: `{ [dispose](): null }`.
 - A record with methods, such as a `Dict`, cannot be tested for by its type. In a match, `let fields: {}` takes any record and `let items: List<unknown>` any list, each bound as what the value was known to be.

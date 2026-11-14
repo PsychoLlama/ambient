@@ -313,6 +313,11 @@ pub enum Expr {
         only: bool,
         body: Box<Expr>,
     },
+    /// The node of a definition's surface body this was checked from,
+    /// by number. Only the checker makes one, and it takes every one
+    /// out before a tree leaves it ([`Expr::origins`]): nothing else
+    /// meets one.
+    At(u32, Box<Expr>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

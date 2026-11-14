@@ -108,6 +108,9 @@ pub struct Engine<'a> {
     /// The node of its body each function that does not check is wrong
     /// at.
     blamed: RefCell<HashMap<Symbol, usize>>,
+    /// What each function checked so far was checked from: see
+    /// [`crate::checker::Noted::origins`].
+    origins: RefCell<HashMap<Symbol, crate::checker::Origins>>,
     /// The definitions packs brought, by the symbols they were given.
     received: RefCell<HashMap<Symbol, Arc<crate::core::Open>>>,
     hash: RefCell<HashMap<Symbol, Hash>>,
@@ -143,6 +146,7 @@ impl<'a> Engine<'a> {
             type_info: RefCell::default(),
             check: RefCell::default(),
             blamed: RefCell::default(),
+            origins: RefCell::default(),
             received: RefCell::default(),
             hash: RefCell::default(),
             compile: RefCell::default(),

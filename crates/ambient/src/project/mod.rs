@@ -163,6 +163,16 @@ impl Project {
         Some((read.file.as_path(), read.definitions.get(index)?))
     }
 
+    /// Where the node numbered `node` of a function's body is: its
+    /// file, line, and column, if the function was read from a file.
+    /// A lambda's nodes are those of the definition it is written in.
+    #[must_use]
+    pub fn place(&self, function: &Symbol, node: usize) -> Option<String> {
+        let (file, placed) = self.locate(function)?;
+        let Position { line, column } = placed.nodes.get(node)?;
+        Some(format!("{}:{line}:{column}", file.display()))
+    }
+
     /// `error`, after the file and the place in it of what is wrong:
     /// the node of its definition's body numbered `node`, or else where
     /// the definition begins.
