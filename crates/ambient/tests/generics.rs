@@ -460,7 +460,7 @@ fn a_generic_function_value_is_instantiated_where_a_function_is_expected() {
 #[test]
 fn a_type_parameter_is_named_only_inside_its_function_type() {
     let twice = ty::generic([("U", None)], generic(None, u()));
-    let escaped = ty::tuple([Type::Bound(0)]);
+    let escaped = ty::tuple([Type::Bound(0), ty::int()]);
     let build = |ty: Type| {
         let main = b::function("main").param("given", ty).returns(ty::null());
         b::module().define(main.body(b::null())).build()

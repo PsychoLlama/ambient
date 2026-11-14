@@ -149,7 +149,11 @@ fn check_inside(ty: &crate::surface::Type) -> Result<(), BuildError> {
             check_keys(fields.iter().map(|(key, _)| key))?;
             fields.iter().try_for_each(|(_, ty)| check_inside(ty))
         }
-        Type::Tuple(members) | Type::Union(members) => members.iter().try_for_each(check_inside),
+        Type::Tuple(members) => {
+            check_tuple(members.len())?;
+            members.iter().try_for_each(check_inside)
+        }
+        Type::Union(members) => members.iter().try_for_each(check_inside),
         Type::List(member) | Type::Cell(member) | Type::Iterator(member) => check_inside(member),
         Type::Method { needs, function } => {
             check_inside(needs)?;
@@ -167,6 +171,15 @@ fn check_inside(ty: &crate::surface::Type) -> Result<(), BuildError> {
     }
 }
 
+/// A tuple groups values: none is nothing to group, which null says,
+/// and one is that value.
+fn check_tuple(members: usize) -> Result<(), BuildError> {
+    if members < 2 {
+        return Err(BuildError::ShortTuple);
+    }
+    Ok(())
+}
+
 pub(super) fn check_pattern<'a>(
     pattern: &'a Pattern,
     bound: &mut BTreeSet<&'a String>,
@@ -180,9 +193,12 @@ pub(super) fn check_pattern<'a>(
                 .iter()
                 .try_for_each(|(_, pattern)| check_pattern(pattern, bound))
         }
-        Pattern::Tuple(members) => members
-            .iter()
-            .try_for_each(|member| check_pattern(member, bound)),
+        Pattern::Tuple(members) => {
+            check_tuple(members.len())?;
+            members
+                .iter()
+                .try_for_each(|member| check_pattern(member, bound))
+        }
         Pattern::Is(ty) => check_type(ty),
         Pattern::Bind(name, inner) => {
             check_name(name)?;
@@ -241,6 +257,8 @@ fn check_node(expr: &Expr) -> Result<(), BuildError> {
             .iter()
             .try_for_each(|arm| check_pattern(&arm.pattern, &mut BTreeSet::new())),
         Expr::At(..) => Err(BuildError::Mark),
+        // An all gives the tuple of what its branches give.
+        Expr::Tuple(members) | Expr::All(members) => check_tuple(members.len()),
         Expr::Cell { ty, .. } => ty.iter().try_for_each(check_type),
         Expr::Cast { ty, .. } => check_type(ty),
         Expr::Lambda {

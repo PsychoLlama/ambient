@@ -96,7 +96,7 @@ fn a_tuple_is_no_list_and_no_tuple_of_another_length() {
     let either = ty::union([ty::int(), ty::string()]);
 
     assert!(!accepts(returning(ty::list(either), pair.clone())));
-    assert!(!accepts(returning(ty::tuple([ty::int()]), pair)));
+    assert!(!accepts(returning(ty::tuple([ty::int(), ty::int()]), pair)));
 }
 
 #[test]
@@ -524,8 +524,8 @@ fn all_has_the_type_of_a_tuple_of_its_branches() {
 
     assert!(accepts(returning(ret, b::all([b::int(1), b::string("a")]))));
     assert!(!accepts(returning(
-        ty::tuple([ty::int()]),
-        b::all([b::string("a")])
+        ty::tuple([ty::int(), ty::int()]),
+        b::all([b::string("a"), b::int(1)])
     )));
 }
 

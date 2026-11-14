@@ -193,7 +193,7 @@ fn a_trace_has_a_frame_for_each_call_the_fault_left() {
 
 #[test]
 fn a_trace_goes_on_from_a_task_to_what_started_it() {
-    let frames = trace(b::all([overflows()]), []);
+    let frames = trace(b::all([overflows(), b::null()]), []);
 
     // The task's body is a definition of its own, then the `all`.
     assert_eq!(frames, [at("?", 0), at("main", 1)]);

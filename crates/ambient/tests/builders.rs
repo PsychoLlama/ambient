@@ -76,3 +76,20 @@ fn an_omitted_return_type_is_null() {
         .build();
     assert_eq!(module, explicit);
 }
+
+#[test]
+fn a_tuple_has_two_or_more_members() {
+    let returning = |body| b::module().define(b::function("f").body(body)).build();
+
+    assert!(returning(b::tuple([b::int(1), b::int(2)])).is_ok());
+    assert_eq!(
+        returning(b::tuple([b::int(1)])),
+        Err(BuildError::ShortTuple)
+    );
+    assert_eq!(returning(b::tuple([])), Err(BuildError::ShortTuple));
+    // An all gives a tuple of what its branches give.
+    assert_eq!(returning(b::all([b::int(1)])), Err(BuildError::ShortTuple));
+
+    let ty = b::module().define(b::type_("T", ty::tuple([ty::int()])));
+    assert_eq!(ty.build(), Err(BuildError::ShortTuple));
+}

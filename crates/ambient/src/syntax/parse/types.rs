@@ -64,15 +64,10 @@ impl Parser {
                 }
             }
             Token::Mark("(") => {
+                let at = self.position();
                 self.advance();
-                let mut members = self.list(")", Self::ty)?;
-                // One type in parentheses is that type.
-                let grouped = members.len() == 1 && !matches!(self.peek_back(), Token::Mark(","));
-                Ok(if grouped {
-                    members.remove(0)
-                } else {
-                    Type::Tuple(members)
-                })
+                let members = self.list(")", Self::ty)?;
+                Ok(self.grouped(at, members)?.unwrap_or_else(Type::Tuple))
             }
             Token::Mark("{") => self.record_type(),
             Token::Word(word) => self.named_type(&word),

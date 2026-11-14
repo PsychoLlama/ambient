@@ -26,7 +26,7 @@ fn count() -> Definition {
         ))
 }
 
-/// `fn build(n: int): unknown`, which makes a tuple nested `n` deep.
+/// `fn build(n: int): unknown`, which makes a list nested `n` deep.
 fn build() -> Definition {
     let less = b::call(b::name("build"), [b::subtract(b::name("n"), b::int(1))]);
     b::function("build")
@@ -34,7 +34,7 @@ fn build() -> Definition {
         .returns(ty::unknown())
         .body(b::match_(
             b::name("n"),
-            [(pat::int(0), b::null()), (pat::any(), b::tuple([less]))],
+            [(pat::int(0), b::null()), (pat::any(), b::list([less]))],
         ))
 }
 

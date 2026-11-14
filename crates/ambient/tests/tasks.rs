@@ -79,7 +79,6 @@ fn all_is_the_tuple_of_what_its_tasks_give() {
     let expected = Value::Tuple(vec![Value::Int(1), Value::String("two".to_owned())]);
 
     assert_eq!(evaluates(body), expected);
-    assert_eq!(evaluates(b::all([])), Value::Tuple(vec![]));
 }
 
 #[test]
@@ -294,7 +293,7 @@ fn a_fault_in_one_task_cancels_the_others_and_ends_the_program() {
 
 #[test]
 fn a_program_whose_tasks_all_wait_is_cancelled() {
-    let body = with_cell(b::all([waits_for(1)]));
+    let body = with_cell(b::all([waits_for(1), waits_for(1)]));
 
     assert_eq!(outcome(ty::unknown(), body), Err(Fault::Cancelled));
 }

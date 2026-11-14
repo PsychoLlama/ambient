@@ -29,6 +29,8 @@ pub enum BuildError {
     ImportTooShort(Path),
     /// A tag is written by its text. One is declared and then named.
     WrittenTag(String),
+    /// A tuple, or an all, of fewer than two members.
+    ShortTuple,
     /// A mark of the reader's was left in a tree.
     Mark,
     /// An expression nests more deeply than any tree may.
@@ -56,6 +58,7 @@ impl fmt::Display for BuildError {
             Self::DuplicateHandler(path) => write!(f, "two handlers for `{path}`"),
             Self::DuplicateBinder(name) => write!(f, "a pattern binds `{name}` twice"),
             Self::ImportTooShort(path) => write!(f, "import `{path}` names only a package"),
+            Self::ShortTuple => write!(f, "a tuple has two or more members"),
             Self::GenericType => write!(
                 f,
                 "only a function type has type parameters, named only inside it"

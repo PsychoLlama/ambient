@@ -54,7 +54,7 @@ fn code_grows_in_proportion_to_its_source() {
 fn a_function_far_longer_than_the_stack_is_deep_compiles() {
     // Each member is bound before the list is made, so lowered code
     // nests once for each: what translates it must not run out of stack.
-    let members = (0..4000).map(|member| b::tuple([b::int(member)]));
+    let members = (0..4000).map(|member| b::list([b::int(member)]));
     let main = b::function("main")
         .returns(ty::unknown())
         .body(b::list(members));

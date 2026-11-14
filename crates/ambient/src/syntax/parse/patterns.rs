@@ -35,9 +35,10 @@ impl Parser {
                 Ok(Pattern::Bind(name, Box::new(inner)))
             }
             Token::Mark("(") => {
+                let at = self.position();
                 self.advance();
                 let members = self.list(")", |parser| parser.pattern(mode, binds))?;
-                Ok(Pattern::Tuple(members))
+                Ok(self.grouped(at, members)?.unwrap_or_else(Pattern::Tuple))
             }
             Token::Mark("{") => {
                 self.advance();

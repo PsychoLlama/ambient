@@ -50,8 +50,8 @@ fn a_cell_outlives_the_call_that_made_it() {
 
 #[test]
 fn a_cell_that_reaches_itself_is_reclaimed_with_its_program() {
-    // A cell that holds a tuple of itself: counting never reclaims it.
-    let tied = b::replace(b::name("c"), b::null(), b::tuple([b::name("c")]));
+    // A cell that holds a list of itself: counting never reclaims it.
+    let tied = b::replace(b::name("c"), b::null(), b::list([b::name("c")]));
     let main = b::function("main").returns(ty::bool()).body(b::let_(
         "c",
         b::cell(ty::unknown(), b::null()),

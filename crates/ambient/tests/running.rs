@@ -191,7 +191,10 @@ fn tuples_and_lists() {
         Value::List(decoded())
     );
     // A tuple and a list are different shapes, whatever they hold.
-    let mixed = b::equal(b::tuple([b::int(1)]), b::list([b::int(1)]));
+    let mixed = b::equal(
+        b::tuple([b::int(1), b::int(2)]),
+        b::list([b::int(1), b::int(2)]),
+    );
     assert_eq!(evaluates(ty::bool(), mixed), Value::Bool(false));
 }
 
@@ -220,7 +223,7 @@ fn nested_values_are_built_and_released() {
     let inner = b::list([
         b::int(i64::MAX),
         b::float(0.5),
-        b::tuple([b::string("deep")]),
+        b::tuple([b::string("deep"), b::null()]),
     ]);
     let body = b::let_(
         "kept",
@@ -233,7 +236,7 @@ fn nested_values_are_built_and_released() {
         Value::List(vec![
             Value::Int(i64::MAX),
             Value::Float(0.5),
-            Value::Tuple(vec![Value::String("deep".to_owned())]),
+            Value::Tuple(vec![Value::String("deep".to_owned()), Value::Null]),
         ]),
     );
 }
@@ -536,7 +539,8 @@ fn a_cast_looks_inside_structure() {
 
     let pair = || ty::tuple([ty::int(), ty::string()]);
     assert!(casts(&[], b::tuple([b::int(1), b::string("a")]), pair()));
-    assert!(!casts(&[], b::tuple([b::int(1)]), pair()));
+    let longer = b::tuple([b::int(1), b::string("a"), b::null()]);
+    assert!(!casts(&[], longer, pair()));
     assert!(!casts(&[], b::list([b::int(1), b::string("a")]), pair()));
 
     // A tuple is not a list, whatever it holds.

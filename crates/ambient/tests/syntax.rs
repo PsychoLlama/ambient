@@ -261,3 +261,19 @@ fn every_arm_of_the_else_of_a_let_leaves() {
         "each arm of the `else` of a `let` ends in a `return`"
     );
 }
+
+#[test]
+fn parentheses_group_one_thing_or_hold_two_or_more() {
+    let short = "a tuple has two or more members";
+
+    assert!(parse("fn main(): (int) => (1);").is_ok());
+    assert_eq!(refused("fn main(): null => ();"), (1, 20, short.to_owned()));
+    assert_eq!(
+        refused("fn main(): (int,) => 1;"),
+        (1, 12, short.to_owned())
+    );
+    assert_eq!(
+        refused("fn main(): int => match 1 { (n,) => n };"),
+        (1, 29, short.to_owned())
+    );
+}

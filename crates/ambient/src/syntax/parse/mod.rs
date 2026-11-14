@@ -106,6 +106,17 @@ impl Parser {
         })
     }
 
+    /// What was written between parentheses that opened at `at`: the one
+    /// thing they group, or the members of a tuple.
+    fn grouped<T>(&self, at: Position, mut members: Vec<T>) -> Parsed<Result<T, Vec<T>>> {
+        let trailing = matches!(self.peek_back(), Token::Mark(","));
+        match members.len() {
+            1 if !trailing => Ok(Ok(members.remove(0))),
+            0 | 1 => self.fail_at(at, crate::builder::BuildError::ShortTuple.to_string()),
+            _ => Ok(Err(members)),
+        }
+    }
+
     /// Fails for finding something other than `wanted`.
     fn unexpected<T>(&self, wanted: &str) -> Parsed<T> {
         let found = match self.peek() {

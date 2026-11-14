@@ -117,8 +117,11 @@ fn what_was_computed_before_a_capture_is_still_there_after() {
 fn the_frames_of_a_task_are_followed_by_those_of_what_started_it() {
     let branch = kept(b::call(b::name("here"), []));
     let first = b::match_(
-        b::all([branch]),
-        [(b::pat::tuple([b::pat::bind("trace")]), b::name("trace"))],
+        b::all([branch, b::null()]),
+        [(
+            b::pat::tuple([b::pat::bind("trace"), b::pat::any()]),
+            b::name("trace"),
+        )],
     );
     assert_eq!(traced([here(), main(first)]), ["here", "?", "main"]);
 }

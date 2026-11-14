@@ -228,14 +228,10 @@ impl Parser {
             Token::Float(value) => Ok(self.literal_expr(Literal::float(value))),
             Token::Text(text) => Ok(self.literal_expr(Literal::String(text))),
             Token::Mark("(") => {
+                let at = self.position();
                 self.advance();
-                let mut members = self.list(")", Self::expr)?;
-                let grouped = members.len() == 1 && !matches!(self.peek_back(), Token::Mark(","));
-                Ok(if grouped {
-                    members.remove(0)
-                } else {
-                    Expr::Tuple(members)
-                })
+                let members = self.list(")", Self::expr)?;
+                Ok(self.grouped(at, members)?.unwrap_or_else(Expr::Tuple))
             }
             Token::Mark("[") => {
                 self.advance();

@@ -16,7 +16,7 @@ A task is an independent execution of an expression. Tasks exist only inside the
 
 ## Joining
 
-- An all expression evaluates a fixed set of expressions as tasks and yields the tuple of their results.
+- An all expression evaluates a fixed set of two or more expressions as tasks and yields the tuple of their results.
 - A first expression evaluates a fixed set of expressions as tasks, yields the result of whichever finishes first, and cancels the rest.
 - Both complete only after every branch has finished or unwound.
 - A branch is evaluated with the locals and [bindings](abilities.md) of where it is written.
