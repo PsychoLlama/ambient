@@ -124,6 +124,9 @@ impl Parser {
         if self.eat_word("match") {
             return self.match_statement(began);
         }
+        if self.eat_word("for") {
+            return self.for_each(began);
+        }
         if self.at_word("fn") && self.peek_ahead_is_name() {
             self.advance();
             return self.function_in_block(began);
@@ -170,6 +173,48 @@ impl Parser {
         };
         let binder = Pattern::Bind(function, Box::new(Pattern::Wildcard));
         Ok(Statement::Let(began, binder, value))
+    }
+
+    /// A `for`, after the word: a pattern, `in`, what gives the items,
+    /// and a block. It is `each` called on that with a function of the
+    /// block, so nothing leaves it early.
+    fn for_each(&mut self, began: usize) -> Parsed<Statement> {
+        let mut binds = Vec::new();
+        let pattern = self.pattern(Mode::Binding, &mut binds)?;
+        self.expect_word("in")?;
+        let items = self.expr()?;
+        let at = self.position();
+        let statements = self.scoped(|parser| {
+            parser.locals.extend(binds);
+            parser.statements()
+        })?;
+        if returns(&statements) != Returns::Never {
+            return self.fail_at(
+                at,
+                "a `for` runs its block for every item: no `return` leaves it",
+            );
+        }
+        let item = self.made_up("item");
+        let body = Expr::Match {
+            subject: Box::new(name(&item)),
+            arms: vec![Arm {
+                pattern,
+                body: self.arrange(statements)?,
+            }],
+        };
+        let each = Expr::Lambda {
+            type_params: Vec::new(),
+            params: vec![(item, None)],
+            row: Vec::new(),
+            returns: None,
+            body: Box::new(body),
+        };
+        let sent = Expr::Send {
+            target: Box::new(items),
+            method: Key::Field("each".to_owned()),
+            args: vec![each],
+        };
+        Ok(Statement::Expr(self.mark(began, sent)))
     }
 
     fn peek_ahead_is_name(&self) -> bool {

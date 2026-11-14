@@ -11,6 +11,8 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - A brace where a value is expected is therefore always a record.
 - `let` binds a name, or the names of a tuple or record pattern, for the rest of its block.
 - An expression may stand as a statement; its value is dropped.
+- `for`, a pattern, `in`, a value, and a block runs the block for each item the value gives: it is the value's `each` [method](methods.md) called with a function of the block.
+- A `for` is therefore never left early, and no `return` is written in its block; looking for an item is a method of the [iterator](iteration.md).
 
 ## Returning early
 

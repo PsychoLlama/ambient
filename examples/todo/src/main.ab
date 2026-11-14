@@ -57,9 +57,9 @@ fn finish(items: List<Item>, number: int | null): List<Item> | string {
 }
 
 fn show(items: List<Item>): null with console.print {
-    items.iter().enumerate().each(fn((at, found)) {
+    for (at, found) in items.iter().enumerate() {
         console.print!("${at + 1}. ${item.write(found)}");
-    });
+    }
 }
 
 fn test_a_command_changes_the_items(): null with check {

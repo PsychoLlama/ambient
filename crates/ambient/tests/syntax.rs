@@ -201,6 +201,20 @@ fn nothing_follows_a_return() {
 }
 
 #[test]
+fn no_return_leaves_a_for() {
+    let source = "fn main(): int {\n  for n in [1] {\n    return n;\n  }\n  return 0;\n}";
+    let (line, _, message) = refused(source);
+
+    assert_eq!(
+        (line, message.as_str()),
+        (
+            2,
+            "a `for` runs its block for every item: no `return` leaves it"
+        )
+    );
+}
+
+#[test]
 fn a_reserved_word_names_nothing() {
     let (_, _, message) = refused("fn main(): int { let match = 1; return match; }");
 

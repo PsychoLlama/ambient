@@ -400,3 +400,25 @@ fn a_let_that_states_a_type_holds_its_value_to_it_and_tests_nothing() {
 
     assert_eq!(int(source), 3);
 }
+
+#[test]
+fn a_for_runs_its_block_for_every_item() {
+    let source = "
+        import ambient.iterator.range;
+
+        fn main(): int {
+            let total = cell<int>(0);
+            for n in range(0, 4) {
+                total.update(fn(have) => have + n);
+            }
+            for (at, word) in [\"a\", \"bc\"].iter().enumerate() {
+                if at > 0 {
+                    total.update(fn(have) => have + word.length() * 100);
+                }
+            }
+            return total.read();
+        }
+    ";
+
+    assert_eq!(int(source), 206);
+}
