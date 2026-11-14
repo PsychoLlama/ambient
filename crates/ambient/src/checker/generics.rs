@@ -359,7 +359,7 @@ impl Checker<'_> {
     ) -> Result<Vec<Ty>, Error> {
         let mut args = self.least(own, lower);
         // A literal type is no use where the result holds the parameter
-        // to more than being read: a dictionary of `1 | 2` takes no `3`.
+        // to more than being read: a map of `1 | 2` takes no `3`.
         let held = self.env.variance(&signature.ret, args.len());
         for (arg, held) in args.iter_mut().zip(held).skip(own) {
             if matches!(held, Variance::Invariant | Variance::Contravariant) {

@@ -118,7 +118,7 @@ fn an_error_is_reported_at_the_expression_that_is_wrong() {
     // A test that cannot tell what it is asked: any record passes it.
     assert_eq!(
         wrong_at(
-            "import ambient.dict.{Dict};\nfn f(v: unknown): int =>\n  (v as Dict<int> else null) as int else 0;"
+            "import ambient.map.{Map};\nfn f(v: unknown): int =>\n  (v as Map<int> else null) as int else 0;"
         ),
         "3:6"
     );

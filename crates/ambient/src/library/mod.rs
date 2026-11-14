@@ -16,7 +16,7 @@ use crate::workspace::{Workspace, WorkspaceError};
 const SOURCES: [(&str, &str); 17] = [
     ("cell", include_str!("cell.ab")),
     ("cleanup", include_str!("cleanup.ab")),
-    ("dict", include_str!("dict.ab")),
+    ("map", include_str!("map.ab")),
     ("errors", include_str!("errors.ab")),
     ("float", include_str!("float.ab")),
     ("int", include_str!("int.ab")),

@@ -1,6 +1,6 @@
 import ambient.console;
-import ambient.dict;
-import ambient.dict.{Dict};
+import ambient.map;
+import ambient.map.{Map};
 import ambient.env;
 import ambient.fs;
 import ambient.test.{check};
@@ -31,8 +31,8 @@ fn report(path: string): int with console.print, console.warn, fs.read {
 }
 
 /// How often each word of `text` is in it.
-fn count(text: string): Dict<int> =>
-    words(text).fold(dict.empty::<int>(), fn(seen: Dict<int>, word: string): Dict<int> =>
+fn count(text: string): Map<int> =>
+    words(text).fold(map.empty::<int>(), fn(seen: Map<int>, word: string): Map<int> =>
         seen.update(word, fn(times) => (times as int else 0) + 1));
 
 /// The words of `text`: what its spaces and line endings separate.
@@ -42,7 +42,7 @@ fn words(text: string): List<string> =>
 
 /// The `limit` entries counted most, the most first. Entries counted
 /// alike stay in the order of their words.
-fn most(counts: Dict<int>, limit: int): List<(string, int)> =>
+fn most(counts: Map<int>, limit: int): List<(string, int)> =>
     counts.entries()
         .sort_by(fn((_, a), (_, b)) => a > b)
         .iter().take(limit).to_list();

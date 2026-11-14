@@ -194,17 +194,17 @@ proptest! {
 
 #[test]
 fn a_value_is_told_apart_by_the_type_it_is_asked_for() {
-    // No value can be tested for a dictionary, which holds methods; the
+    // No value can be tested for a map, which holds methods; the
     // test made is the nearest that can be, and tells as much here.
     let source = r#"
         import ambient.json;
         import ambient.json.{Json};
-        import ambient.dict.{Dict};
+        import ambient.map.{Map};
         import ambient.{catch, throw};
 
         fn kind(value: Json): string {
             match value {
-                let members: Dict<Json> => { return "object of ${members.size()}"; }
+                let members: Map<Json> => { return "object of ${members.size()}"; }
                 let items: List<Json> => { return "array of ${items.length()}"; }
                 _ => { return "scalar"; }
             }
@@ -212,7 +212,7 @@ fn a_value_is_told_apart_by_the_type_it_is_asked_for() {
         fn read(): string with throw {
             let value = json.parse("{\"a\": [1, 2], \"b\": 3}");
             let inner = json.get(value, "a") as List<Json> else [];
-            let none = json.get(value, "b") as Dict<Json> else null;
+            let none = json.get(value, "b") as Map<Json> else null;
             return "${kind(value)}, ${kind(inner)}, ${kind(none)}";
         }
         fn main(): string => catch(read) as string else "threw";

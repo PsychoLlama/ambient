@@ -1,6 +1,6 @@
-/// A dictionary: values by string key, kept in the order of their keys.
+/// A map: values by string key, kept in the order of their keys.
 /// Changing one gives another and leaves the first as it was.
-pub type Dict<V> = {
+pub type Map<V> = {
     tree: Tree<V>,
     // How many keys it has.
     size(self): int,
@@ -9,12 +9,12 @@ pub type Dict<V> = {
     // Whether anything is under `key`.
     has(self, key: string): bool,
     // This with `value` under `key`, in place of what was there.
-    set(self, key: string, value: V): Dict<V>,
+    set(self, key: string, value: V): Map<V>,
     // This with what `change` makes of what is under `key`, which is
     // null if nothing is.
-    update(self, key: string, change: fn(V | null): V): Dict<V>,
+    update(self, key: string, change: fn(V | null): V): Map<V>,
     // This with nothing under `key`.
-    remove(self, key: string): Dict<V>,
+    remove(self, key: string): Map<V>,
     // The keys, in order.
     keys(self): List<string>,
     // The values, in the order of their keys.
@@ -28,26 +28,26 @@ pub type Dict<V> = {
 type Tree<V> = Node<V> | null;
 type Node<V> = { key: string, value: V, left: Tree<V>, right: Tree<V>, count: int };
 
-/// A dictionary with nothing in it.
-pub fn empty<V>(): Dict<V> => over::<V>(null);
+/// A map with nothing in it.
+pub fn empty<V>(): Map<V> => over::<V>(null);
 
-/// A dictionary of each key and its value. A later one replaces an
+/// A map of each key and its value. A later one replaces an
 /// earlier one of the same key.
-pub fn of<V>(entries: List<(string, V)>): Dict<V> =>
+pub fn of<V>(entries: List<(string, V)>): Map<V> =>
     over::<V>(entries.iter().fold(null, fn(tree: Tree<V>, entry: (string, V)): Tree<V> {
         let (key, value) = entry;
         return insert(tree, key, value);
     }));
 
-fn over<V>(tree: Tree<V>): Dict<V> => {
+fn over<V>(tree: Tree<V>): Map<V> => {
     tree,
     size(self): int => count(self.tree),
     get(self, key: string): V | null => find(self.tree, key),
     has(self, key: string): bool => holds(self.tree, key),
-    set(self, key: string, value: V): Dict<V> => over(insert(self.tree, key, value)),
-    update(self, key: string, change: fn(V | null): V): Dict<V> =>
+    set(self, key: string, value: V): Map<V> => over(insert(self.tree, key, value)),
+    update(self, key: string, change: fn(V | null): V): Map<V> =>
         over(insert(self.tree, key, change(find(self.tree, key)))),
-    remove(self, key: string): Dict<V> => over(delete(self.tree, key)),
+    remove(self, key: string): Map<V> => over(delete(self.tree, key)),
     keys(self): List<string> =>
         walk(self.tree, [], fn(found: List<string>, node: Node<V>) => found.push(node.key)),
     values(self): List<V> =>

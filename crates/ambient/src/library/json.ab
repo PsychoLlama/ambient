@@ -1,13 +1,13 @@
-import pkg.dict;
-import pkg.dict.{Dict};
+import pkg.map;
+import pkg.map.{Map};
 import pkg.errors.{fail, throw};
 
 /// Text that is not JSON. The message says where and what was expected.
 pub tag malformed;
 
-/// A JSON value. An object is a dictionary, so its members are read in
+/// A JSON value. An object is a map, so its members are read in
 /// the order of their names, never the order they were written in.
-pub type Json = null | bool | int | float | string | List<Json> | Dict<Json>;
+pub type Json = null | bool | int | float | string | List<Json> | Map<Json>;
 
 /// The value that `text` is JSON for.
 pub fn parse(text: string): Json with throw {
@@ -32,7 +32,7 @@ pub fn write(value: Json): string {
         let items: List<Json> => {
             return "[" ++ items.map(write).join_with(",") ++ "]";
         }
-        let members: Dict<Json> => {
+        let members: Map<Json> => {
             let each = fn((name, member): (string, Json)): string => quote(name) ++ ":" ++ write(member);
             return "{" ++ members.entries().map(each).join_with(",") ++ "}";
         }
@@ -43,7 +43,7 @@ pub fn write(value: Json): string {
 /// or if `value` is no object.
 pub fn get(value: Json, name: string): Json {
     match value {
-        let members: Dict<Json> => { return members.get(name); }
+        let members: Map<Json> => { return members.get(name); }
         _ => { return null; }
     }
 }
@@ -136,12 +136,12 @@ fn items(text: string, at: int, read: List<Json>): (Json, int) with throw {
 /// An object, after its brace and any space.
 fn object(text: string, at: int): (Json, int) with throw {
     if peek(text, at) == "}" {
-        return (dict.empty::<Json>(), at + 1);
+        return (map.empty::<Json>(), at + 1);
     }
-    return members(text, at, dict.empty::<Json>());
+    return members(text, at, map.empty::<Json>());
 }
 
-fn members(text: string, at: int, read: Dict<Json>): (Json, int) with throw {
+fn members(text: string, at: int, read: Map<Json>): (Json, int) with throw {
     if peek(text, at) != "\"" {
         wrong(text, at, "expected a name");
     }

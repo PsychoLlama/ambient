@@ -1,11 +1,11 @@
 # JSON
 
-The standard library reads and writes JSON. It is written in the language, over the [dictionary](dictionaries.md) and nothing of the runtime.
+The standard library reads and writes JSON. It is written in the language, over the [map](maps.md) and nothing of the runtime.
 
 ## Shape
 
-- A JSON value is a union: null, a boolean, an integer, a float, a string, a list of values, or a dictionary of values.
-- It is no shape of its own, so a value read is used as any other is: matched, cast, and passed to what takes a list or a dictionary.
+- A JSON value is a union: null, a boolean, an integer, a float, a string, a list of values, or a map of values.
+- It is no shape of its own, so a value read is used as any other is: matched, cast, and passed to what takes a list or a map.
 - A number written with no fraction and no exponent is an integer if it fits one, and otherwise the nearest float.
 - An object's members are read in the order of their names, and a name written twice holds what it was given last.
 
@@ -25,4 +25,4 @@ The standard library reads and writes JSON. It is written in the language, over 
 ## Reaching in
 
 - A member is reached by name and an item by position; reaching into a value that is not an object or an array gives null, as reaching for what is absent does.
-- A value read is told apart by the types it may be: an object is a dictionary and an array a list, each [tested](types.md) as far as a test can tell, which among the members of the union is far enough.
+- A value read is told apart by the types it may be: an object is a map and an array a list, each [tested](types.md) as far as a test can tell, which among the members of the union is far enough.

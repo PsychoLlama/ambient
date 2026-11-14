@@ -331,7 +331,7 @@ Import a module by path; its public definitions are reached through its name, or
 | Module                                                       | What it has                                                   |
 | ------------------------------------------------------------ | ------------------------------------------------------------- |
 | `ambient.string`, `list`, `int`, `float`, `iterator`, `cell` | the methods of each shape                                     |
-| `ambient.dict`                                               | `Dict<V>`: values by string key, read in key order            |
+| `ambient.map`                                                | `Map<V>`: values by string key, read in key order             |
 | `ambient.json`                                               | `Json`, `parse`, `write`, `get`, `at`                         |
 | `ambient.console`                                            | `write`, `print`, `warn`, `read_line`                         |
 | `ambient.env`                                                | `args`, `variable`                                            |
@@ -341,16 +341,16 @@ Import a module by path; its public definitions are reached through its name, or
 | `ambient.cleanup`                                            | the `dispose` key a `using` reads                             |
 
 ```ab
-import ambient.dict;
+import ambient.map;
 
 pub fn main(): string {
-    let stock = dict.of([("tea", 3), ("milk", 1)]);
+    let stock = map.of([("tea", 3), ("milk", 1)]);
     let more = stock.update("tea", fn(have) => (have as int else 0) + 2);
     return "${more.keys().join_with(", ")}: ${more.get("tea") as int else 0}";
 }
 ```
 
-JSON is read into ordinary values: a list is a `List<Json>`, an object a `Dict<Json>`. Text that is not JSON throws.
+JSON is read into ordinary values: a list is a `List<Json>`, an object a `Map<Json>`. Text that is not JSON throws.
 
 ```ab
 import ambient.json;
@@ -373,6 +373,6 @@ pub fn main(): string {
 - A type error is reported at its line and column, and so is each function a fault or an uncaught error left: `in app:main.divide at src/main.ab:2:39`. A frame inside the standard library has a name and no place.
 - `all` and `first` followed by `(` always start tasks, so a function cannot be called by those names.
 - A record type that names a key says its type again: `{ [dispose](): null }`.
-- A record with methods, such as a `Dict`, can be tested for only where the value's type leaves no doubt: a `Json` can be asked `as Dict<Json>`, an `unknown` cannot.
+- A record with methods, such as a `Map`, can be tested for only where the value's type leaves no doubt: a `Json` can be asked `as Map<Json>`, an `unknown` cannot.
 - A function written inside another may call itself, and then says its parameter and return types.
 - There is no way yet to depend on a package except by a path in the manifest: `[dependencies] text = { path = "../text" }`.
