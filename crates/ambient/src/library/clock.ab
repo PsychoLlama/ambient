@@ -1,0 +1,9 @@
+/// Milliseconds since the start of 1970, by the system's clock.
+pub ability now(): int;
+
+/// Nanoseconds since some moment that does not change while the program
+/// runs. It never goes back.
+pub ability elapsed(): int;
+
+/// Waits at least this many milliseconds.
+pub ability sleep(milliseconds: int): null;

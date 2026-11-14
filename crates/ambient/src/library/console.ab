@@ -1,0 +1,11 @@
+/// Writes text to standard output, as it is.
+pub ability write(text: string): null;
+
+/// Writes a line to standard output.
+pub ability print(text: string): null;
+
+/// Writes a line to standard error.
+pub ability warn(text: string): null;
+
+/// The next line of standard input without its ending, or null at its end.
+pub ability read_line(): string | null;

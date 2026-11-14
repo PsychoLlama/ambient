@@ -1,0 +1,2 @@
+/// Ends the program with an exit code.
+pub ability exit(code: int): never;

@@ -1,0 +1,38 @@
+import pkg.clock;
+import pkg.console;
+import pkg.env;
+import pkg.fs;
+import pkg.process;
+
+extern handler console_write for console.write;
+extern handler console_print for console.print;
+extern handler console_warn for console.warn;
+extern handler console_read_line for console.read_line;
+extern handler env_args for env.args;
+extern handler env_variable for env.variable;
+extern handler fs_read for fs.read;
+extern handler fs_write for fs.write;
+extern handler fs_list for fs.list;
+extern handler fs_exists for fs.exists;
+extern handler clock_now for clock.now;
+extern handler clock_elapsed for clock.elapsed;
+extern handler clock_sleep for clock.sleep;
+extern handler process_exit for process.exit;
+
+/// The world of a program run from a command line.
+pub target cli {
+    console.write: console_write,
+    console.print: console_print,
+    console.warn: console_warn,
+    console.read_line: console_read_line,
+    env.args: env_args,
+    env.variable: env_variable,
+    fs.read: fs_read,
+    fs.write: fs_write,
+    fs.list: fs_list,
+    fs.exists: fs_exists,
+    clock.now: clock_now,
+    clock.elapsed: clock_elapsed,
+    clock.sleep: clock_sleep,
+    process.exit: process_exit,
+}

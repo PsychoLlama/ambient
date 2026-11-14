@@ -15,6 +15,7 @@ pub mod engine;
 pub mod error;
 pub mod exchange;
 pub mod hash;
+pub mod host;
 pub mod library;
 pub mod lir;
 pub mod literal;

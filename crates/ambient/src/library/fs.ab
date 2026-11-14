@@ -1,0 +1,22 @@
+import pkg.Error;
+
+/// Nothing is at the path.
+pub tag not_found;
+
+/// The program may not do this to what is at the path.
+pub tag denied;
+
+/// Any other failure; the message says which.
+pub tag failed;
+
+/// The text of a file.
+pub ability read(path: string): string | Error;
+
+/// Makes a file hold `text`, replacing what it held.
+pub ability write(path: string, text: string): null | Error;
+
+/// The names of what a directory holds, in order.
+pub ability list(path: string): List<string> | Error;
+
+/// Whether anything is at the path.
+pub ability exists(path: string): bool;

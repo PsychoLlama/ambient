@@ -11,13 +11,20 @@ mod shapes;
 use ambient_runtime::{FAULT_PACKAGE, Fault, LIMITS};
 
 use crate::builder::{self as b, ModuleBuilder, ty};
-use crate::surface::Shape;
 use crate::symbol::ModuleId;
 use crate::workspace::{Workspace, WorkspaceError};
 
-/// The modules written as source: the shape each is the methods of, and
-/// its text.
-const SOURCES: [(Shape, &str); 1] = [(Shape::Cell, include_str!("cell.ab"))];
+/// The modules written as source: the path of each, and its text. One
+/// named for a shape is that shape's methods.
+const SOURCES: [(&str, &str); 7] = [
+    ("cell", include_str!("cell.ab")),
+    ("clock", include_str!("clock.ab")),
+    ("console", include_str!("console.ab")),
+    ("env", include_str!("env.ab")),
+    ("fs", include_str!("fs.ab")),
+    ("process", include_str!("process.ab")),
+    ("system", include_str!("system.ab")),
+];
 
 /// The library module: `Error`, and a tag for the kind of each fault
 /// and for each limit of a budget, named as the runtime names it. It
@@ -33,9 +40,11 @@ pub fn module() -> ModuleBuilder {
     ]);
     let kinds = Fault::ALL.iter().filter_map(|fault| fault.describe());
     let tags = kinds.map(|(kind, _)| kind).chain(LIMITS);
-    let built = shapes::modules().into_iter().map(|(shape, _)| shape);
-    let shapes = built.chain(SOURCES.map(|(shape, _)| shape));
-    let module = shapes.fold(b::module(), |module, shape| module.expose(shape.module()));
+    let built = shapes::modules()
+        .into_iter()
+        .map(|(shape, _)| shape.module());
+    let paths = built.chain(SOURCES.map(|(path, _)| path));
+    let module = paths.fold(b::module(), ModuleBuilder::expose);
     let module = module
         .define(b::type_("Frame", frame).public())
         .define(b::type_("Error", error).public());
@@ -56,9 +65,9 @@ pub fn install(workspace: &mut Workspace) -> Result<(), WorkspaceError> {
         let module = module.build().map_err(|_| WorkspaceError::Library)?;
         workspace.set(ModuleId::new(FAULT_PACKAGE, shape.module()), module)?;
     }
-    for (shape, source) in SOURCES {
+    for (path, source) in SOURCES {
         let module = crate::syntax::parse(source).map_err(|_| WorkspaceError::Library)?;
-        workspace.set(ModuleId::new(FAULT_PACKAGE, shape.module()), module)?;
+        workspace.set(ModuleId::new(FAULT_PACKAGE, path), module)?;
     }
     workspace.standard(vec![id]);
     Ok(())
