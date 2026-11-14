@@ -168,6 +168,31 @@ fn a_fault_is_reported_with_the_functions_it_left() {
 }
 
 #[test]
+fn an_error_nothing_catches_ends_the_program_and_is_reported() {
+    let source = r#"
+        import ambient.{catch, fail, throw};
+        tag too_big;
+
+        fn small(n: int): int with throw {
+            if n > 9 { fail(too_big, "${n} is not small"); }
+            return n;
+        }
+        fn main(): int with throw {
+            let caught = catch(fn() => small(10));
+            let first = caught as int else small(3);
+            return first + small(12);
+        }
+    "#;
+
+    let (code, world) = run(&app(source));
+    assert_eq!(code, 1);
+    assert_eq!(
+        world.err,
+        "error: main.too_big: 12 is not small\n  in ambient:errors.fail\n  in app:main.small\n  in app:main.main\n"
+    );
+}
+
+#[test]
 fn a_directory_without_a_manifest_is_not_a_package() {
     let (code, world) = run(&files([("app/src/main.ab", "")]));
 
@@ -210,6 +235,27 @@ FAIL  app:main.test_faults
       divide_by_zero: an integer was divided by zero
         in app:main.test_faults
 1 passed, 2 failed
+"
+    );
+}
+
+#[test]
+fn a_test_that_throws_fails_with_what_it_threw() {
+    let source = r#"
+        import ambient.{fail, throw};
+        tag unready;
+        fn test_throws(): null with throw { fail(unready, "not yet"); }
+    "#;
+    let (code, world) = test(&app(source));
+
+    assert_eq!(code, 1);
+    assert_eq!(
+        world.out,
+        "FAIL  app:main.test_throws
+      main.unready: not yet
+        in ambient:errors.fail
+        in app:main.test_throws
+0 passed, 1 failed
 "
     );
 }

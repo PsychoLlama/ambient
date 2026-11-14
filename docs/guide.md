@@ -236,6 +236,26 @@ pub fn main(): string with console.print {
 
 Inside `try`, `budget`, `provide`, and the other scopes, `return` gives that scope its value; it does not leave the function.
 
+A failure the caller is not expected to deal with is thrown. `fail` throws an error of a kind, `catch` gives what a function gives or the error it threw, and an error nothing catches ends the program with its trace.
+
+```ab
+import ambient.{catch, fail, throw, Error};
+
+tag too_big;
+
+fn small(n: int): int with throw {
+    if n > 9 { fail(too_big, "${n} is not small"); }
+    return n;
+}
+
+pub fn main(): string {
+    match catch(fn() => small(12)) {
+        let error: Error => { return error.message; }
+        let n: int => { return n.to_text(); }
+    }
+}
+```
+
 A function that can fail gives a union, and the caller that cannot go on returns. `let ... else` says so without nesting: the rest of the block is where the value fits, and the arms are where it does not.
 
 ```ab

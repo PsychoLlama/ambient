@@ -1,6 +1,7 @@
 import pkg.clock;
 import pkg.console;
 import pkg.env;
+import pkg.errors;
 import pkg.fs;
 import pkg.process;
 import pkg.test;
@@ -20,6 +21,7 @@ extern handler clock_elapsed for clock.elapsed;
 extern handler clock_sleep for clock.sleep;
 extern handler process_exit for process.exit;
 extern handler test_check for test.check;
+extern handler thrown for errors.throw;
 
 /// The world of a program run from a command line.
 pub target cli {
@@ -37,10 +39,12 @@ pub target cli {
     clock.elapsed: clock_elapsed,
     clock.sleep: clock_sleep,
     process.exit: process_exit,
+    errors.throw: thrown,
 }
 
 /// The world of a test: nothing but a way to say what should hold. A
 /// test that needs more provides it.
 pub target tests {
     test.check: test_check,
+    errors.throw: thrown,
 }

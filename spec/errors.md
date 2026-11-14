@@ -14,6 +14,8 @@ An error is a structured value of one standard shape, and it is the only thing t
 ## Throwing
 
 - `throw` is an [ability](abilities.md) that takes an `Error` and returns `never`; no other value can be thrown.
+- Failing is a function that throws an error of a kind and a message, made where it is called, so its [trace](#traces) begins there.
+- Catching is a function that takes a function and gives what it gives or the error it threw; it is a [provide](handlers.md) and nothing more.
 - An ability other than `throw` that returns `never` is control flow, not an error, and carries whatever its signature says.
 - A [boundary](values.md) reports the fault it contained as an `Error`.
 - A program's root is a boundary: a fault that ends a program reaches its host as the same `Error`.

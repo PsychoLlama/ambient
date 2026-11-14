@@ -13,10 +13,11 @@ use crate::workspace::{Workspace, WorkspaceError};
 
 /// The modules written as source: the path of each, and its text. One
 /// named for a shape is that shape's methods.
-const SOURCES: [(&str, &str); 15] = [
+const SOURCES: [(&str, &str); 16] = [
     ("cell", include_str!("cell.ab")),
     ("cleanup", include_str!("cleanup.ab")),
     ("dict", include_str!("dict.ab")),
+    ("errors", include_str!("errors.ab")),
     ("float", include_str!("float.ab")),
     ("int", include_str!("int.ab")),
     ("iterator", include_str!("iterator.ab")),
@@ -53,6 +54,11 @@ pub fn module() -> ModuleBuilder {
     let tags = kinds.map(|(kind, _)| kind).chain(LIMITS);
     let paths = SOURCES.map(|(path, _)| path).into_iter();
     let module = paths.fold(b::module(), ModuleBuilder::expose);
+    // What is thrown is reached where `Error` is.
+    let shared = ["throw", "fail", "catch"].map(|name| format!("pkg.errors.{name}"));
+    let module = shared
+        .iter()
+        .fold(module, |module, path| module.export(path));
     let module = module
         .define(b::type_("Frame", frame).public())
         .define(b::type_("Error", error).public());

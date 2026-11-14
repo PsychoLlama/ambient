@@ -1,0 +1,13 @@
+import pkg.Error;
+
+/// Leaves with an error, for whatever provides this to deal with. A
+/// program's world reports one nothing dealt with, and ends.
+pub ability throw(error: Error): never;
+
+/// Throws an error of a kind, made where this is called.
+pub fn fail(kind: Tag, message: string): never with throw =>
+    throw!({ kind, message, cause: null, trace: @trace() });
+
+/// What `body` gives, or the error it threw.
+pub fn catch<T>(body: fn(): T with throw): T | Error =>
+    provide { [throw](error: Error) => error } => body();

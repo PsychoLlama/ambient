@@ -54,6 +54,8 @@
 - A function in a block that names itself is read as the one method of a record and taken from it (`Parser::function_in_block`, `Parser::own_receiver`), so its body reaches it through the receiver. No node says a closure holds itself.
 - Names the reader makes up start with `__`, which no program may write.
 - The command-line target is `ambient.system.cli` (`library/system.ab`); its native side is `host/`, where every handler goes through `host::World`. Tests run programs over `support::scripted::Scripted`, never the real process.
+- `throw` is an ability of the library like any other (`library/errors.ab`), re-exported beside `Error`; both standard targets bind it to the extern `system.thrown`, which `cli::Launch` supplies and reports as it does a fault.
+- A lambda with no row takes the row of the function type expected of it (`Checker::infer_as`, `asked`); with none expected it captures everything.
 - `ambient test` runs each `test_*` function that takes nothing as its own program under `ambient.system.tests`, whose one extern is the check (`cli/test.rs`); `cli::Launch` is the one way a command runs a program.
 - A package on disk is read through `project::Files` (`project/`), and `cli::Session` is handed its files, store, and world, so `tests/cli.rs` drives the command line in memory.
 - The core checker (`verify/`) accepts what `checker/` makes and nothing looser; `support::run` verifies every definition it runs. Typing rules live in `types::Env`, which both checkers ask.

@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use ambient_runtime::FAULT_PACKAGE;
 use clap::{Parser, Subcommand};
 
 use crate::backend::native::{Native, Natives, Program};
@@ -160,18 +161,36 @@ impl Launch<'_> {
         let root = engine.program(entry, target).map_err(refused)?;
         let backend = Native::new().map_err(failed)?;
         let parts = engine.link(&root, &backend).map_err(refused)?;
-        let program = Program::load(&parts, natives).map_err(failed)?;
-        program.run(&[]).map_err(|fault| {
+        // An error nothing dealt with reaches the root, which keeps it:
+        // the program ends there, and is reported as one that faulted.
+        let thrown = Rc::new(RefCell::new(None));
+        let kept = Rc::clone(&thrown);
+        let natives = natives
+            .clone()
+            .with(FAULT_PACKAGE, "system.thrown", move |args| {
+                *kept.borrow_mut() = args.first().cloned();
+                Ok(Value::Null)
+            });
+        let program = Program::load(&parts, &natives).map_err(failed)?;
+        let traced = |said: String, error: Option<&Value>| {
             let named = Named::reached(engine, &root);
+            let mut lines = vec![said];
+            lines.extend(error.iter().flat_map(|error| named.trace(error)));
+            vec![lines.join("\n")]
+        };
+        let gave = program.run(&[]).map_err(|fault| {
             let error = program.error();
-            let mut lines = vec![match (&error, program.failure()) {
+            let said = match (&error, program.failure()) {
                 (_, Some(native)) => format!("{fault:?}: {native}"),
                 (Some(error), None) => describe(error),
                 (None, None) => format!("{fault:?}"),
-            }];
-            lines.extend(error.iter().flat_map(|error| named.trace(error)));
-            vec![lines.join("\n")]
-        })
+            };
+            traced(said, error.as_ref())
+        })?;
+        match thrown.take() {
+            Some(error) => Err(traced(describe(&error), Some(&error))),
+            None => Ok(gave),
+        }
     }
 }
 
@@ -192,7 +211,7 @@ fn describe(error: &Value) -> String {
 
 /// The definitions a program reaches, by hash: what turns a trace's
 /// frames back into names.
-struct Named(BTreeMap<String, Symbol>);
+struct Named(BTreeMap<String, Option<Symbol>>);
 
 impl Named {
     fn reached(engine: &Engine, root: &Symbol) -> Self {
@@ -203,8 +222,10 @@ impl Named {
             if !seen.insert(symbol.clone()) {
                 continue;
             }
+            // The root is a function nobody wrote, so no frame names it.
             if let Ok(hash) = engine.hash(&symbol) {
-                names.insert(hash.to_string(), symbol.clone());
+                let written = (symbol != *root).then(|| symbol.clone());
+                names.insert(hash.to_string(), written);
             }
             if let Ok(open) = engine.check(&symbol) {
                 pending.extend(open.slots.iter().cloned());
@@ -228,8 +249,10 @@ impl Named {
             let Some(Value::String(hash)) = frame.get("definition") else {
                 return None;
             };
-            let name = self.0.get(hash).map_or(hash.clone(), Symbol::to_string);
-            Some(format!("  in {name}"))
+            match self.0.get(hash) {
+                Some(symbol) => symbol.as_ref().map(|symbol| format!("  in {symbol}")),
+                None => Some(format!("  in {hash}")),
+            }
         };
         frames.iter().filter_map(line).collect()
     }
