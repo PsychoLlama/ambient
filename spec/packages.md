@@ -44,6 +44,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - The manifest says the package's name and its ID, and lists its dependencies, each by the local name and where the package is, and its preludes.
 - No package's ID is the standard library's.
 - Every package reaches the standard library under the name `ambient` without declaring it.
+- TODO: a manifest cannot declare [build grants](comptime.md), so a comptime call in a package on disk takes no ability.
 - TODO: a dependency is only a path to a directory; there are no publishers, versions, locks, or registries yet, and nothing checks that an ID was generated.
 
 ## Running
