@@ -27,13 +27,28 @@ fn ones() -> Definition {
         .body(b::iterator(b::lambda_returning([], gives, step)))
 }
 
-/// What `main`, with this body, gives beside `ones`, an ability
+/// `fn repeat<T>(item: T): Iterator<T>`, which never ends, and whose
+/// step tests `item` against `T`, so that it holds `T`.
+fn repeat() -> Definition {
+    let t = || ty::named("T");
+    let item = b::cast(b::name("item"), t(), b::name("item"));
+    let step = b::tuple([item, b::call(b::name("repeat"), [b::name("item")])]);
+    let gives = ty::union([ty::null(), ty::tuple([t(), iterator_of(t())])]);
+    b::function("repeat")
+        .type_param("T")
+        .param("item", t())
+        .returns(iterator_of(t()))
+        .body(b::iterator(b::lambda_returning([], gives, step)))
+}
+
+/// What `main`, with this body, gives beside `ones`, `repeat`, an ability
 /// `ask(): int`, and the standard library.
 fn evaluates(body: Expr) -> Value {
     let main = b::function("main").returns(ty::unknown()).body(body);
     let module = b::module()
         .import("ambient.iterator")
         .define(ones())
+        .define(repeat())
         .define(b::ability("ask", "ask").returns(ty::int()))
         .define(main);
     let mut workspace = workspace([("app", "main", module)]);
@@ -216,6 +231,17 @@ fn an_iterator_is_tested_by_what_it_is_known_to_give() {
 #[test]
 fn an_iterator_a_function_steps_is_what_the_function_says() {
     let ones = || b::call(b::name("ones"), []);
+    let tests = b::tuple([
+        is_iterator_of(ty::int(), ones()),
+        is_iterator_of(ty::string(), ones()),
+    ]);
+    let expected = [true, false].map(Value::Bool);
+    assert_eq!(evaluates(tests), Value::Tuple(expected.to_vec()));
+}
+
+#[test]
+fn an_iterator_made_in_a_generic_function_is_what_it_is_at_its_type_arguments() {
+    let ones = || b::call(b::instantiate("repeat", [ty::int()]), [b::int(1)]);
     let tests = b::tuple([
         is_iterator_of(ty::int(), ones()),
         is_iterator_of(ty::string(), ones()),

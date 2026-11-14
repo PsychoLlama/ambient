@@ -76,10 +76,14 @@ pub mod layout {
     /// handed as it runs: as many as it has type parameters if it needs
     /// them, and none if it does not.
     pub const DEFINITION_TYPES: i32 = 40;
+    /// From a definition to a descriptor of its type, in a function
+    /// that is handed type arguments its type depends on: the type is
+    /// that node read in those arguments. Zero in any other.
+    pub const DEFINITION_DESCRIBED: i32 = 48;
     /// From a definition to its first slot.
-    pub const DEFINITION_SLOTS: i32 = 48;
+    pub const DEFINITION_SLOTS: i32 = 56;
     /// The words in a definition with no slots.
-    pub const DEFINITION_WORDS: usize = 6;
+    pub const DEFINITION_WORDS: usize = 7;
 }
 
 /// Writes a closure for a block into `words`: its header, its

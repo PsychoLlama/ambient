@@ -49,6 +49,10 @@ pub enum Body {
         /// that depends on type arguments. Its slots are the
         /// definition's.
         signature: Option<core::Type>,
+        /// Its type as a function, if that depends on type arguments
+        /// it is handed: what its definition carries a descriptor of,
+        /// read in the arguments a value of it holds.
+        described: Option<core::Type>,
         /// How many type arguments it is handed as it runs: as many as
         /// it has type parameters if it needs them, and none if not.
         types: usize,
@@ -128,6 +132,31 @@ enum Shape {
     Open,
     /// Code to load into a program.
     Loaded,
+}
+
+/// What the definition of a function of type `function` says of its
+/// type: the type it carries the name of, and the type it carries a
+/// descriptor of. `bounds` are those of its type parameters, the first
+/// `outer` of which are its enclosers'.
+fn says(
+    function: core::Type,
+    bounds: &[core::Type],
+    outer: usize,
+    handed: bool,
+) -> (Option<core::Type>, Option<core::Type>) {
+    if bounds.is_empty() {
+        return (Some(function), None);
+    }
+    // What it is at the type arguments a value of it holds.
+    let described = handed.then(|| function.clone());
+    // A generic function is of a generic function type. One written
+    // inside another is of a type that depends on the type arguments
+    // of what it is written in, which has no name.
+    let named = (outer == 0).then(|| core::Type::Generic {
+        bounds: bounds.iter().map(|bound| bound.generalized(0)).collect(),
+        function: Box::new(function.generalized(0)),
+    });
+    (named, described)
 }
 
 impl Engine<'_> {
@@ -255,6 +284,18 @@ impl Engine<'_> {
         Ok((indices, symbols))
     }
 
+    /// How many of a function's type parameters are those of what it
+    /// is written in: none, unless it is a lambda.
+    fn enclosing(&self, symbol: &Symbol) -> Result<usize, Error> {
+        let Some((_, path)) = symbol.lambda.split_last() else {
+            return Ok(0);
+        };
+        Ok(match &self.check(&symbol.lambda(path))?.tree {
+            Tree::Function(encloser) => encloser.type_params.len(),
+            _ => 0,
+        })
+    }
+
     fn reached(&self, entry: &Symbol, backend: &dyn Backend, shape: Shape) -> Result<Parts, Error> {
         let (indices, symbols) = self.reach(entry)?;
 
@@ -277,28 +318,18 @@ impl Engine<'_> {
             let metered = metered.contains(&self.hash(symbol)?);
             // The bindings a function is handed come first.
             let function = |bounds: &[core::Type], params: &[core::Type], ret, row: &[_]| {
-                let signature = core::Type::Function {
+                let handed = self.handed(symbol)?;
+                let function = core::Type::Function {
                     params: params.to_vec(),
                     ret: Box::new(Clone::clone(ret)),
                     row: row.to_vec(),
                 };
-                // A generic function is of a generic function type. One
-                // written inside another is of a type that depends on
-                // the type arguments of what it is written in.
-                let signature = if bounds.is_empty() {
-                    Some(signature)
-                } else if symbol.lambda.is_empty() {
-                    Some(core::Type::Generic {
-                        bounds: bounds.iter().map(|bound| bound.generalized(0)).collect(),
-                        function: Box::new(signature.generalized(0)),
-                    })
-                } else {
-                    None
-                };
-                let handed = self.handed(symbol)?;
+                let outer = self.enclosing(symbol)?;
+                let (signature, described) = says(function, bounds, outer, handed);
                 Ok::<Body, Error>(Body::Function {
                     arity: params.len() + 1,
                     signature,
+                    described,
                     types: if handed { bounds.len() } else { 0 },
                     code: self.compile_as(
                         symbol,

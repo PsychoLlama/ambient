@@ -388,3 +388,61 @@ fn a_cell_of_a_type_that_applies_itself_to_other_types_is_tested() {
         Value::Tuple(expected.to_vec())
     );
 }
+
+#[test]
+fn a_generic_lambda_comes_back_out_of_unknown_as_what_it_is() {
+    let plain = ty::function([ty::int()], ty::int());
+    let tests = b::tuple([
+        is(identity(), generic_lambda(b::name("v"))),
+        is(plain, generic_lambda(b::name("v"))),
+    ]);
+    let expected = [true, false].map(Value::Bool);
+    assert_eq!(evaluates(tests, []), Value::Tuple(expected.to_vec()));
+}
+
+/// `fn keeper<T>(kept: T): () -> T`, whose lambda is of a type that
+/// depends on `T`, and holds `T` or not as `holds` says.
+fn keeper(holds: bool) -> Definition {
+    let tested = b::cast(b::name("kept"), t(), b::name("kept"));
+    let body = if holds { tested } else { b::name("kept") };
+    b::function("keeper")
+        .type_param("T")
+        .param("kept", t())
+        .returns(ty::function([], t()))
+        .body(b::lambda([], body))
+}
+
+/// Whether what `keeper` gives for an integer is a function that gives
+/// an integer, and whether it is one that gives a string.
+fn kept_is(holds: bool) -> Value {
+    let made = || b::call(b::instantiate("keeper", [ty::int()]), [b::int(1)]);
+    let gives = |ty| ty::function([], ty);
+    let tests = [
+        is(gives(ty::int()), made()),
+        is(gives(ty::string()), made()),
+    ];
+    evaluates(b::tuple(tests), [keeper(holds)])
+}
+
+#[test]
+fn a_function_is_of_its_type_at_the_type_arguments_it_holds() {
+    let expected = [true, false].map(Value::Bool);
+    assert_eq!(kept_is(true), Value::Tuple(expected.to_vec()));
+}
+
+#[test]
+fn a_function_that_holds_no_type_arguments_says_no_type_that_depends_on_them() {
+    let expected = [false, false].map(Value::Bool);
+    assert_eq!(kept_is(false), Value::Tuple(expected.to_vec()));
+}
+
+#[test]
+fn a_generic_function_at_type_arguments_it_holds_is_a_function_of_that_type() {
+    // `is_a<T>(v: unknown): bool` tests against `T`, so it holds it.
+    let at_int = || b::instantiate("is_a", [ty::int()]);
+    let plain = ty::function([ty::unknown()], ty::bool());
+    let other = ty::function([ty::int()], ty::bool());
+    let tests = b::tuple([is(plain, at_int()), is(other, at_int())]);
+    let expected = [true, false].map(Value::Bool);
+    assert_eq!(evaluates(tests, []), Value::Tuple(expected.to_vec()));
+}

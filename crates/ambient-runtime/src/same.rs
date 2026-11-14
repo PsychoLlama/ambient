@@ -122,6 +122,42 @@ impl Types {
         }
     }
 
+    /// Whether `function` is the type of a function that steps an
+    /// iterator of `item`: one that takes nothing, performs nothing, and
+    /// gives null or a tuple of an item and an iterator of them.
+    pub(crate) unsafe fn steps(&mut self, function: At, item: At) -> bool {
+        unsafe {
+            let (node, from) = self.head(function);
+            if word(node, 0) != d::FUNCTION {
+                return false;
+            }
+            let stepper = self::function(node);
+            let (gives, from) = self.head((stepper.ret, from));
+            if !(stepper.params.is_empty() && stepper.row.is_empty())
+                || word(gives, 0) != d::UNION
+                || word(gives, 1) != 2
+            {
+                return false;
+            }
+            // Null and the step, in either order.
+            let members = span(gives, 2, 2);
+            let is_null = |types: &mut Self, at: u64| word(types.head((at, from)).0, 0) == d::NULL;
+            let step = match (is_null(self, members[0]), is_null(self, members[1])) {
+                (true, false) => members[1],
+                (false, true) => members[0],
+                _ => return false,
+            };
+            let (step, from) = self.head((step, from));
+            if word(step, 0) != d::TUPLE || word(step, 1) != 2 {
+                return false;
+            }
+            let (rest, within) = self.head((word(step, 3), from));
+            word(rest, 0) == d::ITERATOR
+                && self.same((word(step, 2), from), item)
+                && self.same((word(rest, 1), within), item)
+        }
+    }
+
     /// Whether each of `left`, read in a scope, is the same as the one
     /// of `right` beside it.
     unsafe fn each(&mut self, left: (&[u64], Env), right: (&[u64], Env)) -> bool {

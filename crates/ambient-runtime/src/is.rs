@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 
 use crate::cell::made_at;
-use crate::closure::{generic, type_name};
+use crate::closure::{described, generic, type_name};
 use crate::iterator::{Tested, tested};
 use crate::list::members;
 use crate::object::{
@@ -12,7 +12,7 @@ use crate::object::{
 };
 use crate::record::find;
 use crate::same::Types;
-use crate::scope::{Env, Scope, argument};
+use crate::scope::{At, Env, Scope, argument};
 use crate::{FALSE, NULL, TRUE, Word};
 
 /// The layout of a type descriptor: what a cast tests a value against.
@@ -211,6 +211,41 @@ unsafe fn is(mut value: Word, mut ty: u64, mut scope: Env) -> bool {
     }
 }
 
+/// Whether a function whose type depends on the type arguments it
+/// holds is of a type `test` passes: that type is a node, read in those
+/// arguments, and is compared, never named.
+unsafe fn says(
+    function: Word,
+    scopes: &[Scope],
+    test: impl FnOnce(&mut Types, At) -> bool,
+) -> bool {
+    unsafe { described(function).is_some_and(|ty| test(&mut Types::new(scopes), ty)) }
+}
+
+/// Tests `value` against a function type's node, generic or not. A
+/// function's definition names its type, and so does the node: a
+/// function is of that type and no other. Nothing is decided here of
+/// one type being within another.
+unsafe fn function(value: Word, ty: u64, scope: Env, scopes: &[Scope]) -> bool {
+    use descriptor as d;
+    unsafe {
+        let node = |index: usize| (ty as usize as *const u64).add(index).read();
+        // A method is the function reading it gives.
+        if !matches!(kind(value), KIND_CLOSURE | KIND_METHOD) {
+            return false;
+        }
+        // A generic function is of the type its definition names, as
+        // any function is, until it holds its type arguments.
+        if node(0) == d::GENERIC {
+            let name = node(3 + node(1) as usize);
+            return name != 0 && type_name(value) == name && generic(value);
+        }
+        let name = node(4 + node(1) as usize + node(3 + node(1) as usize) as usize);
+        let named = name != 0 && type_name(value) == name;
+        named || says(value, scopes, |types, said| types.same(said, (ty, scope)))
+    }
+}
+
 /// Tests `value` against the node at `ty` alone: whatever the node says
 /// of the values inside it is left to the caller.
 unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Look {
@@ -294,29 +329,18 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
                     return Look::Answer(false);
                 }
                 match tested(value) {
-                    Tested::Function(function) => node(2) != 0 && type_name(function) == node(2),
+                    Tested::Function(function) => {
+                        let named = node(2) != 0 && type_name(function) == node(2);
+                        let item = (node(1), scope);
+                        named || says(function, scopes, |types, ty| types.steps(ty, item))
+                    }
                     Tested::Items(members) => {
                         let node = node(1);
                         return inside(true, Inside::Every { node, members });
                     }
                 }
             }
-            // A generic function is of the type its definition names,
-            // as any function is, until it holds its type arguments.
-            d::GENERIC => {
-                let name = node(3 + node(1) as usize);
-                let function = matches!(kind(value), KIND_CLOSURE | KIND_METHOD);
-                function && name != 0 && type_name(value) == name && generic(value)
-            }
-            // A function's definition names its type, and so does the
-            // node: a function is of that type and no other. Nothing is
-            // decided here of one type being within another.
-            d::FUNCTION => {
-                let name = node(4 + node(1) as usize + node(3 + node(1) as usize) as usize);
-                // A method is the function reading it gives.
-                let function = matches!(kind(value), KIND_CLOSURE | KIND_METHOD);
-                function && name != 0 && type_name(value) == name
-            }
+            d::GENERIC | d::FUNCTION => function(value, ty as u64, scope, scopes),
             _ => false,
         })
     }

@@ -14,7 +14,7 @@ use crate::lir::Constant;
 /// What the bytes begin with. Bump it when [`Parts`] changes, or
 /// anything compiled code relies on: a layout, the calling convention,
 /// an entry point of the runtime.
-const FORMAT: u32 = 15;
+const FORMAT: u32 = 16;
 
 /// Why bytes cannot be loaded.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -102,6 +102,7 @@ impl Body {
             Self::Function {
                 constants,
                 signature,
+                described,
                 ..
             } => {
                 let constant = |constant: &Constant| match constant {
@@ -115,7 +116,8 @@ impl Body {
                     | Constant::Native
                     | Constant::Own => true,
                 };
-                constants.iter().all(constant) && signature.as_ref().is_none_or(ty)
+                let types = signature.iter().chain(described);
+                constants.iter().all(constant) && types.into_iter().all(ty)
             }
             Self::Type(of) => ty(of),
             Self::Inert => true,

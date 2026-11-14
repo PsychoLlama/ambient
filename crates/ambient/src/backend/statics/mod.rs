@@ -167,6 +167,7 @@ pub fn plan(parts: &Parts, base: &Base) -> Statics {
                 constants,
                 metered,
                 signature,
+                described,
                 types,
                 ..
             } => {
@@ -182,6 +183,10 @@ pub fn plan(parts: &Parts, base: &Base) -> Statics {
                     statics.set(at + 4, name);
                 }
                 statics.set(at + 5, Field::Word(*types as u64));
+                if let Some(described) = described {
+                    let node = statics.constant(described, &slots);
+                    statics.set(at + 6, node.field());
+                }
                 for (position, slot) in slots.iter().enumerate() {
                     statics.set(at + DEFINITION_WORDS + position, slot.address.field());
                 }

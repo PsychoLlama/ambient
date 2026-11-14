@@ -1,7 +1,10 @@
 //! Closures, and starting a fault.
 
-use crate::object::layout::{DEFINITION_HASH, DEFINITION_TYPE, DEFINITION_TYPES};
+use crate::object::layout::{
+    DEFINITION_DESCRIBED, DEFINITION_HASH, DEFINITION_TYPE, DEFINITION_TYPES,
+};
 use crate::object::{KIND_CLOSURE, KIND_SCOPE, amb_retain, bytes, fault, kind, object, words};
+use crate::scope::{At, Env};
 use crate::unit::{self, amb_unit_retain};
 use crate::{Context, Fault, NULL, Word};
 
@@ -71,6 +74,18 @@ pub(crate) unsafe fn generic(closure: Word) -> bool {
     unsafe {
         let held = scope(closure).map_or(0, |scope| words(scope).len() / 2);
         held < handed(closure) || handed(closure) == 0
+    }
+}
+
+/// The type of a closure's function where that depends on type
+/// arguments: a node, read in those the closure holds. Nothing if the
+/// type does not depend on them, or the closure does not hold them all.
+pub(crate) unsafe fn described(closure: Word) -> Option<At> {
+    unsafe {
+        let definition = words(closure)[0] as usize as *const u64;
+        let node = definition.add(DEFINITION_DESCRIBED as usize / 8).read();
+        let scope = scope(closure)?;
+        (node != 0 && !generic(closure)).then_some((node, Env::given(scope)))
     }
 }
 
