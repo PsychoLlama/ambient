@@ -1,0 +1,27 @@
+import ambient.fs;
+import ambient.Error;
+import pkg.item;
+import pkg.item.{Item};
+
+/// The items a file keeps, in order. A file that is not there keeps none.
+pub fn load(path: string): List<Item> | Error with fs.read, fs.exists {
+    if !fs.exists!(path) {
+        return [];
+    }
+    match fs.read!(path) {
+        let error: Error => { return error; }
+        let text: string => { return parse(text); }
+    }
+}
+
+/// Makes a file keep `items`.
+pub fn save(path: string, items: List<Item>): null | Error with fs.write =>
+    fs.write!(path, items.map(item.write).join_with("\n") ++ "\n");
+
+/// The items of a file's text. A line that keeps no item is passed over.
+pub fn parse(text: string): List<Item> =>
+    text.lines().fold([], fn(items: List<Item>, line: string): List<Item> =>
+        match item.read(line) {
+            null => items,
+            let found => items.push(found),
+        });

@@ -1,0 +1,83 @@
+import ambient.console;
+import ambient.env;
+import ambient.fs;
+import ambient.Error;
+import ambient.test.{check};
+import pkg.item;
+import pkg.item.{Item};
+import pkg.store;
+
+/// Keeps a list of things to do in a file: `add <text>`, `done <number>`,
+/// and `list`, which is what no command means.
+pub fn main(): int with console, env, fs {
+    let path = env.variable!("TODO_FILE") as string else "todo.txt";
+    let items: List<Item> = store.load(path) else {
+        let error => { return fail(error); }
+    };
+    let changed: List<Item> = change(items, env.args!()) else {
+        let problem => {
+            console.warn!(problem);
+            return 2;
+        }
+    };
+    show(changed);
+    let null = store.save(path, changed) else {
+        let error => { return fail(error); }
+    };
+    return 0;
+}
+
+fn fail(error: Error): int with console.warn {
+    console.warn!("todo: ${error.message}");
+    return 1;
+}
+
+/// The items after a command, or what is wrong with the command.
+fn change(items: List<Item>, command: List<string>): List<Item> | string {
+    match (command.get(0), command.get(1)) {
+        (null, _) => { return items; }
+        ("list", _) => { return items; }
+        ("add", let text: string) => { return items.push({ text, done: false }); }
+        ("done", let number: string) => { return finish(items, number.to_int()); }
+        _ => { return "usage: todo [list | add <text> | done <number>]"; }
+    }
+}
+
+/// The items with the one numbered `number`, from one, done.
+fn finish(items: List<Item>, number: int | null): List<Item> | string {
+    let number: int = number else {
+        null => { return "done takes the number of an item"; }
+    };
+    if number < 1 || number > items.length() {
+        return "there is no item ${number}";
+    }
+    return items.iter().enumerate()
+        .map(fn(each) => match each {
+            (let at, let found) => match at + 1 == number {
+                true => { ...found, done: true },
+                false => found,
+            },
+        })
+        .to_list();
+}
+
+fn show(items: List<Item>): null with console.print {
+    items.iter().enumerate().each(fn(each) {
+        let (at, found) = each;
+        console.print!("${at + 1}. ${item.write(found)}");
+    });
+}
+
+fn test_a_command_changes_the_items(): null with check {
+    let items = store.parse("[ ] tea\n[x] milk\nnot an item\n");
+    let lines = fn(changed: List<Item> | string): string =>
+        match changed {
+            let problem: string => problem,
+            let changed: List<Item> => changed.map(item.write).join_with(","),
+        };
+
+    check!(lines(change(items, [])) == "[ ] tea,[x] milk", "no command changes nothing");
+    check!(lines(change(items, ["add", "jam"])) == "[ ] tea,[x] milk,[ ] jam", "add adds last");
+    check!(lines(change(items, ["done", "1"])) == "[x] tea,[x] milk", "done marks by number");
+    check!(lines(change(items, ["done", "3"])) == "there is no item 3", "done refuses a number past the end");
+}
