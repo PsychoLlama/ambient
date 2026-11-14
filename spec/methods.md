@@ -46,7 +46,7 @@ A method is a function reached through a value it then receives. A record's meth
 
 ## Keys
 
-- A key is a [definition](definitions.md): a [tag](definitions.md), and the type of what a record holds under it.
+- A key is a [definition](definitions.md) with an [identity](definitions.md), and the type of what a record holds under it.
 - A record may hold a field or a method under a key as it does under a name, and its type says so.
 - A record names a key where it names an [ability](handlers.md) it handles; a name that is both means the ability.
 - Two keys are the same only if they are the same definition, so a key collides with no name and with no other package's key.

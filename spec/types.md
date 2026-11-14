@@ -76,7 +76,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - A cast to a type parameter is allowed, and tests against the type argument, which a generic function [receives at run time](backends.md).
 - Only a function that casts to a type parameter, makes a cell at one, or hands one on to a function that does, needs its type arguments.
 - A cast never adds a brand to a value.
-- A cast to a handle type is decidable, because a handle carries the tag it was minted under.
+- A cast to a handle type is decidable, because a handle carries the brand it was minted under.
 - Values that enter from outside the program, [received values](exchange.md) included, enter as `unknown`.
 
 ## Narrowing
@@ -94,7 +94,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 
 ## Brands
 
-- A brand is a type with a tag and no structure.
+- A brand is a type with an [identity](definitions.md) and no structure.
 - `T & Brand` is a subtype of `T`; going the other way is the branding operation.
 - Branding is permitted only in the module that declares the brand.
 - Brands are erased: they constrain code compiled from source and are not a security boundary; see [exchange](exchange.md).

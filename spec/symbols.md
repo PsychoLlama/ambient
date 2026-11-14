@@ -6,6 +6,7 @@ A symbol is the one canonical name of a definition within a workspace. Every oth
 
 - A symbol is a [package instance](packages.md), a module path, a namespace, and a name path.
 - The namespaces are type, value, ability, and key; a module may define the same name once in each.
+- A [tag](definitions.md) is named in both the type and the value namespace.
 - Types live in the type namespace; functions, externs, and targets in the value namespace; abilities and row aliases in the ability namespace; [keys](methods.md) in the key namespace.
 - A nested named function extends its encloser's name path.
 - Lambdas, parameters, and local binders are addressed by their owning symbol and their position in its tree, never by source position.
@@ -27,7 +28,7 @@ A symbol is the one canonical name of a definition within a workspace. Every oth
 - Resolving a name needs the definition tables of the current module, the modules it imports, and its package's [preludes](modules.md), never a type or a body.
 - A module's definition table is readable from its file alone, except for [generated modules](comptime.md).
 - Every name in a module is attributable by reading that module: imports list what they bring in, and preludes are the only implicit scope.
-- Record fields and tags are not symbols, because resolving them would need types.
+- Record fields are not symbols, because resolving them would need types.
 
 ## Index
 
@@ -38,6 +39,6 @@ A symbol is the one canonical name of a definition within a workspace. Every oth
 
 ## Migrations
 
-- Renaming or moving a symbol rewrites its reference sites and nothing else, and needs no types.
+- Renaming or moving a symbol rewrites its reference sites and nothing else, and needs no types. It changes hashes only if the definition has an [identity](definitions.md).
 - A migration is an [edit](trees.md) addressed by symbol.
 - A package release may carry migrations from old public names to new ones, which dependents apply mechanically.

@@ -5,7 +5,7 @@ An error is a structured value of one standard shape, and it is the only thing t
 ## Shape
 
 - `Error` is a record type with a kind, a message, a cause, and a trace.
-- The kind is a [tag value](definitions.md); it identifies what went wrong and is what code matches on.
+- The kind is a [tag](definitions.md) value; it identifies what went wrong and is what code matches on.
 - The message is text for a person; nothing parses it.
 - The cause is another error or `null`.
 - `Error` is an interface, not a closed set: any record with these fields is an error, and a specific error adds its own fields.
@@ -17,8 +17,7 @@ An error is a structured value of one standard shape, and it is the only thing t
 - An ability other than `throw` that returns `never` is control flow, not an error, and carries whatever its signature says.
 - A [boundary](values.md) reports the fault it contained as an `Error`.
 - A program's root is a boundary: a fault that ends a program reaches its host as the same `Error`.
-- The kind of such an error is a tag of the language's own package, one for each fault.
-- The standard library defines `Error` and a type for each of those tags; a program names a fault's kind through them, since a tag it writes is one of its own package.
+- The kind of such an error is a tag the standard library declares, one for each fault, beside `Error`.
 
 ## Traces
 

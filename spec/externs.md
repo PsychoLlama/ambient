@@ -1,6 +1,6 @@
 # Externs
 
-An extern is a definition implemented in native code. Ambient declares the interface, and a native bundle supplies the implementation by tag.
+An extern is a definition implemented in native code. Ambient declares the interface, and a native bundle supplies the implementation by the extern's [identity](definitions.md).
 
 ## Kinds
 
@@ -12,7 +12,7 @@ An extern is a definition implemented in native code. Ambient declares the inter
 
 ## Declaration
 
-- An extern is declared in Ambient with a tag and a full signature, and is checked like any other header.
+- An extern is declared in Ambient with a full signature, and is checked like any other header.
 - A native handler names the ability it implements and takes that ability's signature.
 - A native handler may declare a row of abilities it performs.
 - An extern with no native counterpart for the selected target is a link error only if the entry reaches it.
@@ -30,7 +30,7 @@ An extern is a definition implemented in native code. Ambient declares the inter
 
 ## Linking
 
-- A program lists the externs its entry reaches; whoever loads it supplies native code for each, found by package and tag, before it runs.
+- A program lists the externs its entry reaches; whoever loads it supplies native code for each, found by its identity, before it runs.
 - Compiled code names an extern by its position in that list, never by address, so an [artifact](build.md) is the same whatever native code it is loaded with.
 - A program that reaches an extern nobody supplied is not loaded.
 

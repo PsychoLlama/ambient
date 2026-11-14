@@ -4,7 +4,7 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 
 ## Kinds
 
-- Types, functions, abilities, row aliases, externs, and targets are definitions.
+- Types, functions, abilities, row aliases, externs, targets, [keys](methods.md), and tags are definitions.
 - Functions are the only definitions with a body.
 - A lambda or nested function is its own definition once checked: it is hashed separately and its encloser refers to it by hash.
 - There are no top-level values; a constant is a function with no parameters.
@@ -13,7 +13,7 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 
 - A type's interface is the type itself.
 - A function's interface is its signature: type parameters, parameter types, return type, and [row](abilities.md).
-- An ability's or extern's interface is its signature and its tag.
+- An ability's or extern's interface is its signature and its identity.
 - An interface is determined by the definition's header and the interfaces of the types it names, never by any body.
 - Nothing in a header is inferred: an omitted return type is `null` and an omitted row is empty.
 - A lambda's header is filled in from the context it is checked in; that is the only inference that produces an interface.
@@ -25,14 +25,14 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 ## Hash
 
 - A hash covers a definition's [core tree](trees.md) with every reference replaced by the hash of what it refers to.
-- Structure, literals, record field names, and tags are content.
+- Structure, literals, and record field names are content, and so is the identity of a definition that has one.
 - Names of definitions, parameters, locals, and type parameters are not content; neither are doc comments, source positions, declaration order, or the module a definition lives in.
-- Renaming a definition, or moving it within its package, never changes any hash.
+- Renaming a definition that has no identity, or moving it within its package, never changes any hash.
 - Two definitions with the same content have the same hash, whatever their [symbols](symbols.md).
 - A function's hash covers its signature.
 - Hashes are independent of backend and platform; no compiled artifact feeds a hash.
 - A [comptime](comptime.md) result is content of the definition it was spliced into.
-- An extern's hash covers only its tag and signature; see [externs](externs.md).
+- An extern's hash covers only its identity and signature; see [externs](externs.md).
 
 ## Groups
 
@@ -49,11 +49,21 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 - Editing a function's header rechecks its direct dependents and stops there, because their interfaces do not depend on it.
 - Editing a type propagates through every interface that names it, and no further.
 
+## Identity
+
+- Some definitions are told apart by where they are declared, since structure cannot tell them apart: [brands](types.md), [keys](methods.md), [abilities](abilities.md), [externs](externs.md), and tags.
+- The identity of one is its package's [ID](packages.md), its module path, and its name. Nothing else in the language is nominal.
+- An identity is written nowhere: it is read from the declaration, so no second name can drift from the first or collide with another by accident.
+- An identity is content. It is the one place a name reaches a hash.
+- Renaming such a definition, or moving it to another module or package, makes it a different one, and changes the hash of everything that refers to it.
+- Two packages that declare the same name in the same module path declare different things; a fork keeps its origin's ID, and so its origin's identities.
+- A definition with an identity is reached like any other: imported, exported, and found by its [symbol](symbols.md). Nothing refers to one by spelling its identity.
+- TODO: nothing maps an old identity to a new one, so a rename or a move parts values and programs made before it from those made after.
+
 ## Tags
 
-- A tag is a string literal that supplies identity where structure cannot: on [brands](types.md), [keys](methods.md), [abilities](abilities.md), and [externs](externs.md).
-- A tag may also be written as a value: a comparable, serialisable token that is equal only to the same tag.
-- Nothing else in the language is nominal.
-- A tag is unique within the package that declares it and is scoped by that package's [ID](packages.md), never by a name.
-- Equal strings in two packages are different tags; a fork keeps its origin's tags.
-- A tag is content: editing it, or moving its definition to another package, changes the hash.
+- A tag is a definition with an identity and nothing else.
+- Naming a tag where a value is expected gives a tag value: a comparable, serialisable token that is equal only to the same tag.
+- Naming it where a type is expected gives the [literal type](types.md) of that value.
+- A tag is declared before it is used: no expression makes one, and none is written by its text.
+- Another package uses a tag only if the tag is exported to it.

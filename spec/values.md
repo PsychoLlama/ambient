@@ -11,7 +11,7 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 - A function whose type depends on type arguments is of that type at the arguments it holds, and says so.
 - TODO: a function holds type arguments only if it [needs them](backends.md) as it runs. One whose type depends on arguments it does not hold says no type, so it never comes back out of `unknown`.
 - A handle is an opaque reference minted by [native code](externs.md).
-- A handle carries the tag it was minted under and has no structure to inspect.
+- A handle carries the [brand](types.md) it was minted under and has no structure to inspect.
 - No cast creates a handle.
 
 ## Sharing

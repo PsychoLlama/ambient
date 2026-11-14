@@ -4,8 +4,8 @@ An ability is an operation that code may perform but does not implement. Abiliti
 
 ## Definition
 
-- An ability is a tag and a signature; it has no body and no default implementation.
-- An ability's identity is its tag and signature together; an implementation can change without the ability changing, because the ability has none.
+- An ability is a signature with an [identity](definitions.md); it has no body and no default implementation.
+- Two abilities are the same only if identity and signature both agree; an implementation can change without the ability changing, because the ability has none.
 - Abilities are standalone: no enclosing interface or set owns one.
 - Abilities are static: they are defined in modules and never created at runtime.
 - An ability is not a value; it appears only in rows, in performs, and as a [bundle](handlers.md) key.
