@@ -23,6 +23,17 @@ const RESERVED: [&str; 25] = [
     "null", "never", "unknown",
 ];
 
+/// A function in a block, while its body is read. A use of its name
+/// there is a read of the record it will be a method of.
+pub(super) struct Own {
+    /// Which of the locals it is.
+    pub(super) local: usize,
+    /// The name its body has for that record.
+    pub(super) receiver: String,
+    /// Whether its body named it.
+    pub(super) used: bool,
+}
+
 pub(super) struct Parser {
     tokens: Vec<Token>,
     positions: Vec<Position>,
@@ -32,6 +43,9 @@ pub(super) struct Parser {
     /// The type a method that states no need needs: the definition being
     /// read, while its own record is.
     own: Option<Type>,
+    /// The functions in a block whose bodies are being read, innermost
+    /// last.
+    calling: Vec<Own>,
     /// How many names the reader has made up.
     made: usize,
     /// Where each definition read so far is.
@@ -46,6 +60,7 @@ impl Parser {
             index: 0,
             locals: Vec::new(),
             own: None,
+            calling: Vec::new(),
             made: 0,
             defined: Vec::new(),
         }
@@ -211,5 +226,15 @@ impl Parser {
 
     fn is_local(&self, name: &str) -> bool {
         self.locals.iter().any(|local| local == name)
+    }
+
+    /// The record a function in a block is a method of, if `name` is
+    /// one whose body this is: nothing nearer has the name. The
+    /// function is noted as naming itself.
+    fn own_receiver(&mut self, name: &str) -> Option<String> {
+        let local = self.locals.iter().rposition(|local| local == name)?;
+        let own = self.calling.iter_mut().find(|own| own.local == local)?;
+        own.used = true;
+        Some(own.receiver.clone())
     }
 }

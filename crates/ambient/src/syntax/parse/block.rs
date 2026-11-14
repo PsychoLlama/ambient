@@ -8,8 +8,8 @@
 use super::super::lex::Token;
 use super::expr::{choose, name};
 use super::patterns::Mode;
-use super::{Parsed, Parser};
-use crate::surface::{Arm, Expr, Pattern};
+use super::{Own, Parsed, Parser};
+use crate::surface::{Arm, Expr, Key, Pattern};
 use crate::syntax::Position;
 
 #[derive(Clone)]
@@ -124,14 +124,9 @@ impl Parser {
         if self.eat_word("match") {
             return self.match_statement(began);
         }
-        // A function in a block is a local that holds it.
         if self.at_word("fn") && self.peek_ahead_is_name() {
             self.advance();
-            let function = self.name()?;
-            let written = self.written()?.lambda();
-            self.locals.push(function.clone());
-            let binder = Pattern::Bind(function, Box::new(Pattern::Wildcard));
-            return Ok(Statement::Let(began, binder, written));
+            return self.function_in_block(began);
         }
         // A construct that ends in its own block needs nothing after it.
         let scope = ["try", "budget", "provide", "observe", "group", "spawn"];
@@ -141,6 +136,40 @@ impl Parser {
             self.expect(";")?;
         }
         Ok(Statement::Expr(value))
+    }
+
+    /// A function in a block, after `fn`: a local that holds it.
+    ///
+    /// One that names itself cannot be a lambda, which is made before
+    /// anything is bound to it. It is the one method of a record, read
+    /// from that record: a method is handed its record, so the body
+    /// reaches the function through it and nothing holds itself.
+    fn function_in_block(&mut self, began: usize) -> Parsed<Statement> {
+        let function = self.name()?;
+        let receiver = self.made_up("own");
+        self.calling.push(Own {
+            local: self.locals.len(),
+            receiver: receiver.clone(),
+            used: false,
+        });
+        self.locals.push(function.clone());
+        let written = self.written();
+        let named_itself = self.calling.pop().is_some_and(|own| own.used);
+        let mut written = written?;
+        // One whose body is an expression ends as a statement does.
+        self.eat(";");
+        let value = if named_itself {
+            written.params.insert(0, (receiver, None));
+            let method = Expr::Method(Box::new(written.lambda()));
+            Expr::Field {
+                target: Box::new(Expr::Record(vec![(Key::Field(function.clone()), method)])),
+                key: Key::Field(function.clone()),
+            }
+        } else {
+            written.lambda()
+        };
+        let binder = Pattern::Bind(function, Box::new(Pattern::Wildcard));
+        Ok(Statement::Let(began, binder, value))
     }
 
     fn peek_ahead_is_name(&self) -> bool {

@@ -330,5 +330,5 @@ pub fn main(): string {
 - A type error is reported at its line and column. A fault while running names only the functions it left.
 - `all` and `first` followed by `(` always start tasks, so a function cannot be called by those names.
 - A record type that names a key says its type again: `{ [dispose](): null }`.
-- A function written inside another cannot call itself; make it a definition.
+- A function written inside another may call itself, and then says its parameter and return types.
 - There is no way yet to depend on a package except by a path in the manifest: `[dependencies] text = { path = "../text" }`.

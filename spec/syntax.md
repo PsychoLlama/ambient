@@ -37,6 +37,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - A call is a callee and arguments in parentheses; a method call puts a receiver and a dot before it.
 - A [perform](abilities.md) is written as a call with `!` after the ability, so every place a function reaches outside itself is visible where it does.
 - A lambda is `fn`, parameters, and a body.
+- A function named in a block is a local that holds it, and its body may call it by that name; one that does states its types, as a [method](methods.md) does.
 - A record is members between braces: a field, a field named for a local of the same name, a function or method written with its parameters, or `...` and a record to [merge](methods.md) over.
 - A member whose first parameter is `self` is a [method](methods.md); with any other first parameter it is a function.
 - A record names a [key](methods.md) or an [ability](handlers.md) in square brackets, where it would name a field, and indexing by one in square brackets reads it.

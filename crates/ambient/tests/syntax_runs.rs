@@ -363,3 +363,24 @@ fn a_parameter_of_a_lambda_is_taken_apart_by_a_pattern() {
 
     assert_eq!(text(source), "a1,b2 3");
 }
+
+#[test]
+fn a_function_in_a_block_may_call_itself() {
+    let source = r"
+        fn sum(items: List<int>): int {
+            fn go(at: int, total: int): int {
+                let item: int = items.get(at) else {
+                    null => { return total; }
+                };
+                return go(at + 1, total + item);
+            }
+            return go(0, 0);
+        }
+        fn main(): int {
+            fn double(n: int): int => n * 2;
+            return double(sum([1, 2, 3]));
+        }
+    ";
+
+    assert_eq!(int(source), 12);
+}

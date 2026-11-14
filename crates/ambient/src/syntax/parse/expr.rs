@@ -328,7 +328,16 @@ impl Parser {
     /// performed or given type arguments.
     fn named(&mut self) -> Parsed<Expr> {
         if matches!(self.peek(), Token::Word(word) if self.is_local(word)) {
-            return Ok(name(&self.name()?));
+            let local = self.name()?;
+            // A function in a block names itself through the record it
+            // is a method of: see `Parser::function_in_block`.
+            return Ok(match self.own_receiver(&local) {
+                Some(receiver) => Expr::Field {
+                    target: Box::new(name(&receiver)),
+                    key: Key::Field(local),
+                },
+                None => name(&local),
+            });
         }
         let path = self.path()?;
         if self.at("!") && matches!(self.peek_at(1), Token::Mark("(")) {
