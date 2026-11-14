@@ -328,6 +328,7 @@ Import a module by path; its public definitions are reached through its name, or
 | ------------------------------------------------------------ | -------------------------------------------------- |
 | `ambient.string`, `list`, `int`, `float`, `iterator`, `cell` | the methods of each shape                          |
 | `ambient.dict`                                               | `Dict<V>`: values by string key, read in key order |
+| `ambient.json`                                               | `Json`, `parse`, `write`, `get`, `at`              |
 | `ambient.console`                                            | `write`, `print`, `warn`, `read_line`              |
 | `ambient.env`                                                | `args`, `variable`                                 |
 | `ambient.fs`                                                 | `read`, `write`, `list`, `exists`                  |
@@ -345,10 +346,29 @@ pub fn main(): string {
 }
 ```
 
+JSON is read into ordinary values: a list is a `List<Json>`, an object a `Dict<Json>`. Text that is not JSON throws.
+
+```ab
+import ambient.json;
+import ambient.{catch, Error};
+
+pub fn main(): string {
+    let read = catch(fn() => json.parse("{\"name\": \"web\", \"ports\": [80, 443]}"));
+    match read {
+        let error: Error => { return error.message; }
+        let config => {
+            let port = json.at(json.get(config, "ports"), 1) as int else 0;
+            return "${json.get(config, "name") as string else "?"} on ${port}: ${json.write(config)}";
+        }
+    }
+}
+```
+
 ## What will trip you up
 
 - A type error is reported at its line and column. A fault while running names only the functions it left.
 - `all` and `first` followed by `(` always start tasks, so a function cannot be called by those names.
 - A record type that names a key says its type again: `{ [dispose](): null }`.
+- A record with methods, such as a `Dict`, cannot be tested for by its type. In a match, `let fields: {}` takes any record and `let items: List<unknown>` any list, each bound as what the value was known to be.
 - A function written inside another may call itself, and then says its parameter and return types.
 - There is no way yet to depend on a package except by a path in the manifest: `[dependencies] text = { path = "../text" }`.

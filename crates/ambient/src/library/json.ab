@@ -1,0 +1,334 @@
+import pkg.dict;
+import pkg.dict.{Dict};
+import pkg.errors.{fail, throw};
+
+/// Text that is not JSON. The message says where and what was expected.
+pub tag malformed;
+
+/// A JSON value. An object is a dictionary, so its members are read in
+/// the order of their names, never the order they were written in.
+pub type Json = null | bool | int | float | string | List<Json> | Dict<Json>;
+
+/// The value that `text` is JSON for.
+pub fn parse(text: string): Json with throw {
+    let (found, after) = value(text, blank(text, 0));
+    let end = blank(text, after);
+    if end < text.length() {
+        wrong(text, end, "expected the end");
+    }
+    return found;
+}
+
+/// The JSON for a value, with nothing between its parts. A float that
+/// is no number is written `null`, since JSON has no way to say it.
+pub fn write(value: Json): string {
+    match value {
+        null => { return "null"; }
+        true => { return "true"; }
+        false => { return "false"; }
+        let number: int => { return number.to_text(); }
+        let number: float => { return number - number == 0.0 ? number.to_text() : "null"; }
+        let text: string => { return quote(text); }
+        let items: List<unknown> => {
+            return "[" ++ items.map(write).join_with(",") ++ "]";
+        }
+        let members: {} => {
+            let each = fn((name, member): (string, Json)): string => quote(name) ++ ":" ++ write(member);
+            return "{" ++ members.entries().map(each).join_with(",") ++ "}";
+        }
+    }
+}
+
+/// What an object holds under a name: null if it holds nothing there,
+/// or if `value` is no object.
+pub fn get(value: Json, name: string): Json {
+    match value {
+        null => { return null; }
+        let _: bool | int | float | string | List<unknown> => { return null; }
+        let members: {} => { return members.get(name); }
+    }
+}
+
+/// The member of an array at a position: null if it has none there, or
+/// if `value` is no array.
+pub fn at(value: Json, position: int): Json {
+    match value {
+        let items: List<unknown> => { return items.get(position); }
+        _ => { return null; }
+    }
+}
+
+/// Leaves, saying what was expected at a position of the text.
+fn wrong(text: string, at: int, expected: string): never with throw {
+    let before = (text.slice(0, at) as string else text).split("\n");
+    let column = (before.last() as string else "").length() + 1;
+    return fail(malformed, "${expected} at line ${before.length()}, column ${column}");
+}
+
+/// The character at a position, if it is one byte: nothing at the end
+/// of the text or inside a longer character.
+fn peek(text: string, at: int): string => text.slice(at, at + 1) as string else "";
+
+/// The text between two positions, which are not inside a character.
+fn between(text: string, start: int, end: int): string => text.slice(start, end) as string else "";
+
+/// The first position from `at` on that holds no space.
+fn blank(text: string, at: int): int {
+    let here = peek(text, at);
+    if here == " " || here == "\n" || here == "\t" || here == "\r" {
+        return blank(text, at + 1);
+    }
+    return at;
+}
+
+/// The value that begins at a position, and the position after it.
+fn value(text: string, at: int): (Json, int) with throw {
+    let here = peek(text, at);
+    if here == "{" {
+        return object(text, blank(text, at + 1));
+    }
+    if here == "[" {
+        return array(text, blank(text, at + 1));
+    }
+    if here == "\"" {
+        return quoted(text, at + 1);
+    }
+    if here == "t" {
+        return word(text, at, "true", true);
+    }
+    if here == "f" {
+        return word(text, at, "false", false);
+    }
+    if here == "n" {
+        return word(text, at, "null", null);
+    }
+    return number(text, at);
+}
+
+fn word(text: string, at: int, written: string, means: Json): (Json, int) with throw {
+    let end = at + written.length();
+    if between(text, at, end) != written {
+        wrong(text, at, "expected a value");
+    }
+    return (means, end);
+}
+
+/// An array, after its bracket and any space.
+fn array(text: string, at: int): (Json, int) with throw {
+    if peek(text, at) == "]" {
+        return ([], at + 1);
+    }
+    return items(text, at, []);
+}
+
+fn items(text: string, at: int, read: List<Json>): (Json, int) with throw {
+    let (item, after) = value(text, at);
+    let next = blank(text, after);
+    let here = peek(text, next);
+    if here == "," {
+        return items(text, blank(text, next + 1), read.push(item));
+    }
+    if here != "]" {
+        wrong(text, next, "expected `,` or `]`");
+    }
+    return (read.push(item), next + 1);
+}
+
+/// An object, after its brace and any space.
+fn object(text: string, at: int): (Json, int) with throw {
+    if peek(text, at) == "}" {
+        return (dict.empty::<Json>(), at + 1);
+    }
+    return members(text, at, dict.empty::<Json>());
+}
+
+fn members(text: string, at: int, read: Dict<Json>): (Json, int) with throw {
+    if peek(text, at) != "\"" {
+        wrong(text, at, "expected a name");
+    }
+    let (name, after) = quoted(text, at + 1);
+    let colon = blank(text, after);
+    if peek(text, colon) != ":" {
+        wrong(text, colon, "expected `:`");
+    }
+    let (member, rest) = value(text, blank(text, colon + 1));
+    let next = blank(text, rest);
+    let here = peek(text, next);
+    if here == "," {
+        return members(text, blank(text, next + 1), read.set(name, member));
+    }
+    if here != "}" {
+        wrong(text, next, "expected `,` or `}`");
+    }
+    return (read.set(name, member), next + 1);
+}
+
+/// A string, after its opening quote.
+fn quoted(text: string, at: int): (string, int) with throw => pieces(text, at, at, "");
+
+/// The rest of a string: `read` is what it holds so far, up to `from`,
+/// and everything from there to `at` is written as it is meant.
+fn pieces(text: string, from: int, at: int, read: string): (string, int) with throw {
+    if at >= text.length() {
+        wrong(text, at, "expected `\"`");
+    }
+    let here = peek(text, at);
+    if here == "\"" {
+        return (read ++ between(text, from, at), at + 1);
+    }
+    if here == "\\" {
+        let (meant, after) = escape(text, at + 1);
+        return pieces(text, after, after, read ++ between(text, from, at) ++ meant);
+    }
+    if (here.code() as int else 32) < 32 {
+        wrong(text, at, "expected a character that is not a control");
+    }
+    return pieces(text, from, at + 1, read);
+}
+
+/// What an escape stands for, after its backslash.
+fn escape(text: string, at: int): (string, int) with throw {
+    let here = peek(text, at);
+    if here == "\"" || here == "\\" || here == "/" {
+        return (here, at + 1);
+    }
+    if here == "n" {
+        return ("\n", at + 1);
+    }
+    if here == "t" {
+        return ("\t", at + 1);
+    }
+    if here == "r" {
+        return ("\r", at + 1);
+    }
+    if here == "b" {
+        return (character(text, at, 8), at + 1);
+    }
+    if here == "f" {
+        return (character(text, at, 12), at + 1);
+    }
+    if here != "u" {
+        wrong(text, at, "expected an escape");
+    }
+    let first = hex(text, at + 1, 4, 0);
+    // A character past the first plane is written as two halves.
+    if first >= 55296 && first < 56320 && between(text, at + 5, at + 7) == "\\u" {
+        let second = hex(text, at + 7, 4, 0);
+        if second >= 56320 && second < 57344 {
+            let whole = 65536 + (first - 55296) * 1024 + (second - 56320);
+            return (character(text, at, whole), at + 11);
+        }
+    }
+    return (character(text, at, first), at + 5);
+}
+
+/// The character of a scalar value an escape at a position names.
+fn character(text: string, at: int, scalar: int): string with throw {
+    let made: string = scalar.to_character() else {
+        null => { return wrong(text, at, "expected an escape that names a character"); }
+    };
+    return made;
+}
+
+/// The number that `count` hexadecimal digits from a position say,
+/// after `read`.
+fn hex(text: string, at: int, count: int, read: int): int with throw {
+    if count == 0 {
+        return read;
+    }
+    let digit = peek(text, at).code() as int else 0;
+    if digit >= 48 && digit < 58 {
+        return hex(text, at + 1, count - 1, read * 16 + digit - 48);
+    }
+    if digit >= 97 && digit < 103 {
+        return hex(text, at + 1, count - 1, read * 16 + digit - 87);
+    }
+    if digit >= 65 && digit < 71 {
+        return hex(text, at + 1, count - 1, read * 16 + digit - 55);
+    }
+    return wrong(text, at, "expected a hexadecimal digit");
+}
+
+/// The first position from `at` on that holds no digit.
+fn digits(text: string, at: int): int {
+    let digit = peek(text, at).code() as int else 0;
+    if digit >= 48 && digit < 58 {
+        return digits(text, at + 1);
+    }
+    return at;
+}
+
+/// Where the digits a part of a number must have end.
+fn part(text: string, at: int): int with throw {
+    let end = digits(text, at);
+    if end == at {
+        wrong(text, at, "expected a digit");
+    }
+    return end;
+}
+
+/// A number: one with no fraction and no exponent is an integer, if it
+/// is small enough to be one.
+fn number(text: string, at: int): (Json, int) with throw {
+    let whole = peek(text, at) == "-" ? at + 1 : at;
+    let counted = digits(text, whole);
+    if counted == whole {
+        wrong(text, at, "expected a value");
+    }
+    if peek(text, whole) == "0" && counted > whole + 1 {
+        wrong(text, whole, "expected a number that does not begin with zero");
+    }
+    let fraction = peek(text, counted) == "." ? part(text, counted + 1) : counted;
+    let end = exponent(text, fraction);
+    let written = between(text, at, end);
+    if end == counted {
+        match written.to_int() {
+            null => {}
+            let exact => { return (exact, end); }
+        }
+    }
+    let near: float = written.to_float() else {
+        null => { return wrong(text, at, "expected a number"); }
+    };
+    return (near, end);
+}
+
+/// Where a number's exponent ends, if it has one at a position.
+fn exponent(text: string, at: int): int with throw {
+    let here = peek(text, at);
+    if here != "e" && here != "E" {
+        return at;
+    }
+    let sign = peek(text, at + 1);
+    if sign == "+" || sign == "-" {
+        return part(text, at + 2);
+    }
+    return part(text, at + 1);
+}
+
+/// A string as JSON writes it: between quotes, with what cannot be
+/// written as itself escaped.
+fn quote(text: string): string =>
+    "\"" ++ text.chars().map(escaped).to_list().join_with("") ++ "\"";
+
+fn escaped(character: string): string {
+    if character == "\"" || character == "\\" {
+        return "\\" ++ character;
+    }
+    if character == "\n" {
+        return "\\n";
+    }
+    if character == "\t" {
+        return "\\t";
+    }
+    if character == "\r" {
+        return "\\r";
+    }
+    let scalar = character.code() as int else 32;
+    if scalar < 32 {
+        let digits = "0123456789abcdef";
+        return "\\u00" ++ between(digits, scalar / 16, scalar / 16 + 1)
+            ++ between(digits, scalar % 16, scalar % 16 + 1);
+    }
+    return character;
+}
