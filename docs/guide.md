@@ -236,6 +236,28 @@ pub fn main(): string with console.print {
 
 Inside `try`, `budget`, `provide`, and the other scopes, `return` gives that scope its value; it does not leave the function.
 
+A function that can fail gives a union, and the caller that cannot go on returns. `let ... else` says so without nesting: the rest of the block is where the value fits, and the arms are where it does not.
+
+```ab
+import ambient.fs;
+import ambient.Error;
+
+fn first_line(path: string): string with fs.read {
+    let text: string = fs.read!(path) else {
+        let error => { return "unreadable: ${error.message}"; }
+    };
+    let line: string = text.lines().first() else {
+        null => { return "empty"; }
+    };
+    return line;
+}
+
+pub fn main(): string {
+    let files = { [fs.read](path) => "one\ntwo" };
+    return provide files => first_line("notes.txt");
+}
+```
+
 ## Doing several things
 
 Tasks are structured: each finishes or is cancelled before the construct that started it gives a value.

@@ -317,3 +317,25 @@ fn a_module_in_a_row_is_every_ability_of_it() {
 
     assert_eq!(text(source), "ab");
 }
+
+#[test]
+fn a_let_with_an_else_goes_on_only_where_the_value_fits() {
+    let source = r#"
+        fn half(n: int): int | string {
+            if n % 2 == 1 { return "odd"; }
+            return n / 2;
+        }
+        fn quarter(n: int): string {
+            let once: int = half(n) else {
+                let why => { return "${n} is ${why}"; }
+            };
+            let (twice: int, _) = (half(once), 0) else {
+                _ => { return "${once} is odd"; }
+            };
+            return twice.to_text();
+        }
+        fn main(): string => "${quarter(12)}, ${quarter(6)}, ${quarter(5)}";
+    "#;
+
+    assert_eq!(text(source), "3, 3 is odd, 5 is odd");
+}

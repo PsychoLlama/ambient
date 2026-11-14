@@ -16,6 +16,8 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 
 - The language has no node for leaving a function early, so a `return` is always the last thing some path through its body does.
 - An `if` or a match written as a statement may return in some branches and not others; the statements after it are then what the other branches go on to do.
+- A `let` may be followed by `else` and arms: the value is matched, the rest of the block is what happens where it fits the pattern, and each arm is what happens where it does not. Every such arm ends in a `return`.
+- A name bound by a `let` may say what it binds, as `items: List<int>`; a value that may not be that needs an `else`.
 - The bodies of a boundary, a budget, a provide, a recording, a group, and a task are bodies like a function's: `return` gives that construct its value.
 - Nothing returns across one of those, since nothing but an [abort](handlers.md) leaves one early.
 

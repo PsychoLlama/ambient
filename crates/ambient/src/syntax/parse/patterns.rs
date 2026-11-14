@@ -57,10 +57,17 @@ impl Parser {
                     _ => self.unexpected("a number"),
                 }
             }
-            Token::Word(_) if mode == Mode::Binding => {
+            // A name binds, and may say what it binds: `items: List<int>`
+            // fits only a list, which is for a `let` with an `else`.
+            Token::Word(word) if mode == Mode::Binding && word != "null" => {
                 let name = self.name()?;
                 binds.push(name.clone());
-                Ok(Pattern::Bind(name, Box::new(Pattern::Wildcard)))
+                let inner = if self.eat(":") {
+                    Pattern::Is(self.ty()?)
+                } else {
+                    Pattern::Wildcard
+                };
+                Ok(Pattern::Bind(name, Box::new(inner)))
             }
             _ => Ok(Pattern::Is(self.ty()?)),
         }

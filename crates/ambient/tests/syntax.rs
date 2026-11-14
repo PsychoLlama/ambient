@@ -235,3 +235,15 @@ fn a_value_written_into_a_string_is_closed_and_is_something() {
     let (_, _, message) = refused(r#"fn main(): string => "a ${ }";"#);
     assert_eq!(message, "nothing is written between `${` and `}`");
 }
+
+#[test]
+fn every_arm_of_the_else_of_a_let_leaves() {
+    let source = "fn main(n: int | null): int {\n  let m: int = n else { null => { side(); } };\n  return m;\n}";
+    let (line, column, message) = refused(source);
+
+    assert_eq!((line, column), (2, 3));
+    assert_eq!(
+        message,
+        "each arm of the `else` of a `let` ends in a `return`"
+    );
+}

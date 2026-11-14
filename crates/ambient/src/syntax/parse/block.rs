@@ -23,6 +23,11 @@ enum Statement {
     /// An `if` or a match whose arms are blocks, and the token it began
     /// at.
     Branch(usize, Expr, Vec<(Pattern, Vec<Statement>)>),
+    /// A `let` with an `else`: a pattern the value may not fit, and
+    /// arms for when it does not. It is only ever in a block as read,
+    /// where it becomes a branch whose first arm is the rest of the
+    /// block ([`guarded`]).
+    Guard(usize, Pattern, Expr, Vec<(Pattern, Vec<Statement>)>),
 }
 
 /// Whether running statements ends in a `return`.
@@ -46,7 +51,9 @@ fn returns(statements: &[Statement]) -> Returns {
                 Returns::Sometimes
             }
         }
-        Statement::Let(..) | Statement::Using(..) | Statement::Expr(_) => Returns::Never,
+        Statement::Let(..) | Statement::Using(..) | Statement::Expr(_) | Statement::Guard(..) => {
+            Returns::Never
+        }
     };
     match statements.split_last() {
         Some((last, _)) if of(last) == Returns::Always => Returns::Always,
@@ -71,7 +78,7 @@ impl Parser {
             while !parser.eat("}") {
                 statements.push(parser.statement()?);
             }
-            Ok(statements)
+            parser.guarded(statements)
         })
     }
 
@@ -85,8 +92,17 @@ impl Parser {
             let pattern = self.pattern(Mode::Binding, &mut binds)?;
             self.expect("=")?;
             let value = self.expr()?;
+            // What an `else` binds is not what the pattern binds.
+            let otherwise = if !using && self.eat_word("else") {
+                Some(self.arms()?)
+            } else {
+                None
+            };
             self.expect(";")?;
             self.locals.extend(binds);
+            if let Some(arms) = otherwise {
+                return Ok(Statement::Guard(began, pattern, value, arms));
+            }
             return Ok(if using {
                 Statement::Using(began, pattern, value)
             } else {
@@ -162,6 +178,11 @@ impl Parser {
     /// block, or one expression.
     fn match_statement(&mut self, began: usize) -> Parsed<Statement> {
         let subject = self.expr()?;
+        Ok(Statement::Branch(began, subject, self.arms()?))
+    }
+
+    /// Arms between braces, each a block or one expression.
+    fn arms(&mut self) -> Parsed<Vec<(Pattern, Vec<Statement>)>> {
         self.expect("{")?;
         let mut arms = Vec::new();
         while !self.eat("}") {
@@ -179,7 +200,33 @@ impl Parser {
             arms.push((pattern, body));
             self.eat(",");
         }
-        Ok(Statement::Branch(began, subject, arms))
+        Ok(arms)
+    }
+
+    /// The statements of a block, with each `let` that has an `else`
+    /// as the branch it means: the value matched, the rest of the
+    /// block where it fits the pattern, and the arms where it does not.
+    /// Each of those arms leaves, since nothing follows it.
+    fn guarded(&self, mut statements: Vec<Statement>) -> Parsed<Vec<Statement>> {
+        let guard = |statement: &Statement| matches!(statement, Statement::Guard(..));
+        let Some(at) = statements.iter().position(guard) else {
+            return Ok(statements);
+        };
+        let rest = self.guarded(statements.split_off(at + 1))?;
+        let Some(Statement::Guard(began, pattern, value, otherwise)) = statements.pop() else {
+            return Ok(statements);
+        };
+        if otherwise
+            .iter()
+            .any(|(_, arm)| returns(arm) != Returns::Always)
+        {
+            let message = "each arm of the `else` of a `let` ends in a `return`";
+            return self.fail_at(self.positions[began], message);
+        }
+        let mut arms = vec![(pattern, rest)];
+        arms.extend(otherwise);
+        statements.push(Statement::Branch(began, value, arms));
+        Ok(statements)
     }
 
     /// The expression statements are, run in order.
@@ -248,6 +295,11 @@ impl Parser {
             }
             Statement::Expr(value) => Ok(dropped(value, self.arrange(rest)?)),
             Statement::Branch(began, subject, arms) => self.branch(began, subject, arms, rest),
+            // A block as read holds none: see `guarded`.
+            Statement::Guard(began, ..) => self.fail_at(
+                self.positions[began],
+                "a `let` with an `else` is in a block",
+            ),
         }
     }
 
