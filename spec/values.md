@@ -8,7 +8,8 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 - No shape is user-defined; every [type](types.md) describes a subset of these.
 - A function value is a definition hash, captured values, [captured handlers](abilities.md), and the type arguments it was made at if its function [needs them](backends.md).
 - A function value says which type it is of, as one name, and nothing of what that type is within.
-- TODO: a function that holds type arguments does not say its type, so it never comes back out of `unknown`.
+- A function whose type depends on type arguments is of that type at the arguments it holds, and says so.
+- TODO: a function holds type arguments only if it [needs them](backends.md) as it runs. One whose type depends on arguments it does not hold says no type, so it never comes back out of `unknown`.
 - A handle is an opaque reference minted by [native code](externs.md).
 - A handle carries the tag it was minted under and has no structure to inspect.
 - No cast creates a handle.

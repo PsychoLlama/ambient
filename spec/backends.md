@@ -55,6 +55,7 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 - Two uses of one generic definition at the same arguments are the same type without being unfolded.
 - A function's definition carries the name of its type: one word, the same for two functions exactly when their types are the same.
 - A cast to a function type compares that name with the name of the cast's type, and looks no further.
+- A function whose type depends on its type arguments has no one name. Its definition carries a descriptor of the type instead, which a cast reads at the arguments the function holds and compares as it compares a cell's.
 - A cast to a type parameter tests against the type argument.
 - A function that needs its type arguments, used at ones that mention no type parameter, is one function value, made when the program is loaded.
 

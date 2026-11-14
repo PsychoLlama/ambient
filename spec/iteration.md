@@ -23,7 +23,7 @@ An iterator is a value that gives the next item and an iterator of the rest. It 
 - A [cast](types.md) to an iterator type tests an iterator the language made by the items it has left.
 - It tests one made from a function as it tests that function: the function's type is exactly that of a function stepping such an iterator, or the test fails.
 - An iterator type that mentions a type parameter is not a cast target.
-- TODO: an iterator made inside a generic function steps by a function whose type depends on type arguments, so no cast passes it.
+- An iterator made inside a generic function is tested the same way, by what its function [says](values.md) at the type arguments it holds.
 - An iterator is [sent](exchange.md) like any value. One a function steps is anchored if the function is.
 
 ## Sources

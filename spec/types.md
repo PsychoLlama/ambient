@@ -71,7 +71,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - A cast to a function type passes a function of exactly that type, not one whose type is within it: a program never decides subtyping as it runs; only checking does.
 - A function type that mentions a type parameter is not a cast target, but inside a [cell](cells.md) type.
 - A cast to a generic function type passes a generic function of exactly that type that holds no type arguments; one that needs none as it runs is the same value at every type, and passes however it was used.
-- TODO: a generic lambda does not say its type, so no cast passes one.
+- A function written inside a generic function may be of a type that depends on type arguments. A cast passes it if that type, at the arguments the function [holds](values.md), is the cast's.
 - A cast to a type parameter is allowed, and tests against the type argument, which a generic function [receives at run time](backends.md).
 - Only a function that casts to a type parameter, makes a cell at one, or hands one on to a function that does, needs its type arguments.
 - A cast never adds a brand to a value.
