@@ -3,7 +3,7 @@
 //! Everything it touches is handed to it (files, a store, a world), so a
 //! test drives the same code a terminal does.
 
-mod new;
+mod init;
 mod test;
 mod trace;
 
@@ -55,8 +55,9 @@ pub enum Command {
         path: PathBuf,
     },
     /// Makes a package to begin from: one that runs and has a test.
-    New {
+    Init {
         /// The directory to make it in, whose name the package takes.
+        #[arg(default_value = ".")]
         path: PathBuf,
     },
     /// Runs every test of a package: each function that takes nothing
@@ -89,7 +90,7 @@ impl Session<'_> {
         let done = match command {
             Command::Run { path, entry, .. } => self.run(path, entry),
             Command::Check { path } => self.check(path).map(|()| 0),
-            Command::New { path } => self.new_package(path),
+            Command::Init { path } => self.init(path),
             Command::Test { path, only } => self.test(path, only.as_deref()),
         };
         done.unwrap_or_else(|problems| {

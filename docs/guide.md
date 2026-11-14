@@ -10,7 +10,7 @@ A package is a directory with a manifest and its modules under `src/`:
 
 ```
 hello/
-  ambient.toml      name = "hello"
+  ambient.toml      its name and its ID
   src/
     main.ab         the module `main`
     text/trim.ab    the module `text.trim`
@@ -26,7 +26,7 @@ pub fn main(): null with console.print {
 ```
 
 ```
-ambient new hello                  # makes a package that runs and has a test
+ambient init hello                 # makes a package that runs and has a test
 ambient run hello                  # runs main.main
 ambient run hello -- one two       # what follows `--` is what env.args gives
 ambient run hello --entry tools.fmt

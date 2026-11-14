@@ -38,9 +38,9 @@ const EXTENSION: &str = "ab";
 pub struct Manifest {
     /// What the package is called in messages, and in this workspace.
     pub name: String,
-    /// The package's identity, if it is not its name. See "Identity" in
-    /// `spec/definitions.md`.
-    pub id: Option<String>,
+    /// The package's identity, made once and kept whatever the package
+    /// comes to be called. See "Identity" in `spec/packages.md`.
+    pub id: String,
     /// The modules in scope in every module of the package, each a path
     /// that begins with `pkg` or a dependency. Listing any replaces the
     /// standard library's.
@@ -293,9 +293,12 @@ impl Opening<'_> {
             let reason = format!("a package cannot be named `{name}`");
             return Err(ProjectError::Manifest { path, reason });
         }
-        if let Some(id) = &manifest.id {
-            self.workspace.identify(&name, id);
+        // The library's tags are named by its ID: no package takes it.
+        if manifest.id.is_empty() || manifest.id == FAULT_PACKAGE {
+            let reason = format!("a package's ID cannot be `{}`", manifest.id);
+            return Err(ProjectError::Manifest { path, reason });
         }
+        self.workspace.identify(&name, &manifest.id);
         self.modules(&name, &directory.join(SOURCES))?;
         // Every package reaches the standard library by its name.
         let library = |error| ProjectError::Workspace(error);

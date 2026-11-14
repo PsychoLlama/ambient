@@ -102,6 +102,14 @@ pub trait World {
     ///
     /// The command cannot be started.
     fn run(&mut self, command: &str, args: &[String]) -> Result<Ran, Failure>;
+    /// The directory a path that does not say where it starts is in.
+    fn directory(&self) -> Option<String>;
+    /// Bits that nothing could have guessed.
+    ///
+    /// # Errors
+    ///
+    /// The system has none to give.
+    fn random(&mut self) -> Result<u64, Failure>;
     /// Milliseconds since the start of 1970.
     fn now(&mut self) -> i64;
     /// Nanoseconds since a fixed moment.

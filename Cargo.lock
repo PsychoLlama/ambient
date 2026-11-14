@@ -27,6 +27,7 @@ dependencies = [
  "cranelift-codegen",
  "cranelift-frontend",
  "cranelift-native",
+ "getrandom",
  "memmap2",
  "postcard",
  "proptest",

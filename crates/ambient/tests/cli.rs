@@ -22,7 +22,7 @@ fn a_package_is_its_manifest_and_a_module_for_each_file() {
     let files = files([
         (
             "app/ambient.toml",
-            "name = \"app\"\n[dependencies]\nwords = { path = \"../lib\" }",
+            "name = \"app\"\nid = \"app\"\n[dependencies]\nwords = { path = \"../lib\" }",
         ),
         (
             "app/src/main.ab",
@@ -41,7 +41,7 @@ fn a_package_is_its_manifest_and_a_module_for_each_file() {
             "app/src/text/greeting.ab",
             r#"pub fn hello(): string => "hello";"#,
         ),
-        ("lib/ambient.toml", "name = \"shout\""),
+        ("lib/ambient.toml", "name = \"shout\"\nid = \"shout\""),
         (
             "lib/src/lib.ab",
             r#"pub fn loud(text: string): string => text ++ "!";"#,
@@ -335,15 +335,15 @@ fn a_test_reaches_no_world_it_is_not_given() {
     assert_eq!(rest, "ok    app:main.test_provides\n1 passed, 1 failed\n");
 }
 
-/// Makes a package at `path` in an empty world.
-fn made(path: &str) -> (i32, Scripted) {
+/// Makes a package at `path` in `world`.
+fn made(path: &str, world: Scripted) -> (i32, Scripted) {
     let path = PathBuf::from(path);
-    Scripted::default().execute(&Files::new(), &ambient::cli::Command::New { path })
+    world.execute(&Files::new(), &ambient::cli::Command::Init { path })
 }
 
 #[test]
 fn a_new_package_runs_and_its_test_passes() {
-    let (code, world) = made("work/app");
+    let (code, world) = made("work/app", Scripted::default());
     assert_eq!(
         (code, world.out.as_str()),
         (0, "made work/app: `ambient run work/app` runs it\n")
@@ -358,8 +358,27 @@ fn a_new_package_runs_and_its_test_passes() {
 }
 
 #[test]
+fn a_new_package_is_named_for_its_directory_and_given_an_id() {
+    let world = Scripted {
+        directory: Some("/work/tea".to_owned()),
+        files: [("./src/main.ab".to_owned(), "kept".to_owned())].into(),
+        ..Scripted::default()
+    };
+    let (code, world) = made(".", world);
+
+    assert_eq!((code, world.err.as_str()), (0, ""));
+    let id = format!("{:016x}{:016x}", 1, 2);
+    assert_eq!(
+        world.files["./ambient.toml"],
+        format!("name = \"tea\"\nid = \"{id}\"\n")
+    );
+    // What was there already is left as it was.
+    assert_eq!(world.files["./src/main.ab"], "kept");
+}
+
+#[test]
 fn a_package_is_not_made_where_it_cannot_be() {
-    let (code, world) = made("work/my-app");
+    let (code, world) = made("work/my-app", Scripted::default());
     assert_eq!(code, 1);
     assert!(
         world
@@ -371,7 +390,23 @@ fn a_package_is_not_made_where_it_cannot_be() {
         files: [("app/ambient.toml".to_owned(), String::new())].into(),
         ..Scripted::default()
     };
-    let path = PathBuf::from("app");
-    let (_, world) = world.execute(&Files::new(), &ambient::cli::Command::New { path });
+    let (_, world) = made("app", world);
     assert_eq!(world.err, "error: app: there is a package here already\n");
+}
+
+#[test]
+fn a_package_says_an_id_that_is_its_own() {
+    let refused = |manifest: &str| {
+        let files = files([("app/ambient.toml", manifest), ("app/src/main.ab", "")]);
+        check(&files).1.err
+    };
+
+    assert_eq!(
+        refused("name = \"app\""),
+        "error: app/ambient.toml: missing field `id`\n"
+    );
+    assert_eq!(
+        refused("name = \"app\"\nid = \"ambient\""),
+        "error: app/ambient.toml: a package's ID cannot be `ambient`\n"
+    );
 }

@@ -115,6 +115,20 @@ impl World for System {
         })
     }
 
+    fn directory(&self) -> Option<String> {
+        let directory = std::env::current_dir().ok()?;
+        Some(directory.to_string_lossy().into_owned())
+    }
+
+    fn random(&mut self) -> Result<u64, Failure> {
+        let mut bits = [0; 8];
+        getrandom::fill(&mut bits).map_err(|error| Failure {
+            kind: Kind::Failed,
+            message: error.to_string(),
+        })?;
+        Ok(u64::from_le_bytes(bits))
+    }
+
     fn now(&mut self) -> i64 {
         let since = SystemTime::now().duration_since(UNIX_EPOCH);
         saturating(since.map_or(0, |since| since.as_millis()))

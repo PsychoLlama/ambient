@@ -41,9 +41,10 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 - A package is a directory: a manifest, and its modules as source files under one directory of sources.
 - A source file is the [module](modules.md) its path under the sources names, and the file named `lib` at their top is the library module.
-- The manifest names the package and lists its dependencies, each by the local name and where the package is; its preludes; and its ID, if that is not its name.
+- The manifest says the package's name and its ID, and lists its dependencies, each by the local name and where the package is, and its preludes.
+- No package's ID is the standard library's.
 - Every package reaches the standard library under the name `ambient` without declaring it.
-- TODO: a dependency is only a path to a directory; there are no publishers, versions, locks, or registries yet, and an ID is whatever the manifest says.
+- TODO: a dependency is only a path to a directory; there are no publishers, versions, locks, or registries yet, and nothing checks that an ID was generated.
 
 ## Running
 
@@ -64,7 +65,8 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 ## Beginning
 
-- A new package is made from its name alone: a manifest and one module that runs and has a [test](#testing), so the first change is made to something that works.
+- A new package is made in a directory and named for it: a manifest with a newly generated ID, and one module that runs and has a [test](#testing), so the first change is made to something that works.
+- A source file that is there already is left as it is.
 - A package is not made over one that is there.
 
 ## Testing

@@ -22,6 +22,10 @@ pub struct Scripted {
     /// What each command gives, by the command and its arguments with
     /// a space between.
     pub commands: BTreeMap<String, Ran>,
+    /// Where a path that does not say where it starts is.
+    pub directory: Option<String>,
+    /// How many random numbers were asked for; the next is one more.
+    pub rolled: u64,
     /// What the clock says; sleeping moves it on.
     pub time: i64,
 }
@@ -48,7 +52,7 @@ impl Scripted {
 pub fn app(source: &str) -> BTreeMap<PathBuf, String> {
     let file = |(path, text): (&str, &str)| (PathBuf::from(path), text.to_owned());
     let files = [
-        ("app/ambient.toml", "name = \"app\""),
+        ("app/ambient.toml", "name = \"app\"\nid = \"app\""),
         ("app/src/main.ab", source),
     ];
     files.into_iter().map(file).collect()
@@ -130,6 +134,15 @@ impl World for Scripted {
             kind: Kind::NotFound,
             message: format!("no command {command}"),
         })
+    }
+
+    fn directory(&self) -> Option<String> {
+        self.directory.clone()
+    }
+
+    fn random(&mut self) -> Result<u64, Failure> {
+        self.rolled += 1;
+        Ok(self.rolled)
     }
 
     fn now(&mut self) -> i64 {
