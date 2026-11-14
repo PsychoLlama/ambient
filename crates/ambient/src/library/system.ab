@@ -16,6 +16,8 @@ extern handler fs_read for fs.read;
 extern handler fs_write for fs.write;
 extern handler fs_list for fs.list;
 extern handler fs_exists for fs.exists;
+extern handler fs_remove for fs.remove;
+extern handler fs_make_directory for fs.make_directory;
 extern handler clock_now for clock.now;
 extern handler clock_elapsed for clock.elapsed;
 extern handler clock_sleep for clock.sleep;
@@ -35,6 +37,8 @@ pub target cli {
     fs.write: fs_write,
     fs.list: fs_list,
     fs.exists: fs_exists,
+    fs.remove: fs_remove,
+    fs.make_directory: fs_make_directory,
     clock.now: clock_now,
     clock.elapsed: clock_elapsed,
     clock.sleep: clock_sleep,

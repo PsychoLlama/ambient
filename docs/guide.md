@@ -325,17 +325,17 @@ A test is given no world: it provides what the code under test needs, as above, 
 
 Import a module by path; its public definitions are reached through its name, or taken by name in braces.
 
-| Module                                                       | What it has                                        |
-| ------------------------------------------------------------ | -------------------------------------------------- |
-| `ambient.string`, `list`, `int`, `float`, `iterator`, `cell` | the methods of each shape                          |
-| `ambient.dict`                                               | `Dict<V>`: values by string key, read in key order |
-| `ambient.json`                                               | `Json`, `parse`, `write`, `get`, `at`              |
-| `ambient.console`                                            | `write`, `print`, `warn`, `read_line`              |
-| `ambient.env`                                                | `args`, `variable`                                 |
-| `ambient.fs`                                                 | `read`, `write`, `list`, `exists`                  |
-| `ambient.clock`                                              | `now`, `elapsed`, `sleep`                          |
-| `ambient.process`                                            | `exit`                                             |
-| `ambient.cleanup`                                            | the `dispose` key a `using` reads                  |
+| Module                                                       | What it has                                                   |
+| ------------------------------------------------------------ | ------------------------------------------------------------- |
+| `ambient.string`, `list`, `int`, `float`, `iterator`, `cell` | the methods of each shape                                     |
+| `ambient.dict`                                               | `Dict<V>`: values by string key, read in key order            |
+| `ambient.json`                                               | `Json`, `parse`, `write`, `get`, `at`                         |
+| `ambient.console`                                            | `write`, `print`, `warn`, `read_line`                         |
+| `ambient.env`                                                | `args`, `variable`                                            |
+| `ambient.fs`                                                 | `read`, `write`, `list`, `exists`, `remove`, `make_directory` |
+| `ambient.clock`                                              | `now`, `elapsed`, `sleep`                                     |
+| `ambient.process`                                            | `exit`                                                        |
+| `ambient.cleanup`                                            | the `dispose` key a `using` reads                             |
 
 ```ab
 import ambient.dict;

@@ -109,6 +109,18 @@ impl World for Scripted {
         self.files.contains_key(path)
     }
 
+    fn remove(&mut self, path: &str) -> Result<(), Failure> {
+        self.files.remove(path).map(|_| ()).ok_or_else(|| Failure {
+            kind: Kind::NotFound,
+            message: format!("no file at {path}"),
+        })
+    }
+
+    /// A file is anywhere it is written, so there is nothing to make.
+    fn make_directory(&mut self, _path: &str) -> Result<(), Failure> {
+        Ok(())
+    }
+
     fn now(&mut self) -> i64 {
         self.time
     }

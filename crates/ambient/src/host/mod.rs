@@ -74,6 +74,18 @@ pub trait World {
     /// The directory cannot be read.
     fn list(&mut self, path: &str) -> Result<Vec<String>, Failure>;
     fn exists(&mut self, path: &str) -> bool;
+    /// Takes away a file, or a directory and all it holds.
+    ///
+    /// # Errors
+    ///
+    /// Nothing is there, or it cannot be taken away.
+    fn remove(&mut self, path: &str) -> Result<(), Failure>;
+    /// Makes a directory, and those it is inside that are missing.
+    ///
+    /// # Errors
+    ///
+    /// The directory cannot be made.
+    fn make_directory(&mut self, path: &str) -> Result<(), Failure>;
     /// Milliseconds since the start of 1970.
     fn now(&mut self) -> i64;
     /// Nanoseconds since a fixed moment.
@@ -130,7 +142,7 @@ fn strings(items: Vec<String>) -> Value {
 #[must_use]
 pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
     type Handler = fn(&mut dyn World, &[Value]) -> Result<Value, String>;
-    let handlers: [(&str, Handler); 14] = [
+    let handlers: [(&str, Handler); 16] = [
         ("console_write", |world, args| {
             world.write(text(args, 0)?);
             Ok(Value::Null)
@@ -164,6 +176,14 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
         }),
         ("fs_exists", |world, args| {
             Ok(Value::Bool(world.exists(text(args, 0)?)))
+        }),
+        ("fs_remove", |world, args| {
+            let removed = world.remove(text(args, 0)?);
+            Ok(removed.map_or_else(|failure| error(&failure), |()| Value::Null))
+        }),
+        ("fs_make_directory", |world, args| {
+            let made = world.make_directory(text(args, 0)?);
+            Ok(made.map_or_else(|failure| error(&failure), |()| Value::Null))
         }),
         ("clock_now", |world, _| Ok(Value::Int(world.now()))),
         ("clock_elapsed", |world, _| Ok(Value::Int(world.elapsed()))),

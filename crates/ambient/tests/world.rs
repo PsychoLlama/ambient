@@ -95,6 +95,31 @@ fn a_file_that_is_missing_is_an_error_a_program_matches_on() {
 }
 
 #[test]
+fn a_file_is_taken_away_once() {
+    let source = r#"
+        import ambient.fs;
+        import ambient.Error;
+
+        fn main(): string with fs {
+            fs.make_directory!("notes");
+            fs.write!("notes/a.txt", "kept");
+            let first = fs.remove!("notes/a.txt");
+            match (first, fs.remove!("notes/a.txt"), fs.exists!("notes/a.txt")) {
+                (null, let error: Error, false) => { return error.message; }
+                _ => { return "still there"; }
+            }
+        }
+    "#;
+
+    let (outcome, after) = run(source, &Scripted::default());
+    assert_eq!(
+        outcome,
+        Ok(Value::String("no file at notes/a.txt".to_owned()))
+    );
+    assert!(after.files.is_empty());
+}
+
+#[test]
 fn a_program_is_told_how_it_was_started_and_what_time_it_is() {
     let source = r#"
         import ambient.clock;

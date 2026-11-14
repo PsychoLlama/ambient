@@ -92,6 +92,19 @@ impl World for System {
         std::path::Path::new(path).exists()
     }
 
+    fn remove(&mut self, path: &str) -> Result<(), Failure> {
+        let removed = if std::path::Path::new(path).is_dir() {
+            std::fs::remove_dir_all(path)
+        } else {
+            std::fs::remove_file(path)
+        };
+        removed.map_err(|error| failure(&error))
+    }
+
+    fn make_directory(&mut self, path: &str) -> Result<(), Failure> {
+        std::fs::create_dir_all(path).map_err(|error| failure(&error))
+    }
+
     fn now(&mut self) -> i64 {
         let since = SystemTime::now().duration_since(UNIX_EPOCH);
         saturating(since.map_or(0, |since| since.as_millis()))

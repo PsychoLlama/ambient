@@ -18,5 +18,12 @@ pub ability write(path: string, text: string): null | Error;
 /// The names of what a directory holds, in order.
 pub ability list(path: string): List<string> | Error;
 
+/// Takes away a file, or a directory and all it holds.
+pub ability remove(path: string): null | Error;
+
+/// Makes a directory, and those it is inside that are missing. One
+/// that is already there is left as it is.
+pub ability make_directory(path: string): null | Error;
+
 /// Whether anything is at the path.
 pub ability exists(path: string): bool;
