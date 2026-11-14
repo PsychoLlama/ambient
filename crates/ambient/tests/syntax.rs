@@ -1,0 +1,225 @@
+//! Source text, read: what it is as a tree, and what is not text.
+//! See `spec/syntax.md`.
+
+#![allow(clippy::unwrap_used)]
+
+use ambient::builder::{self as b, ModuleBuilder, pat, ty};
+use ambient::surface::{Definition, Expr, Module};
+use ambient::syntax::{Position, parse};
+
+fn built(definitions: impl IntoIterator<Item = Definition>) -> Module {
+    let module = definitions
+        .into_iter()
+        .fold(b::module(), ModuleBuilder::define);
+    module.build().unwrap()
+}
+
+/// `fn main(): int` with a body.
+fn main(body: Expr) -> Definition {
+    b::function("main").returns(ty::int()).body(body)
+}
+
+/// Where `source` stops being a module, and why.
+fn refused(source: &str) -> (usize, usize, String) {
+    let error = parse(source).unwrap_err();
+    let Position { line, column } = error.at;
+    (line, column, error.message)
+}
+
+// Trees
+
+#[test]
+fn a_function_is_its_header_and_the_expression_its_body_is() {
+    let source = "
+        /// Adds.
+        pub fn add<T: int>(a: T, b: int): int with ask => a + b * 2;
+        ability ask(): int;
+    ";
+    let add = b::function("add")
+        .public()
+        .doc("Adds.")
+        .bounded("T", ty::int())
+        .param("a", ty::named("T"))
+        .param("b", ty::int())
+        .returns(ty::int())
+        .performs(["ask"])
+        .body(b::add(b::name("a"), b::multiply(b::name("b"), b::int(2))));
+    let ask = b::ability("ask").returns(ty::int());
+
+    assert_eq!(parse(source).unwrap(), built([add, ask.into()]));
+}
+
+#[test]
+fn a_block_is_its_statements_nested_in_order() {
+    let source = "fn main(): int { let a = 1; side(); let (b, _) = (a, 2); return b; }";
+    let pair = pat::tuple([pat::bind("b"), pat::any()]);
+    let rest = b::match_(b::tuple([b::name("a"), b::int(2)]), [(pair, b::name("b"))]);
+    let body = b::let_(
+        "a",
+        b::int(1),
+        b::let_("_", b::call(b::name("side"), []), rest),
+    );
+
+    assert_eq!(parse(source).unwrap(), built([main(body)]));
+}
+
+#[test]
+fn a_name_is_a_local_or_a_path() {
+    // `a.b` is a field of a local and a definition of a module.
+    let source = "fn main(a: int): int { return a.b + m.b + a.c(1) + m.c(1); }";
+    let local = || b::name("a");
+    let body = b::add(
+        b::add(
+            b::add(b::field(local(), "b"), b::name("m.b")),
+            b::send(local(), "c", [b::int(1)]),
+        ),
+        b::call(b::name("m.c"), [b::int(1)]),
+    );
+    let main = b::function("main")
+        .param("a", ty::int())
+        .returns(ty::int())
+        .body(body);
+
+    assert_eq!(parse(source).unwrap(), built([main]));
+}
+
+#[test]
+fn an_early_return_is_a_match_whose_other_arm_is_what_follows() {
+    let source = "fn main(): int { if ready() { return 1; } return 2; }";
+    let arms = [
+        (pat::boolean(true), b::int(1)),
+        (pat::boolean(false), b::int(2)),
+    ];
+    let body = b::match_(b::call(b::name("ready"), []), arms);
+
+    assert_eq!(parse(source).unwrap(), built([main(body)]));
+}
+
+#[test]
+fn a_bare_name_in_a_pattern_tests_and_let_binds() {
+    let source = "fn main(): int => match value() { done => 0, let n: int => n, _ => 1 };";
+    let arms = [
+        (pat::is(ty::named("done")), b::int(0)),
+        (pat::bind_as("n", pat::is(ty::int())), b::name("n")),
+        (pat::any(), b::int(1)),
+    ];
+    let body = b::match_(b::call(b::name("value"), []), arms);
+
+    assert_eq!(parse(source).unwrap(), built([main(body)]));
+}
+
+#[test]
+fn a_record_is_fields_methods_and_what_it_merges_over() {
+    let source = "fn main(): int => { ...base(), x: 1, get(self) => self.x, [ask]() => 2 };";
+    let get = b::lambda([("self", None)], b::field(b::name("self"), "x"));
+    let fields = b::record([("x", b::int(1)), ("get", b::method(get))]);
+    let record = b::keyed(fields, "ask", b::lambda([], b::int(2)));
+    let body = b::merge(b::call(b::name("base"), []), record);
+
+    assert_eq!(parse(source).unwrap(), built([main(body)]));
+}
+
+#[test]
+fn a_type_is_written_as_its_values_are() {
+    let source = "
+        type Shape<T> = {
+            sides: int | null,
+            scale(self, by: T): Shape<T>,
+            name(): string,
+            [label]: string,
+        };
+        key label: string;
+    ";
+    let own = ty::apply("Shape", [ty::named("T")]);
+    let scale = ty::method(own.clone(), ty::function([ty::named("T")], own));
+    let fields = ty::record([
+        ("sides", ty::union([ty::int(), ty::null()])),
+        ("scale", scale),
+        ("name", ty::function([], ty::string())),
+    ]);
+    let shape = b::generic_type("Shape", ["T"], ty::keyed(fields, "label", ty::string()));
+
+    assert_eq!(
+        parse(source).unwrap(),
+        built([shape, b::key("label", ty::string())])
+    );
+}
+
+#[test]
+fn imports_name_modules_and_what_is_taken_from_them() {
+    let source = "import pkg.a; import pkg.b as c; import pkg.d.{e, f as g}; pub import pkg.h.i;";
+    let module = b::module()
+        .import("pkg.a")
+        .import_as("pkg.b", "c")
+        .import("pkg.d.e")
+        .import_as("pkg.d.f", "g")
+        .export("pkg.h.i");
+
+    assert_eq!(parse(source).unwrap(), module.build().unwrap());
+}
+
+#[test]
+fn the_world_is_declared_as_externs_and_a_target() {
+    let source = "
+        extern fn size(text: string): int;
+        extern handler write for log.print with log.flush;
+        pub target console extends base { log.print: write }
+    ";
+    let size = b::extern_function("size")
+        .param("text", ty::string())
+        .returns(ty::int());
+    let write = b::native_handler("write", "log.print").performs(["log.flush"]);
+    let console = b::target("console")
+        .public()
+        .extends("base")
+        .bind("log.print", "write");
+
+    assert_eq!(
+        parse(source).unwrap(),
+        built([size.into(), write.into(), console.into()])
+    );
+}
+
+// What is not text
+
+#[test]
+fn a_statement_ends_where_it_says() {
+    let (line, column, message) = refused("fn main(): int {\n  let a = 1\n  return a;\n}");
+
+    assert_eq!((line, column), (3, 3));
+    assert_eq!(message, "expected `;`, found `return`");
+}
+
+#[test]
+fn nothing_follows_a_return() {
+    let (line, _, message) = refused("fn main(): int {\n  return 1;\n  side();\n}");
+
+    assert_eq!(
+        (line, message.as_str()),
+        (2, "what follows a `return` never runs")
+    );
+}
+
+#[test]
+fn a_reserved_word_names_nothing() {
+    let (_, _, message) = refused("fn main(): int { let match = 1; return match; }");
+
+    assert_eq!(message, "expected a name, found `match`");
+}
+
+#[test]
+fn what_a_builder_refuses_the_reader_refuses() {
+    let (_, _, message) = refused("fn main(a: int, a: int): int => a;");
+
+    assert!(message.contains('a'), "{message}");
+}
+
+#[test]
+fn a_string_is_its_characters_with_escapes_read() {
+    let source = r#"fn main(): string => "a\"b\n\u{1F600}";"#;
+    let main = b::function("main")
+        .returns(ty::string())
+        .body(b::string("a\"b\n\u{1F600}"));
+
+    assert_eq!(parse(source).unwrap(), built([main]));
+}

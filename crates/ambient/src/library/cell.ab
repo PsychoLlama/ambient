@@ -1,0 +1,19 @@
+/// The value the cell holds.
+pub fn read<T>(self: Cell<T>): T => @read(self);
+
+/// Puts `new` in the cell if it still holds `seen`, and says whether it did.
+pub fn replace<T>(self: Cell<T>, seen: T, new: T): bool => @replace(self, seen, new);
+
+/// Suspends until the cell holds something other than `seen`.
+pub fn wait<T>(self: Cell<T>, seen: T): null => @wait(self, seen);
+
+/// Puts what `change` makes of the cell's value in the cell, again if
+/// another task got there first, and gives what was put.
+pub fn update<T>(self: Cell<T>, change: fn(T): T): T {
+    let seen = @read(self);
+    let new = change(seen);
+    if @replace(self, seen, new) {
+        return new;
+    }
+    return update(self, change);
+}
