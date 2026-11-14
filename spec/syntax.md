@@ -38,6 +38,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - A record is members between braces: a field, a field named for a local of the same name, a function or method written with its parameters, or `...` and a record to [merge](methods.md) over.
 - A member whose first parameter is `self` is a [method](methods.md); with any other first parameter it is a function.
 - A record names a [key](methods.md) or an [ability](handlers.md) in square brackets, where it would name a field, and indexing by one in square brackets reads it.
+- `${` and `}` in a string hold a value, and the string is its pieces [joined](operations.md) with each value's `to_text` [method](methods.md) called; `\$` writes the sign itself.
 - A [cast](types.md) is a value, `as`, a type, `else`, and what it is otherwise.
 - A [comptime](comptime.md) call is `comptime` before the call.
 - Type arguments are written out after `::` in angle brackets.

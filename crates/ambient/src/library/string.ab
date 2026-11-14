@@ -8,6 +8,9 @@ pub fn join(self: string, other: string): string => @join(self, other);
 /// out of order, or inside a character.
 pub fn slice(self: string, start: int, end: int): string | null => @slice(self, start, end);
 
+/// This string, which is what writing it into another asks for.
+pub fn to_text(self: string): string => self;
+
 /// The integer the whole string is, or null if it is not one.
 pub fn to_int(self: string): int | null => @to_int(self);
 

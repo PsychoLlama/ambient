@@ -46,7 +46,7 @@ fn describe(n: int): string {
     if twice > 10 {
         return "big";
     }
-    return "small: " ++ twice.to_text();
+    return "small: ${twice}";
 }
 
 pub fn main(): string => describe(3);
@@ -54,7 +54,7 @@ pub fn main(): string => describe(3);
 
 - The values are `null`, booleans, integers, floats, strings, tags, tuples `(1, "a")`, lists `[1, 2]`, records `{ name: "tea", price: 450 }`, and functions.
 - Nothing is changed in place. `list.push(x)` gives another list; a record is copied with `{ ...old, price: 500 }`.
-- `++` joins strings and lists. Arithmetic on integers faults on overflow and division by zero instead of wrapping.
+- `++` joins strings and lists, and `"${count} left"` writes a value into a string by its `to_text`. Arithmetic on integers faults on overflow and division by zero instead of wrapping.
 - There are no loops. A list or an iterator has `map`, `filter`, `fold`, `each`, and the rest; anything else is a function that calls itself, and a call in tail position takes no stack.
 - `if` is a statement. The expression that chooses is `match`.
 
@@ -126,7 +126,7 @@ type Counter = {
 fn counter(count: int): Counter => {
     count,
     bump(self): Counter => counter(self.count + 1),
-    show(self): string => "at " ++ self.count.to_text(),
+    show(self): string => "at ${self.count}",
 };
 
 pub fn main(): string => counter(0).bump().bump().show();
@@ -146,7 +146,7 @@ import ambient.Error;
 /// Prints a file, or why it could not.
 fn show(path: string): null with console.print, fs.read {
     match fs.read!(path) {
-        let error: Error => { console.print!("cannot read: " ++ error.message); }
+        let error: Error => { console.print!("cannot read: ${error.message}"); }
         let text: string => { console.print!(text); }
     }
 }
@@ -167,7 +167,7 @@ Any code can supply an ability to what it calls, which is how a test replaces th
 import ambient.console;
 
 fn greet(name: string): null with console.print {
-    console.print!("hello, " ++ name);
+    console.print!("hello, ${name}");
 }
 
 /// What `greet` prints, without printing it.
@@ -192,7 +192,7 @@ A cell is the one thing that changes: `cell<T>(value)` makes one, with `read`, `
 ability confirm(question: string): bool;
 
 fn remove(path: string): string with confirm {
-    if confirm!("delete " ++ path ++ "?") {
+    if confirm!("delete ${path}?") {
         return "deleted";
     }
     return "kept";
@@ -218,7 +218,7 @@ import ambient.Error;
 fn risky(by: int): int => 100 / by;
 
 fn noisy(name: string): { [dispose](): null } with console.print =>
-    { [dispose]() { console.print!("closed " ++ name); } };
+    { [dispose]() { console.print!("closed ${name}"); } };
 
 pub fn main(): string with console.print {
     let outcome = try {
@@ -226,7 +226,7 @@ pub fn main(): string with console.print {
         return risky(0);
     };
     match outcome {
-        let error: Error => { return "failed: " ++ error.message; }
+        let error: Error => { return "failed: ${error.message}"; }
         let answer: int => { return answer.to_text(); }
     }
 }
@@ -270,7 +270,7 @@ import ambient.dict;
 pub fn main(): string {
     let stock = dict.of([("tea", 3), ("milk", 1)]);
     let more = stock.update("tea", fn(have) => (have as int else 0) + 2);
-    return more.keys().join_with(", ") ++ ": " ++ (more.get("tea") as int else 0).to_text();
+    return "${more.keys().join_with(", ")}: ${more.get("tea") as int else 0}";
 }
 ```
 

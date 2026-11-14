@@ -223,3 +223,15 @@ fn a_string_is_its_characters_with_escapes_read() {
 
     assert_eq!(parse(source).unwrap(), built([main]));
 }
+
+#[test]
+fn a_value_written_into_a_string_is_closed_and_is_something() {
+    let (_, column, message) = refused(r#"fn main(): string => "a ${1 + 2"#);
+    assert_eq!(
+        (column, message.as_str()),
+        (25, "a `${` in a string is not closed")
+    );
+
+    let (_, _, message) = refused(r#"fn main(): string => "a ${ }";"#);
+    assert_eq!(message, "nothing is written between `${` and `}`");
+}

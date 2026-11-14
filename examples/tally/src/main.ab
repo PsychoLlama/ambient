@@ -19,7 +19,7 @@ pub fn main(): int with console.print, console.warn, env.args, fs.read {
 fn report(path: string): int with console.print, console.warn, fs.read {
     match fs.read!(path) {
         let error: Error => {
-            console.warn!(path ++ ": " ++ error.message);
+            console.warn!("${path}: ${error.message}");
             return 1;
         }
         let text: string => {
@@ -48,5 +48,5 @@ fn most(counts: Dict<int>, limit: int): List<(string, int)> =>
 
 fn line(entry: (string, int)): string {
     let (word, times) = entry;
-    return times.to_text() ++ " " ++ word;
+    return "${times} ${word}";
 }

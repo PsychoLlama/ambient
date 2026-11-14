@@ -2,4 +2,4 @@
 pub type Match = { path: string, line: int, text: string };
 
 pub fn describe(found: Match): string =>
-    found.path ++ ":" ++ found.line.to_text() ++ ": " ++ found.text;
+    "${found.path}:${found.line}: ${found.text}";

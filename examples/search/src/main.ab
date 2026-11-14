@@ -22,14 +22,14 @@ fn search(word: string, root: string): int with console.print, console.warn, fs.
     let found = walk.files(root).fold([], fn(found: List<Match>, path: string): List<Match> {
         match fs.read!(path) {
             let error: Error => {
-                console.warn!(path ++ ": " ++ error.message);
+                console.warn!("${path}: ${error.message}");
                 return found;
             }
             let text: string => { return found ++ matches(path, text, word); }
         }
     });
     found.each(fn(each) => console.print!(describe(each)));
-    console.print!(found.length().to_text() ++ " matches");
+    console.print!("${found.length()} matches");
     if found.is_empty() {
         return 1;
     }

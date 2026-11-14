@@ -32,37 +32,47 @@ pub(super) struct Lexed {
 struct Lexer<'a> {
     rest: &'a str,
     at: Position,
+    out: Lexed,
 }
 
 pub(super) fn lex(source: &str) -> Result<Lexed, SyntaxError> {
     let mut lexer = Lexer {
         rest: source,
         at: Position { line: 1, column: 1 },
+        out: Lexed {
+            tokens: Vec::new(),
+            positions: Vec::new(),
+        },
     };
-    let mut out = Lexed {
-        tokens: Vec::new(),
-        positions: Vec::new(),
-    };
-    loop {
-        lexer.skip();
-        let at = lexer.at;
-        let token = lexer.token()?;
-        // Consecutive doc lines are one comment.
-        if let (Token::Doc(line), Some(Token::Doc(doc))) = (&token, out.tokens.last_mut()) {
-            doc.push('\n');
-            doc.push_str(line);
-            continue;
-        }
-        let end = token == Token::End;
-        out.tokens.push(token);
-        out.positions.push(at);
-        if end {
-            return Ok(out);
-        }
-    }
+    while lexer.next()? != Some(Token::End) {}
+    Ok(lexer.out)
 }
 
 impl Lexer<'_> {
+    /// Reads the next token into what is read so far, and gives it. A
+    /// string with values written into it is several, and gives none.
+    fn next(&mut self) -> Result<Option<Token>, SyntaxError> {
+        self.skip();
+        let at = self.at;
+        if self.rest.starts_with('"') {
+            return self.text();
+        }
+        let token = self.token()?;
+        // Consecutive doc lines are one comment.
+        if let (Token::Doc(line), Some(Token::Doc(doc))) = (&token, self.out.tokens.last_mut()) {
+            doc.push('\n');
+            doc.push_str(line);
+        } else {
+            self.push(token.clone(), at);
+        }
+        Ok(Some(token))
+    }
+
+    fn push(&mut self, token: Token, at: Position) {
+        self.out.tokens.push(token);
+        self.out.positions.push(at);
+    }
+
     fn fail<T>(&self, message: &str) -> Result<T, SyntaxError> {
         Err(SyntaxError {
             message: message.to_owned(),
@@ -122,9 +132,6 @@ impl Lexer<'_> {
         if first.is_ascii_digit() {
             return self.number();
         }
-        if first == '"' {
-            return self.text();
-        }
         match MARKS.iter().find(|mark| self.rest.starts_with(**mark)) {
             Some(mark) => {
                 self.take(mark.len());
@@ -157,23 +164,101 @@ impl Lexer<'_> {
         }
     }
 
-    fn text(&mut self) -> Result<Token, SyntaxError> {
+    /// A string. One with values written into it (`"at ${place}"`) is
+    /// read as what it means, in tokens: its pieces joined, each value
+    /// asked for its text, and the whole in brackets.
+    fn text(&mut self) -> Result<Option<Token>, SyntaxError> {
+        let start = self.at;
+        let before = self.out.tokens.len();
         self.take(1);
         let mut text = String::new();
         loop {
-            text.push_str(self.take_while(|c| !matches!(c, '"' | '\\' | '\n')));
+            text.push_str(self.take_while(|c| !matches!(c, '"' | '\\' | '\n' | '$')));
             match self.rest.chars().next() {
                 Some('"') => {
                     self.take(1);
-                    return Ok(Token::Text(text));
+                    break;
                 }
                 Some('\\') => {
                     self.take(1);
                     text.push(self.escape()?);
                 }
+                Some('$') if self.rest.starts_with("${") => {
+                    let piece = std::mem::take(&mut text);
+                    self.piece(before, start, Some(piece).filter(|piece| !piece.is_empty()));
+                    self.value(before)?;
+                }
+                Some('$') => text.push_str(self.take(1)),
                 _ => return self.fail("a string that does not end on its line"),
             }
         }
+        if self.out.tokens.len() == before {
+            self.push(Token::Text(text.clone()), start);
+            return Ok(Some(Token::Text(text)));
+        }
+        self.piece(before, start, Some(text).filter(|text| !text.is_empty()));
+        self.push(Token::Mark(")"), start);
+        Ok(None)
+    }
+
+    /// Adds a piece of a string whose tokens began at `before`: text,
+    /// or nothing but the join before a value. The first piece opens
+    /// the bracket the whole string is in.
+    fn piece(&mut self, before: usize, start: Position, text: Option<String>) {
+        if self.out.tokens.len() == before {
+            self.push(Token::Mark("("), start);
+        } else if text.is_some() {
+            self.push(Token::Mark("++"), start);
+        }
+        if let Some(text) = text {
+            self.push(Token::Text(text), start);
+        }
+    }
+
+    /// `${value}` in a string whose tokens began at `before`: the tokens
+    /// of the value, in brackets, asked for its text.
+    fn value(&mut self, before: usize) -> Result<(), SyntaxError> {
+        let at = self.at;
+        self.take(2);
+        // Something is already there, if only the opening bracket.
+        if self.out.tokens.len() > before + 1 {
+            self.push(Token::Mark("++"), at);
+        }
+        self.push(Token::Mark("("), at);
+        let first = self.out.tokens.len();
+        let mut depth = 0;
+        loop {
+            self.skip();
+            if depth == 0 && self.rest.starts_with('}') {
+                break;
+            }
+            match self.next()? {
+                Some(Token::Mark("{")) => depth += 1,
+                Some(Token::Mark("}")) => depth -= 1,
+                Some(Token::End) => {
+                    return Err(SyntaxError {
+                        message: "a `${` in a string is not closed".to_owned(),
+                        at,
+                    });
+                }
+                _ => {}
+            }
+        }
+        if self.out.tokens.len() == first {
+            return self.fail("nothing is written between `${` and `}`");
+        }
+        self.take(1);
+        let asked = [
+            Token::Mark(")"),
+            Token::Mark("."),
+            Token::Word("to_text".to_owned()),
+            Token::Mark("("),
+            Token::Mark(")"),
+        ];
+        for token in asked {
+            self.push(token, at);
+        }
+        Ok(())
     }
 
     /// The character an escape stands for, after its backslash.
@@ -186,7 +271,7 @@ impl Lexer<'_> {
             't' => '\t',
             'r' => '\r',
             '0' => '\0',
-            '"' | '\\' => escaped,
+            '"' | '\\' | '$' => escaped,
             'u' => return self.scalar(),
             other => return self.fail(&format!("`\\{other}` is not an escape")),
         };

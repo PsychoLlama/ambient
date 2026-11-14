@@ -279,3 +279,15 @@ fn a_minus_before_a_value_asks_it_for_its_negative() {
 
     assert_eq!(int(source), -33);
 }
+
+#[test]
+fn a_value_written_into_a_string_is_asked_for_its_text() {
+    let source = r#"
+        fn main(): string {
+            let (name, count) = ("tea", 2);
+            return "${count} of ${name}: ${"${count * 450}".length()} digits, \${no} $ {no}";
+        }
+    "#;
+
+    assert_eq!(text(source), "2 of tea: 3 digits, ${no} $ {no}");
+}

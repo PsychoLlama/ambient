@@ -8,5 +8,5 @@ pub fn main(): null with console.print, env.args {
         console.print!("hello, world");
         return;
     }
-    names.iter().each(fn(name) { console.print!("hello, " ++ name); });
+    names.iter().each(fn(name) { console.print!("hello, ${name}"); });
 }
