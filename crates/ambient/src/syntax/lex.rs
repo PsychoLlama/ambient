@@ -152,8 +152,18 @@ impl Lexer<'_> {
             written.push_str(self.take(1));
             written.push_str(self.take_while(digit));
         }
+        // An exponent is one only before a digit, signed or not: `1e3`.
+        let mut after = self.rest.chars().skip(1);
+        let signed = after.clone().next().is_some_and(|c| c == '+' || c == '-');
+        let power = after.nth(usize::from(signed));
+        let exponent =
+            self.rest.starts_with(['e', 'E']) && power.is_some_and(|c| c.is_ascii_digit());
+        if exponent {
+            written.push_str(self.take(1 + usize::from(signed)));
+            written.push_str(self.take_while(digit));
+        }
         written.retain(|c| c != '_');
-        let token = if fraction {
+        let token = if fraction || exponent {
             written.parse().ok().map(Token::Float)
         } else {
             written.parse().ok().map(Token::Int)

@@ -422,3 +422,11 @@ fn a_for_runs_its_block_for_every_item() {
 
     assert_eq!(int(source), 206);
 }
+
+#[test]
+fn a_number_with_an_exponent_is_a_float() {
+    // After a dot it is no exponent: `2.e1` asks an integer for `e1`.
+    let source = "fn main(): string => (1e3 + 2.5E-1 + 1_0e+1).to_text();";
+
+    assert_eq!(text(source), "1100.25");
+}

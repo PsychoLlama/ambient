@@ -37,6 +37,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 
 ## Expressions
 
+- A number written with a fraction or an exponent is a float, and any other is an integer; `_` may stand between digits.
 - A call is a callee and arguments in parentheses; a method call puts a receiver and a dot before it.
 - A [perform](abilities.md) is written as a call with `!` after the ability, so every place a function reaches outside itself is visible where it does.
 - A lambda is `fn`, parameters, and a body.
