@@ -1,0 +1,5 @@
+/// A line that matched: where it is and what it says.
+pub type Match = { path: string, line: int, text: string };
+
+pub fn describe(found: Match): string =>
+    found.path ++ ":" ++ found.line.to_text() ++ ": " ++ found.text;

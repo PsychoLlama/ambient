@@ -1,0 +1,46 @@
+import ambient.console;
+import ambient.env;
+import ambient.fs;
+import ambient.Error;
+import pkg.walk;
+import pkg.report.{Match, describe};
+
+/// Prints each line under a directory that contains a word, and how many
+/// there were. Exits with 1 if there were none, as `grep` does.
+pub fn main(): int with console.print, console.warn, env.args, fs.read, fs.list {
+    let args = env.args!();
+    match (args.get(0), args.get(1)) {
+        (let word: string, let root: string) => { return search(word, root); }
+        _ => {
+            console.warn!("usage: search <word> <directory>");
+            return 2;
+        }
+    }
+}
+
+fn search(word: string, root: string): int with console.print, console.warn, fs.read, fs.list {
+    let found = walk.files(root).fold([], fn(found: List<Match>, path: string): List<Match> {
+        match fs.read!(path) {
+            let error: Error => {
+                console.warn!(path ++ ": " ++ error.message);
+                return found;
+            }
+            let text: string => { return found ++ matches(path, text, word); }
+        }
+    });
+    found.each(fn(each) => console.print!(describe(each)));
+    console.print!(found.length().to_text() ++ " matches");
+    if found.is_empty() {
+        return 1;
+    }
+    return 0;
+}
+
+/// The lines of `text` that contain `word`.
+fn matches(path: string, text: string, word: string): List<Match> =>
+    text.lines().iter().enumerate()
+        .filter(fn(numbered) => match numbered { (_, let line) => line.contains(word) })
+        .map(fn(numbered) => match numbered {
+            (let number, let line) => { path, line: number + 1, text: line.trim() },
+        })
+        .to_list();

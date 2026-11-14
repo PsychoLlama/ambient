@@ -1,0 +1,14 @@
+import ambient.fs;
+import ambient.Error;
+
+/// Every file under a directory, at any depth, in order. What cannot be
+/// listed is taken to be a file.
+pub fn files(root: string): List<string> with fs.list {
+    match fs.list!(root) {
+        let error: Error => { return [root]; }
+        let names: List<string> => {
+            return names.fold([], fn(found: List<string>, name: string): List<string> =>
+                found ++ files(root ++ "/" ++ name));
+        }
+    }
+}
