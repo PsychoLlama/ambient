@@ -44,7 +44,7 @@ fn words(text: string): List<string> =>
 /// alike stay in the order of their words.
 fn most(counts: Dict<int>, limit: int): List<(string, int)> =>
     counts.entries()
-        .sort_by(fn(one, other) => match (one, other) { ((_, let a), (_, let b)) => a > b })
+        .sort_by(fn((_, a), (_, b)) => a > b)
         .iter().take(limit).to_list();
 
 fn line(entry: (string, int)): string {

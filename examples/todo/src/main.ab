@@ -52,18 +52,12 @@ fn finish(items: List<Item>, number: int | null): List<Item> | string {
         return "there is no item ${number}";
     }
     return items.iter().enumerate()
-        .map(fn(each) => match each {
-            (let at, let found) => match at + 1 == number {
-                true => { ...found, done: true },
-                false => found,
-            },
-        })
+        .map(fn((at, found)) => at + 1 == number ? { ...found, done: true } : found)
         .to_list();
 }
 
 fn show(items: List<Item>): null with console.print {
-    items.iter().enumerate().each(fn(each) {
-        let (at, found) = each;
+    items.iter().enumerate().each(fn((at, found)) {
         console.print!("${at + 1}. ${item.write(found)}");
     });
 }

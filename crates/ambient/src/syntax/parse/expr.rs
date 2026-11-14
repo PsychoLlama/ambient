@@ -76,6 +76,13 @@ impl Parser {
     pub(super) fn expr(&mut self) -> Parsed<Expr> {
         let value = self.binary(0)?;
         let at = self.index;
+        // `condition ? this : that`, which is a match of a boolean.
+        if self.eat("?") {
+            let when_true = self.expr()?;
+            self.expect(":")?;
+            let chosen = choose(value, when_true, self.expr()?);
+            return Ok(self.mark(at, chosen));
+        }
         if !self.eat_word("as") {
             return Ok(value);
         }
@@ -347,8 +354,19 @@ impl Parser {
     pub(super) fn written(&mut self) -> Parsed<Written> {
         let type_params = self.type_params()?;
         self.expect("(")?;
+        // A parameter written as a pattern is taken whole under a name
+        // of the reader's, and the body is where it is taken apart.
+        let mut apart = Vec::new();
+        let mut bound = Vec::new();
         let params = self.list(")", |parser| {
-            let name = parser.name()?;
+            let name = if parser.at("(") || parser.at("{") {
+                let pattern = parser.pattern(Mode::Binding, &mut bound)?;
+                let whole = parser.made_up("param");
+                apart.push((whole.clone(), pattern));
+                whole
+            } else {
+                parser.name()?
+            };
             let ty = if parser.eat(":") {
                 Some(parser.ty()?)
             } else {
@@ -366,8 +384,16 @@ impl Parser {
             parser
                 .locals
                 .extend(params.iter().map(|(name, _)| name.clone()));
+            parser.locals.extend(bound);
             parser.body()
         })?;
+        let body = apart
+            .into_iter()
+            .rev()
+            .fold(body, |body, (whole, pattern)| Expr::Match {
+                subject: Box::new(name(&whole)),
+                arms: vec![Arm { pattern, body }],
+            });
         Ok(Written {
             type_params,
             params,

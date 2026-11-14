@@ -339,3 +339,27 @@ fn a_let_with_an_else_goes_on_only_where_the_value_fits() {
 
     assert_eq!(text(source), "3, 3 is odd, 5 is odd");
 }
+
+#[test]
+fn a_condition_chooses_between_two_values() {
+    let source = r#"
+        fn size(n: int): string => n > 10 ? "big" : n > 5 ? "middling" : "small";
+        fn main(): string => "${size(20)} ${size(7)} ${size(1)}";
+    "#;
+
+    assert_eq!(text(source), "big middling small");
+}
+
+#[test]
+fn a_parameter_of_a_lambda_is_taken_apart_by_a_pattern() {
+    let source = r#"
+        fn main(): string {
+            let pairs = [("a", 1), ("b", 2)];
+            let named = pairs.map(fn((name, count)) => "${name}${count}");
+            let total = pairs.fold(0, fn(sum: int, (_, count): (string, int)): int => sum + count);
+            return "${named.join_with(",")} ${total}";
+        }
+    "#;
+
+    assert_eq!(text(source), "a1,b2 3");
+}

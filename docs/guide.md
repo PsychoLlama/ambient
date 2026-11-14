@@ -57,7 +57,7 @@ pub fn main(): string => describe(3);
 - Nothing is changed in place. `list.push(x)` gives another list; a record is copied with `{ ...old, price: 500 }`.
 - `++` joins strings and lists, and `"${count} left"` writes a value into a string by its `to_text`. Arithmetic on integers faults on overflow and division by zero instead of wrapping.
 - There are no loops. A list or an iterator has `map`, `filter`, `fold`, `each`, and the rest; anything else is a function that calls itself, and a call in tail position takes no stack.
-- `if` is a statement. The expression that chooses is `match`.
+- `if` is a statement. The expressions that choose are `match` and `condition ? this : that`.
 
 ## Types and match
 

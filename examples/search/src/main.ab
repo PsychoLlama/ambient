@@ -39,8 +39,6 @@ fn search(word: string, root: string): int with console, fs.read, fs.list {
 /// The lines of `text` that contain `word`.
 fn matches(path: string, text: string, word: string): List<Match> =>
     text.lines().iter().enumerate()
-        .filter(fn(numbered) => match numbered { (_, let line) => line.contains(word) })
-        .map(fn(numbered) => match numbered {
-            (let number, let line) => { path, line: number + 1, text: line.trim() },
-        })
+        .filter(fn((_, line)) => line.contains(word))
+        .map(fn((number, line)) => { path, line: number + 1, text: line.trim() })
         .to_list();

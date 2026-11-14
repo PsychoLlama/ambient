@@ -2,12 +2,7 @@
 pub type Item = { text: string, done: bool };
 
 /// The line an item is kept as.
-pub fn write(item: Item): string {
-    if item.done {
-        return "[x] ${item.text}";
-    }
-    return "[ ] ${item.text}";
-}
+pub fn write(item: Item): string => "[${item.done ? "x" : " "}] ${item.text}";
 
 /// The item a line keeps, or null if it keeps none.
 pub fn read(line: string): Item | null {
