@@ -22,6 +22,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 ## Definitions
 
 - A definition is written with the keyword of its [kind](definitions.md): `fn`, `type`, `ability`, `key`, `tag`, `extern`, `target`.
+- A word that only begins a definition is not reserved: `key`, `tag`, `ability`, `target`, `extern`, `import`, and `module` may name anything, since nothing else begins where a definition does.
 - `pub` before one makes it public, and a `///` comment before one is its doc comment.
 - No definition is given a string to be known by: [identity](definitions.md) is read from where it is declared.
 - An `import` names a module, or a module and the definitions taken from it in braces; `pub import` re-exports.

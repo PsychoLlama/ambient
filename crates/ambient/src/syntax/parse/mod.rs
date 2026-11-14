@@ -14,12 +14,13 @@ use crate::surface::{Path, Type};
 
 pub(super) type Parsed<T> = Result<T, SyntaxError>;
 
-/// Words that never name anything.
-const RESERVED: [&str; 32] = [
-    "fn", "let", "return", "if", "else", "match", "type", "ability", "key", "tag", "extern",
-    "target", "import", "pub", "with", "as", "try", "budget", "provide", "only", "observe",
-    "group", "spawn", "cell", "comptime", "using", "true", "false", "null", "never", "unknown",
-    "module",
+/// Words that never name anything. A word that only begins a definition
+/// (`key`, `tag`, `ability`, `target`, `extern`, `import`, `module`) is
+/// not one: nothing else begins where a definition does.
+const RESERVED: [&str; 25] = [
+    "fn", "let", "return", "if", "else", "match", "type", "pub", "with", "as", "try", "budget",
+    "provide", "only", "observe", "group", "spawn", "cell", "comptime", "using", "true", "false",
+    "null", "never", "unknown",
 ];
 
 pub(super) struct Parser {

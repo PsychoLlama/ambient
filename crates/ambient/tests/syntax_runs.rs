@@ -253,3 +253,17 @@ fn a_using_releases_what_it_binds_when_its_block_ends() {
     // Each is released after the block's value is made, the last first.
     assert_eq!(text(source), "ab:ba");
 }
+
+#[test]
+fn a_word_that_only_begins_a_definition_names_anything() {
+    let source = r"
+        tag tag;
+        fn main(): int {
+            let key = 1;
+            let target = { module: 2, ability: key };
+            return target.module + target.ability;
+        }
+    ";
+
+    assert_eq!(int(source), 3);
+}
