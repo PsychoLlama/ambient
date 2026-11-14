@@ -81,12 +81,56 @@ fn checking_reports_every_definition_that_is_wrong() {
     assert_eq!(problems.len(), 3, "{problems:?}");
     assert_eq!(
         problems[0],
-        "error: app/src/main.ab:2: app:main.one: expected `int`, found `\"one\"`"
+        "error: app/src/main.ab:2:26: app:main.one: expected `int`, found `\"one\"`"
     );
-    assert!(problems[1].starts_with("error: app/src/main.ab:3: app:main.two: "));
-    assert!(problems[2].starts_with("error: app/src/main.ab:5: app:main.Broken: "));
+    assert!(problems[1].starts_with("error: app/src/main.ab:3:26: app:main.two: "));
+    assert!(problems[2].starts_with("error: app/src/main.ab:5:9: app:main.Broken: "));
 
     assert_eq!(check(&app("fn fine(): int => 3;")).0, 0);
+}
+
+/// The line and column checking reports for a module whose one wrong
+/// definition is `source`, written from the first column of line one.
+fn wrong_at(source: &str) -> String {
+    let (_, world) = check(&app(source));
+    let place = world.err.strip_prefix("error: app/src/main.ab:");
+    let place = place.and_then(|rest| rest.split(": ").next());
+    place.unwrap_or(&world.err).to_owned()
+}
+
+#[test]
+fn an_error_is_reported_at_the_expression_that_is_wrong() {
+    // An argument, an operand's operator, and a name that is not there.
+    assert_eq!(
+        wrong_at("fn f(n: int): int => n;\nfn g(): int => f(\"a\");"),
+        "2:18"
+    );
+    assert_eq!(wrong_at("fn f(): int => 1 + \"a\";"), "1:18");
+    assert_eq!(
+        wrong_at("fn f(): int {\n  let a = 1;\n  return a + b;\n}"),
+        "3:14"
+    );
+    // A method the value lacks, at its name.
+    assert_eq!(wrong_at("fn f(): int => 1\n  .missing();"), "2:4");
+}
+
+#[test]
+fn what_a_block_gives_is_wrong_at_the_return_that_gives_it() {
+    let after = "fn f(): int {\n  let a = 1;\n  return \"a\";\n}";
+    let branch = "fn f(n: int): int {\n  if n > 0 {\n    return \"a\";\n  }\n  return 1;\n}";
+    let held = "fn f(): int {\n  using a = 1;\n  return 2;\n}";
+
+    assert_eq!(wrong_at(after), "3:10");
+    assert_eq!(wrong_at(branch), "3:12");
+    // What a using binds holds no cleanup: at the statement.
+    assert_eq!(wrong_at(held), "2:3");
+}
+
+#[test]
+fn an_error_inside_a_lambda_is_at_its_place_in_the_definition() {
+    let source = "fn f(): List<int> =>\n  [1].map(fn(n) =>\n    n ++ 1);";
+
+    assert_eq!(wrong_at(source), "3:7");
 }
 
 #[test]

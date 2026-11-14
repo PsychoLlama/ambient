@@ -75,16 +75,18 @@ fn operation(operator: Operator, operands: Vec<Expr>) -> Expr {
 impl Parser {
     pub(super) fn expr(&mut self) -> Parsed<Expr> {
         let value = self.binary(0)?;
+        let at = self.index;
         if !self.eat_word("as") {
             return Ok(value);
         }
         let ty = self.ty()?;
         self.expect_word("else")?;
-        Ok(Expr::Cast {
+        let cast = Expr::Cast {
             value: Box::new(value),
             ty,
             otherwise: Box::new(self.expr()?),
-        })
+        };
+        Ok(self.mark(at, cast))
     }
 
     fn binary(&mut self, level: usize) -> Parsed<Expr> {
@@ -93,9 +95,11 @@ impl Parser {
         };
         let mut left = self.binary(level + 1)?;
         while let Some(mark) = marks.iter().find(|mark| self.at(mark)) {
+            let at = self.index;
             self.advance();
             let right = self.binary(level + 1)?;
-            left = self.operate(mark, left, right);
+            let applied = self.operate(mark, left, right);
+            left = self.mark(at, applied);
             if level == COMPARISON {
                 break;
             }
@@ -139,11 +143,14 @@ impl Parser {
     }
 
     fn unary(&mut self) -> Parsed<Expr> {
+        let at = self.index;
         if self.eat("!") {
-            return Ok(not(self.unary()?));
+            let negated = not(self.unary()?);
+            return Ok(self.mark(at, negated));
         }
         if self.eat_word("comptime") {
-            return Ok(Expr::Comptime(Box::new(self.unary()?)));
+            let call = Expr::Comptime(Box::new(self.unary()?));
+            return Ok(self.mark(at, call));
         }
         if self.eat("-") {
             let negative = match self.peek() {
@@ -151,25 +158,34 @@ impl Parser {
                 Token::Float(value) => Literal::float(-value),
                 // Anything else is asked for its negative, which the
                 // library says for each shape that has one.
-                _ => return Ok(crate::builder::send(self.unary()?, "negate", [])),
+                _ => {
+                    let asked = crate::builder::send(self.unary()?, "negate", []);
+                    return Ok(self.mark(at, asked));
+                }
             };
             self.advance();
-            return self.postfix(Expr::Literal(negative));
+            let literal = self.mark(at, Expr::Literal(negative));
+            return self.postfix(at, literal);
         }
         let primary = self.primary()?;
-        self.postfix(primary)
+        let primary = self.mark(at, primary);
+        self.postfix(at, primary)
     }
 
-    /// Calls, fields, and method calls written after `target`.
-    fn postfix(&mut self, mut target: Expr) -> Parsed<Expr> {
+    /// Calls, fields, and method calls written after `target`, which
+    /// began at the token numbered `start`. A call is at what it calls,
+    /// and a member at its name.
+    fn postfix(&mut self, start: usize, mut target: Expr) -> Parsed<Expr> {
         loop {
             if self.eat("(") {
-                target = Expr::Call {
+                let call = Expr::Call {
                     callee: Box::new(target),
                     args: self.list(")", Self::expr)?,
                 };
+                target = self.mark(start, call);
                 continue;
             }
+            let at = self.index + 1;
             let key = if self.eat(".") {
                 // Any word names a member, reserved or not.
                 match self.advance() {
@@ -183,7 +199,7 @@ impl Parser {
             } else {
                 return Ok(target);
             };
-            target = if self.eat("(") {
+            let member = if self.eat("(") {
                 Expr::Send {
                     target: Box::new(target),
                     method: key,
@@ -195,6 +211,7 @@ impl Parser {
                     key,
                 }
             };
+            target = self.mark(at, member);
         }
     }
 

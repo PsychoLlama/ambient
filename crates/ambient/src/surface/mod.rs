@@ -337,6 +337,10 @@ pub struct Arm<N = Path> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Expr<N = Path> {
     Null,
+    /// Where the reader found an expression: a mark of its own, around
+    /// what it found there. Only the reader makes one, and it takes
+    /// them all out before a module leaves it (`syntax/place.rs`).
+    At(usize, Box<Expr<N>>),
     /// The trace of where this is evaluated: see `spec/errors.md`.
     Trace,
     Literal(Literal),

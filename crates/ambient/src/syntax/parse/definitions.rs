@@ -7,7 +7,7 @@ use crate::surface::{
     Ability, Definition, DefinitionKind, Extern, ExternKind, Function, KeyDefinition, Param, Path,
     Target, Type, TypeDefinition,
 };
-use crate::syntax::SyntaxError;
+use crate::syntax::{Placed, SyntaxError, place};
 
 impl Parser {
     /// The whole file.
@@ -45,8 +45,18 @@ impl Parser {
             self.expect(";")?;
             return Ok(module.expose(&path.to_string()));
         }
-        self.defined.push(self.position());
-        let (name, kind) = self.definition()?;
+        let at = self.position();
+        self.defined.push(Placed {
+            at,
+            nodes: Vec::new(),
+        });
+        let (name, mut kind) = self.definition()?;
+        // The marks come out here, before anything else sees the tree.
+        if let (DefinitionKind::Function(function), Some(placed)) =
+            (&mut kind, self.defined.last_mut())
+        {
+            place::lift(&mut function.body, &self.positions, at, &mut placed.nodes);
+        }
         Ok(module.define(Definition {
             name,
             public,

@@ -9,8 +9,8 @@ mod scopes;
 mod types;
 
 use super::lex::{Lexed, Token};
-use super::{Position, SyntaxError};
-use crate::surface::{Path, Type};
+use super::{Placed, Position, SyntaxError};
+use crate::surface::{Expr, Path, Type};
 
 pub(super) type Parsed<T> = Result<T, SyntaxError>;
 
@@ -34,8 +34,8 @@ pub(super) struct Parser {
     own: Option<Type>,
     /// How many names the reader has made up.
     made: usize,
-    /// Where each definition read so far begins.
-    defined: Vec<Position>,
+    /// Where each definition read so far is.
+    defined: Vec<Placed>,
 }
 
 impl Parser {
@@ -59,6 +59,12 @@ impl Parser {
     fn peek_at(&self, ahead: usize) -> &Token {
         let last = self.tokens.len() - 1;
         &self.tokens[(self.index + ahead).min(last)]
+    }
+
+    /// `expr`, marked as written at the token numbered `at`.
+    #[expect(clippy::unused_self, reason = "reads as the other makers do")]
+    fn mark(&self, at: usize, expr: Expr) -> Expr {
+        Expr::At(at, Box::new(expr))
     }
 
     fn position(&self) -> Position {

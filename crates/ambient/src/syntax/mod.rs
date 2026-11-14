@@ -8,6 +8,7 @@
 
 mod lex;
 mod parse;
+mod place;
 
 use std::fmt;
 
@@ -40,8 +41,18 @@ impl std::error::Error for SyntaxError {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Source {
     pub module: Module,
-    /// Where each of the module's definitions begins, in their order.
-    pub definitions: Vec<Position>,
+    /// Where each of the module's definitions is, in their order.
+    pub definitions: Vec<Placed>,
+}
+
+/// Where a definition was written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Placed {
+    /// Where it begins.
+    pub at: Position,
+    /// Where each node of its body was written, if it has one, in the
+    /// order [`crate::surface::Expr::children`] walks them.
+    pub nodes: Vec<Position>,
 }
 
 /// The module a source file is, and where its definitions are.

@@ -14,6 +14,7 @@ impl Checker<'_> {
         &mut self,
         subject: &Expr<Reference>,
         arms: &[Arm<Reference>],
+        expected: Option<&Ty>,
     ) -> Result<(core::Expr, Ty), Error> {
         let (subject, mut remaining) = self.infer(subject)?;
         for arm in arms {
@@ -36,7 +37,7 @@ impl Checker<'_> {
                 });
             };
             let pattern = self.bind(&matched, &arm.pattern);
-            let (body, ty) = self.infer(&arm.body)?;
+            let (body, ty) = self.infer_to(&arm.body, expected)?;
             core_arms.push((pattern, body));
             results.push(ty);
             remaining = self.env.remainder(&remaining, &arm.pattern);
@@ -52,6 +53,19 @@ impl Checker<'_> {
             arms: core_arms,
         };
         Ok((core, self.env.union(results)))
+    }
+
+    /// `expr` held to `expected`, if anything is expected of it, and
+    /// its type.
+    pub(super) fn infer_to(
+        &mut self,
+        expr: &Expr<Reference>,
+        expected: Option<&Ty>,
+    ) -> Result<(core::Expr, Ty), Error> {
+        match expected {
+            Some(expected) => Ok((self.check(expr, expected)?, expected.clone())),
+            None => self.infer(expr),
+        }
     }
 
     /// Gives every binder in `pattern` its type, in binding order, and

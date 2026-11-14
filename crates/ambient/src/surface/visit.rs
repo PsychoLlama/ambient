@@ -219,6 +219,84 @@ impl<N> Expr<N> {
     }
 }
 
+/// The expressions directly inside one, in order, for a walk that only
+/// looks and for one that changes them: written once, so the two agree.
+macro_rules! children {
+    ($self:expr, $visit:ident, $iter:ident $(, $mutable:tt)?) => {
+        match $self {
+            Self::Null
+            | Self::Trace
+            | Self::Literal(_)
+            | Self::Name(_)
+            | Self::Instantiate { .. }
+            | Self::AbilityId(_) => {}
+            Self::Call { callee, args } => {
+                $visit(callee);
+                args.$iter().for_each($visit);
+            }
+            Self::Send { target, args, .. } => {
+                $visit(target);
+                args.$iter().for_each($visit);
+            }
+            Self::Record(fields) => fields.$iter().for_each(|(_, value)| $visit(value)),
+            Self::Tuple(members) | Self::List(members) => members.$iter().for_each($visit),
+            Self::Field { target, .. } => $visit(target),
+            Self::Method(function) => $visit(function),
+            Self::Let { value, body, .. } => {
+                $visit(value);
+                $visit(body);
+            }
+            Self::Operation { operands, .. } => operands.$iter().for_each($visit),
+            Self::Merge { left, right } => {
+                $visit(left);
+                $visit(right);
+            }
+            Self::Match { subject, arms } => {
+                $visit(subject);
+                for arm in arms {
+                    $visit(&$($mutable)? arm.body);
+                }
+            }
+            Self::Lambda { body, .. } | Self::At(_, body) => $visit(body),
+            Self::Perform { args, .. } => args.$iter().for_each($visit),
+            Self::Provide { bundle, body, .. }
+            | Self::Using {
+                value: bundle,
+                body,
+                ..
+            } => {
+                $visit(bundle);
+                $visit(body);
+            }
+            Self::Observe { observer, body } => {
+                $visit(observer);
+                $visit(body);
+            }
+            Self::All(exprs) | Self::First(exprs) | Self::Cell { args: exprs, .. } => {
+                exprs.$iter().for_each($visit);
+            }
+            Self::Budget {
+                steps,
+                allocation,
+                body,
+            } => {
+                $visit(steps);
+                $visit(allocation);
+                $visit(body);
+            }
+            Self::Comptime(call) | Self::Group(call) | Self::Spawn(call) | Self::Boundary(call) => {
+                $visit(call);
+            }
+            Self::Cast {
+                value, otherwise, ..
+            } => {
+                $visit(value);
+                $visit(otherwise);
+            }
+        }
+    };
+}
+
 impl<N> Expr<N> {
     /// Calls `visit` with the name of every method called by name
     /// inside the expression.
@@ -256,77 +334,28 @@ impl<N> Expr<N> {
     /// order. A walk that treats most nodes alike is written with this,
     /// so that a new node is added here and not to every walk.
     pub fn children<'a>(&'a self, visit: &mut impl FnMut(&'a Self)) {
-        match self {
-            Self::Null
-            | Self::Trace
-            | Self::Literal(_)
-            | Self::Name(_)
-            | Self::Instantiate { .. }
-            | Self::AbilityId(_) => {}
-            Self::Call { callee, args } => {
-                visit(callee);
-                args.iter().for_each(visit);
+        children!(self, visit, iter);
+    }
+
+    /// [`Self::children`], for a walk that changes them.
+    pub fn children_mut(&mut self, visit: &mut impl FnMut(&mut Self)) {
+        children!(self, visit, iter_mut, mut);
+    }
+
+    /// Where `node` is among the nodes of this tree, counted from this
+    /// one in the order a walk meets them, if it is one of them.
+    pub fn index_of(&self, node: *const Self) -> Option<usize> {
+        fn seek<N>(at: &Expr<N>, node: *const Expr<N>, passed: &mut usize) -> bool {
+            if std::ptr::eq(at, node) {
+                return true;
             }
-            Self::Send { target, args, .. } => {
-                visit(target);
-                args.iter().for_each(visit);
-            }
-            Self::Record(fields) => fields.iter().for_each(|(_, value)| visit(value)),
-            Self::Tuple(members) | Self::List(members) => members.iter().for_each(visit),
-            Self::Field { target, .. } => visit(target),
-            Self::Method(function) => visit(function),
-            Self::Let { value, body, .. } => {
-                visit(value);
-                visit(body);
-            }
-            Self::Operation { operands, .. } => operands.iter().for_each(visit),
-            Self::Merge { left, right } => {
-                visit(left);
-                visit(right);
-            }
-            Self::Match { subject, arms } => {
-                visit(subject);
-                for arm in arms {
-                    visit(&arm.body);
-                }
-            }
-            Self::Lambda { body, .. } => visit(body),
-            Self::Perform { args, .. } => args.iter().for_each(visit),
-            Self::Provide { bundle, body, .. }
-            | Self::Using {
-                value: bundle,
-                body,
-                ..
-            } => {
-                visit(bundle);
-                visit(body);
-            }
-            Self::Observe { observer, body } => {
-                visit(observer);
-                visit(body);
-            }
-            Self::All(exprs) | Self::First(exprs) | Self::Cell { args: exprs, .. } => {
-                exprs.iter().for_each(visit);
-            }
-            Self::Budget {
-                steps,
-                allocation,
-                body,
-            } => {
-                visit(steps);
-                visit(allocation);
-                visit(body);
-            }
-            Self::Comptime(call) | Self::Group(call) | Self::Spawn(call) | Self::Boundary(call) => {
-                visit(call);
-            }
-            Self::Cast {
-                value, otherwise, ..
-            } => {
-                visit(value);
-                visit(otherwise);
-            }
+            *passed += 1;
+            let mut found = false;
+            at.children(&mut |child| found = found || seek(child, node, passed));
+            found
         }
+        let mut passed = 0;
+        seek(self, node, &mut passed).then_some(passed)
     }
 }
 

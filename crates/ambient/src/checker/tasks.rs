@@ -69,9 +69,10 @@ impl Checker<'_> {
         &mut self,
         cleanup: &Expr<Reference>,
         body: &Expr<Reference>,
+        expected: Option<&Ty>,
     ) -> Result<(core::Expr, Ty), Error> {
-        let (cleanup, _) = self.function(Vec::new(), &[], None, cleanup)?;
-        let (body, ty) = self.infer(body)?;
+        let (cleanup, _) = self.own(|checker| checker.function(Vec::new(), &[], None, cleanup))?;
+        let (body, ty) = self.infer_to(body, expected)?;
         let node = core::Expr::Cleanup {
             cleanup: Box::new(cleanup),
             body: Box::new(body),
@@ -87,21 +88,23 @@ impl Checker<'_> {
         &mut self,
         value: &Expr<Reference>,
         body: &Expr<Reference>,
+        expected: Option<&Ty>,
     ) -> Result<(core::Expr, Ty), Error> {
         let local = |number| Box::new(Expr::Name(Reference::Local(number)));
         let (value, ty) = self.infer(value)?;
         let held = self.next;
         self.bind_local(ty);
-        let (release, releases) = self.infer(&Expr::Field {
+        let read = Expr::Field {
             target: local(held),
             key: Key::Ability(Reference::Definition(crate::library::dispose())),
-        })?;
+        };
+        let (release, releases) = self.own(|checker| checker.infer(&read))?;
         let call = Expr::Call {
             callee: local(self.next),
             args: Vec::new(),
         };
         self.bind_local(releases);
-        let (cleanup, ty) = self.cleanup(&call, body)?;
+        let (cleanup, ty) = self.cleanup(&call, body, expected)?;
         let core = core::Expr::Let {
             value: Box::new(value),
             body: Box::new(core::Expr::Let {

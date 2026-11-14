@@ -14,13 +14,15 @@ use crate::syntax::Position;
 
 #[derive(Clone)]
 enum Statement {
-    Let(Pattern, Expr),
+    /// A binding, and the token it began at.
+    Let(usize, Pattern, Expr),
     /// A binding whose value is released when the block exits.
-    Using(Pattern, Expr),
+    Using(usize, Pattern, Expr),
     Expr(Expr),
     Return(Expr, Position),
-    /// An `if` or a match whose arms are blocks.
-    Branch(Expr, Vec<(Pattern, Vec<Statement>)>),
+    /// An `if` or a match whose arms are blocks, and the token it began
+    /// at.
+    Branch(usize, Expr, Vec<(Pattern, Vec<Statement>)>),
 }
 
 /// Whether running statements ends in a `return`.
@@ -34,7 +36,7 @@ enum Returns {
 fn returns(statements: &[Statement]) -> Returns {
     let of = |statement: &Statement| match statement {
         Statement::Return(..) => Returns::Always,
-        Statement::Branch(_, arms) => {
+        Statement::Branch(_, _, arms) => {
             let arms: Vec<Returns> = arms.iter().map(|(_, arm)| returns(arm)).collect();
             if arms.iter().all(|arm| *arm == Returns::Always) {
                 Returns::Always
@@ -75,6 +77,7 @@ impl Parser {
 
     fn statement(&mut self) -> Parsed<Statement> {
         let at = self.position();
+        let began = self.index;
         let using = self.at_word("using");
         if using || self.at_word("let") {
             self.advance();
@@ -85,9 +88,9 @@ impl Parser {
             self.expect(";")?;
             self.locals.extend(binds);
             return Ok(if using {
-                Statement::Using(pattern, value)
+                Statement::Using(began, pattern, value)
             } else {
-                Statement::Let(pattern, value)
+                Statement::Let(began, pattern, value)
             });
         }
         if self.eat_word("return") {
@@ -100,10 +103,10 @@ impl Parser {
             return Ok(Statement::Return(value, at));
         }
         if self.eat_word("if") {
-            return self.conditional();
+            return self.conditional(began);
         }
         if self.eat_word("match") {
-            return self.match_statement();
+            return self.match_statement(began);
         }
         // A function in a block is a local that holds it.
         if self.at_word("fn") && self.peek_ahead_is_name() {
@@ -112,7 +115,7 @@ impl Parser {
             let written = self.written()?.lambda();
             self.locals.push(function.clone());
             let binder = Pattern::Bind(function, Box::new(Pattern::Wildcard));
-            return Ok(Statement::Let(binder, written));
+            return Ok(Statement::Let(began, binder, written));
         }
         // A construct that ends in its own block needs nothing after it.
         let scope = ["try", "budget", "provide", "observe", "group", "spawn"];
@@ -135,18 +138,21 @@ impl Parser {
 
     /// An `if`, after the word: a condition, a block, and maybe an
     /// `else` with a block or another `if`.
-    fn conditional(&mut self) -> Parsed<Statement> {
+    fn conditional(&mut self, began: usize) -> Parsed<Statement> {
         let condition = self.expr()?;
         let then = self.statements()?;
         let otherwise = if !self.eat_word("else") {
             Vec::new()
-        } else if self.eat_word("if") {
-            vec![self.conditional()?]
+        } else if self.at_word("if") {
+            let began = self.index;
+            self.advance();
+            vec![self.conditional(began)?]
         } else {
             self.statements()?
         };
         let arm = |value| Pattern::Literal(crate::literal::Literal::Bool(value));
         Ok(Statement::Branch(
+            began,
             condition,
             vec![(arm(true), then), (arm(false), otherwise)],
         ))
@@ -154,7 +160,7 @@ impl Parser {
 
     /// A match written as a statement, after the word: each arm is a
     /// block, or one expression.
-    fn match_statement(&mut self) -> Parsed<Statement> {
+    fn match_statement(&mut self, began: usize) -> Parsed<Statement> {
         let subject = self.expr()?;
         self.expect("{")?;
         let mut arms = Vec::new();
@@ -173,7 +179,7 @@ impl Parser {
             arms.push((pattern, body));
             self.eat(",");
         }
-        Ok(Statement::Branch(subject, arms))
+        Ok(Statement::Branch(began, subject, arms))
     }
 
     /// The expression statements are, run in order.
@@ -191,56 +197,64 @@ impl Parser {
                     self.fail_at(at, "what follows a `return` never runs")
                 }
             }
-            Statement::Let(Pattern::Bind(name, inner), value)
+            Statement::Let(began, Pattern::Bind(name, inner), value)
                 if matches!(*inner, Pattern::Wildcard) =>
             {
-                Ok(Expr::Let {
+                let bound = Expr::Let {
                     name,
                     value: Box::new(value),
                     body: Box::new(self.arrange(rest)?),
-                })
+                };
+                Ok(self.mark(began, bound))
             }
-            Statement::Let(pattern, value) => Ok(Expr::Match {
-                subject: Box::new(value),
-                arms: vec![Arm {
+            Statement::Let(began, pattern, value) => {
+                let arm = Arm {
                     pattern,
                     body: self.arrange(rest)?,
-                }],
-            }),
-            Statement::Using(Pattern::Bind(name, inner), value)
+                };
+                let matched = Expr::Match {
+                    subject: Box::new(value),
+                    arms: vec![arm],
+                };
+                Ok(self.mark(began, matched))
+            }
+            Statement::Using(began, Pattern::Bind(name, inner), value)
                 if matches!(*inner, Pattern::Wildcard) =>
             {
-                Ok(Expr::Using {
+                let bound = Expr::Using {
                     name,
                     value: Box::new(value),
                     body: Box::new(self.arrange(rest)?),
-                })
+                };
+                Ok(self.mark(began, bound))
             }
             // The value is held whole under a name of the reader's, and
             // the pattern names its parts.
-            Statement::Using(pattern, value) => {
+            Statement::Using(began, pattern, value) => {
                 let held = self.made_up("held");
                 let arm = Arm {
                     pattern,
                     body: self.arrange(rest)?,
                 };
-                Ok(Expr::Using {
+                let bound = Expr::Using {
                     value: Box::new(value),
                     body: Box::new(Expr::Match {
                         subject: Box::new(super::expr::name(&held)),
                         arms: vec![arm],
                     }),
                     name: held,
-                })
+                };
+                Ok(self.mark(began, bound))
             }
             Statement::Expr(value) => Ok(dropped(value, self.arrange(rest)?)),
-            Statement::Branch(subject, arms) => self.branch(subject, arms, rest),
+            Statement::Branch(began, subject, arms) => self.branch(began, subject, arms, rest),
         }
     }
 
     /// A branch and the statements after it.
     fn branch(
         &mut self,
+        began: usize,
         subject: Expr,
         mut arms: Vec<(Pattern, Vec<Statement>)>,
         rest: Vec<Statement>,
@@ -251,6 +265,7 @@ impl Parser {
         // No arm returns: the branch is one statement among the others.
         if !rest.is_empty() && !returning {
             let branch = self.matched(subject, arms)?;
+            let branch = self.mark(began, branch);
             return Ok(dropped(branch, self.arrange(rest)?));
         }
         // Some arm returns, so what follows belongs to the arms that do
@@ -274,6 +289,7 @@ impl Parser {
             }
         }
         let branch = self.matched(subject, arms)?;
+        let branch = self.mark(began, branch);
         Ok(match shared {
             None => branch,
             Some((then, body)) => Expr::Let {

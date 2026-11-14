@@ -42,13 +42,16 @@ pub use world::{check_extern, check_target};
 ///
 /// # Errors
 ///
-/// Returns the first type error in the function.
+/// Returns the first type error in the function, and sets `at` to the
+/// node of its body the error is at: its place in the order
+/// [`Expr::children`] walks them.
 pub fn check_function(
     symbol: &Symbol,
     function: &Function<Reference>,
     mut env: Env,
     evaluator: &dyn Evaluate,
     root: bool,
+    at: &mut Option<usize>,
 ) -> Result<Open, Error> {
     let header = header(symbol, function, &mut env)?;
     let mut checker = Checker::new(symbol, &env);
@@ -66,7 +69,9 @@ pub fn check_function(
     for param in header.params {
         checker.bind_local(param);
     }
-    let body = checker.check(&function.body, &header.ret)?;
+    let body = checker.check(&function.body, &header.ret);
+    *at = checker.blamed_in(&function.body);
+    let body = body?;
     let frame = checker.finish();
     Ok(Open {
         tree: Tree::Function(core::Function {
@@ -149,6 +154,8 @@ struct Checker<'a> {
     next: usize,
     /// How many expressions the one being checked is inside.
     nesting: usize,
+    /// The innermost expression the first error was at.
+    blamed: Option<*const Expr<Reference>>,
 }
 
 impl<'a> Checker<'a> {
@@ -163,6 +170,7 @@ impl<'a> Checker<'a> {
             types: BTreeMap::new(),
             next: 0,
             nesting: 0,
+            blamed: None,
         }
     }
 
@@ -235,6 +243,73 @@ impl<'a> Checker<'a> {
 
     /// Checks that `expr` has a subtype of `expected`.
     fn check(&mut self, expr: &Expr<Reference>, expected: &Ty) -> Result<core::Expr, Error> {
+        let checked = self.entered(|checker| checker.check_node(expr, expected));
+        self.blame(expr, checked)
+    }
+
+    /// Does `inside` one level further into the tree, which has room
+    /// for a tree as deep as one may be, and no deeper.
+    fn entered<T>(
+        &mut self,
+        inside: impl FnOnce(&mut Self) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        if self.nesting == core::DEPTH {
+            return Err(Error::Nesting(self.symbol.clone()));
+        }
+        self.nesting += 1;
+        let result = inside(self);
+        self.nesting -= 1;
+        result
+    }
+
+    /// Notes `expr` as where an error is, unless an expression inside
+    /// it already was.
+    fn blame<T>(&mut self, expr: &Expr<Reference>, result: Result<T, Error>) -> Result<T, Error> {
+        if result.is_err() && self.blamed.is_none() {
+            self.blamed = Some(std::ptr::from_ref(expr));
+        }
+        result
+    }
+
+    /// Checks something the checker wrote itself, which is in no tree:
+    /// an error in it is at whatever it was written for.
+    fn own<T>(&mut self, check: impl FnOnce(&mut Self) -> Result<T, Error>) -> Result<T, Error> {
+        let before = self.blamed;
+        let result = check(self);
+        if result.is_err() {
+            self.blamed = before;
+        }
+        result
+    }
+
+    /// Where in `body` the first error was: a node's place in the order
+    /// [`Expr::children`] walks them.
+    fn blamed_in(&self, body: &Expr<Reference>) -> Option<usize> {
+        body.index_of(self.blamed?)
+    }
+
+    fn check_node(&mut self, expr: &Expr<Reference>, expected: &Ty) -> Result<core::Expr, Error> {
+        // What a binding or a match gives is what its last part gives.
+        // That part is held to what is expected, so an error is at it
+        // and not at the whole.
+        match expr {
+            Expr::Let { value, body, .. } => {
+                let (value, ty) = self.infer(value)?;
+                self.bind_local(ty);
+                let body = self.check(body, expected)?;
+                return Ok(core::Expr::Let {
+                    value: Box::new(value),
+                    body: Box::new(body),
+                });
+            }
+            Expr::Match { subject, arms } => {
+                return Ok(self.matching(subject, arms, Some(expected))?.0);
+            }
+            Expr::Using { value, body, .. } => {
+                return Ok(self.using(value, body, Some(expected))?.0);
+            }
+            _ => {}
+        }
         let (core, found) = self.infer_as(expr, expected)?;
         let (core, found) = self.bind_row(core, found, expected)?;
         if self.env.subtype(&found, expected) {
@@ -313,15 +388,8 @@ impl<'a> Checker<'a> {
 
     /// The core form of `expr` and its type, normalized.
     fn infer(&mut self, expr: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {
-        // The stack has room for a tree as deep as one may be, and no
-        // deeper.
-        if self.nesting == core::DEPTH {
-            return Err(Error::Nesting(self.symbol.clone()));
-        }
-        self.nesting += 1;
-        let inferred = self.infer_node(expr);
-        self.nesting -= 1;
-        inferred
+        let inferred = self.entered(|checker| checker.infer_node(expr));
+        self.blame(expr, inferred)
     }
 
     /// The value a name gives if what it names is a tag: a type that is
@@ -404,12 +472,15 @@ impl<'a> Checker<'a> {
                 (core, ty)
             }
             Expr::Operation { operator, operands } => self.operation(*operator, operands)?,
-            Expr::Match { subject, arms } => self.matching(subject, arms)?,
+            Expr::Match { subject, arms } => self.matching(subject, arms, None)?,
             Expr::Lambda { .. } => self.lambda(expr, None)?,
             Expr::Perform { ability, args } => self.perform(ability, args)?,
             Expr::Provide { bundle, only, body } => self.provide(bundle, *only, body)?,
             Expr::Observe { observer, body } => self.observe(observer, body)?,
-            Expr::Using { value, body, .. } => self.using(value, body)?,
+            Expr::Using { value, body, .. } => self.using(value, body, None)?,
+            // The reader takes its marks out, so one here is a tree that
+            // was never built.
+            Expr::At(..) => return Err(Error::UnknownSymbol(self.symbol.clone())),
             Expr::Group(body) => self.group(body)?,
             Expr::Budget {
                 steps,

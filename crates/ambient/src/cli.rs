@@ -88,7 +88,8 @@ impl Session<'_> {
         let (module, name) = entry.rsplit_once('.').unwrap_or(("", entry));
         let entry = ModuleId::new(&project.root, module).value(name);
         let failed = |message: String| vec![message];
-        let refused = |error: crate::error::Error| vec![project.report(&error)];
+        let refused =
+            |error: crate::error::Error| vec![project.report(&error, engine.blame(&error))];
         let root = engine.program(&entry, &host::target()).map_err(refused)?;
         let backend = Native::new().map_err(failed)?;
         let parts = engine.link(&root, &backend).map_err(refused)?;
@@ -127,7 +128,7 @@ impl Session<'_> {
                     _ => engine.interface(&symbol).map(|_| ()),
                 };
                 if let Err(error) = checked {
-                    problems.insert(project.report(&error));
+                    problems.insert(project.report(&error, engine.blame(&error)));
                 }
             }
         }

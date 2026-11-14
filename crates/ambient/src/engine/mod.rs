@@ -20,6 +20,7 @@
 //! twice costs nothing. A new snapshot needs a new engine over the same
 //! store.
 
+mod blame;
 mod check;
 mod compile;
 mod environment;
@@ -104,6 +105,9 @@ pub struct Engine<'a> {
     interface: Memo<Symbol, Interface>,
     type_info: Memo<Symbol, crate::types::TypeInfo>,
     check: Memo<Symbol, crate::core::Open>,
+    /// The node of its body each function that does not check is wrong
+    /// at.
+    blamed: RefCell<HashMap<Symbol, usize>>,
     /// The definitions packs brought, by the symbols they were given.
     received: RefCell<HashMap<Symbol, Arc<crate::core::Open>>>,
     hash: RefCell<HashMap<Symbol, Hash>>,
@@ -138,6 +142,7 @@ impl<'a> Engine<'a> {
             interface: RefCell::default(),
             type_info: RefCell::default(),
             check: RefCell::default(),
+            blamed: RefCell::default(),
             received: RefCell::default(),
             hash: RefCell::default(),
             compile: RefCell::default(),

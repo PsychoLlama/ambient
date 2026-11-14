@@ -26,6 +26,8 @@ use crate::types::{AbilityInfo, Env, KeyInfo, Ty, TypeInfo};
 struct Checked {
     result: Result<Open, Error>,
     runs: Vec<Dependency>,
+    /// The node of the body an error is at, if it is at one.
+    at: Option<usize>,
 }
 
 /// What dependents check against.
@@ -406,10 +408,14 @@ impl Engine<'_> {
         };
         let checked = self.stage_if(Stage::Check, symbol, key.finish(), still, || {
             self.begin_runs();
-            let result = checker::check_function(symbol, function, env, self, root);
+            let mut at = None;
+            let result = checker::check_function(symbol, function, env, self, root, &mut at);
             let runs = self.end_runs();
-            Ok(Checked { result, runs })
+            Ok(Checked { result, runs, at })
         })?;
+        if let Some(at) = checked.at {
+            self.blamed.borrow_mut().insert(symbol.clone(), at);
+        }
         checked.result.clone().map(Arc::new)
     }
 }

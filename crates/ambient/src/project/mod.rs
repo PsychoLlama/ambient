@@ -21,7 +21,7 @@ use crate::builder::OWN_PACKAGE;
 use crate::error::Error;
 use crate::surface::Definition;
 use crate::symbol::{ModuleId, Symbol};
-use crate::syntax::{Position, SyntaxError};
+use crate::syntax::{Placed, Position, SyntaxError};
 use crate::workspace::{Sources, Workspace, WorkspaceError};
 
 /// The name of a package's manifest.
@@ -142,15 +142,15 @@ pub struct Project {
 pub struct Read {
     pub module: ModuleId,
     pub file: PathBuf,
-    /// Where each of the module's definitions begins, in their order.
-    pub definitions: Vec<Position>,
+    /// Where each of the module's definitions is, in their order.
+    pub definitions: Vec<Placed>,
 }
 
 impl Project {
-    /// The file a definition is in and where it begins there, if its
-    /// module was read from one.
+    /// The file a definition is in and where it is there, if its module
+    /// was read from one.
     #[must_use]
-    pub fn locate(&self, symbol: &Symbol) -> Option<(&Path, Position)> {
+    pub fn locate(&self, symbol: &Symbol) -> Option<(&Path, &Placed)> {
         let read = self
             .modules
             .iter()
@@ -160,16 +160,20 @@ impl Project {
             definition.name == symbol.name && definition.kind.namespace() == symbol.namespace
         };
         let index = module.definitions().iter().position(named)?;
-        Some((read.file.as_path(), *read.definitions.get(index)?))
+        Some((read.file.as_path(), read.definitions.get(index)?))
     }
 
-    /// `error`, after the file and line of the definition it is in.
+    /// `error`, after the file and the place in it of what is wrong:
+    /// the node of its definition's body numbered `node`, or else where
+    /// the definition begins.
     #[must_use]
-    pub fn report(&self, error: &Error) -> String {
-        match error.symbol().and_then(|symbol| self.locate(symbol)) {
-            Some((file, at)) => format!("{}:{}: {error}", file.display(), at.line),
-            None => error.to_string(),
-        }
+    pub fn report(&self, error: &Error, node: Option<usize>) -> String {
+        let Some((file, placed)) = error.symbol().and_then(|symbol| self.locate(symbol)) else {
+            return error.to_string();
+        };
+        let written = node.and_then(|node| placed.nodes.get(node));
+        let Position { line, column } = written.copied().unwrap_or(placed.at);
+        format!("{}:{line}:{column}: {error}", file.display())
     }
 }
 

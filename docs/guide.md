@@ -276,7 +276,7 @@ pub fn main(): string {
 
 ## What will trip you up
 
-- An error names the definition it is in and that definition's line, not the expression.
+- A type error is reported at its line and column. A fault while running names only the functions it left.
 - `all` and `first` followed by `(` always start tasks, so a function cannot be called by those names.
 - A record type that names a key says its type again: `{ [dispose](): null }`.
 - A function written inside another cannot call itself; make it a definition.

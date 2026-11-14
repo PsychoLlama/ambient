@@ -49,7 +49,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 - The command line runs a function of a package as a program under the standard library's command-line [target](targets.md), and exits with what it gives if that is an integer.
 - A [fault](values.md) that ends the program is reported as its error: the kind, the message, and the definitions its trace names.
-- Checking a package checks every definition of it and of the packages it depends on, and reports each that is wrong.
+- Checking a package checks every definition of it and of the packages it depends on, and reports each that is wrong. Each is reported by file, line, and column.
 - Built definitions are kept in one [store](build.md) for every project on the machine, since a definition is kept by its content.
 
 ## Workspaces

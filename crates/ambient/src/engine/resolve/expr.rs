@@ -71,6 +71,9 @@ impl Resolver<'_> {
             },
             Expr::Let { name, value, body } => self.let_(name, value, body)?,
             Expr::Using { name, value, body } => self.using(name, value, body)?,
+            // The reader takes its marks out, so one here is a tree that
+            // was never built.
+            Expr::At(..) => return Err(Error::UnknownSymbol(self.symbol.clone())),
             Expr::Operation { operator, operands } => Expr::Operation {
                 operator: *operator,
                 operands: operands

@@ -29,6 +29,8 @@ pub enum BuildError {
     ImportTooShort(Path),
     /// A tag is written by its text. One is declared and then named.
     WrittenTag(String),
+    /// A mark of the reader's was left in a tree.
+    Mark,
     /// An expression nests more deeply than any tree may.
     Nesting,
     /// Type parameters are given to something other than a function
@@ -61,6 +63,7 @@ impl fmt::Display for BuildError {
             Self::WrittenTag(tag) => {
                 write!(f, "the tag `{tag}` is written out: declare it and name it")
             }
+            Self::Mark => write!(f, "a mark of the reader's was left in a tree"),
             Self::Nesting => write!(
                 f,
                 "an expression nests more than {} levels deep",
