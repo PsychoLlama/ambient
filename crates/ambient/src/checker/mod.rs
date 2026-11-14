@@ -410,6 +410,9 @@ impl<'a> Checker<'a> {
             Expr::Provide { bundle, only, body } => self.provide(bundle, *only, body)?,
             Expr::Observe { observer, body } => self.observe(observer, body)?,
             Expr::Cleanup { cleanup, body } => self.cleanup(cleanup, body)?,
+            // Resolution writes a using as what it means, so one here is
+            // a tree that was never resolved.
+            Expr::Using { .. } => return Err(Error::UnknownSymbol(self.symbol.clone())),
             Expr::Group(body) => self.group(body)?,
             Expr::Budget {
                 steps,

@@ -10,7 +10,6 @@ A cleanup is code registered in a block to run when that block exits, by any rou
 - A using may bind by a pattern. The value is released whole; the pattern only names its parts.
 - There is no other way to register a cleanup: code that has only something to run binds a record that holds it.
 - The function is read from the value when the using is evaluated, so what runs is fixed before the block does anything.
-- TODO: the implementation still registers a cleanup as a bare expression beside a block, and has no using.
 
 ## Running
 

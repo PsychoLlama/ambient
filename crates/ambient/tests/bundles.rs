@@ -55,7 +55,7 @@ fn a_bundle_is_a_value_until_it_is_provided() {
     let body = b::let_(
         "handlers",
         b::bundle([("ask", answers(4))]),
-        b::using(b::name("handlers"), asks()),
+        b::with(b::name("handlers"), asks()),
     );
 
     assert_eq!(int(body), Value::Int(4));
@@ -68,7 +68,7 @@ fn a_function_can_build_a_bundle_over_its_arguments() {
         .param("n", ty::int())
         .returns(asker())
         .body(b::bundle([("ask", b::lambda([], b::name("n")))]));
-    let body = b::using(b::call(b::name("constant"), [b::int(9)]), asks());
+    let body = b::with(b::call(b::name("constant"), [b::int(9)]), asks());
 
     assert_eq!(evaluates(ty::int(), body, [constant]), Value::Int(9));
 }
@@ -84,7 +84,7 @@ fn a_handler_can_be_read_out_of_a_bundle_and_called() {
 fn merging_decides_which_handler_wins() {
     let below = b::bundle([("ask", answers(1)), ("base", answers(10))]);
     let above = b::bundle([("ask", answers(2))]);
-    let body = b::using(
+    let body = b::with(
         b::merge(below, above),
         b::add(asks(), b::perform("base", [])),
     );
@@ -119,7 +119,7 @@ fn a_provide_binds_only_what_the_bundles_type_lists() {
     let narrowed = b::call(b::name("only_ask"), [wide]);
     let body = b::provide(
         [("base", answers(10))],
-        b::using(narrowed, b::add(asks(), b::perform("base", []))),
+        b::with(narrowed, b::add(asks(), b::perform("base", []))),
     );
 
     assert_eq!(evaluates(ty::int(), body, [only_ask()]), Value::Int(11));
@@ -132,7 +132,7 @@ fn a_bundle_can_hold_a_handler_that_aborts() {
         .returns(ty::never());
     let handlers = b::bundle([("fail", b::lambda([("reason", None)], b::int(-1)))]);
     let failing = b::let_("unused", b::perform("fail", [b::string("no")]), b::int(1));
-    let body = b::let_("handlers", handlers, b::using(b::name("handlers"), failing));
+    let body = b::let_("handlers", handlers, b::with(b::name("handlers"), failing));
 
     assert_eq!(evaluates(ty::int(), body, [fail.into()]), Value::Int(-1));
 }

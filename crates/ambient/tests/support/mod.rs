@@ -83,11 +83,22 @@ fn execute(
     target: Option<&str>,
     natives: impl Fn() -> Natives,
 ) -> Outcome {
+    let workspace = program(definitions);
+    execute_in(&workspace, args, target, natives)
+}
+
+/// A one-module program: module `main` of package `app`, beside the
+/// standard library.
+pub fn program(definitions: impl IntoIterator<Item = ambient::surface::Definition>) -> Workspace {
     let module = definitions
         .into_iter()
-        .fold(ambient::builder::module(), ModuleBuilder::define);
-    let workspace = workspace([("app", "main", module)]);
-    execute_in(&workspace, args, target, natives)
+        .fold(ambient::builder::module(), ModuleBuilder::define)
+        // What [`cleanup`] names its key through.
+        .import("ambient.cleanup");
+    let mut workspace = workspace([("app", "main", module)]);
+    ambient::library::install(&mut workspace).unwrap();
+    workspace.depend("app", "ambient", "ambient").unwrap();
+    workspace
 }
 
 /// Runs `main` of module `main` of package `app` in a workspace, on every
@@ -210,6 +221,18 @@ fn run_wasm(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -> 
     }
     assert_eq!(program.live(), live, "the program leaked");
     (result, program.error())
+}
+
+/// Evaluates `body`, and then `run`, however `body` ended: a using of a
+/// record that holds `run` as its cleanup and nothing else.
+pub fn cleanup(
+    run: ambient::surface::Expr,
+    body: ambient::surface::Expr,
+) -> ambient::surface::Expr {
+    use ambient::builder as b;
+    let dropped = b::lambda([], b::let_("_", run, b::null()));
+    let held = b::keyed(b::record([]), "cleanup.dispose", dropped);
+    b::using("_", held, body)
 }
 
 /// `expr`, bound and then given: a call written so is not the last

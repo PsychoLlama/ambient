@@ -227,7 +227,7 @@ pub fn merge(left: Expr, right: Expr) -> Expr {
 /// Binds the handlers in `bundle` for the extent of `body`, on top of what
 /// is already bound.
 #[must_use]
-pub fn using(bundle: Expr, body: Expr) -> Expr {
+pub fn with(bundle: Expr, body: Expr) -> Expr {
     Expr::Provide {
         bundle: Box::new(bundle),
         only: false,
@@ -238,7 +238,7 @@ pub fn using(bundle: Expr, body: Expr) -> Expr {
 /// Binds the handlers in `bundle` for the extent of `body`, which sees no
 /// other binding.
 #[must_use]
-pub fn using_only(bundle: Expr, body: Expr) -> Expr {
+pub fn with_only(bundle: Expr, body: Expr) -> Expr {
     Expr::Provide {
         bundle: Box::new(bundle),
         only: true,
@@ -277,11 +277,20 @@ pub fn spawn(task: Expr) -> Expr {
     Expr::Spawn(Box::new(task))
 }
 
-/// Evaluates `body`, and then `cleanup`, however `body` ended.
+/// Binds `value` to `name` for `body`, and releases it however `body`
+/// ended: the value holds a function under the standard library's
+/// `dispose` key, read now and called then.
 #[must_use]
-pub fn cleanup(cleanup: Expr, body: Expr) -> Expr {
-    Expr::Cleanup {
-        cleanup: Box::new(cleanup),
+pub fn using(name: &str, value: Expr, body: Expr) -> Expr {
+    using_as(pat::bind(name), value, body)
+}
+
+/// [`using`], with the value taken apart by a pattern.
+#[must_use]
+pub fn using_as(pattern: crate::surface::Pattern, value: Expr, body: Expr) -> Expr {
+    Expr::Using {
+        pattern,
+        value: Box::new(value),
         body: Box::new(body),
     }
 }
@@ -346,14 +355,14 @@ pub fn ability_id(ability: &str) -> Expr {
     Expr::AbilityId(Path::parse(ability))
 }
 
-/// [`using`] a bundle written in place.
+/// [`with`] a bundle written in place.
 pub fn provide<'a>(handlers: impl IntoIterator<Item = (&'a str, Expr)>, body: Expr) -> Expr {
-    using(bundle(handlers), body)
+    with(bundle(handlers), body)
 }
 
 /// [`using_only`] a bundle written in place.
 pub fn provide_only<'a>(handlers: impl IntoIterator<Item = (&'a str, Expr)>, body: Expr) -> Expr {
-    using_only(bundle(handlers), body)
+    with_only(bundle(handlers), body)
 }
 
 /// Runs `call`, a call to a named function, during compilation, and

@@ -162,6 +162,7 @@ impl<N> Expr<N> {
             Self::Field { key, .. } => key.names(visit),
             Self::Send { method, .. } => method.names(visit),
             Self::Match { arms, .. } => arms.iter().for_each(|arm| arm.pattern.names(visit)),
+            Self::Using { pattern, .. } => pattern.names(visit),
             Self::Lambda {
                 type_params,
                 params,
@@ -209,6 +210,8 @@ impl<N> Expr<N> {
             Self::Let { .. } | Self::Provide { .. } | Self::Observe { .. } => 1,
             Self::Lambda { params, .. } => params.len(),
             Self::Match { arms, .. } => arms.iter().map(|arm| arm.pattern.binders()).sum(),
+            // What it holds, what releases that, and what it names.
+            Self::Using { pattern, .. } => 2 + pattern.binders(),
             _ => 0,
         };
         let mut inside = 0;
@@ -283,7 +286,12 @@ impl<N> Expr<N> {
             }
             Self::Lambda { body, .. } => visit(body),
             Self::Perform { args, .. } => args.iter().for_each(visit),
-            Self::Provide { bundle, body, .. } => {
+            Self::Provide { bundle, body, .. }
+            | Self::Using {
+                value: bundle,
+                body,
+                ..
+            } => {
                 visit(bundle);
                 visit(body);
             }

@@ -163,8 +163,8 @@ fn a_provide_has_the_type_of_its_body_or_of_a_handler_that_aborts() {
 
 #[test]
 fn a_provide_takes_a_record_of_handlers_and_nothing_else() {
-    let not_a_record = b::using(b::int(1), b::null());
-    let has_a_field = b::using(b::record([("ask", answers(b::int(1)))]), b::null());
+    let not_a_record = b::with(b::int(1), b::null());
+    let has_a_field = b::with(b::record([("ask", answers(b::int(1)))]), b::null());
 
     assert!(matches!(
         check(ty::null(), not_a_record, []),
@@ -187,7 +187,7 @@ fn a_bundle_holds_one_handler_for_an_ability_however_it_is_named() {
     let main = b::module()
         .import("pkg.abilities")
         .import("pkg.abilities.ask")
-        .define(b::function("main").body(b::using(twice, b::null())));
+        .define(b::function("main").body(b::with(twice, b::null())));
     let workspace = workspace([("app", "abilities", abilities), ("app", "main", main)]);
     let store = MemoryStore::new();
     let result = Engine::new(&workspace, &store).check(&value("main", "main"));

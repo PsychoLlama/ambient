@@ -149,7 +149,7 @@ fn a_fault_in_a_task_is_the_groups_fault() {
 
 #[test]
 fn a_failing_task_cancels_the_others() {
-    let waiting = b::cleanup(notes(2), then(notes(1), waits_for(1)));
+    let waiting = support::cleanup(notes(2), then(notes(1), waits_for(1)));
     let body = then(b::spawn(waiting), b::spawn(b::perform("fail", [])));
 
     assert_eq!(
@@ -160,7 +160,7 @@ fn a_failing_task_cancels_the_others() {
 
 #[test]
 fn a_body_that_aborts_cancels_its_tasks_and_waits_for_them() {
-    let waiting = b::cleanup(notes(2), then(notes(1), waits_for(1)));
+    let waiting = support::cleanup(notes(2), then(notes(1), waits_for(1)));
     // The body lets the task start, then aborts.
     let started = b::call(b::name("until"), [b::name("log"), b::int(1)]);
     let body = then(b::spawn(waiting), then(started, b::perform("fail", [])));

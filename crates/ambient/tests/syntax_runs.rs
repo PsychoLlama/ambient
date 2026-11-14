@@ -230,3 +230,26 @@ fn a_key_names_what_a_record_holds_without_a_field() {
 
     assert_eq!(text(source), "x=1");
 }
+
+#[test]
+fn a_using_releases_what_it_binds_when_its_block_ends() {
+    let source = r#"
+        import ambient.cleanup.{dispose};
+
+        fn noting(log: Cell<string>, name: string): { name: string, [dispose](): null } {
+            return { name, [dispose]() { log.update(fn(text) => text ++ name); } };
+        }
+        fn main(): string {
+            let log = cell<string>("");
+            let seen = try {
+                using first = noting(log, "a");
+                using { name } = noting(log, "b");
+                return first.name ++ name ++ log.read();
+            };
+            return (seen as string else "?") ++ ":" ++ log.read();
+        }
+    "#;
+
+    // Each is released after the block's value is made, the last first.
+    assert_eq!(text(source), "ab:ba");
+}

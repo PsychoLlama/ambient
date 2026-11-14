@@ -9,7 +9,7 @@ use ambient::builder::{self as b, pat, ty};
 use ambient::surface::{Definition, Expr, Type};
 use ambient::value::Value;
 use ambient_runtime::{FAULT_PACKAGE, Fault};
-use support::{kept, run, value, workspace};
+use support::{kept, run, value};
 
 fn outcome(
     ret: Type,
@@ -104,7 +104,7 @@ fn a_boundary_contains_a_fault_in_a_task_it_started() {
 #[test]
 fn cleanups_run_before_a_boundary_has_its_fault() {
     let c = || b::name("c");
-    let noted = b::cleanup(b::replace(c(), b::int(0), b::int(1)), overflows());
+    let noted = support::cleanup(b::replace(c(), b::int(0), b::int(1)), overflows());
     let body = b::let_(
         "c",
         b::cell(ty::int(), b::int(0)),
@@ -140,11 +140,7 @@ fn trace<const N: usize>(body: Expr, extra: [Definition; N]) -> Vec<(String, i64
     let definitions: Vec<Definition> = extra.into_iter().chain([main]).collect();
 
     // The same program, to learn the hash of each definition in it.
-    let module = definitions
-        .iter()
-        .cloned()
-        .fold(b::module(), b::ModuleBuilder::define);
-    let workspace = workspace([("app", "main", module)]);
+    let workspace = support::program(definitions.iter().cloned());
     let store = ambient::store::MemoryStore::new();
     let engine = ambient::engine::Engine::new(&workspace, &store);
     let owner = |hash: &str| {
@@ -205,10 +201,10 @@ fn a_trace_goes_on_from_a_task_to_what_started_it() {
 
 #[test]
 fn a_trace_is_kept_while_a_cleanup_runs() {
-    let body = b::cleanup(b::lambda([], b::int(0)), overflows());
+    let body = support::cleanup(b::lambda([], b::int(0)), overflows());
 
-    // The cleanup is `main`'s second node, its closure the third.
-    assert_eq!(trace(body, []), [at("main", 3)]);
+    // The fault is in the body, after everything the using held.
+    assert_eq!(trace(body, []), [at("main", 12)]);
 }
 
 #[test]

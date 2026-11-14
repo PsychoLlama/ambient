@@ -15,6 +15,8 @@ use crate::syntax::Position;
 #[derive(Clone)]
 enum Statement {
     Let(Pattern, Expr),
+    /// A binding whose value is released when the block exits.
+    Using(Pattern, Expr),
     Expr(Expr),
     Return(Expr, Position),
     /// An `if` or a match whose arms are blocks.
@@ -42,7 +44,7 @@ fn returns(statements: &[Statement]) -> Returns {
                 Returns::Sometimes
             }
         }
-        Statement::Let(..) | Statement::Expr(_) => Returns::Never,
+        Statement::Let(..) | Statement::Using(..) | Statement::Expr(_) => Returns::Never,
     };
     match statements.split_last() {
         Some((last, _)) if of(last) == Returns::Always => Returns::Always,
@@ -73,14 +75,20 @@ impl Parser {
 
     fn statement(&mut self) -> Parsed<Statement> {
         let at = self.position();
-        if self.eat_word("let") {
+        let using = self.at_word("using");
+        if using || self.at_word("let") {
+            self.advance();
             let mut binds = Vec::new();
             let pattern = self.pattern(Mode::Binding, &mut binds)?;
             self.expect("=")?;
             let value = self.expr()?;
             self.expect(";")?;
             self.locals.extend(binds);
-            return Ok(Statement::Let(pattern, value));
+            return Ok(if using {
+                Statement::Using(pattern, value)
+            } else {
+                Statement::Let(pattern, value)
+            });
         }
         if self.eat_word("return") {
             let value = if self.at(";") {
@@ -198,6 +206,11 @@ impl Parser {
                     pattern,
                     body: self.arrange(rest)?,
                 }],
+            }),
+            Statement::Using(pattern, value) => Ok(Expr::Using {
+                pattern,
+                value: Box::new(value),
+                body: Box::new(self.arrange(rest)?),
             }),
             Statement::Expr(value) => Ok(dropped(value, self.arrange(rest)?)),
             Statement::Branch(subject, arms) => self.branch(subject, arms, rest),
