@@ -70,14 +70,14 @@ struct Loading {
 /// Native code for `fetch` that loads `parts` into whatever calls it.
 fn fetching(parts: &Rc<Parts>) -> Natives {
     let parts = Rc::clone(parts);
-    Natives::new().reaching("app", "fetch", move |program, _| {
+    Natives::new().reaching("app", "main.fetch", move |program, _| {
         program.load(&parts, &Natives::new())
     })
 }
 
 impl Loading {
     fn new(plugin: Definition, body: Expr, find: impl FnOnce(&Engine) -> Symbol) -> Self {
-        let fetch = b::extern_function("fetch", "fetch").returns(ty::unknown());
+        let fetch = b::extern_function("fetch").returns(ty::unknown());
         let main = b::function("main").returns(ty::unknown()).body(body);
         let workspace = support::workspace([
             ("app", "main", b::module().define(fetch).define(main)),

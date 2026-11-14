@@ -16,12 +16,12 @@ use support::{run, value, workspace};
 
 /// `ability fail(): never`
 fn fail() -> Definition {
-    b::ability("fail", "fail").returns(ty::never()).into()
+    b::ability("fail").returns(ty::never()).into()
 }
 
 /// `ability ask(): int`
 fn ask() -> Definition {
-    b::ability("ask", "ask").returns(ty::int()).into()
+    b::ability("ask").returns(ty::int()).into()
 }
 
 fn definitions(body: Expr) -> [Definition; 5] {

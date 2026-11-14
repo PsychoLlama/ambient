@@ -14,7 +14,7 @@ use support::run;
 
 /// `ability <name>(): int`, tagged with its name.
 fn ability(name: &str) -> Definition {
-    b::ability(name, name).returns(ty::int()).into()
+    b::ability(name).returns(ty::int()).into()
 }
 
 fn answers(value: i64) -> Expr {
@@ -127,7 +127,7 @@ fn a_provide_binds_only_what_the_bundles_type_lists() {
 
 #[test]
 fn a_bundle_can_hold_a_handler_that_aborts() {
-    let fail = b::ability("fail", "fail")
+    let fail = b::ability("fail")
         .param("reason", ty::string())
         .returns(ty::never());
     let handlers = b::bundle([("fail", b::lambda([("reason", None)], b::int(-1)))]);

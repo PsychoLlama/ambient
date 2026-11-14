@@ -288,7 +288,7 @@ fn loaded_code_holds_the_loaded_code_it_calls() {
 
 #[test]
 fn a_host_loads_a_program_with_a_target_of_its_own() {
-    let ask: Definition = b::ability("ask", "ask").returns(ty::int()).into();
+    let ask: Definition = b::ability("ask").returns(ty::int()).into();
     let answer = b::function("answer").returns(ty::int()).body(b::int(42));
     let asks = b::function("f")
         .performs(["ask"])
@@ -325,16 +325,16 @@ fn a_function_named_as_a_value_holds_its_code() {
 
 #[test]
 fn native_code_goes_with_the_code_that_reaches_it() {
-    let natives = Natives::new().with("app", "seven", |_| Ok(Value::Int(7)));
+    let natives = Natives::new().with("app", "plugin.seven", |_| Ok(Value::Int(7)));
     let seven = engine::Native {
         package: "app".to_owned(),
-        tag: "seven".to_owned(),
+        tag: "plugin.seven".to_owned(),
     };
     // How many hold the native code: this list, and each load of it.
     let held = || Rc::strong_count(&natives.get(&seven).unwrap().run);
     let call = b::call(b::name("seven"), []);
     let module = b::module()
-        .define(b::extern_function("seven", "seven").returns(ty::int()))
+        .define(b::extern_function("seven").returns(ty::int()))
         .define(giving("f", call));
     for mut plugins in plugins_with(&module, ["f"], &natives) {
         let before = held();

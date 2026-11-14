@@ -27,20 +27,18 @@ type Seen = Rc<RefCell<Vec<(Value, Value)>>>;
 /// - `ability log(event: unknown): null`, handled natively;
 /// - the target `target`, which binds `ask` and `log`.
 fn world() -> Vec<Definition> {
-    let ask = b::ability("ask", "ask")
-        .param("n", ty::int())
-        .returns(ty::int());
+    let ask = b::ability("ask").param("n", ty::int()).returns(ty::int());
     let answer = b::function("answer")
         .param("n", ty::int())
         .returns(ty::int())
         .body(b::add(b::name("n"), b::int(1)));
-    let log = b::ability("log", "log").param("event", ty::unknown());
+    let log = b::ability("log").param("event", ty::unknown());
     vec![
         ask.into(),
         answer,
-        b::ability("fail", "fail").returns(ty::never()).into(),
+        b::ability("fail").returns(ty::never()).into(),
         log.into(),
-        b::native_handler("write", "write", "log").into(),
+        b::native_handler("write", "log").into(),
         b::target("target")
             .bind("ask", "answer")
             .bind("log", "write")
@@ -67,7 +65,7 @@ fn observed(body: Expr) -> (Value, Vec<(Value, Value)>) {
     let seen = Seen::default();
     let natives = || {
         let seen = Rc::clone(&seen);
-        Natives::new().with("app", "write", move |args| {
+        Natives::new().with("app", "main.write", move |args| {
             let Value::Record(event) = &args[0] else {
                 return Err("not an event".to_owned());
             };

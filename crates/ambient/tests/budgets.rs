@@ -164,7 +164,7 @@ fn a_boundary_does_not_contain_a_budget_running_out() {
 
 /// `ability work(): int`
 fn work() -> Definition {
-    b::ability("work", "work").returns(ty::int()).into()
+    b::ability("work").returns(ty::int()).into()
 }
 
 /// Runs `body` beside `work`.

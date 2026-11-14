@@ -109,8 +109,6 @@ pub enum DefinitionKind<N = Path> {
 /// A definition implemented in native code. See `spec/externs.md`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Extern<N = Path> {
-    /// What native code is found by.
-    pub tag: String,
     pub kind: ExternKind<N>,
 }
 
@@ -136,8 +134,6 @@ pub struct Target<N = Path> {
 /// An operation with a signature and no body. See `spec/abilities.md`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ability<N = Path> {
-    /// What tells this ability from another with the same signature.
-    pub tag: String,
     /// The type parameters of its signature. A handler for it is then
     /// a generic function.
     pub type_params: Vec<TypeParam<N>>,
@@ -149,8 +145,6 @@ pub struct Ability<N = Path> {
 /// See `spec/methods.md`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyDefinition<N = Path> {
-    /// What tells this key from another of the same type.
-    pub tag: String,
     /// The type of what a record holds under the key.
     pub ty: Type<N>,
 }

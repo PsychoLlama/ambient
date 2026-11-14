@@ -49,7 +49,7 @@ fn evaluates(body: Expr) -> Value {
         .import("ambient.iterator")
         .define(ones())
         .define(repeat())
-        .define(b::ability("ask", "ask").returns(ty::int()))
+        .define(b::ability("ask").returns(ty::int()))
         .define(main);
     let mut workspace = workspace([("app", "main", module)]);
     workspace.depend("app", "ambient", "ambient").unwrap();
@@ -297,7 +297,7 @@ fn stepping_inside_a_budget_is_charged() {
 /// What a program gives when it steps the iterator its host hands it:
 /// the item, and the iterator of the rest, as its host reads that.
 fn stepped_once(source: Source, held: &[Value; 2]) -> Value {
-    let given = b::extern_function("given", "given").returns(ty::unknown());
+    let given = b::extern_function("given").returns(ty::unknown());
     let nothing = b::range(b::int(0), b::int(0));
     let iterator = b::cast(
         b::call(b::name("given"), []),
@@ -309,7 +309,7 @@ fn stepped_once(source: Source, held: &[Value; 2]) -> Value {
         .body(b::step(iterator));
     let natives = || {
         let handed = Value::Iterator(source, held.to_vec());
-        Natives::new().reaching("app", "given", move |_, _| Ok(handed.clone()))
+        Natives::new().reaching("app", "main.given", move |_, _| Ok(handed.clone()))
     };
     run_with(None, [given.into(), main], natives).unwrap()
 }

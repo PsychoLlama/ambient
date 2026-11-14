@@ -33,7 +33,6 @@ mod read;
 mod resolve;
 mod run;
 mod scope;
-mod tags;
 mod verify;
 
 use std::cell::RefCell;
@@ -96,7 +95,6 @@ pub struct Engine<'a> {
     store: &'a dyn Store,
     events: RefCell<Vec<Event>>,
     read: Memo<ModuleId, Read>,
-    tags: Memo<crate::symbol::PackageId, ()>,
     scope: Memo<ModuleId, scope::Scoped>,
     members: Memo<ModuleId, Members>,
     /// The modules whose members are being worked out, outermost first:
@@ -133,7 +131,6 @@ impl<'a> Engine<'a> {
             store,
             events: RefCell::default(),
             read: RefCell::default(),
-            tags: RefCell::default(),
             scope: RefCell::default(),
             members: RefCell::default(),
             exporting: RefCell::default(),

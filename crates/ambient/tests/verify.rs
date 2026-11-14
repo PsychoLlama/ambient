@@ -33,11 +33,7 @@ fn program() -> [Definition; 3] {
         .performs(["ask"])
         .returns(ty::int())
         .body(body);
-    [
-        b::ability("ask", "ask").returns(ty::int()).into(),
-        helper,
-        main,
-    ]
+    [b::ability("ask").returns(ty::int()).into(), helper, main]
 }
 
 /// Verifies `main` of [`program`] after `tamper` has been at it.
@@ -208,7 +204,7 @@ fn a_task_that_takes_what_is_bound_inside_its_group_is_refused() {
     let task = b::group(b::spawn(b::perform("ask", [])));
     let body = b::provide([("ask", b::lambda([], b::int(7)))], task);
     let module = b::module()
-        .define(b::ability("ask", "ask").returns(ty::int()))
+        .define(b::ability("ask").returns(ty::int()))
         .define(b::function("main").returns(ty::unknown()).body(body));
     let workspace = workspace([("app", "main", module)]);
     let store = MemoryStore::new();
@@ -243,8 +239,8 @@ fn a_task_that_takes_what_is_bound_inside_its_group_is_refused() {
 #[test]
 fn only_a_root_names_a_native_handler() {
     let module = b::module()
-        .define(b::ability("ask", "ask").returns(ty::int()))
-        .define(b::native_handler("answer", "answer", "ask"))
+        .define(b::ability("ask").returns(ty::int()))
+        .define(b::native_handler("answer", "ask"))
         .define(b::target("world").bind("ask", "answer"))
         .define(
             b::function("main")

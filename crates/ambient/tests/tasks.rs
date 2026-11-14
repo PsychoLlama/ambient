@@ -34,7 +34,7 @@ fn deep() -> Definition {
 
 /// `ability fail(reason: string): never`
 fn fail() -> Definition {
-    b::ability("fail", "fail")
+    b::ability("fail")
         .param("reason", ty::string())
         .returns(ty::never())
         .into()
@@ -42,7 +42,7 @@ fn fail() -> Definition {
 
 /// `ability ask(): int`
 fn ask() -> Definition {
-    b::ability("ask", "ask").returns(ty::int()).into()
+    b::ability("ask").returns(ty::int()).into()
 }
 
 fn waits_for(value: i64) -> Expr {

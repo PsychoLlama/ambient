@@ -133,6 +133,17 @@ impl Symbol {
         }))
     }
 
+    /// What tells a definition from every other of its package, where
+    /// structure cannot: its module path and its name, as one text. See
+    /// "Identity" in `spec/definitions.md`.
+    #[must_use]
+    pub fn identity(&self) -> String {
+        let path = self.module.path.0.iter().map(String::as_str);
+        path.chain([self.name.as_str()])
+            .collect::<Vec<_>>()
+            .join(".")
+    }
+
     /// The named definition this symbol is, or is a lambda inside.
     #[must_use]
     pub fn owner(&self) -> Symbol {

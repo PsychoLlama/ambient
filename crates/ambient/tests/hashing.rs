@@ -330,7 +330,7 @@ fn a_tag_is_scoped_by_its_packages_id_not_by_what_a_workspace_calls_it() {
 
 #[test]
 fn an_ability_is_one_of_the_package_that_declares_it() {
-    let module = || b::module().define(b::ability("ask", "ask").returns(ty::int()));
+    let module = || b::module().define(b::ability("ask").returns(ty::int()));
     let workspace = workspace([("left", "main", module()), ("right", "main", module())]);
     let store = MemoryStore::new();
     let engine = Engine::new(&workspace, &store);

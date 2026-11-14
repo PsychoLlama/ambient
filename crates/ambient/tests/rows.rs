@@ -16,7 +16,7 @@ use support::{value, workspace};
 
 /// `ability <name>(): int`, tagged with its name.
 fn ability(name: &str) -> Definition {
-    b::ability(name, name).returns(ty::int()).into()
+    b::ability(name).returns(ty::int()).into()
 }
 
 /// `fn twice(): [ask] int`
@@ -140,7 +140,7 @@ fn a_perform_passes_what_the_ability_takes() {
 
 #[test]
 fn a_provide_has_the_type_of_its_body_or_of_a_handler_that_aborts() {
-    let fail = b::ability("fail", "fail").returns(ty::never());
+    let fail = b::ability("fail").returns(ty::never());
     let body = || {
         b::provide(
             [("fail", answers(b::string("failed")))],
@@ -270,11 +270,6 @@ fn user(row: [&str; 2]) -> Definition {
         .body(b::int(0))
 }
 
-/// `ability <name>(): int` with a tag of its own.
-fn tagged(name: &str, tag: &str) -> Definition {
-    b::ability(name, tag).returns(ty::int()).into()
-}
-
 #[test]
 fn the_order_a_row_is_written_in_is_not_content() {
     let abilities = || [ability("ask"), ability("base")];
@@ -291,36 +286,26 @@ fn the_order_a_row_is_written_in_is_not_content() {
 }
 
 #[test]
-fn an_abilitys_name_is_not_content_and_its_tag_is() {
-    let with = |first: Definition, row| hash_of("user", [first, tagged("z", "z"), user(row)]);
-    let original = with(tagged("a", "first"), ["a", "z"]);
+fn an_abilitys_name_is_content_of_what_names_it() {
+    let with = |name: &str| hash_of("user", [ability(name), ability("z"), user([name, "z"])]);
 
-    // Renamed so that it sorts after the other ability.
-    assert_eq!(original, with(tagged("zz", "first"), ["zz", "z"]));
-    assert_ne!(original, with(tagged("a", "other"), ["a", "z"]));
+    assert_eq!(with("a"), with("a"));
+    // An ability is told from another by where it is declared.
+    assert_ne!(with("a"), with("zz"));
 }
 
 #[test]
-fn the_order_and_names_of_a_bundles_handlers_are_not_content() {
+fn the_order_of_a_bundles_handlers_is_not_content() {
     let handler = || ty::function([], ty::int());
     let user = |first: &str, second: &str| {
+        let bundle = ty::bundle([(first, handler()), (second, handler())]);
         b::function("user")
-            .param(
-                "handlers",
-                ty::bundle([(first, handler()), (second, handler())]),
-            )
+            .param("handlers", bundle)
             .body(b::null())
     };
-    let original = hash_of(
-        "user",
-        [tagged("a", "first"), tagged("z", "z"), user("a", "z")],
-    );
-    let renamed = hash_of(
-        "user",
-        [tagged("zz", "first"), tagged("z", "z"), user("z", "zz")],
-    );
+    let hash = |first, second| hash_of("user", [ability("a"), ability("z"), user(first, second)]);
 
-    assert_eq!(original, renamed);
+    assert_eq!(hash("a", "z"), hash("z", "a"));
 }
 
 #[test]
@@ -334,8 +319,4 @@ fn a_perform_depends_on_the_ability_and_not_on_any_handler() {
     };
 
     assert_eq!(performer(1), performer(2));
-    assert_ne!(
-        hash_of("twice", [ability("ask"), twice()]),
-        hash_of("twice", [tagged("ask", "other"), twice()])
-    );
 }

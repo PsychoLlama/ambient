@@ -17,8 +17,8 @@ use support::{run, value, workspace};
 /// function giving an integer.
 fn keys() -> [Definition; 2] {
     [
-        b::key("Label", "label", ty::string()),
-        b::key("Area", "area", ty::function([], ty::int())),
+        b::key("Label", ty::string()),
+        b::key("Area", ty::function([], ty::int())),
     ]
 }
 

@@ -91,18 +91,15 @@ impl Resolver<'_> {
             DefinitionKind::Ability(ability) => {
                 let type_params = self.type_params(&ability.type_params)?;
                 DefinitionKind::Ability(Ability {
-                    tag: ability.tag.clone(),
                     type_params,
                     params: self.params(&ability.params)?,
                     ret: self.ty(&ability.ret)?,
                 })
             }
             DefinitionKind::Key(key) => DefinitionKind::Key(KeyDefinition {
-                tag: key.tag.clone(),
                 ty: self.ty(&key.ty)?,
             }),
             DefinitionKind::Extern(native) => DefinitionKind::Extern(Extern {
-                tag: native.tag.clone(),
                 kind: match &native.kind {
                     ExternKind::Function { params, ret } => ExternKind::Function {
                         params: self.params(params)?,

@@ -13,7 +13,7 @@ use support::tasks::{note, then, until};
 
 /// `ability fail(): never`
 fn fail() -> Definition {
-    b::ability("fail", "fail").returns(ty::never()).into()
+    b::ability("fail").returns(ty::never()).into()
 }
 
 /// Adds `entry` to the log.
@@ -94,7 +94,7 @@ fn a_cleanup_runs_when_its_block_faults_and_the_fault_goes_on() {
 
 #[test]
 fn a_cleanup_has_what_was_bound_where_it_was_registered() {
-    let ask = b::ability("ask", "ask").returns(ty::int());
+    let ask = b::ability("ask").returns(ty::int());
     let asks = b::call(b::name("note"), [b::name("log"), b::perform("ask", [])]);
     let body = b::provide(
         [("ask", b::lambda([], b::int(7)))],

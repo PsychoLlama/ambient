@@ -82,7 +82,7 @@ fn a_boundary_has_the_type_of_its_body_or_an_error() {
 
 #[test]
 fn an_abort_passes_a_boundary() {
-    let fail = b::ability("fail", "fail").returns(ty::never());
+    let fail = b::ability("fail").returns(ty::never());
     let body = b::provide(
         [("fail", b::lambda([], b::int(-1)))],
         b::boundary(b::perform("fail", [])),

@@ -32,19 +32,16 @@ pub fn function(name: &str) -> FunctionBuilder {
 }
 
 /// Starts an ability. With nothing else said it is private, takes no
-/// parameters, and returns `null`.
-///
-/// `tag` is what tells it from another ability with the same signature; it
-/// must be unique within the package.
+/// parameters, and returns `null`. Where it is declared tells it from
+/// another ability with the same signature.
 #[must_use]
-pub fn ability(name: &str, tag: &str) -> AbilityBuilder {
+pub fn ability(name: &str) -> AbilityBuilder {
     AbilityBuilder {
         name: name.to_owned(),
         public: false,
         doc: None,
         ability: Ability {
             type_params: Vec::new(),
-            tag: tag.to_owned(),
             params: Vec::new(),
             ret: ty::null(),
         },
@@ -125,17 +122,13 @@ pub fn type_(name: &str, ty: crate::surface::Type) -> Definition {
 }
 
 /// A private key: what a record holds a value of type `ty` under.
-/// `tag` tells it from every other key of its package.
 #[must_use]
-pub fn key(name: &str, tag: &str, ty: crate::surface::Type) -> Definition {
+pub fn key(name: &str, ty: crate::surface::Type) -> Definition {
     Definition {
         name: name.to_owned(),
         public: false,
         doc: None,
-        kind: DefinitionKind::Key(KeyDefinition {
-            tag: tag.to_owned(),
-            ty,
-        }),
+        kind: DefinitionKind::Key(KeyDefinition { ty }),
     }
 }
 

@@ -33,9 +33,9 @@ fn natives(world: &World, verifiable: bool) -> Natives {
         number => Ok(Value::Int(number)),
     };
     if verifiable {
-        Natives::new().verifiable("app", "read", read)
+        Natives::new().verifiable("app", "main.read", read)
     } else {
-        Natives::new().with("app", "read", read)
+        Natives::new().with("app", "main.read", read)
     }
 }
 
@@ -50,8 +50,8 @@ fn program(extra: impl IntoIterator<Item = Definition>) -> Workspace {
         .returns(ty::int())
         .body(b::comptime(b::call(b::name("setting"), [])));
     let module = b::module()
-        .define(b::ability("ask", "ask").returns(ty::int()))
-        .define(b::native_handler("read", "read", "ask"))
+        .define(b::ability("ask").returns(ty::int()))
+        .define(b::native_handler("read", "ask"))
         .define(b::target("build").bind("ask", "read"))
         .define(setting)
         .define(main);

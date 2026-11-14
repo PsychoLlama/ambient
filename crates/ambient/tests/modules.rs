@@ -471,22 +471,19 @@ fn a_prelude_from_another_package_must_be_one_it_exposes() {
     ));
 }
 
-// Tags
+// Identity
 
 #[test]
-fn a_tag_is_declared_once_in_a_package() {
-    let asks = |name: &str| b::module().define(b::ability(name, "ask").returns(ty::int()));
-    let ask = ModuleId::new("app", "one").ability("ask");
-    let again = ModuleId::new("app", "two").ability("again");
-    let workspace = workspace([("app", "one", asks("ask")), ("app", "two", asks("again"))]);
+fn two_modules_of_a_package_declare_one_name_as_two_abilities() {
+    let asks = || b::module().define(b::ability("ask").returns(ty::int()));
+    let workspace = workspace([("app", "one", asks()), ("app", "two", asks())]);
     let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let hash = |module| {
+        engine
+            .hash(&ModuleId::new("app", module).ability("ask"))
+            .unwrap()
+    };
 
-    assert_eq!(
-        Engine::new(&workspace, &store).check(&ask).unwrap_err(),
-        Error::DuplicateTag {
-            first: ask,
-            second: again,
-            tag: "ask".to_owned(),
-        }
-    );
+    assert_ne!(hash("one"), hash("two"));
 }

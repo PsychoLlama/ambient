@@ -13,17 +13,17 @@ use support::run;
 
 /// `ability ask(): int`
 fn ask() -> Definition {
-    b::ability("ask", "ask").returns(ty::int()).into()
+    b::ability("ask").returns(ty::int()).into()
 }
 
 /// `ability base(): int`
 fn base() -> Definition {
-    b::ability("base", "base").returns(ty::int()).into()
+    b::ability("base").returns(ty::int()).into()
 }
 
 /// `ability fail(reason: string): never`
 fn fail() -> Definition {
-    b::ability("fail", "fail")
+    b::ability("fail")
         .param("reason", ty::string())
         .returns(ty::never())
         .into()
@@ -88,7 +88,7 @@ fn a_perform_calls_the_handler_a_provide_bound() {
 
 #[test]
 fn a_handler_takes_the_arguments_of_the_perform() {
-    let sum = b::ability("sum", "sum")
+    let sum = b::ability("sum")
         .param("a", ty::int())
         .param("b", ty::int())
         .returns(ty::int());

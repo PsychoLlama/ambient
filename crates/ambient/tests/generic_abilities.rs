@@ -20,7 +20,7 @@ fn t() -> Type {
 
 /// `ability pick<T>(first: T, second: T): T`
 fn pick() -> Definition {
-    b::ability("pick", "pick")
+    b::ability("pick")
         .type_param("T")
         .param("first", t())
         .param("second", t())
@@ -30,7 +30,7 @@ fn pick() -> Definition {
 
 /// `ability alike<T>(like: T, v: unknown): bool`
 fn alike() -> Definition {
-    b::ability("alike", "alike")
+    b::ability("alike")
         .type_param("T")
         .param("like", t())
         .param("v", ty::unknown())
@@ -148,7 +148,7 @@ fn a_target_binds_a_generic_function_to_a_generic_ability() {
 
 #[test]
 fn an_ability_that_does_not_return_takes_no_type_parameters() {
-    let fail = b::ability("fail", "fail")
+    let fail = b::ability("fail")
         .type_param("T")
         .param("reason", t())
         .returns(ty::never());
@@ -163,7 +163,7 @@ fn an_ability_that_does_not_return_takes_no_type_parameters() {
 #[test]
 fn a_generic_function_that_takes_an_ability_is_bound_in_place_as_a_handler() {
     // `fn noted<T>(first: T, second: T): [note] T`
-    let note = b::ability("note", "note").returns(ty::null());
+    let note = b::ability("note").returns(ty::null());
     let noted = b::function("noted")
         .type_param("T")
         .param("first", t())

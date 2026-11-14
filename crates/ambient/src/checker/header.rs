@@ -91,7 +91,7 @@ pub fn check_ability(
     Ok(Open {
         tree: Tree::Ability {
             package: package.to_owned(),
-            tag: ability.tag.clone(),
+            tag: symbol.identity(),
             type_params,
             params,
             ret,
@@ -118,7 +118,7 @@ pub fn check_key(
     Ok(Open {
         tree: Tree::Key {
             package: package.to_owned(),
-            tag: key.tag.clone(),
+            tag: symbol.identity(),
             ty,
         },
         slots: checker.finish().slots,

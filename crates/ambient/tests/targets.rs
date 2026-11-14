@@ -17,7 +17,7 @@ use support::{run_with, value, workspace};
 
 /// `ability <name>(): int`, tagged with its name.
 fn ability(name: &str) -> Definition {
-    b::ability(name, name).returns(ty::int()).into()
+    b::ability(name).returns(ty::int()).into()
 }
 
 /// `fn <name>(): int`, which returns `value`.
@@ -91,7 +91,7 @@ fn a_root_handler_takes_its_row_from_the_targets_other_bindings() {
 
 #[test]
 fn an_abort_handled_at_the_root_ends_the_program_with_the_handlers_result() {
-    let fail = b::ability("fail", "fail")
+    let fail = b::ability("fail")
         .param("reason", ty::string())
         .returns(ty::never());
     let recover = b::function("recover")
@@ -133,28 +133,31 @@ fn a_target_extends_another_and_replaces_what_it_binds_again() {
 
 #[test]
 fn a_native_handler_implements_an_ability() {
-    let read = b::native_handler("read", "read", "ask");
+    let read = b::native_handler("read", "ask");
     let target = b::target("target").bind("ask", "read");
     let definitions = [read.into(), target.into(), main(ty::int(), asks())];
 
-    assert_eq!(runs(definitions, returns("read", 7)), Ok(Value::Int(7)));
+    assert_eq!(
+        runs(definitions, returns("main.read", 7)),
+        Ok(Value::Int(7))
+    );
 }
 
 #[test]
 fn native_code_is_given_the_arguments_and_gives_back_any_value() {
     // `ability pair(a: int, b: string): (string, int)`
-    let pair = b::ability("pair", "pair")
+    let pair = b::ability("pair")
         .param("a", ty::int())
         .param("b", ty::string())
         .returns(ty::tuple([ty::string(), ty::int()]));
-    let swap = b::native_handler("swap", "swap", "pair");
+    let swap = b::native_handler("swap", "pair");
     let main = b::function("main")
         .performs(["pair"])
         .returns(ty::tuple([ty::string(), ty::int()]))
         .body(b::perform("pair", [b::int(1), b::string("one")]));
     let target = b::target("target").bind("pair", "swap");
     let natives = || {
-        Natives::new().with("app", "swap", |args| {
+        Natives::new().with("app", "main.swap", |args| {
             Ok(Value::Tuple(vec![args[1].clone(), args[0].clone()]))
         })
     };
@@ -168,14 +171,14 @@ fn native_code_is_given_the_arguments_and_gives_back_any_value() {
 
 #[test]
 fn an_extern_function_is_called_like_any_other() {
-    let double = b::extern_function("double", "double")
+    let double = b::extern_function("double")
         .param("n", ty::int())
         .returns(ty::int());
     let main = b::function("main")
         .returns(ty::int())
         .body(b::call(b::name("double"), [b::int(21)]));
     let natives = || {
-        Natives::new().with("app", "double", |args| match args {
+        Natives::new().with("app", "main.double", |args| match args {
             [Value::Int(n)] => Ok(Value::Int(n * 2)),
             _ => Err("not an integer".to_owned()),
         })
@@ -189,10 +192,10 @@ fn an_extern_function_is_called_like_any_other() {
 
 #[test]
 fn native_code_that_fails_is_a_fault() {
-    let read = b::native_handler("read", "read", "ask");
+    let read = b::native_handler("read", "ask");
     let target = b::target("target").bind("ask", "read");
     let definitions = [read.into(), target.into(), main(ty::int(), asks())];
-    let natives = || Natives::new().with("app", "read", |_| Err("no input".to_owned()));
+    let natives = || Natives::new().with("app", "main.read", |_| Err("no input".to_owned()));
 
     assert_eq!(runs(definitions, natives), Err(Fault::Native));
 }
@@ -200,8 +203,8 @@ fn native_code_that_fails_is_a_fault() {
 #[test]
 fn a_binding_the_entry_does_not_reach_is_not_linked() {
     // Nothing supplies `unused`, and nothing needs it.
-    let read = b::native_handler("read", "read", "ask");
-    let unused = b::native_handler("unused", "unused", "base");
+    let read = b::native_handler("read", "ask");
+    let unused = b::native_handler("unused", "base");
     let target = b::target("target")
         .bind("ask", "read")
         .bind("base", "unused");
@@ -212,7 +215,10 @@ fn a_binding_the_entry_does_not_reach_is_not_linked() {
         main(ty::int(), asks()),
     ];
 
-    assert_eq!(runs(definitions, returns("read", 7)), Ok(Value::Int(7)));
+    assert_eq!(
+        runs(definitions, returns("main.read", 7)),
+        Ok(Value::Int(7))
+    );
 }
 
 // What is refused
@@ -249,7 +255,7 @@ fn an_entry_takes_only_what_its_target_offers() {
 
 #[test]
 fn a_program_is_not_loaded_without_the_native_code_it_reaches() {
-    let read = b::native_handler("read", "read", "ask");
+    let read = b::native_handler("read", "ask");
     let target = b::target("target").bind("ask", "read");
     let definitions = [read.into(), target.into(), main(ty::int(), asks())];
     let workspace = workspace([("app", "main", module(definitions))]);
@@ -265,7 +271,7 @@ fn a_program_is_not_loaded_without_the_native_code_it_reaches() {
 
 #[test]
 fn a_native_handler_and_a_target_are_not_values() {
-    let read: Definition = b::native_handler("read", "read", "ask").into();
+    let read: Definition = b::native_handler("read", "ask").into();
     let target: Definition = b::target("target").bind("ask", "read").into();
     let calls = |name: &str| {
         b::function("main")

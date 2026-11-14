@@ -4,26 +4,26 @@ use super::ty;
 use crate::surface::{Definition, DefinitionKind, Extern, ExternKind, Param, Path, Target};
 
 /// Starts a pure function implemented in native code, which is found by
-/// `tag`. With nothing else said it is private, takes no parameters, and
+/// where it is declared. With nothing else said it is private, takes no parameters, and
 /// returns `null`.
 #[must_use]
-pub fn extern_function(name: &str, tag: &str) -> ExternBuilder {
+pub fn extern_function(name: &str) -> ExternBuilder {
     let kind = ExternKind::Function {
         params: Vec::new(),
         ret: ty::null(),
     };
-    ExternBuilder::new(name, tag, kind)
+    ExternBuilder::new(name, kind)
 }
 
 /// Starts a native implementation of the ability at a dotted path, found
-/// by `tag`. Only a target can bind it.
+/// by where it is declared. Only a target can bind it.
 #[must_use]
-pub fn native_handler(name: &str, tag: &str, ability: &str) -> ExternBuilder {
+pub fn native_handler(name: &str, ability: &str) -> ExternBuilder {
     let kind = ExternKind::Handler {
         ability: Path::parse(ability),
         row: Vec::new(),
     };
-    ExternBuilder::new(name, tag, kind)
+    ExternBuilder::new(name, kind)
 }
 
 #[derive(Clone, Debug)]
@@ -34,14 +34,11 @@ pub struct ExternBuilder {
 }
 
 impl ExternBuilder {
-    fn new(name: &str, tag: &str, kind: ExternKind) -> Self {
+    fn new(name: &str, kind: ExternKind) -> Self {
         Self {
             name: name.to_owned(),
             public: false,
-            native: Extern {
-                tag: tag.to_owned(),
-                kind,
-            },
+            native: Extern { kind },
         }
     }
 

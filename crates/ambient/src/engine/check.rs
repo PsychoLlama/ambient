@@ -113,7 +113,7 @@ impl Engine<'_> {
                     let info = AbilityInfo {
                         tag: (
                             self.sources.identity(&symbol.module.package),
-                            ability.tag.clone(),
+                            symbol.identity(),
                         ),
                         type_params: ability
                             .type_params
@@ -133,7 +133,7 @@ impl Engine<'_> {
                     pending.extend(type_definitions(&key.ty));
                     let package = self.sources.identity(&symbol.module.package);
                     let info = KeyInfo {
-                        tag: (package, key.tag.clone()),
+                        tag: (package, symbol.identity()),
                         ty: key.ty.clone(),
                     };
                     env.keys.insert(symbol, info);
@@ -300,6 +300,14 @@ impl Engine<'_> {
         let mut key = Hasher::new("check");
         key.hash(&resolved.digest).bytes(package.as_bytes());
         let used = definitions(|visit| resolved.definition.names(&mut |name| visit(name)));
+        // An ability, a key, and an extern are told apart by where they
+        // are declared, which is no part of what was resolved.
+        if matches!(
+            &resolved.definition.kind,
+            DefinitionKind::Ability(_) | DefinitionKind::Key(_) | DefinitionKind::Extern(_)
+        ) {
+            key.bytes(symbol.identity().as_bytes());
+        }
 
         match &resolved.definition.kind {
             DefinitionKind::Type(definition) => {
@@ -312,7 +320,6 @@ impl Engine<'_> {
                 })
             }
             DefinitionKind::Ability(ability) => {
-                self.tags(&symbol.module.package)?;
                 self.gather(vec![symbol.clone()], &mut env)?;
                 self.reachable(&env, &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
@@ -320,7 +327,6 @@ impl Engine<'_> {
                 })
             }
             DefinitionKind::Key(definition) => {
-                self.tags(&symbol.module.package)?;
                 self.gather(vec![symbol.clone()], &mut env)?;
                 self.reachable(&env, &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
@@ -328,7 +334,6 @@ impl Engine<'_> {
                 })
             }
             DefinitionKind::Extern(native) => {
-                self.tags(&symbol.module.package)?;
                 let env = self.environment(used, &[], &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
                     checker::check_extern(symbol, native, &package, &env)
