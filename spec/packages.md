@@ -71,10 +71,21 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 ## Testing
 
-- A test is a function that takes nothing and whose name begins with `test_`, in any module of the package.
-- Each test is run as a program of its own under the standard library's test [target](targets.md), which binds one [ability](abilities.md): a check, given whether something holds and what it is.
+- Tests are built in: the standard library has what a test is written with, and the command line has a harness that runs them.
+- A module offers its tests through one function the harness knows by name, whose [row](abilities.md) is the library's spec ability. Importing a module offers nothing.
+- A spec is a description and a function that takes nothing; naming one and grouping several are library functions that perform the ability.
+- A group may [provide](handlers.md) around the specs inside it, which is how they share what they are set up with.
+- The harness gathers a module's specs by running that function under a handler that collects them. Gathering is pure, so it is a [memoized run](memoization.md).
+- Each spec is run as a program of its own under the standard library's test [target](targets.md), as a memoized run.
+- Running every test therefore runs only those a change reaches: a spec's hash covers all it refers to, and one whose hash and observations are as before is not run again.
+- A harness is a handler of the spec ability, so another may list, choose among, or time the same tests.
+- The harness finds the modules that offer tests in the package's definition tables; no file is named in a special way.
+- The test target binds a check, given a failure as a value: what was expected and what was found. Richer assertions are library functions over it.
 - A check that does not hold fails its test and the test goes on, so one run reports every check that does not hold; a [fault](values.md) fails it and ends it.
-- A test reaches no world: one whose function needs an ability [provides](handlers.md) it, which is how a test says what the world holds.
-- A test that names an ability its target does not bind is not a program, and fails for that.
-- A run may be of only the tests whose module path and name hold a given text.
+- A test reaches no world: one whose function needs an ability provides it, which is how a test says what the world holds.
+- A test of real effects is made repeatable by library code over [recording](handlers.md): its first run records what the world answered, and later runs are answered from that.
+- A recording is source, kept beside its test and read as any file is; the [store](build.md) holds only results, and whoever points a build at a store trusts it.
+- A run may be of only the specs whose module path and description hold a given text.
+- TODO: none of this is built. A test is a function that takes nothing and whose name begins with `test_`, the check is given text, and every test is run every time.
+- TODO: a spec's function has the row the library gives it, so a test that needs more provides it inside; whether a spec may be written over any row is undecided.
 - TODO: a test that never ends is never stopped.
