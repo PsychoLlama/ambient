@@ -52,6 +52,7 @@
 - A checking error is at a node of the resolved body, which has the shape of the surface one: the checker notes the innermost expression that failed (`checker/blame.rs`), `Engine::blame` gives its number, and `Project::report` its line. `Checker::check` holds the last part of a let, a match, and a using to what is expected, so the error is at the leaf.
 - Names the reader makes up start with `__`, which no program may write.
 - The command-line target is `ambient.system.cli` (`library/system.ab`); its native side is `host/`, where every handler goes through `host::World`. Tests run programs over `support::scripted::Scripted`, never the real process.
+- `ambient test` runs each `test_*` function that takes nothing as its own program under `ambient.system.tests`, whose one extern is the check (`cli/test.rs`); `cli::Launch` is the one way a command runs a program.
 - A package on disk is read through `project::Files` (`project/`), and `cli::Session` is handed its files, store, and world, so `tests/cli.rs` drives the command line in memory.
 - The core checker (`verify/`) accepts what `checker/` makes and nothing looser; `support::run` verifies every definition it runs. Typing rules live in `types::Env`, which both checkers ask.
 - A received definition (`engine/pack.rs`) is an `Open` under a made-up symbol: it is verified, then hashed, compiled, and linked like any other. It has no surface tree and never reaches the store.

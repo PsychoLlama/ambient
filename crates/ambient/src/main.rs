@@ -23,7 +23,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let args = match &cli.command {
         Command::Run { args, .. } => args.clone(),
-        Command::Check { .. } => Vec::new(),
+        Command::Check { .. } | Command::Test { .. } => Vec::new(),
     };
     // Without somewhere to keep it, a build is kept for this run alone.
     let store: Box<dyn Store> = match cache().and_then(|root| DiskStore::open(root).ok()) {

@@ -1,0 +1,3 @@
+/// Says that something a test relies on holds, and what it is. A test
+/// goes on after one that does not, so it reports every one.
+pub ability check(holds: bool, what: string): null;

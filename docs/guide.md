@@ -30,6 +30,7 @@ ambient run hello                  # runs main.main
 ambient run hello -- one two       # what follows `--` is what env.args gives
 ambient run hello --entry tools.fmt
 ambient check hello                # checks every definition, runs nothing
+ambient test hello                 # runs every function named test_*
 ```
 
 A `main` that gives an integer exits with it. What is built is kept by its content in one store for every package on the machine, so a second run compiles only what changed.
@@ -248,6 +249,33 @@ pub fn main(): int {
 ```
 
 `first(...)` gives whichever finishes first and cancels the rest. A `group { ... }` holds tasks started with `spawn`.
+
+## Testing
+
+A test is a function that takes nothing and whose name begins with `test_`. `ambient test` runs each one and reports every `check` that does not hold.
+
+```ab
+import ambient.console;
+import ambient.test.{check};
+
+fn greet(name: string): null with console.print {
+    console.print!("hello, ${name}");
+}
+
+fn test_greets_by_name(): null with check {
+    let said = cell<string>("");
+    provide { [console.print](text) { said.update(fn(_) => text); } } {
+        greet("you");
+    }
+    check!(said.read() == "hello, you", "it greets by name");
+}
+
+pub fn main(): null with console.print {
+    greet("world");
+}
+```
+
+A test is given no world: it provides what the code under test needs, as above, so it says exactly what the world held.
 
 ## The standard library
 

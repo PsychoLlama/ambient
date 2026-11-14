@@ -8,7 +8,7 @@ mod support;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use support::scripted::{app, check, run};
+use support::scripted::{Scripted, app, check, run};
 
 type Files = BTreeMap<PathBuf, String>;
 
@@ -173,4 +173,70 @@ fn a_directory_without_a_manifest_is_not_a_package() {
 
     assert_eq!(code, 1);
     assert_eq!(world.err, "error: app/ambient.toml: no such file\n");
+}
+
+fn test(files: &Files) -> (i32, Scripted) {
+    let path = PathBuf::from("app");
+    Scripted::default().execute(files, &ambient::cli::Command::Test { path })
+}
+
+#[test]
+fn a_test_is_a_function_that_takes_nothing_and_says_what_holds() {
+    let source = r#"
+        import ambient.test.{check};
+
+        fn double(n: int): int => n * 2;
+
+        fn test_doubles(): null with check {
+            check!(double(2) == 4, "two doubles to four");
+        }
+        fn test_is_wrong(): null with check {
+            check!(double(2) == 5, "two doubles to five");
+            check!(double(0) == 1, "nothing doubles to one");
+        }
+        fn test_faults(): int => 1 / (double(0));
+        fn test_takes(n: int): int => n;
+    "#;
+    let (code, world) = test(&app(source));
+
+    assert_eq!(code, 1);
+    assert_eq!(
+        world.out,
+        "ok    app:main.test_doubles
+FAIL  app:main.test_is_wrong
+      does not hold: two doubles to five
+      does not hold: nothing doubles to one
+FAIL  app:main.test_faults
+      divide_by_zero: an integer was divided by zero
+        in app:main.test_faults
+1 passed, 2 failed
+"
+    );
+}
+
+#[test]
+fn a_test_reaches_no_world_it_is_not_given() {
+    let source = r#"
+        import ambient.console;
+        import ambient.test.{check};
+
+        fn greet(): null with console.print { console.print!("hello"); }
+
+        fn test_reaches(): null with console.print { greet(); }
+        fn test_provides(): null with check {
+            let said = cell<string>("");
+            provide { [console.print](text) { said.update(fn(_) => text); } } { greet(); }
+            check!(said.read() == "hello", "it greets");
+        }
+    "#;
+    let (code, world) = test(&app(source));
+
+    assert_eq!(code, 1);
+    let refused = "`ambient:console.print` is not bound here\n";
+    let (failed, rest) = world.out.split_once(refused).unwrap_or_default();
+    assert!(
+        failed.starts_with("FAIL  app:main.test_reaches\n"),
+        "{failed}"
+    );
+    assert_eq!(rest, "ok    app:main.test_provides\n1 passed, 1 failed\n");
 }

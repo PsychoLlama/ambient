@@ -3,6 +3,8 @@
 //! Everything it touches is handed to it (files, a store, a world), so a
 //! test drives the same code a terminal does.
 
+mod test;
+
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -10,7 +12,7 @@ use std::rc::Rc;
 
 use clap::{Parser, Subcommand};
 
-use crate::backend::native::{Native, Program};
+use crate::backend::native::{Native, Natives, Program};
 use crate::engine::Engine;
 use crate::host::{self, World};
 use crate::project::{self, Files, Project};
@@ -48,6 +50,13 @@ pub enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Runs every test of a package: each function that takes nothing
+    /// and whose name begins with `test_`.
+    Test {
+        /// The package's directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
 }
 
 /// What a command works with.
@@ -68,6 +77,7 @@ impl Session<'_> {
         let done = match command {
             Command::Run { path, entry, .. } => self.run(path, entry),
             Command::Check { path } => self.check(path).map(|()| 0),
+            Command::Test { path } => self.test(path),
         };
         done.unwrap_or_else(|problems| {
             let mut world = self.world.borrow_mut();
@@ -87,28 +97,14 @@ impl Session<'_> {
         let engine = Engine::new(&project.workspace, self.store);
         let (module, name) = entry.rsplit_once('.').unwrap_or(("", entry));
         let entry = ModuleId::new(&project.root, module).value(name);
-        let failed = |message: String| vec![message];
-        let refused =
-            |error: crate::error::Error| vec![project.report(&error, engine.blame(&error))];
-        let root = engine.program(&entry, &host::target()).map_err(refused)?;
-        let backend = Native::new().map_err(failed)?;
-        let parts = engine.link(&root, &backend).map_err(refused)?;
-        let program = Program::load(&parts, &host::natives(&self.world)).map_err(failed)?;
-        match program.run(&[]) {
+        let launch = Launch {
+            project: &project,
+            engine: &engine,
+        };
+        match launch.run(&entry, &host::target(), &host::natives(&self.world))? {
             // A program that gives a number exits with it.
-            Ok(Value::Int(code)) => Ok(i32::try_from(code).unwrap_or(FAILED)),
-            Ok(_) => Ok(0),
-            Err(fault) => {
-                let named = Named::reached(&engine, &root);
-                let error = program.error();
-                let mut lines = vec![match (&error, program.failure()) {
-                    (_, Some(native)) => format!("{fault:?}: {native}"),
-                    (Some(error), None) => describe(error),
-                    (None, None) => format!("{fault:?}"),
-                }];
-                lines.extend(error.iter().flat_map(|error| named.trace(error)));
-                Err(vec![lines.join("\n")])
-            }
+            Value::Int(code) => Ok(i32::try_from(code).unwrap_or(FAILED)),
+            _ => Ok(0),
         }
     }
 
@@ -137,6 +133,45 @@ impl Session<'_> {
         } else {
             Err(problems.into_iter().collect())
         }
+    }
+}
+
+/// A package, opened, and the engine that builds it.
+struct Launch<'a> {
+    project: &'a Project,
+    engine: &'a Engine<'a>,
+}
+
+impl Launch<'_> {
+    /// Runs `entry` as a program under `target`, with `natives` for
+    /// what the target binds. Gives what it gave, or says why it did
+    /// not get that far: what is wrong with it, or the fault that
+    /// ended it and the functions the fault left.
+    fn run(
+        &self,
+        entry: &Symbol,
+        target: &Symbol,
+        natives: &Natives,
+    ) -> Result<Value, Vec<String>> {
+        let Self { project, engine } = self;
+        let failed = |message: String| vec![message];
+        let refused =
+            |error: crate::error::Error| vec![project.report(&error, engine.blame(&error))];
+        let root = engine.program(entry, target).map_err(refused)?;
+        let backend = Native::new().map_err(failed)?;
+        let parts = engine.link(&root, &backend).map_err(refused)?;
+        let program = Program::load(&parts, natives).map_err(failed)?;
+        program.run(&[]).map_err(|fault| {
+            let named = Named::reached(engine, &root);
+            let error = program.error();
+            let mut lines = vec![match (&error, program.failure()) {
+                (_, Some(native)) => format!("{fault:?}: {native}"),
+                (Some(error), None) => describe(error),
+                (None, None) => format!("{fault:?}"),
+            }];
+            lines.extend(error.iter().flat_map(|error| named.trace(error)));
+            vec![lines.join("\n")]
+        })
     }
 }
 

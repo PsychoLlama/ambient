@@ -61,3 +61,12 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 - A registry maps names and package IDs to publishers and their versions.
 - A registry is a convenience, not an authority: everything it serves is verified against a snapshot and a publisher's key.
+
+## Testing
+
+- A test is a function that takes nothing and whose name begins with `test_`, in any module of the package.
+- Each test is run as a program of its own under the standard library's test [target](targets.md), which binds one [ability](abilities.md): a check, given whether something holds and what it is.
+- A check that does not hold fails its test and the test goes on, so one run reports every check that does not hold; a [fault](values.md) fails it and ends it.
+- A test reaches no world: one whose function needs an ability [provides](handlers.md) it, which is how a test says what the world holds.
+- A test that names an ability its target does not bind is not a program, and fails for that.
+- TODO: nothing selects which tests run, and a test that never ends is never stopped.
