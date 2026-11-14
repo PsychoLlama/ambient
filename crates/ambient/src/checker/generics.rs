@@ -4,6 +4,7 @@ use super::Checker;
 use super::calls::Checked;
 use crate::core;
 use crate::error::Error;
+use crate::literal::Literal;
 use crate::surface::{Expr, Reference};
 use crate::symbol::Symbol;
 use crate::types::{Signature, Ty, abilities, entry, generalize, instantiate, substitute};
@@ -146,6 +147,7 @@ impl Checker<'_> {
                 continue;
             }
             let so_far = self.least(own, lower.clone());
+            let so_far = self.told(&params[position], so_far, own);
             let expected = self.env.normalize(&substitute(&params[position], &so_far));
             self.next = bases[position];
             let (core, found) = self.infer_as(arg, &expected)?;
@@ -300,6 +302,42 @@ impl Checker<'_> {
             }
         };
         lower.into_iter().enumerate().map(least).collect()
+    }
+
+    /// What a lambda written for `param` is told each type parameter
+    /// is. One it gives back as well as takes is told at its primitive
+    /// where only literals were collected: what the lambda gives may
+    /// widen it, and the lambda's own parameters are typed before that
+    /// is known.
+    fn told(&self, param: &Ty, mut so_far: Vec<Ty>, own: usize) -> Vec<Ty> {
+        let Ty::Function { ret, .. } = param else {
+            return so_far;
+        };
+        let stands = |position| Ty::Named(Reference::Parameter(position), Vec::new());
+        let own_names: Vec<Ty> = (0..so_far.len()).map(stands).collect();
+        for position in own..so_far.len() {
+            let mut other = own_names.clone();
+            other[position] = Ty::Unknown;
+            if substitute(ret, &own_names) != substitute(ret, &other) {
+                so_far[position] = self.widened(&so_far[position]);
+            }
+        }
+        so_far
+    }
+
+    /// `ty` with each literal type as its primitive.
+    fn widened(&self, ty: &Ty) -> Ty {
+        match ty {
+            Ty::Literal(Literal::Bool(_)) => Ty::Bool,
+            Ty::Literal(Literal::Int(_)) => Ty::Int,
+            Ty::Literal(Literal::Float(_)) => Ty::Float,
+            Ty::Literal(Literal::String(_)) => Ty::String,
+            Ty::Union(members) => {
+                let members = members.iter().map(|member| self.widened(member));
+                self.env.union(members.collect())
+            }
+            other => other.clone(),
+        }
     }
 
     /// One type argument per parameter: the least type that meets what

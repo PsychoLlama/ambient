@@ -152,6 +152,22 @@ fn a_lambda_argument_is_typed_by_the_other_arguments() {
 }
 
 #[test]
+fn a_lambda_that_gives_back_what_it_takes_is_not_held_to_a_literal() {
+    // `fn again<T>(v: T, f: Fn(T): T): T`: the literal says `T` is `1`,
+    // and the lambda then gives an integer that is not.
+    let f = ty::function([ty::named("T")], ty::named("T"));
+    let again = b::function("again")
+        .type_param("T")
+        .param("v", ty::named("T"))
+        .param("f", f)
+        .returns(ty::named("T"))
+        .body(b::call(b::name("f"), [b::name("v")]));
+    let call = b::call(b::name("again"), [b::int(1), increment(false)]);
+
+    assert!(check([again, returning(ty::int(), call)]).is_ok());
+}
+
+#[test]
 fn arguments_are_checked_out_of_order_without_confusing_locals() {
     let lambda = b::lambda(
         [("x", None)],
