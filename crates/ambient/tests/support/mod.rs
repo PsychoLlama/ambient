@@ -159,18 +159,23 @@ pub fn run_for_error(
 }
 
 /// Verifies everything `entry` reaches as a receiver of it would: what
-/// checking makes, the core checker accepts.
+/// checking makes, the core checker accepts. Everything is checked
+/// first, so that a definition that does not check is the one named.
 pub fn verify_all(engine: &ambient::engine::Engine, entry: &Symbol) {
-    let mut seen = std::collections::BTreeSet::new();
+    let mut reached = std::collections::BTreeSet::new();
     let mut pending = vec![entry.clone()];
     while let Some(symbol) = pending.pop() {
-        if !seen.insert(symbol.clone()) {
+        if !reached.insert(symbol.clone()) {
             continue;
         }
-        if let Err(error) = engine.verify(&symbol) {
-            panic!("a definition does not check, or the core checker refuses it: {error}");
+        let checked = engine.check(&symbol);
+        let open = checked.unwrap_or_else(|error| panic!("a definition does not check: {error}"));
+        pending.extend(open.slots.iter().cloned());
+    }
+    for symbol in &reached {
+        if let Err(error) = engine.verify(symbol) {
+            panic!("the core checker refuses what checking made: {error}");
         }
-        pending.extend(engine.check(&symbol).unwrap().slots.iter().cloned());
     }
 }
 
