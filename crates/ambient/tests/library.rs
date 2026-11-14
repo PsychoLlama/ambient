@@ -13,13 +13,20 @@ use ambient::surface::{Expr, Type};
 use ambient::value::Value;
 use support::{run_in, value, workspace};
 
-/// What `main`, with this body, gives in a workspace that has the
-/// standard library.
-fn evaluates(ret: Type, body: Expr) -> Value {
+/// What `main`, with this body, gives beside `tags` in a workspace
+/// that has the standard library.
+fn evaluates_beside<const N: usize>(tags: [&str; N], ret: Type, body: Expr) -> Value {
     let main = b::function("main").returns(ret).body(body);
-    let mut workspace = workspace([("app", "main", b::module().define(main))]);
+    let module = tags
+        .into_iter()
+        .fold(b::module(), |module, tag| module.define(b::tag(tag)));
+    let mut workspace = workspace([("app", "main", module.define(main))]);
     library::install(&mut workspace).unwrap();
     run_in(&workspace).unwrap()
+}
+
+fn evaluates(ret: Type, body: Expr) -> Value {
+    evaluates_beside(["none"], ret, body)
 }
 
 /// Which of `types`, by position, `value` is; or `-1`, if it is none of
@@ -31,24 +38,23 @@ fn which<const N: usize>(value: Expr, types: [&str; N]) -> Expr {
     b::match_(value, arms.chain([(pat::any(), b::int(-1))]))
 }
 
-#[test]
-fn a_program_names_the_kind_of_a_fault() {
+/// The kind of the fault an overflow is, or the tag `none`.
+fn kind_of_an_overflow() -> Expr {
     let overflow = b::add(b::int(i64::MAX), b::int(1));
-    let kind = b::match_(
+    let error = pat::bind_as("error", pat::is(ty::named("Error")));
+    b::match_(
         b::boundary(overflow),
         [
-            (
-                pat::bind_as("error", pat::is(ty::named("Error"))),
-                b::field(b::name("error"), "kind"),
-            ),
-            (pat::any(), b::tag("none")),
+            (error, b::field(b::name("error"), "kind")),
+            (pat::any(), b::name("none")),
         ],
-    );
+    )
+}
 
-    assert_eq!(
-        evaluates(ty::int(), which(kind, ["NoMatch", "Overflow"])),
-        Value::Int(1)
-    );
+#[test]
+fn a_program_names_the_kind_of_a_fault() {
+    let kind = which(kind_of_an_overflow(), ["no_match", "overflow"]);
+    assert_eq!(evaluates(ty::int(), kind), Value::Int(1));
 }
 
 #[test]
@@ -57,20 +63,17 @@ fn a_program_names_the_limit_a_budget_ran_out_of() {
     let limit = b::budget(b::int(1000), b::int(0), b::add(b::int(1), b::int(1)));
 
     assert_eq!(
-        evaluates(ty::int(), which(limit, ["Steps", "Allocation"])),
+        evaluates(ty::int(), which(limit, ["steps", "allocation"])),
         Value::Int(1)
     );
 }
 
 #[test]
-fn a_tag_of_a_program_is_not_one_of_the_language() {
-    // Widened, so that the checker does not know which tag it is.
-    let own = b::cast(b::tag("overflow"), ty::tag(), b::tag("other"));
-
-    assert_eq!(
-        evaluates(ty::int(), which(own, ["Overflow"])),
-        Value::Int(-1)
-    );
+fn a_tag_a_program_declares_is_not_one_of_the_language() {
+    // The program's own `overflow` is the one its names reach.
+    let kind = which(kind_of_an_overflow(), ["overflow"]);
+    let own = evaluates_beside(["none", "overflow"], ty::int(), kind);
+    assert_eq!(own, Value::Int(-1));
 }
 
 /// The error checking `main`, with this body, gives in a workspace

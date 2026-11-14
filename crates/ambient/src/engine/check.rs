@@ -200,6 +200,7 @@ impl Engine<'_> {
                 // An extern has nothing but a signature and a tag, and a
                 // target nothing but its bindings.
                 DefinitionKind::Type(_)
+                | DefinitionKind::Tag
                 | DefinitionKind::Ability(_)
                 | DefinitionKind::Key(_)
                 | DefinitionKind::Extern(_)
@@ -339,6 +340,8 @@ impl Engine<'_> {
                     checker::check_extern(symbol, native, &package, &env)
                 })
             }
+            // Resolution leaves no tag: one is a type by then.
+            DefinitionKind::Tag => Err(Error::UnknownSymbol(symbol.clone())),
             DefinitionKind::Target(_) => {
                 let bindings = self.bindings(symbol)?;
                 key.bytes(&encode(&bindings));

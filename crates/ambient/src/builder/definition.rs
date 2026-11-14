@@ -132,6 +132,18 @@ pub fn key(name: &str, ty: crate::surface::Type) -> Definition {
     }
 }
 
+/// A private tag: a name for one value, which is told from every
+/// other by where the tag is declared.
+#[must_use]
+pub fn tag(name: &str) -> Definition {
+    Definition {
+        name: name.to_owned(),
+        public: false,
+        doc: None,
+        kind: DefinitionKind::Tag,
+    }
+}
+
 /// A private type definition with type parameters.
 pub fn generic_type<'a>(
     name: &str,
@@ -340,6 +352,13 @@ impl ModuleBuilder {
                 DefinitionKind::Key(key) => {
                     check_type(&key.ty)?;
                     Namespace::Key
+                }
+                // A tag is named as a type and as a value.
+                DefinitionKind::Tag => {
+                    if !defined.insert((Namespace::Value, &definition.name)) {
+                        return Err(BuildError::DuplicateDefinition(definition.name.clone()));
+                    }
+                    Namespace::Type
                 }
                 DefinitionKind::Extern(native) => {
                     check_extern(&definition.name, native)?;

@@ -27,6 +27,7 @@ use std::collections::BTreeMap;
 
 use crate::core::{self, Open, Slot, Tree};
 use crate::error::Error;
+use crate::literal::Literal;
 use crate::surface::{Expr, Function, Reference};
 use crate::symbol::{PackageId, Symbol};
 use crate::types::{Env, Ty};
@@ -323,6 +324,19 @@ impl<'a> Checker<'a> {
         inferred
     }
 
+    /// The value a name gives if what it names is a tag: a type that is
+    /// the tag told apart by where that very definition is declared.
+    fn tag(&self, symbol: &Symbol) -> Option<Literal> {
+        match &self.env.types.get(symbol)?.ty {
+            Ty::Literal(tag @ Literal::Tag { tag: identity, .. })
+                if *identity == symbol.identity() =>
+            {
+                Some(tag.clone())
+            }
+            _ => None,
+        }
+    }
+
     fn infer_node(&mut self, expr: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {
         Ok(match expr {
             Expr::Null => (core::Expr::Null, Ty::Null),
@@ -342,6 +356,9 @@ impl<'a> Checker<'a> {
             // A generic function named where nothing says what types
             // it is used at is a value of a generic function type.
             Expr::Name(Reference::Definition(symbol)) => {
+                if let Some(tag) = self.tag(symbol) {
+                    return Ok((core::Expr::Literal(tag.clone()), Ty::Literal(tag)));
+                }
                 let ty = match self.env.functions.get(symbol) {
                     Some(signature) if self.root || !signature.native => {
                         self.env.normalize(&generic_type(signature))

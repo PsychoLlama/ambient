@@ -27,15 +27,17 @@ fn joins() -> Definition {
     plugin(b::join(b::string("ab"), b::string("cd")))
 }
 
-/// A program that does nothing, as a module code can be loaded into,
-/// and each of `plugins` compiled to load, with what it would carry of
+/// A program that does nothing but declare the tag `found`, as a module
+/// code can be loaded into, and each of `plugins` compiled to load, with what it would carry of
 /// the runtime as a program of its own.
 fn compiled<const N: usize>(plugins: [Definition; N]) -> (Vec<u8>, [(Parts, BTreeSet<Hash>); N]) {
     let main = b::function("main").returns(ty::unknown()).body(b::null());
-    let mut workspace = workspace([("app", "main", b::module().define(main))]);
+    let main = b::module().define(b::tag("found").public()).define(main);
+    let mut workspace = workspace([("app", "main", main)]);
     let paths: [String; N] = std::array::from_fn(|index| format!("plugin{index}"));
     for (path, plugin) in paths.iter().zip(plugins) {
-        let module = b::module().define(plugin).build().unwrap();
+        let module = b::module().import("pkg.main.found").define(plugin);
+        let module = module.build().unwrap();
         workspace
             .set(ambient::symbol::ModuleId::new("app", path), module)
             .unwrap();
@@ -120,12 +122,13 @@ fn what_one_load_brought_the_next_is_told_of() {
 #[test]
 fn code_loaded_apart_shares_the_state_of_its_program() {
     // A tag is the same tag only where it was interned once.
-    let arms = [(pat::tag("found"), b::int(1)), (pat::any(), b::int(0))];
+    let found = pat::is(ty::named("found"));
+    let arms = [(found, b::int(1)), (pat::any(), b::int(0))];
     let reads = b::function("plugin")
         .param("tag", ty::unknown())
         .returns(ty::unknown())
         .body(b::match_(b::name("tag"), arms));
-    let (program, [(makes, _), (reads, _)]) = compiled([plugin(b::tag("found")), reads]);
+    let (program, [(makes, _), (reads, _)]) = compiled([plugin(b::name("found")), reads]);
     let mut program = load(&program);
     let nothing = BTreeSet::new();
     let makes = wasm::unit(&makes, &nothing).unwrap();

@@ -15,7 +15,7 @@ mod world;
 
 pub use definition::{
     AbilityBuilder, FunctionBuilder, ModuleBuilder, ability, function, generic_type, key, module,
-    type_,
+    tag, type_,
 };
 pub use error::BuildError;
 pub use operations::*;
@@ -57,15 +57,6 @@ pub fn float(value: f64) -> Expr {
 #[must_use]
 pub fn string(value: &str) -> Expr {
     Expr::Literal(Literal::String(value.to_owned()))
-}
-
-/// A tag, of the package it is written in.
-#[must_use]
-pub fn tag(tag: &str) -> Expr {
-    Expr::Literal(Literal::Tag {
-        package: String::new(),
-        tag: tag.to_owned(),
-    })
 }
 
 pub fn tuple(members: impl IntoIterator<Item = Expr>) -> Expr {

@@ -41,11 +41,15 @@ impl Engine<'_> {
             let scoped = self.scope(&symbol.module)?;
             let package = self.sources.identity(&symbol.module.package);
 
-            let key = Hasher::new("resolve")
-                .hash(&module.digests[entry.index])
+            let mut key = Hasher::new("resolve");
+            key.hash(&module.digests[entry.index])
                 .hash(&scoped.digest)
-                .bytes(package.as_bytes())
-                .finish();
+                .bytes(package.as_bytes());
+            // What a tag resolves to holds where it is declared.
+            if matches!(definition.kind, DefinitionKind::Tag) {
+                key.bytes(symbol.identity().as_bytes());
+            }
+            let key = key.finish();
             self.stage(Stage::Resolve, symbol, key, || {
                 let definition = Resolver {
                     scope: &scoped.scope,
@@ -96,6 +100,15 @@ impl Resolver<'_> {
                     ret: self.ty(&ability.ret)?,
                 })
             }
+            // A tag is, to everything after this, the type of its one
+            // value: a tag told apart by where this is declared.
+            DefinitionKind::Tag => DefinitionKind::Type(TypeDefinition {
+                params: Vec::new(),
+                ty: Type::Literal(crate::literal::Literal::Tag {
+                    package: self.package.to_owned(),
+                    tag: self.symbol.identity(),
+                }),
+            }),
             DefinitionKind::Key(key) => DefinitionKind::Key(KeyDefinition {
                 ty: self.ty(&key.ty)?,
             }),
@@ -210,7 +223,7 @@ impl Resolver<'_> {
             Type::Float => Type::Float,
             Type::String => Type::String,
             Type::Tag => Type::Tag,
-            Type::Literal(literal) => Type::Literal(self.literal(literal)),
+            Type::Literal(literal) => Type::Literal(literal.clone()),
             Type::Record(fields) => Type::Record(
                 fields
                     .iter()
@@ -256,7 +269,10 @@ impl Resolver<'_> {
         {
             return Ok(Reference::Local(*number));
         }
+        // A tag is named as a type; where a value is expected, the name
+        // of one is its value, which the checker sees to.
         self.lookup(Namespace::Value, path)
+            .or_else(|unknown| self.lookup(Namespace::Type, path).map_err(|_| unknown))
             .map(Reference::Definition)
     }
 

@@ -102,6 +102,9 @@ pub enum DefinitionKind<N = Path> {
     Function(Function<N>),
     Ability(Ability<N>),
     Key(KeyDefinition<N>),
+    /// A tag: a name for one value, told from every other by where it
+    /// is declared. See "Tags" in `spec/definitions.md`.
+    Tag,
     Extern(Extern<N>),
     Target(Target<N>),
 }

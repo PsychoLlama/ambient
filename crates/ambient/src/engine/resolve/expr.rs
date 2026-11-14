@@ -12,7 +12,7 @@ impl Resolver<'_> {
     fn pattern(&mut self, pattern: &Pattern) -> Result<Pattern<Reference>, Error> {
         Ok(match pattern {
             Pattern::Wildcard => Pattern::Wildcard,
-            Pattern::Literal(literal) => Pattern::Literal(self.literal(literal)),
+            Pattern::Literal(literal) => Pattern::Literal(literal.clone()),
             Pattern::Record(fields) => Pattern::Record(
                 fields
                     .iter()
@@ -41,7 +41,7 @@ impl Resolver<'_> {
         Ok(match expr {
             Expr::Null => Expr::Null,
             Expr::Trace => Expr::Trace,
-            Expr::Literal(literal) => Expr::Literal(self.literal(literal)),
+            Expr::Literal(literal) => Expr::Literal(literal.clone()),
             Expr::Name(path) => Expr::Name(self.name(path)?),
             Expr::Instantiate { function, args } => Expr::Instantiate {
                 function: self.name(function)?,
@@ -205,18 +205,6 @@ impl Resolver<'_> {
             value,
             body,
         })
-    }
-
-    /// A literal as it means here: a tag is one of this package.
-    pub(super) fn literal(&self, literal: &crate::literal::Literal) -> crate::literal::Literal {
-        use crate::literal::Literal;
-        match literal {
-            Literal::Tag { tag, .. } => Literal::Tag {
-                package: self.package.to_owned(),
-                tag: tag.clone(),
-            },
-            other => other.clone(),
-        }
     }
 
     /// Each arm, with what its pattern binds in scope for its body.

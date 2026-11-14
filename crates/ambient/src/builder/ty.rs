@@ -46,15 +46,6 @@ pub fn tag() -> Type {
     Type::Tag
 }
 
-/// The type of one tag, of the package it is written in.
-#[must_use]
-pub fn tagged(tag: &str) -> Type {
-    Type::Literal(Literal::Tag {
-        package: String::new(),
-        tag: tag.to_owned(),
-    })
-}
-
 /// A cell that holds a value of type `member`.
 #[must_use]
 pub fn cell(member: Type) -> Type {

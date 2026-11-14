@@ -65,7 +65,8 @@ fn read(module: &Module) -> Read {
     let mut digests = Vec::new();
     for (index, definition) in module.definitions().iter().enumerate() {
         let namespace = match definition.kind {
-            DefinitionKind::Type(_) => Namespace::Type,
+            // A tag is named as a type, and through that as a value.
+            DefinitionKind::Type(_) | DefinitionKind::Tag => Namespace::Type,
             DefinitionKind::Function(_) | DefinitionKind::Extern(_) | DefinitionKind::Target(_) => {
                 Namespace::Value
             }

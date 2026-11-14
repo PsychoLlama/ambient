@@ -306,7 +306,10 @@ fn the_order_of_a_union_is_not_content_whatever_its_members_are_named() {
 /// same module: a function that is a tag. Each is a snapshot of the
 /// package whose ID is given.
 fn tagged_in(left: &str, right: &str) -> (Hash, Hash) {
-    let module = || b::module().define(b::function("main").returns(ty::tag()).body(b::tag("t")));
+    let module = || {
+        let main = b::function("main").returns(ty::tag()).body(b::name("t"));
+        b::module().define(b::tag("t")).define(main)
+    };
     let mut workspace = workspace([("left", "main", module()), ("right", "main", module())]);
     workspace.identify("left", left);
     workspace.identify("right", right);

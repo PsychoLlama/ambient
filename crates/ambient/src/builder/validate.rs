@@ -136,8 +136,8 @@ fn check_inside(ty: &crate::surface::Type) -> Result<(), BuildError> {
         | Type::Float
         | Type::String
         | Type::Tag
-        | Type::Bound(_)
-        | Type::Literal(_) => Ok(()),
+        | Type::Bound(_) => Ok(()),
+        Type::Literal(literal) => check_literal(literal),
         Type::Generic { bounds, function } => {
             if !matches!(**function, Type::Function { .. }) {
                 return Err(BuildError::GenericType);
@@ -172,7 +172,8 @@ pub(super) fn check_pattern<'a>(
     bound: &mut BTreeSet<&'a String>,
 ) -> Result<(), BuildError> {
     match pattern {
-        Pattern::Wildcard | Pattern::Literal(_) => Ok(()),
+        Pattern::Wildcard => Ok(()),
+        Pattern::Literal(literal) => check_literal(literal),
         Pattern::Record(fields) => {
             check_fields(fields.iter().map(|(name, _)| name))?;
             fields
@@ -213,8 +214,17 @@ pub(super) fn check_expr(expr: &Expr) -> Result<(), BuildError> {
 }
 
 /// Checks what a node holds besides the expressions inside it.
+/// A tag is a declaration: none is written where it is used.
+fn check_literal(literal: &crate::literal::Literal) -> Result<(), BuildError> {
+    match literal {
+        crate::literal::Literal::Tag { tag, .. } => Err(BuildError::WrittenTag(tag.clone())),
+        _ => Ok(()),
+    }
+}
+
 fn check_node(expr: &Expr) -> Result<(), BuildError> {
     match expr {
+        Expr::Literal(literal) => check_literal(literal),
         Expr::Name(path) | Expr::AbilityId(path) | Expr::Perform { ability: path, .. } => {
             check_path(path)
         }

@@ -27,6 +27,8 @@ pub enum BuildError {
     DuplicateBinder(String),
     /// An import must name a package and at least one thing inside it.
     ImportTooShort(Path),
+    /// A tag is written by its text. One is declared and then named.
+    WrittenTag(String),
     /// An expression nests more deeply than any tree may.
     Nesting,
     /// Type parameters are given to something other than a function
@@ -56,6 +58,9 @@ impl fmt::Display for BuildError {
                 f,
                 "only a function type has type parameters, named only inside it"
             ),
+            Self::WrittenTag(tag) => {
+                write!(f, "the tag `{tag}` is written out: declare it and name it")
+            }
             Self::Nesting => write!(
                 f,
                 "an expression nests more than {} levels deep",
