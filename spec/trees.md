@@ -1,6 +1,6 @@
 # Trees
 
-A program is a set of trees constructed through builders, and its source text is a lossless rendering of them. Text syntax is deferred; a parser will be one more client of the builders.
+A program is a set of trees constructed through builders, and its source text is a lossless rendering of them. A [parser](syntax.md) is one more client of the builders.
 
 ## Surface and core
 

@@ -25,7 +25,6 @@ Ambient is a content-addressed language with structural types and abilities, bui
 
 ## Non-goals
 
-- Text syntax. Notation in these pages is illustrative; see [trees](trees.md).
 - First-class continuations. Handlers return or abort; see [handlers](handlers.md).
 - Inference across definitions. See [definitions](definitions.md).
 - Type-level computation. Derived types are computed by [comptime](comptime.md) calls.
@@ -56,6 +55,7 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - [backends](backends.md): the lowered form, value representation, the runtime, unwinding.
 - [linking](linking.md): what a program carries of the runtime, the floor, what loaded code brings.
 - [trees](trees.md): surface and core trees, builders, metadata, text, formatting, edits.
+- [syntax](syntax.md): how trees are written as text.
 - [core](core.md): what a core tree contains, open and closed definitions, encoding.
 - [modules](modules.md): modules, visibility, preludes.
 - [packages](packages.md): package identity, publishers, dependencies, workspaces.
