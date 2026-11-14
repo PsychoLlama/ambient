@@ -37,6 +37,21 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A package declares its dependencies, its [preludes](modules.md), its [build grants](comptime.md), and its native bundles.
 - A package is distributed as source.
 
+## Layout
+
+- A package is a directory: a manifest, and its modules as source files under one directory of sources.
+- A source file is the [module](modules.md) its path under the sources names, and the file named `lib` at their top is the library module.
+- The manifest names the package and lists its dependencies, each by the local name and where the package is; its preludes; and its ID, if that is not its name.
+- Every package reaches the standard library under the name `ambient` without declaring it.
+- TODO: a dependency is only a path to a directory; there are no publishers, versions, locks, or registries yet, and an ID is whatever the manifest says.
+
+## Running
+
+- The command line runs a function of a package as a program under the standard library's command-line [target](targets.md), and exits with what it gives if that is an integer.
+- A [fault](values.md) that ends the program is reported as its error: the kind, the message, and the definitions its trace names.
+- Checking a package checks every definition of it and of the packages it depends on, and reports each that is wrong.
+- Built definitions are kept in one [store](build.md) for every project on the machine, since a definition is kept by its content.
+
 ## Workspaces
 
 - Every package belongs to a workspace; a lone package is a workspace of one.

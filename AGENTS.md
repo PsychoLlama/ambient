@@ -43,7 +43,12 @@
 - Lowered code nests once per bound value, so whatever makes, walks, or drops a `lir::Function` runs inside `lower::deep`, on a stack with room for it.
 - Compiled code is position-independent: it reaches definitions through slots and the runtime through entry points, never by address.
 - A name reaches a definition through a module's members (`engine/scope.rs`): its own definitions and its re-exports, which keep the symbol of what they alias. Another package is reached only through its library module and the modules that lists.
-- The standard library is a package built with builders (`library/`), installed into a workspace on request. Fault kinds and budget limits are its tags; their names come from the runtime, never restated.
+- The standard library is a package installed into a workspace on request (`library/`). Its modules are `.ab` source, embedded and read at install; only its library module is built, since fault kinds and budget limits are tags named by the runtime, never restated.
+- A method of a built-in shape is a public function in `library/<shape>.ab` whose first parameter is `self`. Generic library code narrows with a match and a binder, never a cast to a type parameter, which would make it need type arguments as it runs.
+- The reader (`syntax/`) resolves nothing: it tracks only the locals of the function being read, to tell `record.field` from `module.definition`. Statements, early returns, `if`, and the operators the language lacks are arranged into existing nodes (`syntax/parse/block.rs`, `expr.rs`); do not add a surface node for something an arrangement can say.
+- Names the reader makes up start with `__`, which no program may write.
+- The command-line target is `ambient.system.cli` (`library/system.ab`); its native side is `host/`, where every handler goes through `host::World`. Tests run programs over `support::scripted::Scripted`, never the real process.
+- A package on disk is read through `project::Files` (`project/`), and `cli::Session` is handed its files, store, and world, so `tests/cli.rs` drives the command line in memory.
 - The core checker (`verify/`) accepts what `checker/` makes and nothing looser; `support::run` verifies every definition it runs. Typing rules live in `types::Env`, which both checkers ask.
 - A received definition (`engine/pack.rs`) is an `Open` under a made-up symbol: it is verified, then hashed, compiled, and linked like any other. It has no surface tree and never reaches the store.
 - A definition holds its own hash (`DEFINITION_HASH`), so a host reads a function value as a hash and captures (`value.rs`), and makes one of a definition the program has (`native::Inside`); what it captures is trusted.
@@ -71,6 +76,7 @@
 ## Testing
 
 - Tests build a `Workspace` in memory and run an `Engine` over a `MemoryStore`; nothing touches disk, except `tests/disk.rs`, which tests the `DiskStore` under the system's temporary directory.
+- Programs are built with builders. Text is for tests of the reader, of library methods (`support::text`), and of whole packages.
 - A program is run with `support::run` or `support::run_with`, which run it natively and in wasmtime and fail if they disagree or if either leaks an object.
 - An incremental test builds twice over one store and asserts on `Engine::ran` and `Engine::reused`.
 

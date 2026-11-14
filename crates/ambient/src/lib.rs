@@ -10,6 +10,7 @@
 pub mod backend;
 pub mod builder;
 pub mod checker;
+pub mod cli;
 pub mod core;
 pub mod engine;
 pub mod error;
@@ -21,6 +22,7 @@ pub mod lir;
 pub mod literal;
 pub mod lower;
 pub mod pack;
+pub mod project;
 pub mod store;
 pub mod surface;
 pub mod symbol;

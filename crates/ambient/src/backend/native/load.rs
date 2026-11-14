@@ -303,6 +303,31 @@ impl Program {
         self.call_value(self.entry.get(), args)
     }
 
+    /// Calls the entry with `args` as values, and gives what it gave as
+    /// one.
+    ///
+    /// # Errors
+    ///
+    /// Returns the fault if the program faulted.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `args` is not as many values as the entry takes.
+    pub fn run(&self, args: &[Value]) -> Result<Value, Fault> {
+        let words: Vec<Word> = args.iter().map(super::host::encode).collect();
+        let result = self.call(&words);
+        for word in words {
+            // SAFETY: each word was made above and is not used again.
+            unsafe { ambient_runtime::amb_release(word) };
+        }
+        result.map(|word| {
+            let value = crate::value::decode(word, &mut super::host::Host);
+            // SAFETY: the word is owned here and not used again.
+            unsafe { ambient_runtime::amb_release(word) };
+            value
+        })
+    }
+
     /// Calls a function value of this program with `args`, which it
     /// borrows, and with nothing bound: what [`Self::call`] does with
     /// the entry.

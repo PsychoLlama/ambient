@@ -3,6 +3,7 @@
 
 #![allow(dead_code, clippy::unwrap_used)]
 
+pub mod scripted;
 pub mod tasks;
 pub mod text;
 

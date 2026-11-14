@@ -7,12 +7,12 @@ use std::cell::OnceCell;
 use serde::{Deserialize, Serialize};
 
 use super::{Engine, Stage};
-use crate::backend::native::{Host, Native, Natives, Nowhere, Observation, Program, encode};
+use crate::backend::native::{Native, Natives, Nowhere, Observation, Program};
 use crate::checker::Evaluate;
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest, encode as bytes};
 use crate::symbol::{PackageId, Symbol};
-use crate::value::{Value, decode};
+use crate::value::Value;
 
 /// The backend that runs code during a build, made on first use.
 #[derive(Default)]
@@ -136,27 +136,13 @@ impl Engine<'_> {
         let run = self.stage_if(Stage::Run, function, key.finish(), still, || {
             let program = Program::load(&parts, natives).map_err(failed)?;
             program.observe();
-            let words: Vec<u64> = args.iter().map(encode).collect();
-            let result = program.call(&words);
-            for word in words {
-                // SAFETY: each word was made above and is not used again.
-                unsafe { ambient_runtime::amb_release(word) };
-            }
-            let outcome = match result {
-                Ok(word) => {
-                    let value = decode(word, &mut Host);
-                    // SAFETY: the word is owned here and not used again.
-                    unsafe { ambient_runtime::amb_release(word) };
-                    Ok(value)
-                }
-                Err(fault) => Err(Error::ComptimeFault {
-                    function: function.clone(),
-                    fault: match program.failure() {
-                        Some(message) => format!("{fault:?}: {message}"),
-                        None => format!("{fault:?}"),
-                    },
-                }),
-            };
+            let outcome = program.run(args).map_err(|fault| Error::ComptimeFault {
+                function: function.clone(),
+                fault: match program.failure() {
+                    Some(message) => format!("{fault:?}: {message}"),
+                    None => format!("{fault:?}"),
+                },
+            });
             Ok(Run {
                 outcome,
                 trace: program.observations(),

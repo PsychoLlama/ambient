@@ -1,0 +1,12 @@
+import ambient.console;
+import ambient.env;
+
+/// Greets whoever the program was started with, or the world.
+pub fn main(): null with console.print, env.args {
+    let names = env.args!();
+    if names.length() == 0 {
+        console.print!("hello, world");
+        return;
+    }
+    names.iter().each(fn(name) { console.print!("hello, " ++ name); });
+}

@@ -16,10 +16,12 @@ wasm-encoder = "0.263"
 wasmparser = { version = "0.263", default-features = false, features = ["std"] }
 wasmtime = { version = "49", default-features = false, features = ["cranelift", "runtime", "std"] }
 blake3 = "1.8"
+clap = { version = "4.6", features = ["derive"] }
 proptest = "1.12"
 postcard = { version = "1.1", default-features = false, features = ["use-std"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 stacker = "0.1"
+toml = "1.1"
 
 [workspace.lints.clippy]
 pedantic = { level = "deny", priority = -1 }
