@@ -64,6 +64,28 @@ pub unsafe extern "C" fn amb_string_int(value: Word) -> Word {
     unsafe { read(value).map_or(NULL, |value| amb_int_new(value)) }
 }
 
+/// The scalar value of the one character a string holds, or null if it
+/// holds none or more.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_string_code(value: Word) -> Word {
+    unsafe {
+        let mut characters = core::str::from_utf8(bytes(value)).unwrap_or("").chars();
+        match (characters.next(), characters.next()) {
+            (Some(only), None) => amb_int_new(i64::from(u32::from(only))),
+            _ => NULL,
+        }
+    }
+}
+
+/// The character of a scalar value, or null if the integer is not one.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_code_string(value: Word) -> Word {
+    unsafe {
+        let scalar = u32::try_from(int(value)).ok().and_then(char::from_u32);
+        scalar.map_or(NULL, |scalar| text(scalar.encode_utf8(&mut [0; 4])))
+    }
+}
+
 /// The float a string is, or null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_string_float(value: Word) -> Word {

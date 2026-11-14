@@ -152,6 +152,10 @@ pub enum Primitive {
     StringIterate,
     /// An iterator over the integers from one up to another.
     IntRange,
+    /// The scalar value of a string of one character, or null.
+    StringCode,
+    /// The character of a scalar value, or null if it is not one.
+    CodeString,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -79,6 +79,8 @@ fn meanings(operator: Operator) -> &'static [Primitive] {
         Operator::ToInt => &[P::FloatInt, P::StringInt],
         Operator::ToFloat => &[P::IntFloat, P::StringFloat],
         Operator::ToText => &[P::IntText, P::FloatText],
+        Operator::Code => &[P::StringCode],
+        Operator::Character => &[P::CodeString],
         Operator::Iterator => &[P::IteratorNew],
         Operator::Iterate => &[P::StringIterate, P::ListIterate],
         Operator::Range => &[P::IntRange],

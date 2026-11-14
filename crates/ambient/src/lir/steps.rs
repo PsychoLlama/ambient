@@ -410,6 +410,8 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::FloatText => Entry::FloatText,
         Primitive::StringInt => Entry::StringInt,
         Primitive::StringFloat => Entry::StringFloat,
+        Primitive::StringCode => Entry::StringCode,
+        Primitive::CodeString => Entry::CodeString,
         Primitive::IteratorNew => Entry::IteratorNew,
         Primitive::ListIterate => Entry::ListIterate,
         Primitive::StringIterate => Entry::StringIterate,

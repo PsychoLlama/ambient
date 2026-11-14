@@ -17,6 +17,10 @@ pub fn to_int(self: string): int | null => @to_int(self);
 /// The float the whole string is, or null if it is not one.
 pub fn to_float(self: string): float | null => @to_float(self);
 
+/// The scalar value of the string's one character, or null if it holds
+/// none or more than one.
+pub fn code(self: string): int | null => @code(self);
+
 /// The characters of the string, in order.
 pub fn chars(self: string): Iterator<string> => @iterate(self);
 

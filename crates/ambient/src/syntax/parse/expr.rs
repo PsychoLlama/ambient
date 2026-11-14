@@ -280,6 +280,8 @@ impl Parser {
             "to_int" => Operator::ToInt,
             "to_float" => Operator::ToFloat,
             "to_text" => Operator::ToText,
+            "code" => Operator::Code,
+            "character" => Operator::Character,
             "iterator" => Operator::Iterator,
             "iterate" => Operator::Iterate,
             "range" => Operator::Range,

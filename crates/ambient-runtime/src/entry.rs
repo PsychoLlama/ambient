@@ -152,6 +152,8 @@ entries! {
     FloatText = amb_float_text, plain, 1, word;
     StringInt = amb_string_int, plain, 1, word;
     StringFloat = amb_string_float, plain, 1, word;
+    StringCode = amb_string_code, plain, 1, word;
+    CodeString = amb_code_string, plain, 1, word;
     Method = amb_method, plain, 1, word;
     RecordHeld = amb_record_held, plain, 2, word;
     RecordMethod = amb_record_method, plain, 2, word;

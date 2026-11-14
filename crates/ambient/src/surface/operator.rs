@@ -28,6 +28,10 @@ pub enum Operator {
     ToFloat,
     /// A number as a string.
     ToText,
+    /// The scalar value of a character.
+    Code,
+    /// The character of a scalar value.
+    Character,
     /// An iterator that a function steps.
     Iterator,
     /// An iterator over the members of a list.
@@ -58,6 +62,8 @@ impl Operator {
             Self::ToInt => "@to_int",
             Self::ToFloat => "@to_float",
             Self::ToText => "@to_text",
+            Self::Code => "@code",
+            Self::Character => "@character",
             Self::Iterator => "@iterator",
             Self::Iterate => "@iterate",
             Self::Range => "@range",

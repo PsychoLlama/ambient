@@ -131,6 +131,7 @@ impl Expr {
                     | Primitive::FloatInt
                     | Primitive::StringInt
                     | Primitive::StringFloat
+                    | Primitive::StringCode
                     // The member it adds, beside the copy.
                     | Primitive::ListPush,
                 ..
@@ -138,7 +139,7 @@ impl Expr {
             // No number is written in more bytes than three words hold,
             // and a string says how long it is.
             Self::Primitive {
-                operation: Primitive::IntText | Primitive::FloatText,
+                operation: Primitive::IntText | Primitive::FloatText | Primitive::CodeString,
                 ..
             } => Cost::object(4),
             // The bindings it adds, each with its budget, and a token for

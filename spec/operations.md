@@ -32,6 +32,7 @@ An operation is something the language itself does with values: arithmetic, comp
 - A slice takes a start and an end and gives the string between them.
 - A slice whose positions are out of range, out of order, or inside a character misses, so every string is valid UTF-8.
 - A character is one Unicode scalar value. There is no shape for one: a character is a string that holds it alone.
+- A character converts to its scalar value as an integer, and an integer to the character it is the value of; a string that is not one character and an integer that is no scalar value miss.
 
 ## Lists
 

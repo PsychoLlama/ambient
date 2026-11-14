@@ -130,3 +130,22 @@ fn an_iterator_is_asked_about_its_items() {
 
     assert_eq!(int(source), 8 + 10 + 7000);
 }
+
+#[test]
+fn a_character_and_its_scalar_value_convert_both_ways() {
+    let code = |text: &str| evaluates(&format!("({text}.code() as int else -1).to_text()"));
+    let character =
+        |code: &str| evaluates(&format!(r#"{code}.to_character() as string else "none""#));
+
+    assert_eq!(code(r#""a""#), "97");
+    assert_eq!(code(r#""é""#), "233");
+    // Not one character: none, and two.
+    assert_eq!(code(r#""""#), "-1");
+    assert_eq!(code(r#""ab""#), "-1");
+    assert_eq!(character("233"), "é");
+    assert_eq!(character("128512"), "😀");
+    // A surrogate and a number past the last scalar value are no character.
+    assert_eq!(character("55296"), "none");
+    assert_eq!(character("1114112"), "none");
+    assert_eq!(character("(0 - 1)"), "none");
+}
