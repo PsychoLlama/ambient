@@ -27,7 +27,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - No definition is given a string to be known by: [identity](definitions.md) is read from where it is declared.
 - An `import` names a module, or a module and the definitions taken from it in braces; `pub import` re-exports.
 - Type parameters follow a name in angle brackets, each with an optional bound after a colon.
-- A function's row follows its return type after `with`.
+- A function's row follows its return type after `with`: abilities, and modules for all of theirs.
 - There is no form for a constant: it is a function of no parameters, called.
 
 ## Expressions

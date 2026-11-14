@@ -159,6 +159,7 @@ pub fn main(): null with console.print, fs.read {
 
 - An ability is a declaration: `pub ability read(path: string): string | Error;`. It says nothing about how.
 - The program's target supplies the real ones. `ambient run` gives `console`, `env`, `fs`, `clock`, and `process` from the standard library.
+- A module in a row is every ability of it: `with console, fs`. Name the abilities themselves where it matters which.
 - A function that lists no abilities is pure: it can be cached, run at compile time, or sent to another machine, and its header says so.
 - A lambda takes the abilities in scope where it is written, so `list.each(fn(x) => console.print!(x))` needs nothing said.
 

@@ -291,3 +291,29 @@ fn a_value_written_into_a_string_is_asked_for_its_text() {
 
     assert_eq!(text(source), "2 of tea: 3 digits, ${no} $ {no}");
 }
+
+#[test]
+fn a_module_in_a_row_is_every_ability_of_it() {
+    let source = r#"
+        import ambient.console;
+
+        fn speak(): null with console {
+            console.print!("a");
+            console.warn!("b");
+        }
+        fn main(): string {
+            let said = cell<string>("");
+            let note = fn(text: string) { said.update(fn(so_far) => so_far ++ text); };
+            let quiet = {
+                [console.print](text) { note(text); },
+                [console.warn](text) { note(text); },
+                [console.write](text) { note(text); },
+                [console.read_line]() => null,
+            };
+            provide quiet { speak(); }
+            return said.read();
+        }
+    "#;
+
+    assert_eq!(text(source), "ab");
+}

@@ -229,8 +229,39 @@ impl<'a> Resolver<'a> {
             .map(Reference::Definition)
     }
 
+    /// The abilities a row names. A module named in one stands for
+    /// every ability of it that is public, so nothing after this knows
+    /// a row by anything but its abilities.
     fn row(&self, row: &[Path]) -> Result<Vec<Reference>, Error> {
-        row.iter().map(|path| self.ability(path)).collect()
+        let mut abilities = Vec::new();
+        for path in row {
+            let named = match (self.ability(path), path.0.as_slice()) {
+                (Ok(ability), _) => vec![ability],
+                (Err(unknown), [module]) => self.abilities_of(module).ok_or(unknown)?,
+                (Err(unknown), _) => return Err(unknown),
+            };
+            for ability in named {
+                if !abilities.contains(&ability) {
+                    abilities.push(ability);
+                }
+            }
+        }
+        Ok(abilities)
+    }
+
+    /// Every public ability of the module imported as `alias`, if one
+    /// is.
+    fn abilities_of(&self, alias: &str) -> Option<Vec<Reference>> {
+        let (_, members) = self.scope.modules.get(alias)?;
+        let public = members
+            .0
+            .iter()
+            .filter(|((namespace, _), member)| *namespace == Namespace::Ability && member.public);
+        Some(
+            public
+                .map(|(_, member)| Reference::Definition(member.symbol.clone()))
+                .collect(),
+        )
     }
 
     fn bind(&mut self, name: &str) {

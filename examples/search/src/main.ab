@@ -7,7 +7,7 @@ import pkg.report.{Match, describe};
 
 /// Prints each line under a directory that contains a word, and how many
 /// there were. Exits with 1 if there were none, as `grep` does.
-pub fn main(): int with console.print, console.warn, env.args, fs.read, fs.list {
+pub fn main(): int with console, env.args, fs.read, fs.list {
     let args = env.args!();
     match (args.get(0), args.get(1)) {
         (let word: string, let root: string) => { return search(word, root); }
@@ -18,7 +18,7 @@ pub fn main(): int with console.print, console.warn, env.args, fs.read, fs.list 
     }
 }
 
-fn search(word: string, root: string): int with console.print, console.warn, fs.read, fs.list {
+fn search(word: string, root: string): int with console, fs.read, fs.list {
     let found = walk.files(root).fold([], fn(found: List<Match>, path: string): List<Match> {
         match fs.read!(path) {
             let error: Error => {

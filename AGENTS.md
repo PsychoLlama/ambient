@@ -24,6 +24,7 @@
 - A tag (`DefinitionKind::Tag`) resolves to a type definition: the literal type of the tag its identity names. A name in value position falls back to the type namespace, and the checker gives the value only for such a definition (`Checker::tag`).
 - A key is a definition in a namespace of its own (`Namespace::Key`); a record names one where it names an ability (`Key::Ability`), and `Env::holds` is the one rule for what may be held under it, which both checkers ask.
 - A merge names the keys whose methods receive the merged record (`core::Expr::Merge::methods`): exactly those its type lists as methods. The runtime binds every other method to the record it came from, so no method meets a receiver nothing checked.
+- A module named in a row is expanded to its public abilities by the resolver (`Resolver::row`), from the scope, which the resolve key covers.
 - A row is ordered by identity wherever it reaches a core tree, never by the order it was written in.
 - A program is `Engine::program(entry, target)`: a root function the engine writes (`engine/program.rs`) and then checks, hashes, and compiles like any other.
 - Compiled code reaches native code only through `amb_native` and an index the loader fills in; a host supplies `Natives` by package and the extern's module path and name.
