@@ -278,7 +278,6 @@ pub fn main(): string {
 
 - An error names the definition it is in and that definition's line, not the expression.
 - `all` and `first` followed by `(` always start tasks, so a function cannot be called by those names.
-- `-x` is only written on a literal; otherwise `0 - x`.
 - A record type that names a key says its type again: `{ [dispose](): null }`.
 - A function written inside another cannot call itself; make it a definition.
 - There is no way yet to depend on a package except by a path in the manifest: `[dependencies] text = { path = "../text" }`.

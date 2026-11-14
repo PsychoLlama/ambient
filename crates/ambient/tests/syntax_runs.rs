@@ -267,3 +267,15 @@ fn a_word_that_only_begins_a_definition_names_anything() {
 
     assert_eq!(int(source), 3);
 }
+
+#[test]
+fn a_minus_before_a_value_asks_it_for_its_negative() {
+    let source = r"
+        fn main(): int {
+            let (n, x) = (3, 1.5);
+            return -n * 10 + ((-x * 2.0).to_int() as int else 0);
+        }
+    ";
+
+    assert_eq!(int(source), -33);
+}

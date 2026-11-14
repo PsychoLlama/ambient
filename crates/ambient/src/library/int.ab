@@ -4,6 +4,9 @@ pub fn to_float(self: int): float => @to_float(self);
 /// This integer in decimal.
 pub fn to_text(self: int): string => @to_text(self);
 
+/// This integer with the other sign, which `-` before a value means.
+pub fn negate(self: int): int => 0 - self;
+
 /// This integer without its sign.
 pub fn abs(self: int): int {
     if self < 0 {

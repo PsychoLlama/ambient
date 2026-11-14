@@ -43,6 +43,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - Type arguments are written out after `::` in angle brackets.
 - An [operation](operations.md) with no operator is `@`, its name, and its operands; the standard library wraps each in a function, and other code calls that.
 - Operators are those of [operations](operations.md) and, built from them, the other comparisons, `&&`, `||`, and `!`; the last three evaluate only the operands they need.
+- `-` before a value is a call of its `negate` [method](methods.md), which the standard library gives the numbers; before a number written out it is part of the literal.
 - `if` is a statement, and a match is the conditional that has a value.
 - A condition is matched like any other subject, so one whose type is a single literal has a branch that can never be taken, which is an error.
 

@@ -3,3 +3,6 @@ pub fn to_int(self: float): int | null => @to_int(self);
 
 /// The shortest decimal that reads back as this float.
 pub fn to_text(self: float): string => @to_text(self);
+
+/// This float with the other sign, which `-` before a value means.
+pub fn negate(self: float): float => -1.0 * self;

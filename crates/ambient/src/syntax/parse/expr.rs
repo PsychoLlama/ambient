@@ -149,7 +149,9 @@ impl Parser {
             let negative = match self.peek() {
                 Token::Int(value) => Literal::Int(-value),
                 Token::Float(value) => Literal::float(-value),
-                _ => return self.fail("`-` negates a number written out; subtract from zero"),
+                // Anything else is asked for its negative, which the
+                // library says for each shape that has one.
+                _ => return Ok(crate::builder::send(self.unary()?, "negate", [])),
             };
             self.advance();
             return self.postfix(Expr::Literal(negative));
