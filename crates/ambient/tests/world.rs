@@ -128,7 +128,12 @@ fn a_command_is_run_and_what_it_gave_is_read() {
 
         fn ran(command: string): string with process.run {
             match process.run!(command, ["status", "--short"]) {
-                let error: Error => { return error.message; }
+                let error: Error => {
+                    match error.kind {
+                        process.not_found => { return "none: " ++ error.message; }
+                        _ => { return error.message; }
+                    }
+                }
                 let output: Output => { return "${output.code}: ${output.out.trim()}"; }
             }
         }
@@ -146,7 +151,7 @@ fn a_command_is_run_and_what_it_gave_is_read() {
 
     assert_eq!(
         run(source, &world).0,
-        Ok(Value::String("1: M notes, no command hg".to_owned()))
+        Ok(Value::String("1: M notes, none: no command hg".to_owned()))
     );
 }
 

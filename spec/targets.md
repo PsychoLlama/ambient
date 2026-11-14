@@ -38,6 +38,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - An operation on a file that can fail in ordinary use gives an [error](errors.md) as a value; the kinds are tags of the module.
 - Exiting is an ability that does not return, so the program's result is the code it exits with.
 - Running a command gives what it exited with and what it wrote; no shell reads the command, and one that exits with a code that is not zero has still run.
+- A command that could not be started is an error whose kind is a tag of that module, never one of the files'.
 - Both standard targets bind `throw`: an [error](errors.md) nothing caught ends the program, or fails the test, and is reported as a fault is.
 - It defines a target for a [test](packages.md) as well, which binds a check and nothing of the world.
 - TODO: there is no standard target for a WebAssembly host yet.

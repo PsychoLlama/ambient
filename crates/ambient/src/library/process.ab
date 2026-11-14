@@ -1,5 +1,14 @@
 import pkg.Error;
 
+/// No command of that name is to be found.
+pub tag not_found;
+
+/// The program may not run the command.
+pub tag denied;
+
+/// Any other failure to start the command; the message says which.
+pub tag failed;
+
 /// What a command gave: the code it exited with, which is -1 if it was
 /// ended from outside, and what it wrote to each of its streams.
 pub type Output = { code: int, out: string, err: string };

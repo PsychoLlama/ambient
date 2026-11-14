@@ -19,7 +19,8 @@ use crate::backend::native::Natives;
 use crate::symbol::{ModuleId, Symbol};
 use crate::value::Value;
 
-/// Why the world refused something done to a file.
+/// Why the world refused something. The modules whose abilities can be
+/// refused each have a tag for every kind, under the same names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     NotFound,
@@ -28,12 +29,12 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// The tag of `ambient.fs` that names it.
-    fn tag(self) -> &'static str {
+    /// What the tag that names it is called in each of those modules.
+    fn name(self) -> &'static str {
         match self {
-            Self::NotFound => "fs.not_found",
-            Self::Denied => "fs.denied",
-            Self::Failed => "fs.failed",
+            Self::NotFound => "not_found",
+            Self::Denied => "denied",
+            Self::Failed => "failed",
         }
     }
 }
@@ -114,11 +115,12 @@ pub fn target() -> Symbol {
     ModuleId::new(FAULT_PACKAGE, "system").value("cli")
 }
 
-/// The error a failure is, as `ambient.Error` describes one.
-fn error(failure: &Failure) -> Value {
+/// The error a failure is, as `ambient.Error` describes one: its kind
+/// is the tag for it of `module`, whose ability was refused.
+fn error(module: &str, failure: &Failure) -> Value {
     let kind = Value::Tag {
         package: FAULT_PACKAGE.to_owned(),
-        tag: failure.kind.tag().to_owned(),
+        tag: format!("{module}.{}", failure.kind.name()),
     };
     let fields = [
         ("kind", kind),
@@ -199,30 +201,30 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
         }),
         ("fs_read", |world, args| {
             let read = world.read(text(args, 0)?);
-            Ok(read.map_or_else(|failure| error(&failure), Value::String))
+            Ok(read.map_or_else(|failure| error("fs", &failure), Value::String))
         }),
         ("fs_write", |world, args| {
             let stored = world.store(text(args, 0)?, text(args, 1)?);
-            Ok(stored.map_or_else(|failure| error(&failure), |()| Value::Null))
+            Ok(stored.map_or_else(|failure| error("fs", &failure), |()| Value::Null))
         }),
         ("fs_list", |world, args| {
             let listed = world.list(text(args, 0)?);
-            Ok(listed.map_or_else(|failure| error(&failure), strings))
+            Ok(listed.map_or_else(|failure| error("fs", &failure), strings))
         }),
         ("fs_exists", |world, args| {
             Ok(Value::Bool(world.exists(text(args, 0)?)))
         }),
         ("fs_remove", |world, args| {
             let removed = world.remove(text(args, 0)?);
-            Ok(removed.map_or_else(|failure| error(&failure), |()| Value::Null))
+            Ok(removed.map_or_else(|failure| error("fs", &failure), |()| Value::Null))
         }),
         ("fs_make_directory", |world, args| {
             let made = world.make_directory(text(args, 0)?);
-            Ok(made.map_or_else(|failure| error(&failure), |()| Value::Null))
+            Ok(made.map_or_else(|failure| error("fs", &failure), |()| Value::Null))
         }),
         ("process_run", |world, args| {
             let ran = world.run(text(args, 0)?, &texts(args, 1)?);
-            Ok(ran.map_or_else(|failure| error(&failure), output))
+            Ok(ran.map_or_else(|failure| error("process", &failure), output))
         }),
         ("clock_now", |world, _| Ok(Value::Int(world.now()))),
         ("clock_elapsed", |world, _| Ok(Value::Int(world.elapsed()))),
