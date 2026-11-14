@@ -334,3 +334,44 @@ fn a_test_reaches_no_world_it_is_not_given() {
     );
     assert_eq!(rest, "ok    app:main.test_provides\n1 passed, 1 failed\n");
 }
+
+/// Makes a package at `path` in an empty world.
+fn made(path: &str) -> (i32, Scripted) {
+    let path = PathBuf::from(path);
+    Scripted::default().execute(&Files::new(), &ambient::cli::Command::New { path })
+}
+
+#[test]
+fn a_new_package_runs_and_its_test_passes() {
+    let (code, world) = made("work/app");
+    assert_eq!(
+        (code, world.out.as_str()),
+        (0, "made work/app: `ambient run work/app` runs it\n")
+    );
+
+    let written = |(path, text): (&String, &String)| (PathBuf::from(path), text.clone());
+    let files: Files = world.files.iter().map(written).collect();
+    let path = PathBuf::from("work/app");
+    let test = ambient::cli::Command::Test { path, only: None };
+    let (code, world) = Scripted::default().execute(&files, &test);
+    assert_eq!((code, world.err.as_str()), (0, ""), "{}", world.out);
+}
+
+#[test]
+fn a_package_is_not_made_where_it_cannot_be() {
+    let (code, world) = made("work/my-app");
+    assert_eq!(code, 1);
+    assert!(
+        world
+            .err
+            .starts_with("error: work/my-app: a package is named")
+    );
+
+    let world = Scripted {
+        files: [("app/ambient.toml".to_owned(), String::new())].into(),
+        ..Scripted::default()
+    };
+    let path = PathBuf::from("app");
+    let (_, world) = world.execute(&Files::new(), &ambient::cli::Command::New { path });
+    assert_eq!(world.err, "error: app: there is a package here already\n");
+}

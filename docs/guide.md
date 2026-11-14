@@ -26,6 +26,7 @@ pub fn main(): null with console.print {
 ```
 
 ```
+ambient new hello                  # makes a package that runs and has a test
 ambient run hello                  # runs main.main
 ambient run hello -- one two       # what follows `--` is what env.args gives
 ambient run hello --entry tools.fmt

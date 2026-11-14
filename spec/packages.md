@@ -62,6 +62,11 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A registry maps names and package IDs to publishers and their versions.
 - A registry is a convenience, not an authority: everything it serves is verified against a snapshot and a publisher's key.
 
+## Beginning
+
+- A new package is made from its name alone: a manifest and one module that runs and has a [test](#testing), so the first change is made to something that works.
+- A package is not made over one that is there.
+
 ## Testing
 
 - A test is a function that takes nothing and whose name begins with `test_`, in any module of the package.
