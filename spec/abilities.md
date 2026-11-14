@@ -34,6 +34,7 @@ An ability is an operation that code may perform but does not implement. Abiliti
 ## Capture
 
 - A lambda's row lists what it takes from its caller; every other ability it performs is captured.
+- A lambda that states no row, written where a function type is expected, takes that type's row: a callback reaches what whoever calls it provides.
 - A captured ability is bound, when the function value is created, to the handler in scope there.
 - A captured handler travels with the value and is used wherever the value is called, including under a scope that rebinds or removes the ability.
 - A function value whose row exceeds the row expected of it is bound in place: the excess is captured from the current scope.

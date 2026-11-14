@@ -249,7 +249,14 @@ impl<'a> Checker<'a> {
         expr: &Expr<Reference>,
         expected: &Ty,
     ) -> Result<(core::Expr, Ty), Error> {
-        let hint = match (self.env.unfold(expected), expr) {
+        let expected = self.env.unfold(expected);
+        // What a lambda that states no row takes from its caller: the
+        // row of the function type expected of it.
+        let asked = match &expected {
+            Ty::Function { row, .. } => row.clone(),
+            _ => Vec::new(),
+        };
+        let hint = match (expected, expr) {
             (Ty::Function { params, .. }, _) => Some(params),
             // A generic lambda takes them from a generic function type
             // with as many type parameters, each standing for its own.
@@ -281,7 +288,7 @@ impl<'a> Checker<'a> {
             }
             // A lambda takes the types its parameters lack from the
             // function type expected of it.
-            (Expr::Lambda { .. }, hint) => self.lambda(expr, hint.as_deref()),
+            (Expr::Lambda { .. }, hint) => self.lambda(expr, hint.as_deref(), &asked),
             // Any other value of a generic function type takes its
             // type arguments from the function type expected of it too.
             (_, Some(params)) => {
@@ -396,7 +403,7 @@ impl<'a> Checker<'a> {
             }
             Expr::Operation { operator, operands } => self.operation(*operator, operands)?,
             Expr::Match { subject, arms } => self.matching(subject, arms, None)?,
-            Expr::Lambda { .. } => self.lambda(expr, None)?,
+            Expr::Lambda { .. } => self.lambda(expr, None, &[])?,
             Expr::Perform { ability, args } => self.perform(ability, args)?,
             Expr::Provide { bundle, only, body } => self.provide(bundle, *only, body)?,
             Expr::Observe { observer, body } => self.observe(observer, body)?,

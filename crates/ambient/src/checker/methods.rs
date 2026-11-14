@@ -97,7 +97,7 @@ impl Checker<'_> {
             return self.infer(value);
         };
         let (function, found) = match receiver {
-            Some(receiver) => self.lambda(function, Some(std::slice::from_ref(receiver)))?,
+            Some(receiver) => self.lambda(function, Some(std::slice::from_ref(receiver)), &[])?,
             None => self.infer(function)?,
         };
         // A generic method's type parameters are the reading function's

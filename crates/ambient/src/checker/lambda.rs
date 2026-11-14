@@ -31,12 +31,15 @@ impl Checker<'_> {
     /// A lambda: its own definition, checked in a frame of its own.
     ///
     /// `hint` is the parameter types expected of it, if anything expects
-    /// any. The result type is the one it states, or else the body's.
-    /// One with type parameters is of a generic function type.
+    /// any, and `asked` the row: one that states no row takes that from
+    /// its caller, and captures the rest as any lambda does. The result
+    /// type is the one it states, or else the body's. One with type
+    /// parameters is of a generic function type.
     pub(super) fn lambda(
         &mut self,
         lambda: &Expr<Reference>,
         hint: Option<&[Ty]>,
+        asked: &[Reference],
     ) -> Result<(core::Expr, Ty), Error> {
         let Expr::Lambda { type_params, .. } = lambda else {
             return self.infer(lambda);
@@ -49,7 +52,7 @@ impl Checker<'_> {
         self.env.inner.borrow_mut().extend(unbounded);
         let checked = self.bounds_of(lambda).and_then(|bounds| {
             self.env.inner.borrow_mut().splice(depth.., bounds.clone());
-            let made = self.written(lambda, hint)?;
+            let made = self.written(lambda, hint, asked)?;
             Ok((made, bounds))
         });
         self.env.inner.borrow_mut().truncate(depth);
@@ -103,6 +106,7 @@ impl Checker<'_> {
         &mut self,
         lambda: &Expr<Reference>,
         hint: Option<&[Ty]>,
+        asked: &[Reference],
     ) -> Result<(core::Expr, Ty), Error> {
         let Expr::Lambda {
             type_params,
@@ -137,6 +141,7 @@ impl Checker<'_> {
                 }
             });
         }
+        let row = if row.is_empty() { asked } else { row };
         self.function_of(type_params.len(), types, row, returns, body)
     }
 
