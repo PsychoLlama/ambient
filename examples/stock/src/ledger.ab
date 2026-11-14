@@ -1,0 +1,81 @@
+import ambient.dict;
+import ambient.dict.{Dict};
+import ambient.json;
+import ambient.json.{Json};
+import ambient.{catch, fail, throw, Error};
+import ambient.test.{check};
+
+/// The file holds something other than a count under each name.
+pub tag not_a_ledger;
+
+/// The command is none of those there are, or takes what is not there.
+pub tag refused;
+
+/// The count under each name that the text of a file holds.
+pub fn read(text: string): Dict<int> with throw {
+    match json.parse(text) {
+        let members: {} => {
+            return dict.of(members.entries().map(fn((name, held)) => (name, count_of(name, held))));
+        }
+        _ => { return fail(not_a_ledger, "the file does not hold an object"); }
+    }
+}
+
+fn count_of(name: string, held: Json): int with throw =>
+    held as int else fail(not_a_ledger, "`${name}` does not hold a count");
+
+/// The text of a file that holds `counts`.
+pub fn write(counts: Dict<int>): string => json.write(dict.of::<Json>(counts.entries()));
+
+/// The counts after a command.
+pub fn change(counts: Dict<int>, command: List<string>): Dict<int> with throw {
+    match (command.get(0), command.get(1), command.get(2)) {
+        (null, _, _) => { return counts; }
+        ("list", _, _) => { return counts; }
+        ("add", let name: string, let count: string) => {
+            let more = number(count);
+            return counts.update(name, fn(have) => (have as int else 0) + more);
+        }
+        ("take", let name: string, let count: string) => {
+            let left = (counts.get(name) as int else 0) - number(count);
+            if left < 0 {
+                fail(refused, "there are not ${count} of ${name}");
+            }
+            return left == 0 ? counts.remove(name) : counts.set(name, left);
+        }
+        _ => { return fail(refused, "usage: stock [list | add <name> <count> | take <name> <count>]"); }
+    }
+}
+
+fn number(written: string): int with throw =>
+    written.to_int() as int else fail(refused, "`${written}` is not a count");
+
+/// What a command makes of a ledger of two teas, as its file's text,
+/// or why it is refused.
+fn after(command: List<string>): string {
+    match catch(fn() => write(change(read("{\"tea\": 2}"), command))) {
+        let error: Error => { return error.message; }
+        let text: string => { return text; }
+    }
+}
+
+fn test_a_command_changes_the_counts(): null with check {
+    check!(after([]) == "{\"tea\":2}", "no command changes nothing");
+    check!(after(["add", "jam", "3"]) == "{\"jam\":3,\"tea\":2}", "add counts a new name");
+    check!(after(["add", "tea", "1"]) == "{\"tea\":3}", "add counts on from what is there");
+    check!(after(["take", "tea", "2"]) == "{}", "taking the last of a name forgets it");
+    check!(after(["take", "tea", "3"]) == "there are not 3 of tea", "take refuses more than there is");
+    check!(after(["add", "tea", "some"]) == "`some` is not a count", "a count is a number");
+}
+
+fn test_a_file_that_is_no_ledger_is_refused(): null with check {
+    let refused = fn(text: string): string =>
+        match catch(fn() => read(text)) {
+            let error: Error => error.message,
+            _ => "read",
+        };
+
+    check!(refused("[1]") == "the file does not hold an object", "an array is no ledger");
+    check!(refused("{\"tea\": \"two\"}") == "`tea` does not hold a count", "a count is an integer");
+    check!(refused("{\"tea\": ") == "expected a value at line 1, column 9", "text that is not JSON says where");
+}

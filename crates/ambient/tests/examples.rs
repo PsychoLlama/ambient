@@ -61,3 +61,22 @@ fn the_tally_counts_the_words_of_a_file() {
     assert_eq!((code, world.err.as_str()), (0, ""));
     assert_eq!(world.out, "3 the\n1 and\n1 cat\n1 end\n1 hat\n");
 }
+
+#[test]
+fn the_stock_keeps_its_counts_in_a_file_of_json() {
+    let command = Command::Run {
+        path: example("stock"),
+        entry: "main.main".to_owned(),
+        args: Vec::new(),
+    };
+    let world = Scripted {
+        files: [("stock.json".to_owned(), r#"{"tea": 2}"#.to_owned())].into(),
+        args: ["add", "jam", "3"].map(str::to_owned).to_vec(),
+        ..Scripted::default()
+    };
+    let (code, world) = world.execute(&Disk, &command);
+
+    assert_eq!((code, world.err.as_str()), (0, ""));
+    assert_eq!(world.out, "jam         3\ntea         2\n");
+    assert_eq!(world.files["stock.json"], r#"{"jam":3,"tea":2}"#);
+}

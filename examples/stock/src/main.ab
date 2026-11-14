@@ -1,0 +1,44 @@
+import ambient.console;
+import ambient.env;
+import ambient.fs;
+import ambient.{catch, throw, Error};
+import pkg.ledger;
+
+/// Keeps how many of each thing there are, in a JSON file: `add <name>
+/// <count>`, `take <name> <count>`, and `list`, which is what no command
+/// means.
+pub fn main(): int with console, env, fs {
+    let path = env.variable!("STOCK_FILE") as string else "stock.json";
+    let done = catch(fn() {
+        let counts = ledger.change(ledger.read(load(path)), env.args!());
+        for (name, count) in counts.entries() {
+            console.print!("${name.pad_end(12, " ")}${count}");
+        }
+        save(path, ledger.write(counts));
+    });
+    match done {
+        null => { return 0; }
+        let error: Error => {
+            console.warn!("stock: ${error.message}");
+            return 1;
+        }
+    }
+}
+
+/// The text of the file, which holds nothing if it is not there.
+fn load(path: string): string with fs, throw {
+    if !fs.exists!(path) {
+        return "{}";
+    }
+    let text: string = fs.read!(path) else {
+        let error => { return throw!(error); }
+    };
+    return text;
+}
+
+fn save(path: string, text: string): null with fs.write, throw {
+    let null = fs.write!(path, text) else {
+        let error => { return throw!(error); }
+    };
+    return null;
+}

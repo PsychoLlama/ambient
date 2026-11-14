@@ -9,6 +9,7 @@ A content-addressed programming language with structural types and abilities, bu
 cargo run -- run examples/hello -- you
 cargo run -- run examples/search -- fn crates/ambient/src/syntax
 cargo run -- check examples/tally
+cargo run -- test examples/stock
 ```
 
 - [docs/guide.md](docs/guide.md): how to write and run a program.
