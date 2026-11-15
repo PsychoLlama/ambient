@@ -124,6 +124,8 @@ fn meanings(operator: Operator) -> &'static [Primitive] {
         Operator::Iterator => &[P::IteratorNew],
         Operator::Iterate => &[P::StringIterate, P::ListIterate],
         Operator::Range => &[P::IntRange],
+        Operator::Gather => &[P::ListAll],
+        Operator::Race => &[P::ListFirst],
         Operator::Step => &[],
     }
 }

@@ -20,7 +20,7 @@ impl Lowering {
     }
 
     /// An operation on `args`, charged first for what it copies of
-    /// them.
+    /// them and for the tasks it starts.
     pub(super) fn primitive(
         &mut self,
         operation: core::Primitive,
@@ -30,7 +30,18 @@ impl Lowering {
         if operation.copies() {
             self.charge_copies(&args, scope);
         }
-        Op::Primitive { operation, args }
+        if operation.starts() && self.metered {
+            for thunks in &args {
+                self.bound(Op::ChargeTasks(*thunks), scope);
+            }
+        }
+        // Tasks are started the one way, whether the functions were
+        // written out or are the members of a list.
+        match (operation, &args[..]) {
+            (core::Primitive::ListAll, [thunks]) => Op::All(*thunks),
+            (core::Primitive::ListFirst, [thunks]) => Op::First(*thunks),
+            _ => Op::Primitive { operation, args },
+        }
     }
 
     /// Charges for the function reading `key` of `record` makes if a

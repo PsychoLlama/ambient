@@ -31,6 +31,7 @@ impl Op {
             | Self::BudgetBack { saved: operand, .. }
             | Self::BudgetCaught(operand)
             | Self::ChargeSize(operand)
+            | Self::ChargeTasks(operand)
             | Self::All(operand)
             | Self::First(operand) => vec![operand],
             Self::Spawn {

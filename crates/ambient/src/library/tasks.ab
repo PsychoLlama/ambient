@@ -1,0 +1,13 @@
+/// What each of `work` gives, in order, with every one run as a task
+/// at once. If one fails the rest are cancelled, and the failure goes
+/// on from here.
+pub fn gather<T>(work: List<fn(): T>): List<T> => @gather(work);
+
+/// What the first of `work` to be over gives; the rest are cancelled.
+/// Null if there is no work to be first.
+pub fn race<T>(work: List<fn(): T>): T | null => work.is_empty() ? null : @race(work);
+
+/// What `work` makes of each of `items`, in order, with every item
+/// worked on at once.
+pub fn map<T, U>(items: List<T>, work: fn(T): U): List<U> =>
+    @gather(items.map(fn(item: T): fn(): U => fn(): U => work(item)));

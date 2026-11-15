@@ -73,6 +73,16 @@ impl Env {
         fits.then_some(item)
     }
 
+    /// What a function of type `ty` gives when it is run as a task: it
+    /// takes nothing and performs nothing, since nothing but what it
+    /// captured is there when it runs.
+    fn task(&self, ty: &Ty) -> Option<Ty> {
+        match self.unfold(ty) {
+            Ty::Function { params, ret, row } if params.is_empty() && row.is_empty() => Some(*ret),
+            _ => None,
+        }
+    }
+
     /// The type of what an operation gives for operands of these types,
     /// all normalized, or nothing if it does not take them.
     ///
@@ -135,6 +145,8 @@ impl Env {
             (P::StringBytes, [_]) if all(&Ty::String) => Ty::Bytes,
             (P::BytesText, [_]) if all(&Ty::Bytes) => or_null(Ty::String),
             (P::ListBytes, [_]) if all(&Ty::List(Box::new(Ty::Int))) => or_null(Ty::Bytes),
+            (P::ListAll, [work]) => list(vec![self.task(&self.members(work)?)?]),
+            (P::ListFirst, [work]) => self.task(&self.members(work)?)?,
             (P::IteratorNew, [function]) => Ty::Iterator(Box::new(self.stepped_by(function)?)),
             (P::ListIterate, [values]) => Ty::Iterator(Box::new(self.members(values)?)),
             (P::StringIterate, [_]) if all(&Ty::String) => Ty::Iterator(Box::new(Ty::String)),

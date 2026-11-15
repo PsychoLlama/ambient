@@ -170,6 +170,12 @@ pub enum Primitive {
     /// The bytes a list of integers holds, or null if one is not a
     /// byte.
     ListBytes,
+    /// Runs each of a list of functions that take nothing as a task,
+    /// and is the list of what they give.
+    ListAll,
+    /// Runs them as [`Self::ListAll`] does, is what the first to be
+    /// over gives, and cancels the rest.
+    ListFirst,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

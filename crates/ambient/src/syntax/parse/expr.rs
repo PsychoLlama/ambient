@@ -283,6 +283,8 @@ impl Parser {
             "iterate" => Operator::Iterate,
             "range" => Operator::Range,
             "step" => Operator::Step,
+            "gather" => Operator::Gather,
+            "race" => Operator::Race,
             _ => return self.fail_at(at, format!("`@{word}` is not an operation")),
         };
         Ok(operation(operator, operands))

@@ -28,6 +28,7 @@ use alloc::collections::VecDeque;
 pub use budget::{
     LIMITS, amb_budget_back, amb_budget_caught, amb_budget_current, amb_budget_enter,
     amb_budget_leave, amb_budget_switch, amb_charge, amb_charge_read, amb_charge_size,
+    amb_charge_tasks,
 };
 pub use capture::amb_capture;
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
@@ -103,6 +104,20 @@ enum Capture {
     Ready(Word),
 }
 
+/// What the starter of tasks gets of them.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Gives {
+    /// Nothing: they are a group's, whose starter runs on, and what
+    /// they give is dropped.
+    Nothing,
+    /// What each gave, as a tuple.
+    Tuple,
+    /// What each gave, as a list.
+    List,
+    /// What the first to be over gave; it cancels the rest.
+    First,
+}
+
 /// Tasks started together, and what has come of them.
 struct Join {
     parent: usize,
@@ -110,13 +125,9 @@ struct Join {
     results: Vec<Word>,
     remaining: usize,
     failure: Option<Failure>,
-    /// Whether the first to be over cancels the rest.
-    first: bool,
+    gives: Gives,
     /// The place of the first to be over with a result.
     winner: Option<usize>,
-    /// Whether this is a group: its starter runs on, and what its tasks
-    /// give is dropped.
-    group: bool,
     /// Whether its tasks have been told to stop.
     closing: bool,
 }
@@ -220,7 +231,7 @@ impl Scheduler {
         let Some(join) = self.joins[join].as_mut() else {
             return;
         };
-        if join.group {
+        if join.gives == Gives::Nothing {
             unsafe { amb_release(result.unwrap_or(NULL)) };
         } else {
             join.results[place] = result.unwrap_or(NULL);
@@ -228,7 +239,10 @@ impl Scheduler {
         join.remaining -= 1;
         let parent = join.parent;
         let remaining = join.remaining;
-        let won = join.first && result.is_some() && join.winner.is_none() && join.failure.is_none();
+        let won = join.gives == Gives::First
+            && result.is_some()
+            && join.winner.is_none()
+            && join.failure.is_none();
         let losers = if won {
             join.winner = Some(place);
             join.children.clone()
@@ -437,7 +451,7 @@ unsafe fn ended(context: *mut Context, id: usize, result: Word) {
         match join {
             Some(join) if !cancelled && join.failure.is_none() => {
                 join.failure = Some(failure);
-                let disturbs = join.group.then_some(join.parent);
+                let disturbs = (join.gives == Gives::Nothing).then_some(join.parent);
                 for sibling in join.children.clone() {
                     if sibling != id && scheduler.tasks[sibling].is_some() {
                         scheduler.cancel(sibling);

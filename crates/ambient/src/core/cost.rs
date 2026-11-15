@@ -64,6 +64,16 @@ impl Primitive {
     }
 }
 
+impl Primitive {
+    /// Whether the operation starts a task for each member of its
+    /// operand, a list: a step each and the list of what they give,
+    /// which is known only when it runs.
+    #[must_use]
+    pub fn starts(self) -> bool {
+        matches!(self, Self::ListAll | Self::ListFirst)
+    }
+}
+
 impl Expr {
     /// What the node costs, not counting the nodes inside it.
     ///

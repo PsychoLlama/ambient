@@ -56,6 +56,7 @@ impl Op {
             }
             | Self::Charge { .. }
             | Self::ChargeSize(_)
+            | Self::ChargeTasks(_)
             | Self::ChargeRead { .. }
             | Self::GroupClose { .. }
             | Self::GroupEnd { .. }
@@ -201,6 +202,7 @@ impl Op {
             | Self::BudgetBack { .. }
             | Self::Charge { .. }
             | Self::ChargeSize(_)
+            | Self::ChargeTasks(_)
             | Self::ChargeRead { .. }
             | Self::Group
             | Self::Spawn { .. }
@@ -335,6 +337,7 @@ impl Op {
                 vec![step(Entry::Charge, [Raw(*steps), Raw(*words)])]
             }
             Self::ChargeSize(sized) => vec![step(Entry::ChargeSize, [value(sized)])],
+            Self::ChargeTasks(thunks) => vec![step(Entry::ChargeTasks, [value(thunks)])],
             Self::ChargeRead { record, key: field } => {
                 vec![step(
                     Entry::ChargeRead,
@@ -422,5 +425,7 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::StringBytes => Entry::StringBytes,
         Primitive::BytesText => Entry::BytesText,
         Primitive::ListBytes => Entry::ListBytes,
+        Primitive::ListAll => Entry::All,
+        Primitive::ListFirst => Entry::First,
     }
 }

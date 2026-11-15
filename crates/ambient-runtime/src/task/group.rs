@@ -9,7 +9,7 @@
 
 use alloc::vec::Vec;
 
-use super::{Join, Task, amb_suspend, arriving, interrupted, scheduler};
+use super::{Gives, Join, Task, amb_suspend, arriving, interrupted, scheduler};
 use crate::abort::abandon;
 use crate::number::amb_int_new;
 use crate::object::{amb_retain, fault, int};
@@ -27,9 +27,8 @@ pub unsafe extern "C" fn amb_group_new(context: *mut Context) -> Word {
             results: Vec::new(),
             remaining: 0,
             failure: None,
-            first: false,
+            gives: Gives::Nothing,
             winner: None,
-            group: true,
             closing: false,
         }));
         amb_int_new(id as i64)

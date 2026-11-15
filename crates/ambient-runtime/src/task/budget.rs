@@ -192,6 +192,16 @@ pub unsafe extern "C" fn amb_charge_size(context: *mut Context, value: Word) -> 
     }
 }
 
+/// Charges for the tasks an all or a first over `thunks`, a list,
+/// starts: a step for each, and the list of what they give.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_charge_tasks(context: *mut Context, thunks: Word) -> Word {
+    unsafe {
+        let count = crate::list::members(thunks).len() as u64;
+        amb_charge(context, count, count + 1)
+    }
+}
+
 /// Charges for what reading `key` of `record` allocates: a function,
 /// if the record holds a method there.
 #[unsafe(no_mangle)]

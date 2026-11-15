@@ -99,9 +99,13 @@ impl Expr {
     pub fn suspends(&self) -> bool {
         let here = match self {
             Self::Group(_) | Self::Spawn(_) | Self::All(_) | Self::First(_) => true,
-            Self::Primitive { operation, .. } => {
-                matches!(operation, Primitive::CellWait | Primitive::Capture)
-            }
+            Self::Primitive { operation, .. } => matches!(
+                operation,
+                Primitive::CellWait
+                    | Primitive::Capture
+                    | Primitive::ListAll
+                    | Primitive::ListFirst
+            ),
             _ => false,
         };
         let mut inside = false;

@@ -42,6 +42,10 @@ pub enum Operator {
     Range,
     /// What an iterator gives next, and the iterator of the rest.
     Step,
+    /// What each of a list of functions gives, run as tasks.
+    Gather,
+    /// What the first of a list of functions to be over gives.
+    Race,
 }
 
 impl Operator {
@@ -71,6 +75,8 @@ impl Operator {
             Self::Iterate => "@iterate",
             Self::Range => "@range",
             Self::Step => "@step",
+            Self::Gather => "@gather",
+            Self::Race => "@race",
         }
     }
 }

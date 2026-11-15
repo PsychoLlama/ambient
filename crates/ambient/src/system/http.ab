@@ -1,5 +1,7 @@
 import ambient.Error;
 import ambient.json.{Json, write};
+import ambient.iterator.{range};
+import ambient.tasks.{gather};
 
 /// No response came: the host was not found, or would not connect.
 pub tag unreachable;
@@ -94,13 +96,8 @@ pub fn json(status: int, value: Json): Response =>
 /// A request `handle` faults or throws on is answered with a 500, and
 /// the serving goes on.
 pub fn serve(server: Server, tasks: int, handle: fn(Request): Response with throw): null with accept, respond {
-    if tasks < 1 {
-        return null;
-    }
-    group {
-        spawn { answer(server, handle); }
-        serve(server, tasks - 1, handle);
-    }
+    let worker = fn(_: int): fn(): null => fn(): null => answer(server, handle);
+    let _ = gather(range(0, tasks).map(worker).to_list());
     return null;
 }
 

@@ -4,13 +4,15 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{Join, Task, amb_suspend, arriving, interrupted, scheduler};
-use crate::object::{amb_release, amb_retain, fault, words};
+use super::{Gives, Join, Task, amb_suspend, arriving, interrupted, scheduler};
+use crate::list::members;
+use crate::object::{KIND_LIST, amb_release, amb_retain, fault, kind};
 use crate::sequence::{amb_sequence_new, amb_sequence_set};
 use crate::{Context, Fault, NULL, UNWIND, Word};
 
-/// Runs each of `thunks`, a tuple of closures that take nothing, as a
-/// task, and gives the tuple of their results once every one is over.
+/// Runs each of `thunks`, a tuple or a list of closures that take
+/// nothing, as a task, and gives their results once every one is over:
+/// a tuple for a tuple, and a list for a list.
 ///
 /// If one unwinds, the others are cancelled, and once they are over the
 /// unwinding goes on from here.
@@ -41,7 +43,12 @@ unsafe fn join(context: *mut Context, thunks: Word, first: bool) -> Word {
         let scheduler = scheduler(context);
         let parent = scheduler.current;
         let join = scheduler.joins.len();
-        let thunks = words(thunks);
+        let gives = match (first, kind(thunks) == KIND_LIST) {
+            (true, _) => Gives::First,
+            (false, true) => Gives::List,
+            (false, false) => Gives::Tuple,
+        };
+        let thunks = members(thunks);
         let budget = scheduler.task(parent).budget;
         let mut children = Vec::new();
         for (place, thunk) in thunks.iter().enumerate() {
@@ -62,9 +69,8 @@ unsafe fn join(context: *mut Context, thunks: Word, first: bool) -> Word {
             results: vec![NULL; thunks.len()],
             remaining: thunks.len(),
             failure: None,
-            first,
+            gives,
             winner: None,
-            group: false,
             closing: false,
         }));
         scheduler.current().join = Some(join);
@@ -128,7 +134,7 @@ unsafe fn joined(context: *mut Context) -> Word {
             (*context).fault = code;
             return UNWIND;
         }
-        if join.first {
+        if join.gives == Gives::First {
             let winner = join.winner.unwrap_or_default();
             for (place, result) in join.results.iter().enumerate() {
                 if place != winner {
@@ -137,7 +143,10 @@ unsafe fn joined(context: *mut Context) -> Word {
             }
             return join.results.get(winner).copied().unwrap_or(NULL);
         }
-        let tuple = amb_sequence_new(0, join.results.len() as u64);
+        let tuple = amb_sequence_new(
+            u64::from(join.gives == Gives::List),
+            join.results.len() as u64,
+        );
         for (index, result) in join.results.iter().enumerate() {
             amb_sequence_set(tuple, index as u64, *result);
             amb_release(*result);
