@@ -6,6 +6,7 @@
 //! Tasks started inside a budget are inside it too.
 
 use alloc::format;
+use alloc::vec::Vec;
 
 use super::scheduler;
 use crate::boundary::FAULT_PACKAGE;
@@ -27,8 +28,41 @@ pub(super) struct Budget {
     parent: Option<usize>,
     /// The limit that ran out, once one has.
     exhausted: Option<&'static str>,
+    /// The tasks that have unwound because it ran out. What one of
+    /// them does after that is a cleanup, which draws on [`GRACE`].
+    told: Vec<usize>,
     /// Whether its body is still running.
     live: bool,
+}
+
+/// What a budget that ran out allows besides, in steps and in words,
+/// for the cleanups it unwinds through. It is small and fixed, so a
+/// budget still bounds what runs inside it.
+const GRACE: u64 = 1_000;
+
+impl Budget {
+    /// Takes `steps` and `words` from the budget for `task`, and says
+    /// whether the task is to unwind: the budget cannot afford them, or
+    /// ran out in another task and this one has yet to hear.
+    fn charge(&mut self, task: usize, steps: u64, words: u64) -> bool {
+        let short = [self.steps < steps, self.words < words];
+        if self.exhausted.is_none() {
+            let Some(limit) = short.iter().position(|short| *short) else {
+                self.steps -= steps;
+                self.words -= words;
+                return false;
+            };
+            self.exhausted = Some(LIMITS[limit]);
+            (self.steps, self.words) = (GRACE, GRACE);
+        } else if self.told.contains(&task) {
+            // A cleanup, drawing on what the budget allows for one.
+            self.steps = self.steps.saturating_sub(steps);
+            self.words = self.words.saturating_sub(words);
+            return short.contains(&true);
+        }
+        self.told.push(task);
+        true
+    }
 }
 
 /// Enters a budget of `steps` steps and `words` words of allocation, both
@@ -46,6 +80,7 @@ pub unsafe extern "C" fn amb_budget_enter(context: *mut Context, steps: Word, wo
             words: limit(words),
             parent,
             exhausted: None,
+            told: Vec::new(),
             live: true,
         });
         amb_int_new(id as i64)
@@ -104,18 +139,11 @@ pub unsafe extern "C" fn amb_charge(context: *mut Context, steps: u64, words: u6
         if scheduler.interrupted() {
             return fault(context, Fault::Cancelled);
         }
+        let task = scheduler.current;
         let mut spent = false;
         while let Some(id) = next {
             let budget = &mut scheduler.budgets[id];
-            if budget.steps < steps {
-                budget.exhausted.get_or_insert(LIMITS[0]);
-            }
-            if budget.words < words {
-                budget.exhausted.get_or_insert(LIMITS[1]);
-            }
-            budget.steps = budget.steps.saturating_sub(steps);
-            budget.words = budget.words.saturating_sub(words);
-            spent |= budget.exhausted.is_some();
+            spent |= budget.charge(task, steps, words);
             next = budget.parent;
         }
         if spent {

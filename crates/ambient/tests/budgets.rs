@@ -9,7 +9,7 @@ use ambient::surface::{Definition, Expr};
 use ambient::value::Value;
 use ambient_runtime::{FAULT_PACKAGE, Fault};
 use support::tasks::{note, then};
-use support::{Recording, run, value, workspace};
+use support::{Recording, cleanup, run, value, workspace};
 
 /// `fn count(n: int): int`, which calls itself `n` times and gives `n`.
 fn count() -> Definition {
@@ -144,6 +144,26 @@ fn a_budget_that_runs_out_ends_its_body_before_what_it_cannot_afford() {
     let body = then(notes(1), then(counts(10), notes(2)));
 
     assert_eq!(logged(budgeted(6, 1000, body)).1, Value::Int(1));
+}
+
+#[test]
+fn a_cleanup_runs_when_its_budget_runs_out() {
+    let body = cleanup(then(counts(3), notes(2)), counts(10));
+
+    assert_eq!(
+        logged(budgeted(6, 1000, body)),
+        (limit("steps"), Value::Int(2))
+    );
+}
+
+#[test]
+fn a_cleanup_that_needs_more_than_a_spent_budget_allows_is_ended() {
+    let body = cleanup(then(counts(100_000), notes(2)), counts(10));
+
+    assert_eq!(
+        logged(budgeted(6, 1000, body)),
+        (limit("steps"), Value::Int(0))
+    );
 }
 
 #[test]
