@@ -1,0 +1,18 @@
+import system.crypto;
+import system.fs;
+
+/// The key deploys are signed with, which the file `hot.key` holds,
+/// or nothing if there is none: then nothing is deployed. Whoever can
+/// sign a deploy decides what the server runs, so the file is secret.
+pub fn key(): bytes | null with fs.read_bytes {
+    let read = fs.read_bytes!("hot.key") as bytes else 0x[];
+    return read.length() == 0 ? null : read;
+}
+
+/// What says that code was sent by a holder of the key.
+pub fn sign(key: bytes, packed: bytes): string =>
+    crypto.hmac(crypto.sha256, key, packed).hex();
+
+/// Whether `signature` is the one a holder of the key gives `packed`.
+pub fn signed(key: bytes, packed: bytes, signature: string): bool =>
+    crypto.same(sign(key, packed).to_bytes(), signature.to_bytes());

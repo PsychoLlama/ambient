@@ -1,0 +1,6 @@
+import system.http;
+
+/// What the site answers. Change this, run `deploy.main`, and the
+/// server that is running answers the new way without stopping.
+pub fn answer(request: http.Request): http.Response with throw =>
+    http.text(200, "hello from ${request.url}\n");

@@ -382,6 +382,8 @@ pub fn main(): null with code, console.print {
 
 Here the bytes never leave the program. They are as good read from a file or the body of a request, packed by a program built from other source: the code is checked again where it arrives, and one whose type is not the one the cast asks for is turned away there. A server that reads what answers from a cell, as above, is one that can be changed without stopping; a program made with `ambient build` loads as one that is run does.
 
+`examples/hot` is a whole one: a server that takes a signed deploy at `/deploy`, and an entry that packs what the site answers, as it is written now, and sends it. Whoever can deliver code decides what the program runs, so it checks a signature first.
+
 ## Bytes, hashes, and time
 
 `bytes` is a run of bytes that need not be text, written out as `0x[89 50 4E 47]`: a value, a pattern in a match, or a type. A string gives its encoding with `to_bytes()`, and bytes give the string they encode, or null, with `to_text()`. Files and HTTP bodies carry them, and `ambient.base64` and `hex()` write them as text.

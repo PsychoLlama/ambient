@@ -1,0 +1,61 @@
+import system.code;
+import system.console;
+import system.env;
+import system.fs;
+import system.http;
+import pkg.signing;
+import pkg.site;
+
+/// What answers a request.
+type Answer = fn(http.Request): http.Response with throw;
+
+/// Serves `site.answer`, and then whatever is deployed in its place:
+/// `hot [port]`. A deploy is packed code posted to `/deploy`, signed
+/// with the key in `hot.key`; see `deploy.main`.
+pub fn main(): int with console, env, fs, http, code.load {
+    let port = (env.args!().first() as string else "8080").to_int() as int else 8080;
+    match http.listen!("127.0.0.1", port) {
+        let error: Error => {
+            console.warn!("hot: ${error.message}");
+            return 1;
+        }
+        let server: http.Server => {
+            console.print!("serving http://127.0.0.1:${server.port}/");
+            // Each request is answered by what the cell holds then, so
+            // one being answered finishes with the code it began with.
+            let current = cell<Answer>(site.answer);
+            http.serve(server, 16, fn(request: http.Request): http.Response with throw =>
+                request.url == "/deploy" ? deployed(current, request) : current.read()(request));
+            return 0;
+        }
+    }
+}
+
+/// What answers when what was sent is not a way to answer.
+fn unfit(request: http.Request): http.Response with throw =>
+    http.text(500, "nothing answers\n");
+
+/// Puts the code a request carries in place of what answers, if a
+/// holder of the key sent it and it is a way to answer.
+fn deployed(current: Cell<Answer>, request: http.Request): http.Response with fs.read_bytes, code.load {
+    let signature = http.header(request.headers, "x-signature") as string else "";
+    match signing.key() {
+        null => { return http.text(403, "this server takes no deploys\n"); }
+        let key: bytes => {
+            if !signing.signed(key, request.body, signature) {
+                return http.text(403, "not signed with the key\n");
+            }
+        }
+    }
+    match code.load!(request.body) {
+        let error: Error => { return http.text(400, "${error.message}\n"); }
+        let loaded: unknown => {
+            let next = loaded as Answer else unfit;
+            if next == unfit {
+                return http.text(400, "not a way to answer a request\n");
+            }
+            let _ = current.update(fn(_: Answer): Answer => next);
+            return http.text(200, "deployed\n");
+        }
+    }
+}

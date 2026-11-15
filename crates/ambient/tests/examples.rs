@@ -115,3 +115,61 @@ fn the_notes_are_served_and_kept_in_a_file_of_json() {
     );
     assert_eq!(world.file("notes.json"), "[\"eggs\"]");
 }
+
+/// Runs an entry of the `hot` example in a world, which must not fail.
+fn hot(entry: &str, world: Scripted) -> Scripted {
+    let command = Command::Run {
+        path: example("hot"),
+        entry: entry.to_owned(),
+        args: Vec::new(),
+    };
+    let (code, world) = world.execute(&Disk, &command);
+    assert_eq!((code, world.err.as_str()), (0, ""));
+    world
+}
+
+#[test]
+fn a_server_takes_a_signed_deploy_and_goes_on_serving() {
+    let key = [("hot.key".to_owned(), "secret".into())];
+    let deployed = ambient::host::Response {
+        status: 200,
+        ..ambient::host::Response::default()
+    };
+    let sender = Scripted {
+        files: key.clone().into(),
+        responses: [("POST http://127.0.0.1:8080/deploy".to_owned(), deployed)].into(),
+        ..Scripted::default()
+    };
+    // What the deploy sent is what the server is sent.
+    let sent = hot("deploy.main", sender).sent.remove(0);
+    let request = |url: &str, headers: &[(String, String)]| ambient::host::Request {
+        method: "POST".to_owned(),
+        url: url.to_owned(),
+        headers: headers.to_vec(),
+        body: sent.body.clone(),
+    };
+    let server = Scripted {
+        files: key.into(),
+        requests: [
+            request("/before", &[]),
+            request("/deploy", &[]),
+            request("/deploy", &sent.headers),
+            request("/after", &[]),
+        ]
+        .into(),
+        ..Scripted::default()
+    };
+
+    let answers = hot("main.main", server).answers;
+    let said: Vec<_> = answers
+        .iter()
+        .map(|answer| (answer.status, String::from_utf8_lossy(&answer.body)))
+        .collect();
+    let expected = [
+        (200, "hello from /before\n"),
+        (403, "not signed with the key\n"),
+        (200, "deployed\n"),
+        (200, "hello from /after\n"),
+    ];
+    assert_eq!(said, expected.map(|(status, body)| (status, body.into())));
+}
