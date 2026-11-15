@@ -20,6 +20,9 @@ A task is an independent execution of an expression. Tasks exist only inside the
 - A first expression evaluates a fixed set of expressions as tasks, yields the result of whichever finishes first, and cancels the rest.
 - Both complete only after every branch has finished or unwound.
 - A branch is evaluated with the locals and [bindings](abilities.md) of where it is written.
+- Each also takes a list of functions that take nothing and perform nothing, and runs as many tasks as the list holds: an all gives the list of their results in order, and a first the result of the first.
+- Those are [operations](operations.md) the standard library wraps, so how many tasks there are need not be known where the code is written. A function in the list is a closure: its task has the locals and bindings of where the function was made.
+- A first over an empty list would wait for ever; the library gives null instead.
 - A task's result reaches other code through one of these two forms or through a [cell](cells.md); there is nothing to await.
 
 ## Sharing
