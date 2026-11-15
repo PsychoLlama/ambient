@@ -29,6 +29,26 @@ fn a_map_gives_what_is_under_a_key() {
 }
 
 #[test]
+fn an_entry_tells_a_null_value_from_no_value() {
+    let read = |key: &str| {
+        format!(
+            r#"
+            import ambient.map;
+            fn main(): string {{
+                let d = map.of::<int | null>([("none", null)]);
+                match d.entry("{key}") {{
+                    null => {{ return "absent"; }}
+                    (let key, let value) => {{ return key ++ (value == null ? " is null" : ""); }}
+                }}
+            }}
+            "#
+        )
+    };
+    assert_eq!(text(&read("none")), "none is null");
+    assert_eq!(text(&read("other")), "absent");
+}
+
+#[test]
 fn a_map_is_read_in_the_order_of_its_keys() {
     let keys = r#"return d.keys().join_with("") ++ d.values().iter().fold(0, fn(a, b) => a + b).to_text();"#;
 

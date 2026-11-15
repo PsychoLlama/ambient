@@ -8,6 +8,9 @@ pub type Map<V> = {
     get(self, key: string): V | null,
     // Whether anything is under `key`.
     has(self, key: string): bool,
+    // `key` with what is under it, or null if nothing is: unlike `get`,
+    // it tells a value that is null from none.
+    entry(self, key: string): (string, V) | null,
     // This with `value` under `key`, in place of what was there.
     set(self, key: string, value: V): Map<V>,
     // This with what `change` makes of what is under `key`, which is
@@ -44,6 +47,7 @@ fn over<V>(tree: Tree<V>): Map<V> => {
     size(self): int => count(self.tree),
     get(self, key: string): V | null => find(self.tree, key),
     has(self, key: string): bool => holds(self.tree, key),
+    entry(self, key: string): (string, V) | null => locate(self.tree, key),
     set(self, key: string, value: V): Map<V> => over(insert(self.tree, key, value)),
     update(self, key: string, change: fn(V | null): V): Map<V> =>
         over(insert(self.tree, key, change(find(self.tree, key)))),
@@ -73,6 +77,17 @@ fn find<V>(tree: Tree<V>, key: string): V | null {
             if key < node.key { return find(node.left, key); }
             if node.key < key { return find(node.right, key); }
             return node.value;
+        }
+    }
+}
+
+fn locate<V>(tree: Tree<V>, key: string): (string, V) | null {
+    match tree {
+        null => { return null; }
+        let node => {
+            if key < node.key { return locate(node.left, key); }
+            if node.key < key { return locate(node.right, key); }
+            return (node.key, node.value);
         }
     }
 }
