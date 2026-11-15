@@ -54,6 +54,17 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - Checking a package checks every definition of it and of the packages it depends on, and reports each that is wrong. Each is reported by file, line, and column.
 - Built definitions are kept in one [store](build.md) for every project on the machine, since a definition is kept by its content.
 
+## Building
+
+- Building makes an executable of a function of a package: one file that runs the program on a machine that has neither the package nor the compiler.
+- The executable is the program as compiled for the machine that built it, and what loads and runs it; nothing is compiled when it starts.
+- It runs as the command line runs the function: under the same [target](targets.md), started with every argument it is given, exiting with what the function gives.
+- A [fault](values.md) is reported as it is when run from the package: the executable carries the name of each definition it holds and the place of each expression that can fault, as they were when it was built.
+- An executable never reads a [store](build.md) and never writes one.
+- What loads the program is the compiler's own executable, so a built program can [load](exchange.md) code as one run from its package can.
+- TODO: an executable therefore holds the whole compiler, most of which a program that loads nothing never uses.
+- TODO: an executable is only for the machine and system that built it; building for another needs what loads the program built for that one.
+
 ## Workspaces
 
 - Every package belongs to a workspace; a lone package is a workspace of one.
