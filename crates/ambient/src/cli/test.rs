@@ -19,6 +19,9 @@ use crate::workspace::Sources;
 /// What begins the name of a test.
 const PREFIX: &str = "test_";
 
+/// What a test that passed is known by: see [`Engine::known`].
+const PASSED: &str = "test passed";
+
 impl Session<'_> {
     /// Runs the tests of the package at `path`, says how each went, and
     /// gives the code to exit with: zero if none failed. With `only`,
@@ -31,9 +34,20 @@ impl Session<'_> {
             engine: &engine,
         };
         let target = ModuleId::new(FAULT_PACKAGE, "test").value("tests");
-        let (mut passed, mut failed) = (0, 0);
+        let (mut passed, mut failed, mut kept) = (0, 0, 0);
         let chosen = |test: &Symbol| only.is_none_or(|only| test.identity().contains(only));
         for test in tests(&project).into_iter().filter(chosen) {
+            // A test reaches no world, so one that passed passes for as
+            // long as its program is the same, and is not run again. One
+            // that failed is: what it says names places, which no hash
+            // covers.
+            let program = engine.program(&test, &target);
+            let key = program.and_then(|root| engine.known(PASSED, &root)).ok();
+            if key.is_some_and(|key| self.store.get(&key).is_some()) {
+                (passed, kept) = (passed + 1, kept + 1);
+                self.world.borrow_mut().write(&format!("ok    {test}\n"));
+                continue;
+            }
             let unmet = Rc::new(RefCell::new(Vec::new()));
             let ended = launch.run(&test, &target, &checks(&unmet));
             let mut problems = unmet.take();
@@ -42,6 +56,9 @@ impl Session<'_> {
             if problems.is_empty() {
                 passed += 1;
                 world.write(&format!("ok    {test}\n"));
+                if let Some(key) = key {
+                    self.store.put(key, Vec::new());
+                }
             } else {
                 failed += 1;
                 world.write(&format!("FAIL  {test}\n"));
@@ -50,7 +67,11 @@ impl Session<'_> {
                 }
             }
         }
-        let summary = format!("{passed} passed, {failed} failed\n");
+        let again = match kept {
+            0 => String::new(),
+            kept => format!(" ({kept} not run again)"),
+        };
+        let summary = format!("{passed} passed{again}, {failed} failed\n");
         self.world.borrow_mut().write(&summary);
         Ok(i32::from(failed > 0))
     }

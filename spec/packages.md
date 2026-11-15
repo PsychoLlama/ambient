@@ -99,6 +99,6 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A test of real effects is made repeatable by library code over [recording](handlers.md): its first run records what the world answered, and later runs are answered from that.
 - A recording is source, kept beside its test and read as any file is; the [store](build.md) holds only results, and whoever points a build at a store trusts it.
 - A run may be of only the specs whose module path and description hold a given text.
-- TODO: none of this is built. A test is a function that takes nothing and whose name begins with `test_`, the check is given text, and every test is run every time.
+- TODO: little of this is built. A test is a function that takes nothing and whose name begins with `test_`, and the check is given text. A test that passed is not run again while its hash is the same; one that failed always is.
 - TODO: a spec's function has the row the library gives it, so a test that needs more provides it inside; whether a spec may be written over any row is undecided.
 - TODO: a test that never ends is never stopped.

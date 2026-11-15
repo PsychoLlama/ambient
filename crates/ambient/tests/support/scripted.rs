@@ -66,12 +66,22 @@ impl Scripted {
     /// What a command over `files` exits with in this world, and the
     /// world it leaves.
     pub fn execute(self, files: &dyn Files, command: &Command) -> (i32, Self) {
+        self.execute_over(files, &MemoryStore::new(), command)
+    }
+
+    /// [`Self::execute`], over a store that may hold what an earlier
+    /// command left.
+    pub fn execute_over(
+        self,
+        files: &dyn Files,
+        store: &MemoryStore,
+        command: &Command,
+    ) -> (i32, Self) {
         let scripted = Rc::new(RefCell::new(self));
         let world: Rc<RefCell<dyn World>> = scripted.clone();
-        let store = MemoryStore::new();
         let session = Session {
             files,
-            store: &store,
+            store,
             world,
             launcher: Some(PathBuf::from(LAUNCHER)),
         };

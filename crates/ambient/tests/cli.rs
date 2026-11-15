@@ -295,6 +295,29 @@ fn a_test_that_throws_fails_with_what_it_threw() {
 }
 
 #[test]
+fn a_test_that_passed_is_not_run_again_until_it_changes() {
+    let source = "
+        fn two(): int => 2;
+        fn test_holds(): int => two();
+        fn test_faults(): int => 1 / 0;
+    ";
+    let store = ambient::store::MemoryStore::new();
+    let summary = |source: &str| {
+        let path = PathBuf::from("app");
+        let command = ambient::cli::Command::Test { path, only: None };
+        let (_, world) = Scripted::default().execute_over(&app(source), &store, &command);
+        world.out.lines().last().unwrap().to_owned()
+    };
+
+    assert_eq!(summary(source), "1 passed, 1 failed");
+    // Renaming changes no hash; what a test calls changing does.
+    let renamed = source.replace("two", "pair");
+    assert_eq!(summary(&renamed), "1 passed (1 not run again), 1 failed");
+    let changed = source.replace("=> 2", "=> 3");
+    assert_eq!(summary(&changed), "1 passed, 1 failed");
+}
+
+#[test]
 fn only_the_tests_asked_for_are_run() {
     let source = "
         fn test_one(): null => null;

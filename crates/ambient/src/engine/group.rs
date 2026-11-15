@@ -37,6 +37,21 @@ impl Engine<'_> {
         deep(|| self.hashed(symbol))
     }
 
+    /// A key for something known of a definition for as long as its
+    /// hash and this build of the compiler last: `what` says which
+    /// thing. A command keeps what it learned of a program under one.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::hash`] does.
+    pub fn known(&self, what: &str, symbol: &Symbol) -> Result<Hash, Error> {
+        let hash = self.hash(symbol)?;
+        Ok(super::kept(
+            &Hasher::new(what).hash(&hash).finish(),
+            super::BUILD,
+        ))
+    }
+
     /// The hash of a definition that has not been asked about.
     fn hashed(&self, symbol: &Symbol) -> Result<Hash, Error> {
         // Explicit stacks: a dependency chain can be deeper than the native
