@@ -8,6 +8,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use super::http::{self, Incoming, Request, Response};
 use super::{Failure, Ran, World, error, optional, output};
 use crate::backend::native::{Answer, Waits};
 use crate::value::Value;
@@ -21,6 +22,10 @@ pub enum Work {
     Run { command: String, args: Vec<String> },
     /// Read the next line of standard input.
     ReadLine,
+    /// Send a request, and receive the response to it.
+    Send(Request),
+    /// Take the next request a server was sent.
+    Accept(i64),
 }
 
 /// What came of work a world began.
@@ -31,6 +36,10 @@ pub enum Done {
     Ran(Result<Ran, Failure>),
     /// The line, without its ending, or nothing at the end of input.
     Line(Option<String>),
+    /// The response, or why there was none.
+    Sent(Result<Response, Failure>),
+    /// The request, or nothing once the server is closed.
+    Accepted(Option<Incoming>),
 }
 
 impl Done {
@@ -40,6 +49,8 @@ impl Done {
             Self::Slept => Value::Null,
             Self::Ran(ran) => ran.map_or_else(|failure| error("process", &failure), output),
             Self::Line(line) => optional(line),
+            Self::Sent(sent) => http::sent(sent),
+            Self::Accepted(incoming) => incoming.map_or(Value::Null, Incoming::value),
         }
     }
 }

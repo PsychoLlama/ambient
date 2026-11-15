@@ -2,6 +2,7 @@ pub module clock;
 pub module console;
 pub module env;
 pub module fs;
+pub module http;
 pub module process;
 pub module random;
 
@@ -10,6 +11,7 @@ import pkg.clock;
 import pkg.console;
 import pkg.env;
 import pkg.fs;
+import pkg.http;
 import pkg.process;
 import pkg.random;
 
@@ -31,6 +33,11 @@ extern suspending handler clock_sleep for clock.sleep;
 extern handler process_exit for process.exit;
 extern suspending handler process_run for process.run;
 extern handler random_bits for random.bits;
+extern suspending handler http_send for http.send;
+extern handler http_listen for http.listen;
+extern suspending handler http_accept for http.accept;
+extern handler http_respond for http.respond;
+extern handler http_close for http.close;
 extern handler thrown for errors.throw;
 
 /// The world of a program run from a command line.
@@ -53,5 +60,10 @@ pub target cli {
     process.exit: process_exit,
     process.run: process_run,
     random.bits: random_bits,
+    http.send: http_send,
+    http.listen: http_listen,
+    http.accept: http_accept,
+    http.respond: http_respond,
+    http.close: http_close,
     errors.throw: thrown,
 }

@@ -1,0 +1,116 @@
+import ambient.Error;
+import ambient.json.{Json, write};
+
+/// No response came: the host was not found, or would not connect.
+pub tag unreachable;
+
+/// What was to be sent or what came back is not HTTP the world can
+/// carry: a URL it cannot read, or a body that is not text.
+pub tag invalid;
+
+/// The program may not listen there.
+pub tag denied;
+
+/// Any other failure; the message says which.
+pub tag failed;
+
+/// A header's name and its value. The world gives names in lower case.
+pub type Header = (string, string);
+
+/// What is sent to a server. A server is handed one whose `url` is the
+/// path and query it was asked for.
+pub type Request = { method: string, url: string, headers: List<Header>, body: string };
+
+pub type Response = { status: int, headers: List<Header>, body: string };
+
+/// A listener the world holds, and the port it listens on.
+pub type Server = { id: int, port: int };
+
+/// A request a server was sent, to be answered once.
+pub type Incoming = { id: int, request: Request };
+
+/// Sends a request and gives the response, whatever its status. Only
+/// a request that got no response is an error.
+pub ability send(request: Request): Response | Error;
+
+/// Starts listening on a port of an address of this machine, such as
+/// `127.0.0.1`. Port zero is any free port; the server says which.
+pub ability listen(host: string, port: int): Server | Error;
+
+/// The next request a server was sent, waited for, or null once the
+/// server is closed.
+pub ability accept(server: Server): Incoming | null;
+
+/// Answers a request. One that was answered cannot be again.
+pub ability respond(incoming: Incoming, response: Response): null | Error;
+
+/// Stops a server listening. Whatever waits to accept is given null.
+pub ability close(server: Server): null;
+
+/// What a server gives for `url`.
+pub fn get(url: string): Response | Error with send =>
+    send!({ method: "GET", url, headers: [], body: "" });
+
+/// What a server gives when `body` is posted to `url`.
+pub fn post(url: string, body: string): Response | Error with send =>
+    send!({ method: "POST", url, headers: [], body });
+
+/// Whether a response says the request was done: a status in the 200s.
+pub fn ok(response: Response): bool => 199 < response.status && response.status < 300;
+
+/// The value of the first header of a name, which is in lower case.
+pub fn header(headers: List<Header>, name: string): string | null {
+    let named = fn(header: Header): bool {
+        let (key, _) = header;
+        return key == name;
+    };
+    let value = fn(header: Header): string {
+        let (_, value) = header;
+        return value;
+    };
+    return headers.filter(named).map(value).first();
+}
+
+/// A response whose body is plain text.
+pub fn text(status: int, body: string): Response =>
+    { status, headers: [("content-type", "text/plain; charset=utf-8")], body };
+
+/// A response whose body is a value as JSON.
+pub fn json(status: int, value: Json): Response =>
+    { status, headers: [("content-type", "application/json")], body: write(value) };
+
+/// Answers the requests a server is sent with what `handle` makes of
+/// each, `tasks` of them at a time, until the server is closed.
+///
+/// A request `handle` faults or throws on is answered with a 500, and
+/// the serving goes on.
+pub fn serve(server: Server, tasks: int, handle: fn(Request): Response with throw): null with accept, respond {
+    if tasks < 1 {
+        return null;
+    }
+    group {
+        spawn { answer(server, handle); }
+        serve(server, tasks - 1, handle);
+    }
+    return null;
+}
+
+/// Answers requests one after another until there are no more.
+fn answer(server: Server, handle: fn(Request): Response with throw): null with accept, respond {
+    match accept!(server) {
+        null => { return null; }
+        let incoming: Incoming => {
+            let _ = respond!(incoming, answered(handle, incoming.request));
+            return answer(server, handle);
+        }
+    }
+}
+
+/// What `handle` makes of a request, or a 500 if it fails.
+fn answered(handle: fn(Request): Response with throw, request: Request): Response {
+    let outcome = try => catch(fn() => handle(request));
+    match outcome {
+        let _: Error => { return text(500, "the server failed to answer"); }
+        let response: Response => { return response; }
+    }
+}

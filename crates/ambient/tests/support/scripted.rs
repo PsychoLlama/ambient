@@ -7,7 +7,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use ambient::cli::{Command, Session};
-use ambient::host::{Done, Failure, Kind, Ran, Work, World};
+use ambient::host::{
+    Done, Failure, Incoming, Kind, Listening, Ran, Request, Response, Work, World,
+};
 use ambient::project::Files;
 use ambient::store::MemoryStore;
 
@@ -34,6 +36,16 @@ pub struct Scripted {
     pub waits: Vec<(i64, u64, Done)>,
     /// The tickets of the work that was stopped, in order.
     pub forsaken: Vec<u64>,
+    /// What each request gets, by its method and URL with a space
+    /// between; any other reaches nothing.
+    pub responses: BTreeMap<String, Response>,
+    /// Every request that was sent.
+    pub sent: Vec<Request>,
+    /// The requests a server is sent. It is closed once it has given
+    /// them all.
+    pub requests: VecDeque<Request>,
+    /// Every answer a server gave, in order.
+    pub answers: Vec<Response>,
 }
 
 impl Scripted {
@@ -147,12 +159,42 @@ impl World for Scripted {
         self.time * 1_000_000
     }
 
+    fn listen(&mut self, _host: &str, port: i64) -> Result<Listening, Failure> {
+        Ok(Listening { id: 1, port })
+    }
+
+    fn respond(&mut self, _incoming: i64, response: Response) -> Result<(), Failure> {
+        self.answers.push(response);
+        Ok(())
+    }
+
+    fn close(&mut self, _server: i64) {
+        self.requests.clear();
+    }
+
     /// Only a sleep takes time here: a command and a line of input
     /// are over as soon as they are begun.
     fn begin(&mut self, ticket: u64, work: Work) {
         let (takes, done) = match work {
             Work::Sleep(milliseconds) => (milliseconds.max(0), Done::Slept),
             Work::ReadLine => (0, Done::Line(self.input.pop_front())),
+            Work::Send(request) => {
+                let line = format!("{} {}", request.method, request.url);
+                let response = self.responses.get(&line).cloned().ok_or_else(|| Failure {
+                    kind: Kind::Unreachable,
+                    message: format!("nothing answers {}", request.url),
+                });
+                self.sent.push(request);
+                (0, Done::Sent(response))
+            }
+            Work::Accept(_) => {
+                let request = self.requests.pop_front();
+                let id = i64::try_from(self.requests.len()).unwrap_or(0);
+                (
+                    0,
+                    Done::Accepted(request.map(|request| Incoming { id, request })),
+                )
+            }
             Work::Run { command, args } => {
                 let line = [std::slice::from_ref(&command), &args[..]]
                     .concat()

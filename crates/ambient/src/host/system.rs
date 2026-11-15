@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use super::pending::Pending;
-use super::{Done, Failure, Kind, Work, World};
+use super::{Done, Failure, Kind, Listening, Response, Work, World};
 
 /// The process the compiler is running in: its streams, files,
 /// environment, and clocks.
@@ -119,6 +119,18 @@ impl World for System {
 
     fn elapsed(&mut self) -> i64 {
         saturating(self.started.elapsed().as_nanos())
+    }
+
+    fn listen(&mut self, host: &str, port: i64) -> Result<Listening, Failure> {
+        self.pending.network.listen(host, port)
+    }
+
+    fn respond(&mut self, incoming: i64, response: Response) -> Result<(), Failure> {
+        self.pending.network.respond(incoming, response)
+    }
+
+    fn close(&mut self, server: i64) {
+        self.pending.close(server);
     }
 
     fn begin(&mut self, ticket: u64, work: Work) {

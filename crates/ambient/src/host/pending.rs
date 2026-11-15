@@ -12,16 +12,21 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::Ran;
+use super::network::Network;
 use super::system::failure;
 use super::waits::{Done, Work};
+use super::{Failure, Ran, Response};
 
 /// What a thread sends back.
-enum Sent {
+pub(super) enum Sent {
     /// What a command wrote to its streams, once both were closed.
     Wrote(u64, String, String),
     /// A line of input, read for a ticket.
     Line(u64, Option<String>),
+    /// What came of a request that was sent.
+    Response(u64, Result<Response, Failure>),
+    /// A request a server was sent.
+    Request(i64, tiny_http::Request),
 }
 
 pub(super) struct Pending {
@@ -38,12 +43,14 @@ pub(super) struct Pending {
     lines: Option<Sender<u64>>,
     /// Lines read for a wait its task left: the next to ask gets them.
     unread: VecDeque<Option<String>>,
+    pub(super) network: Network,
 }
 
 impl Default for Pending {
     fn default() -> Self {
         let (sender, sent) = channel();
         Self {
+            network: Network::new(sender.clone()),
             sender,
             sent,
             ready: VecDeque::new(),
@@ -65,6 +72,11 @@ impl Pending {
             }
             Work::Run { command, args } => self.run(ticket, &command, &args),
             Work::ReadLine => self.read_line(ticket),
+            Work::Send(request) => self.network.send(ticket, request),
+            Work::Accept(server) => {
+                let done = self.network.accept(ticket, server);
+                self.ready.extend(done.map(|done| (ticket, done)));
+            }
         }
     }
 
@@ -129,7 +141,8 @@ impl Pending {
                 self.timers.remove(&(when, ticket));
                 return Some((ticket, Done::Slept));
             }
-            let threads = !self.children.is_empty() || !self.readers.is_empty();
+            let threads =
+                !self.children.is_empty() || !self.readers.is_empty() || self.network.waits();
             let sent = match due {
                 Some((when, _)) if threads => match self.sent.recv_timeout(when - Instant::now()) {
                     Ok(sent) => sent,
@@ -168,7 +181,22 @@ impl Pending {
                     self.unread.push_back(line);
                 }
             }
+            Sent::Response(ticket, response) => {
+                if self.network.sent(ticket) {
+                    self.ready.push_back((ticket, Done::Sent(response)));
+                }
+            }
+            Sent::Request(server, request) => {
+                self.ready.extend(self.network.arrived(server, request));
+            }
         }
+    }
+
+    /// Stops a server, and answers whatever waited to accept from it.
+    pub(super) fn close(&mut self, server: i64) {
+        let waiting = self.network.close(server);
+        let closed = |ticket| (ticket, Done::Accepted(None));
+        self.ready.extend(waiting.into_iter().map(closed));
     }
 
     /// Stops what a ticket was waiting on, where it can be stopped: a
@@ -178,6 +206,7 @@ impl Pending {
         self.ready.retain(|(ready, _)| *ready != ticket);
         self.timers.retain(|(_, timer)| *timer != ticket);
         self.readers.retain(|reader| *reader != ticket);
+        self.network.forsake(ticket);
         if let Some(mut child) = self.children.remove(&ticket) {
             let _ = child.kill();
             let _ = child.wait();

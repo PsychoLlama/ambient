@@ -5,6 +5,8 @@
 //! the same handlers serve a real process ([`System`]) and a test that
 //! scripts what the world holds.
 
+mod http;
+mod network;
 mod pending;
 mod system;
 mod waits;
@@ -13,6 +15,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+pub use http::{Incoming, Listening, Request, Response};
 pub use system::System;
 pub use waits::{Done, Work};
 
@@ -26,6 +29,10 @@ use crate::value::Value;
 pub enum Kind {
     NotFound,
     Denied,
+    /// Nothing answered: a host that was not found or would not connect.
+    Unreachable,
+    /// What was given or received cannot be carried as it is.
+    Invalid,
     Failed,
 }
 
@@ -35,6 +42,8 @@ impl Kind {
         match self {
             Self::NotFound => "not_found",
             Self::Denied => "denied",
+            Self::Unreachable => "unreachable",
+            Self::Invalid => "invalid",
             Self::Failed => "failed",
         }
     }
@@ -107,6 +116,22 @@ pub trait World {
     fn now(&mut self) -> i64;
     /// Nanoseconds since a fixed moment.
     fn elapsed(&mut self) -> i64;
+    /// Starts listening on a port of an address of this machine; port
+    /// zero is any that is free.
+    ///
+    /// # Errors
+    ///
+    /// The address cannot be listened on.
+    fn listen(&mut self, host: &str, port: i64) -> Result<Listening, Failure>;
+    /// Answers a request a server accepted.
+    ///
+    /// # Errors
+    ///
+    /// The request was answered already, or the answer cannot be sent.
+    fn respond(&mut self, incoming: i64, response: Response) -> Result<(), Failure>;
+    /// Stops a server listening: whatever waits to accept is given
+    /// nothing.
+    fn close(&mut self, server: i64);
     /// Begins work that takes time. What comes of it is given by
     /// [`World::next`], under `ticket`.
     fn begin(&mut self, ticket: u64, work: Work);
@@ -181,8 +206,7 @@ fn strings(items: Vec<String>) -> Value {
 /// one world.
 #[must_use]
 pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
-    type Handler = fn(&mut dyn World, &[Value]) -> Result<Value, String>;
-    type Starter = fn(&[Value]) -> Result<Work, String>;
+    use http::{Handler, Starter};
     // What takes time is begun, and answered when it is over.
     let starters: [(&str, Starter); 3] = [
         ("console_read_line", |_| Ok(Work::ReadLine)),
@@ -246,22 +270,20 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
     ];
     let outcomes = Rc::new(RefCell::new(waits::Outcomes(Rc::clone(world))));
     let natives = Natives::new().answered_by(outcomes);
-    let natives = handlers
-        .into_iter()
-        .fold(natives, |natives, (name, handler)| {
-            let world = Rc::clone(world);
-            natives.with(PACKAGE, name, move |args| {
-                handler(&mut *world.borrow_mut(), args)
-            })
-        });
-    starters
-        .into_iter()
-        .fold(natives, |natives, (name, starter)| {
-            let world = Rc::clone(world);
-            natives.reaching(PACKAGE, name, move |running, args| {
-                let work = starter(args)?;
-                world.borrow_mut().begin(running.later()?, work);
-                Ok(Value::Null)
-            })
+    let handlers = handlers.into_iter().chain(http::HANDLERS);
+    let starters = starters.into_iter().chain(http::STARTERS);
+    let natives = handlers.fold(natives, |natives, (name, handler)| {
+        let world = Rc::clone(world);
+        natives.with(PACKAGE, name, move |args| {
+            handler(&mut *world.borrow_mut(), args)
         })
+    });
+    starters.fold(natives, |natives, (name, starter)| {
+        let world = Rc::clone(world);
+        natives.reaching(PACKAGE, name, move |running, args| {
+            let work = starter(args)?;
+            world.borrow_mut().begin(running.later()?, work);
+            Ok(Value::Null)
+        })
+    })
 }
