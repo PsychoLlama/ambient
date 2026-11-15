@@ -1,0 +1,63 @@
+/// Bytes as Base64: four characters for every three bytes, padded with
+/// `=` to a multiple of four.
+pub fn encode(data: bytes): string => written(data, "+/", "=");
+
+/// Bytes as the Base64 a URL can hold: `-` and `_` where the standard
+/// form writes `+` and `/`, and no padding.
+pub fn encode_url(data: bytes): string => written(data, "-_", "");
+
+/// The bytes some Base64 says, in either form and padded or not, or
+/// null if the text is not Base64.
+pub fn decode(text: string): bytes | null {
+    let digits = unpadded(text).to_bytes().iter().map(value).to_list();
+    if digits.contains(null) || digits.length() % 4 == 1 {
+        return null;
+    }
+    let digit = fn(at: int): int => digits.get(at) as int else 0;
+    let byte = fn(at: int): int {
+        let from = at / 3 * 4;
+        let held = digit(from) * 262144 + digit(from + 1) * 4096 + digit(from + 2) * 64 + digit(from + 3);
+        return [held / 65536, held / 256 % 256, held % 256].get(at % 3) as int else 0;
+    };
+    return @to_bytes(@range(0, digits.length() * 3 / 4).map(byte).to_list());
+}
+
+/// `data` with `last` as the characters for 62 and 63, and each
+/// character the data does not reach written as `pad`.
+fn written(data: bytes, last: string, pad: string): string {
+    let symbols = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" ++ last;
+    let symbol = fn(digit: int): string => symbols.slice(digit, digit + 1) as string else "";
+    let byte = fn(at: int): int => data.get(at) as int else 0;
+    let quad = fn(at: int): string {
+        let held = byte(at) * 65536 + byte(at + 1) * 256 + byte(at + 2);
+        let left = data.length() - at;
+        let third = left > 1 ? symbol(held / 64 % 64) : pad;
+        let fourth = left > 2 ? symbol(held % 64) : pad;
+        return symbol(held / 262144) ++ symbol(held / 4096 % 64) ++ third ++ fourth;
+    };
+    return @range(0, (data.length() + 2) / 3).map(fn(at: int): string => quad(at * 3)).to_list().join_with("");
+}
+
+/// The text without the padding it ends with.
+fn unpadded(text: string): string =>
+    text.ends_with("=") ? unpadded(text.slice(0, text.length() - 1) as string else "") : text;
+
+/// The number a character of either form stands for, by its code.
+fn value(code: int): int | null {
+    if 64 < code && code < 91 {
+        return code - 65;
+    }
+    if 96 < code && code < 123 {
+        return code - 71;
+    }
+    if 47 < code && code < 58 {
+        return code + 4;
+    }
+    if code == 43 || code == 45 {
+        return 62;
+    }
+    if code == 47 || code == 95 {
+        return 63;
+    }
+    return null;
+}

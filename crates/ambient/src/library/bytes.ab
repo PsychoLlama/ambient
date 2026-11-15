@@ -32,3 +32,29 @@ fn digit(value: int): string => @slice("0123456789abcdef", value, value + 1) as 
 
 /// The bytes a list holds, or null if a member is not from 0 to 255.
 pub fn of(members: List<int>): bytes | null => @to_bytes(members);
+
+/// The bytes that hexadecimal digits say, two to a byte and in either
+/// case, or null if the text is not that.
+pub fn from_hex(text: string): bytes | null {
+    let digits = text.to_bytes().iter().map(hex_value).to_list();
+    if digits.contains(null) || digits.length() % 2 == 1 {
+        return null;
+    }
+    let digit = fn(at: int): int => digits.get(at) as int else 0;
+    let byte = fn(at: int): int => digit(at * 2) * 16 + digit(at * 2 + 1);
+    return @to_bytes(@range(0, digits.length() / 2).map(byte).to_list());
+}
+
+/// The number a hexadecimal digit stands for, by its code.
+fn hex_value(code: int): int | null {
+    if 47 < code && code < 58 {
+        return code - 48;
+    }
+    if 64 < code && code < 71 {
+        return code - 55;
+    }
+    if 96 < code && code < 103 {
+        return code - 87;
+    }
+    return null;
+}
