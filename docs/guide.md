@@ -295,6 +295,51 @@ pub fn main(): int {
 
 `first(...)` gives whichever finishes first and cancels the rest. A `group { ... }` holds tasks started with `spawn`.
 
+Whatever waits on the world suspends its task and blocks nothing: sleeping, running a command, reading a line, sending a request. So tasks wait together, and a sleep beside other work in a `first` is a limit on it. Nothing takes a timeout.
+
+```ab
+import system.clock;
+import system.http;
+
+fn status(url: string): string with http.send =>
+    match http.get(url) {
+        let response: http.Response => response.status.to_text(),
+        let error: Error => error.message,
+    };
+
+fn late(): string with clock.sleep {
+    clock.sleep!(2000);
+    return "gave up";
+}
+
+pub fn main(): string with http.send, clock.sleep =>
+    first(fn() => status("http://example.test/"), fn() => late());
+```
+
+## Serving
+
+A server is a function from a request to a response. `http.serve` runs it for each request, a number of them at a time, until the server is closed.
+
+```ab
+import system.console;
+import system.http;
+
+fn answer(request: http.Request): http.Response =>
+    http.text(200, "you asked for ${request.url}\n");
+
+pub fn main(): null with http, console.print {
+    match http.listen!("127.0.0.1", 8080) {
+        let server: http.Server => {
+            console.print!("listening on ${server.port}");
+            http.serve(server, 16, answer);
+        }
+        let error: Error => { console.print!(error.message); }
+    }
+}
+```
+
+`examples/notes` is a whole one, with tests that call its routes with requests as values.
+
 ## Testing
 
 A test is a function that takes nothing and whose name begins with `test_`. `ambient test` runs each one and reports every `check` that does not hold.
