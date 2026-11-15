@@ -5,6 +5,7 @@
 //! the same handlers serve a real process ([`System`]) and a test that
 //! scripts what the world holds.
 
+mod files;
 mod http;
 mod network;
 mod pending;
@@ -15,6 +16,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+pub use files::{Entry, Info};
 pub use http::{Incoming, Listening, Request, Response};
 pub use system::System;
 pub use waits::{Done, Work};
@@ -73,6 +75,8 @@ pub trait World {
     /// What the program was started with.
     fn args(&self) -> Vec<String>;
     fn variable(&self, name: &str) -> Option<String>;
+    /// Every environment variable and its value, in order of name.
+    fn variables(&self) -> Vec<(String, String)>;
     /// The text of a file.
     ///
     /// # Errors
@@ -98,6 +102,30 @@ pub trait World {
     ///
     /// Nothing is there, or it cannot be taken away.
     fn remove(&mut self, path: &str) -> Result<(), Failure>;
+    /// What is at a path.
+    ///
+    /// # Errors
+    ///
+    /// Nothing is there, or it cannot be looked at.
+    fn info(&mut self, path: &str) -> Result<Info, Failure>;
+    /// Adds `text` to the end of a file, making it if it is not there.
+    ///
+    /// # Errors
+    ///
+    /// The file cannot be written.
+    fn append(&mut self, path: &str, text: &str) -> Result<(), Failure>;
+    /// Moves what is at one path to another.
+    ///
+    /// # Errors
+    ///
+    /// Nothing is there, or it cannot be moved.
+    fn rename(&mut self, from: &str, to: &str) -> Result<(), Failure>;
+    /// Makes a file hold what another holds.
+    ///
+    /// # Errors
+    ///
+    /// The one cannot be read, or the other written.
+    fn copy(&mut self, from: &str, to: &str) -> Result<(), Failure>;
     /// Makes a directory, and those it is inside that are missing.
     ///
     /// # Errors
@@ -218,7 +246,7 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
             })
         }),
     ];
-    let handlers: [(&str, Handler); 15] = [
+    let handlers: [(&str, Handler); 11] = [
         ("console_write", |world, args| {
             world.write(text(args, 0)?);
             Ok(Value::Null)
@@ -235,29 +263,14 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
         ("env_variable", |world, args| {
             Ok(optional(world.variable(text(args, 0)?)))
         }),
-        ("fs_read", |world, args| {
-            let read = world.read(text(args, 0)?);
-            Ok(read.map_or_else(|failure| error("fs", &failure), Value::String))
+        ("env_variables", |world, _| {
+            let pair =
+                |(name, value)| Value::Tuple(vec![Value::String(name), Value::String(value)]);
+            Ok(Value::List(
+                world.variables().into_iter().map(pair).collect(),
+            ))
         }),
-        ("fs_write", |world, args| {
-            let stored = world.store(text(args, 0)?, text(args, 1)?);
-            Ok(stored.map_or_else(|failure| error("fs", &failure), |()| Value::Null))
-        }),
-        ("fs_list", |world, args| {
-            let listed = world.list(text(args, 0)?);
-            Ok(listed.map_or_else(|failure| error("fs", &failure), strings))
-        }),
-        ("fs_exists", |world, args| {
-            Ok(Value::Bool(world.exists(text(args, 0)?)))
-        }),
-        ("fs_remove", |world, args| {
-            let removed = world.remove(text(args, 0)?);
-            Ok(removed.map_or_else(|failure| error("fs", &failure), |()| Value::Null))
-        }),
-        ("fs_make_directory", |world, args| {
-            let made = world.make_directory(text(args, 0)?);
-            Ok(made.map_or_else(|failure| error("fs", &failure), |()| Value::Null))
-        }),
+        ("env_directory", |world, _| Ok(optional(world.directory()))),
         ("random_bits", |world, _| {
             let bits = world.random().map_err(|failure| failure.message)?;
             Ok(Value::Int(bits.cast_signed()))
@@ -270,7 +283,10 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
     ];
     let outcomes = Rc::new(RefCell::new(waits::Outcomes(Rc::clone(world))));
     let natives = Natives::new().answered_by(outcomes);
-    let handlers = handlers.into_iter().chain(http::HANDLERS);
+    let handlers = handlers
+        .into_iter()
+        .chain(files::HANDLERS)
+        .chain(http::HANDLERS);
     let starters = starters.into_iter().chain(http::STARTERS);
     let natives = handlers.fold(natives, |natives, (name, handler)| {
         let world = Rc::clone(world);

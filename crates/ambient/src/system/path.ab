@@ -1,0 +1,59 @@
+/// The parts of a path between its separators: `/a/b.txt` has `a` and
+/// `b.txt`. A path is written with `/`.
+pub fn parts(path: string): List<string> =>
+    path.split("/").filter(fn(part: string): bool => !part.is_empty());
+
+/// Whether a path says where it starts.
+pub fn is_absolute(path: string): bool => path.starts_with("/");
+
+/// One path made of several, each inside the one before. A part that
+/// says where it starts begins the path again.
+pub fn join(paths: List<string>): string =>
+    paths.fold("", fn(joined: string, next: string): string {
+        if joined.is_empty() || is_absolute(next) {
+            return next;
+        }
+        if next.is_empty() {
+            return joined;
+        }
+        return joined.ends_with("/") ? joined ++ next : joined ++ "/" ++ next;
+    });
+
+/// The last part of a path, which is empty if it has none.
+pub fn name(path: string): string => parts(path).last() as string else "";
+
+/// The path of what a path is inside, or null if it is inside nothing
+/// the path names.
+pub fn parent(path: string): string | null {
+    let inside = parts(path);
+    if inside.length() < 2 {
+        return is_absolute(path) && inside.length() == 1 ? "/" : null;
+    }
+    let outer = inside.take(inside.length() - 1).join_with("/");
+    return is_absolute(path) ? "/" ++ outer : outer;
+}
+
+/// A name as what is before its last `.` and what is after. A name
+/// with none, or that only begins with one as `.profile` does, is all
+/// before.
+fn halves(name: string): (string, string | null) {
+    let pieces = name.split(".");
+    let before = pieces.take(pieces.length() - 1).join_with(".");
+    if pieces.length() < 2 || before.is_empty() {
+        return (name, null);
+    }
+    return (before, pieces.last());
+}
+
+/// What follows the last `.` of a path's name, or null if it has no
+/// such part.
+pub fn extension(path: string): string | null {
+    let (_, after) = halves(name(path));
+    return after;
+}
+
+/// A path's name without its extension.
+pub fn stem(path: string): string {
+    let (before, _) = halves(name(path));
+    return before;
+}

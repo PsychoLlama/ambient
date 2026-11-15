@@ -9,6 +9,19 @@ pub tag denied;
 /// Any other failure; the message says which.
 pub tag failed;
 
+/// A file.
+pub tag file;
+
+/// A directory.
+pub tag directory;
+
+/// Anything else a path can lead to, such as a device or a socket.
+pub tag other;
+
+/// What is at a path: its kind, its size in bytes, and when it last
+/// changed, in milliseconds since the start of 1970.
+pub type Info = { kind: file | directory | other, size: int, modified: int };
+
 /// The text of a file.
 pub ability read(path: string): string | Error;
 
@@ -27,3 +40,15 @@ pub ability make_directory(path: string): null | Error;
 
 /// Whether anything is at the path.
 pub ability exists(path: string): bool;
+
+/// What is at a path.
+pub ability info(path: string): Info | Error;
+
+/// Adds `text` to the end of a file, which is made if it is not there.
+pub ability append(path: string, text: string): null | Error;
+
+/// Moves what is at one path to another, replacing a file there.
+pub ability rename(from: string, to: string): null | Error;
+
+/// Makes a file at one path hold what the file at another holds.
+pub ability copy(from: string, to: string): null | Error;

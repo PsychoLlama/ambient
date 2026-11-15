@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use ambient::cli::{Command, Session};
 use ambient::host::{
-    Done, Failure, Incoming, Kind, Listening, Ran, Request, Response, Work, World,
+    Done, Entry, Failure, Incoming, Info, Kind, Listening, Ran, Request, Response, Work, World,
 };
 use ambient::project::Files;
 use ambient::store::MemoryStore;
@@ -92,6 +92,13 @@ pub fn run(files: &dyn Files) -> (i32, Scripted) {
     Scripted::default().execute(files, &command)
 }
 
+fn missing(path: &str) -> Failure {
+    Failure {
+        kind: Kind::NotFound,
+        message: format!("no file at {path}"),
+    }
+}
+
 impl World for Scripted {
     fn write(&mut self, text: &str) {
         self.out.push_str(text);
@@ -109,11 +116,49 @@ impl World for Scripted {
         (name == "HOME").then(|| "/home/me".to_owned())
     }
 
+    fn variables(&self) -> Vec<(String, String)> {
+        vec![("HOME".to_owned(), "/home/me".to_owned())]
+    }
+
     fn read(&mut self, path: &str) -> Result<String, Failure> {
-        self.files.get(path).cloned().ok_or_else(|| Failure {
-            kind: Kind::NotFound,
-            message: format!("no file at {path}"),
+        self.files.get(path).cloned().ok_or_else(|| missing(path))
+    }
+
+    /// A directory is whatever a file is inside.
+    fn info(&mut self, path: &str) -> Result<Info, Failure> {
+        let inside = format!("{}/", path.trim_end_matches('/'));
+        let (kind, size) = match self.files.get(path) {
+            Some(text) => (Entry::File, text.len()),
+            None if self.files.keys().any(|file| file.starts_with(&inside)) => {
+                (Entry::Directory, 0)
+            }
+            None => return Err(missing(path)),
+        };
+        Ok(Info {
+            kind,
+            size: i64::try_from(size).unwrap_or(i64::MAX),
+            modified: self.time,
         })
+    }
+
+    fn append(&mut self, path: &str, text: &str) -> Result<(), Failure> {
+        self.files
+            .entry(path.to_owned())
+            .or_default()
+            .push_str(text);
+        Ok(())
+    }
+
+    fn rename(&mut self, from: &str, to: &str) -> Result<(), Failure> {
+        let text = self.files.remove(from).ok_or_else(|| missing(from))?;
+        self.files.insert(to.to_owned(), text);
+        Ok(())
+    }
+
+    fn copy(&mut self, from: &str, to: &str) -> Result<(), Failure> {
+        let text = self.read(from)?;
+        self.files.insert(to.to_owned(), text);
+        Ok(())
     }
 
     fn store(&mut self, path: &str, text: &str) -> Result<(), Failure> {
@@ -131,10 +176,10 @@ impl World for Scripted {
     }
 
     fn remove(&mut self, path: &str) -> Result<(), Failure> {
-        self.files.remove(path).map(|_| ()).ok_or_else(|| Failure {
-            kind: Kind::NotFound,
-            message: format!("no file at {path}"),
-        })
+        self.files
+            .remove(path)
+            .map(|_| ())
+            .ok_or_else(|| missing(path))
     }
 
     /// A file is anywhere it is written, so there is nothing to make.

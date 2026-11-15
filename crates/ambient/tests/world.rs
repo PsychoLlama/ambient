@@ -259,3 +259,64 @@ fn a_program_draws_numbers_from_the_world() {
     let (outcome, after) = run(source, &Scripted::default());
     assert_eq!((outcome, after.rolled), (Ok(Value::Int(1102)), 2));
 }
+
+// Files
+
+#[test]
+fn a_file_is_looked_at_added_to_copied_and_moved() {
+    let source = r#"
+        import system.fs;
+
+        fn size(path: string): string with fs.info {
+            match fs.info!(path) {
+                let info: fs.Info => {
+                    match info.kind {
+                        fs.file => { return "file of ${info.size}"; }
+                        fs.directory => { return "directory"; }
+                        _ => { return "other"; }
+                    }
+                }
+                let error: Error => { return error.message; }
+            }
+        }
+
+        fn main(): string with fs {
+            let _ = fs.append!("logs/today", "one\n");
+            let _ = fs.append!("logs/today", "two\n");
+            let _ = fs.copy!("logs/today", "logs/kept");
+            let _ = fs.rename!("logs/today", "logs/old");
+            return [size("logs/kept"), size("logs"), size("logs/today")].join_with(", ");
+        }
+    "#;
+
+    let (outcome, after) = run(source, &Scripted::default());
+    let expected = "file of 8, directory, no file at logs/today";
+    assert_eq!(outcome, Ok(Value::String(expected.to_owned())));
+    assert_eq!(after.files["logs/old"], "one\ntwo\n");
+}
+
+#[test]
+fn a_program_reads_its_whole_environment() {
+    let source = r#"
+        import system.env;
+
+        fn main(): string with env {
+            let named = fn(variable: (string, string)): string {
+                let (name, value) = variable;
+                return "${name}=${value}";
+            };
+            let directory = env.directory!() as string else "nowhere";
+            return env.variables!().map(named).push(directory).join_with(" ");
+        }
+    "#;
+    let world = Scripted {
+        directory: Some("/work".to_owned()),
+        ..Scripted::default()
+    };
+
+    let expected = "HOME=/home/me /work";
+    assert_eq!(
+        run(source, &world).0,
+        Ok(Value::String(expected.to_owned()))
+    );
+}

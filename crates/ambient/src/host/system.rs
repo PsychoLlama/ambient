@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use super::pending::Pending;
-use super::{Done, Failure, Kind, Listening, Response, Work, World};
+use super::{Done, Entry, Failure, Info, Kind, Listening, Response, Work, World};
 
 /// The process the compiler is running in: its streams, files,
 /// environment, and clocks.
@@ -60,6 +60,48 @@ impl World for System {
 
     fn variable(&self, name: &str) -> Option<String> {
         std::env::var(name).ok()
+    }
+
+    fn variables(&self) -> Vec<(String, String)> {
+        let mut variables: Vec<_> = std::env::vars().collect();
+        variables.sort();
+        variables
+    }
+
+    fn info(&mut self, path: &str) -> Result<Info, Failure> {
+        let found = std::fs::metadata(path).map_err(|error| failure(&error))?;
+        let kind = if found.is_file() {
+            Entry::File
+        } else if found.is_dir() {
+            Entry::Directory
+        } else {
+            Entry::Other
+        };
+        let modified = found.modified().ok();
+        let modified = modified.and_then(|at| at.duration_since(UNIX_EPOCH).ok());
+        Ok(Info {
+            kind,
+            size: i64::try_from(found.len()).unwrap_or(i64::MAX),
+            modified: saturating(modified.map_or(0, |since| since.as_millis())),
+        })
+    }
+
+    fn append(&mut self, path: &str, text: &str) -> Result<(), Failure> {
+        let file = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path);
+        let written = file.and_then(|mut file| file.write_all(text.as_bytes()));
+        written.map_err(|error| failure(&error))
+    }
+
+    fn rename(&mut self, from: &str, to: &str) -> Result<(), Failure> {
+        std::fs::rename(from, to).map_err(|error| failure(&error))
+    }
+
+    fn copy(&mut self, from: &str, to: &str) -> Result<(), Failure> {
+        let copied = std::fs::copy(from, to).map(|_| ());
+        copied.map_err(|error| failure(&error))
     }
 
     fn read(&mut self, path: &str) -> Result<String, Failure> {
