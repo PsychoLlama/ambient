@@ -11,6 +11,7 @@
 
 mod identity;
 pub mod native;
+pub(crate) mod stack;
 pub mod statics;
 pub mod wasm;
 

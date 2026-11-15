@@ -428,6 +428,8 @@ impl Emitter<'_> {
             Op::Primitive { operation, args } => self
                 .fast(*operation, args)
                 .unwrap_or_else(|| self.stepped(op)),
+            Op::Enter { weight } => self.entered(*weight),
+            Op::Depth(depth) => self.said(*depth),
             _ => self.stepped(op),
         }
     }

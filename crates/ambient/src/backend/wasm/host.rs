@@ -8,12 +8,13 @@
 use std::collections::BTreeSet;
 
 use ambient_runtime::{Fault, NULL, SUSPENDING, UNWIND};
-use wasmtime::{Engine, Linker, Module, Store, Val};
+use wasmtime::{Config, Engine, Linker, Module, Store, Val};
 
 use super::RUNTIME_MODULE;
 use super::guest::{Guest, State, native, word};
 use super::units::externs;
 use crate::backend::native::Natives;
+use crate::backend::stack;
 use crate::hash::Hash;
 use crate::value::{self, Value};
 
@@ -40,7 +41,13 @@ impl Program {
     /// extern the program reaches.
     pub fn load(module: &[u8], natives: &Natives) -> Result<Self, String> {
         let text = |error: wasmtime::Error| format!("{error:#}");
-        let engine = Engine::default();
+        // Calls are counted, so the stack is never what ends them.
+        let mut config = Config::new();
+        // The engine asks that a stack it would make hold that much,
+        // though it makes none: nothing here is asynchronous.
+        config.async_stack_size(2 * stack::ROOM);
+        config.max_wasm_stack(stack::ROOM);
+        let engine = Engine::new(&config).map_err(text)?;
         let mut store = Store::new(&engine, State::default());
         let mut linker = Linker::new(&engine);
         linker.func_wrap("host", "native", native).map_err(text)?;
@@ -146,6 +153,11 @@ impl Program {
     ///
     /// Panics if `function` is not a function of as many parameters.
     pub fn call_value(&mut self, function: u64, args: &[u64]) -> Result<u64, Fault> {
+        stack::roomy(|| self.started(function, args))
+    }
+
+    /// Calls a function value on the stack it is running on.
+    fn started(&mut self, function: u64, args: &[u64]) -> Result<u64, Fault> {
         let guest = &mut self.guest;
         let kind = guest.words("amb_kind", &[function]);
         assert_eq!(

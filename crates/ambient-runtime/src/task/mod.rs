@@ -18,6 +18,7 @@ use alloc::vec::Vec;
 
 mod budget;
 mod capture;
+mod depth;
 mod group;
 mod join;
 mod tail;
@@ -31,6 +32,7 @@ pub use budget::{
     amb_charge_tasks,
 };
 pub use capture::amb_capture;
+pub use depth::{DEPTH, FRAME, amb_depth, amb_enter};
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
 pub use join::{amb_all, amb_first};
 pub use tail::{amb_bounce, amb_start, amb_tail, amb_tail_arg};

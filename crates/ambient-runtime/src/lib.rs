@@ -83,6 +83,7 @@ pub use object::{amb_release, amb_retain, fixed_closure, layout};
 pub use record::*;
 pub use scope::{amb_scope_new, amb_scope_set, fixed_scope};
 pub use sequence::*;
+pub use task::{DEPTH, FRAME, amb_depth, amb_enter};
 pub use task::{
     FORSAKEN, LIMITS, RESUMING, RUNNING, SUSPENDING, WAITING, amb_all, amb_answer, amb_await,
     amb_bounce, amb_budget_back, amb_budget_caught, amb_budget_current, amb_budget_enter,
@@ -141,6 +142,8 @@ pub enum Fault {
     /// Not a fault: a function is leaving to make the call it ends
     /// with.
     Tail = 10,
+    /// Calls nested deeper than [`DEPTH`] allows.
+    Deep = 11,
 }
 
 impl Fault {
@@ -156,6 +159,7 @@ impl Fault {
         Self::Exhausted,
         Self::DivideByZero,
         Self::Tail,
+        Self::Deep,
     ];
 
     #[must_use]
@@ -171,6 +175,7 @@ impl Fault {
             8 => Self::Exhausted,
             9 => Self::DivideByZero,
             10 => Self::Tail,
+            11 => Self::Deep,
             _ => Self::None,
         }
     }
@@ -250,6 +255,9 @@ pub struct Context {
     /// many they are: see [`amb_tail_arg`].
     pub tail_args: [u64; ARGUMENTS],
     pub tail_count: u64,
+    /// How deep the function that is making a call is: see
+    /// [`amb_enter`].
+    pub depth: u64,
 }
 
 impl Context {
@@ -257,4 +265,5 @@ impl Context {
     pub const ENTRIES: i32 = 0;
     pub const FAULT: i32 = 8;
     pub const MODE: i32 = 48;
+    pub const DEPTH: i32 = core::mem::offset_of!(Self, depth) as i32;
 }

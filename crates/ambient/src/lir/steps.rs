@@ -41,7 +41,8 @@ impl Op {
             Self::Call { .. }
             | Self::CallValue { .. }
             | Self::Tail { .. }
-            | Self::Bounce
+            | Self::Bounce(_)
+            | Self::Enter { .. }
             | Self::Abort { .. }
             | Self::Caught(_)
             | Self::Native { .. }
@@ -107,7 +108,7 @@ impl Op {
         match self {
             Self::Call { .. }
             | Self::CallValue { .. }
-            | Self::Bounce
+            | Self::Bounce(_)
             | Self::Native { waits: true, .. }
             | Self::All(_)
             | Self::First(_)
@@ -191,7 +192,9 @@ impl Op {
                 steps.extend(args.iter().map(|arg| step(Entry::TailArg, [value(arg)])));
                 steps
             }
-            Self::Bounce => vec![step(Entry::Bounce, [])],
+            Self::Bounce(depth) => vec![step(Entry::Bounce, [value(depth)])],
+            Self::Enter { weight } => vec![step(Entry::Enter, [Raw(*weight)])],
+            Self::Depth(depth) => vec![step(Entry::Depth, [value(depth)])],
             Self::Hold
             | Self::Contain
             | Self::BudgetEnter { .. }

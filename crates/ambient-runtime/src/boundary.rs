@@ -28,6 +28,7 @@ impl Fault {
                 "an abort handler was performed after its provide had exited",
             ),
             Self::Native => ("native", "native code failed"),
+            Self::Deep => ("too_deep", "calls were nested too deeply"),
             Self::CleanupAbort => ("cleanup_abort", "a cleanup aborted to a provide outside it"),
         })
     }

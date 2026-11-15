@@ -5,10 +5,10 @@
 //! gives exactly what the entry would, for the words it takes, and
 //! calls the entry for every other.
 
-use ambient_runtime::{Entry, FALSE, TRUE};
+use ambient_runtime::{Context, DEPTH, Entry, FALSE, NULL, TRUE};
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::types::I64;
-use cranelift_codegen::ir::{BlockArg, InstBuilder};
+use cranelift_codegen::ir::{BlockArg, InstBuilder, MemFlagsData};
 
 use super::{Emitter, Val};
 use crate::core::Primitive;
@@ -121,6 +121,46 @@ impl Emitter<'_> {
         self.builder
             .ins()
             .brif(tag, join, &[BlockArg::Value(no)], slow, &[]);
+    }
+
+    /// How deep a function of `weight` is as it starts
+    /// ([`Entry::Enter`]): the depth it was called from and its weight,
+    /// as an immediate, unless that is too deep.
+    pub(super) fn entered(&mut self, weight: u64) -> Val {
+        let (slow, join) = (self.builder.create_block(), self.builder.create_block());
+        self.builder.append_block_param(join, I64);
+        let from = self.load(self.context, Context::DEPTH);
+        // Neither can be so large that the sum leaves the word.
+        let depth = self.builder.ins().iadd_imm_s(from, weight.cast_signed());
+        let limit = self.constant(DEPTH);
+        let deep = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedGreaterThan, depth, limit);
+        let twice = self.builder.ins().ishl_imm_u(depth, 1);
+        let word = self.builder.ins().bor_imm_s(twice, 1);
+        self.builder
+            .ins()
+            .brif(deep, slow, &[], join, &[BlockArg::Value(word)]);
+        self.builder.switch_to_block(slow);
+        let weight = self.constant(weight);
+        let result = self.entry(Entry::Enter, &[weight]);
+        self.builder.ins().jump(join, &[BlockArg::Value(result)]);
+        self.builder.switch_to_block(join);
+        self.builder.block_params(join)[0]
+    }
+
+    /// Says how deep the function is before a call ([`Entry::Depth`]):
+    /// what [`Self::entered`] gave is always an immediate.
+    pub(super) fn said(&mut self, depth: lir::Value) -> Val {
+        let word = self.value(depth);
+        let depth = self.builder.ins().ushr_imm_u(word, 1);
+        // The context is the runtime's: aligned, and never a trap.
+        let flags = MemFlagsData::trusted();
+        self.builder
+            .ins()
+            .store(flags, depth, self.context, Context::DEPTH);
+        self.constant(NULL)
     }
 
     /// A condition as a boolean value.

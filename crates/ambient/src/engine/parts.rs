@@ -14,7 +14,7 @@ use crate::lir::Constant;
 /// What the bytes begin with. Bump it when [`Parts`] changes, or
 /// anything compiled code relies on: a layout, the calling convention,
 /// an entry point of the runtime.
-const FORMAT: u32 = 21;
+const FORMAT: u32 = 22;
 
 /// Why bytes cannot be loaded.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,8 +84,9 @@ impl Parts {
         if header.backend != name {
             return Err(Unloadable::Backend(header.backend));
         }
-        let parts: Self = postcard::from_bytes(rest).map_err(malformed)?;
-        if parts.closed() {
+        // Bytes left over are not what encoding gave.
+        let (parts, rest): (Self, _) = postcard::take_from_bytes(rest).map_err(malformed)?;
+        if rest.is_empty() && parts.closed() {
             Ok(parts)
         } else {
             Err(Unloadable::Malformed)

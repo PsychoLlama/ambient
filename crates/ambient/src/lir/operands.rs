@@ -13,7 +13,7 @@ impl Op {
             | Self::BudgetCurrent
             | Self::Charge { .. }
             | Self::Hold
-            | Self::Bounce
+            | Self::Enter { .. }
             | Self::Trace { .. }
             | Self::Contain
             | Self::Group
@@ -25,6 +25,8 @@ impl Op {
             | Self::IsRecord(operand)
             | Self::Expire(operand)
             | Self::Caught(operand)
+            | Self::Bounce(operand)
+            | Self::Depth(operand)
             | Self::Rethrow(operand)
             | Self::BudgetLeave(operand)
             | Self::BudgetSwitch(operand)

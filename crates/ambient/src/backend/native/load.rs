@@ -11,6 +11,7 @@ use super::host::{Natives, Observation, dispatch};
 use super::unit::{Unit, map};
 use super::values::Host;
 use super::waits::{Answers, Asked};
+use crate::backend::stack;
 use crate::backend::statics::{self, Base, Field, Known, Place};
 use crate::engine::{Body, Part, Parts};
 use crate::hash::Hash;
@@ -355,6 +356,11 @@ impl Program {
     /// Panics if `function` is not a function, or `args` is not as many
     /// words as it takes.
     pub fn call_value(&self, function: Word, args: &[Word]) -> Result<Word, Fault> {
+        stack::roomy(|| self.started(function, args))
+    }
+
+    /// Calls a function value on the stack it is running on.
+    fn started(&self, function: Word, args: &[Word]) -> Result<Word, Fault> {
         // SAFETY: a value's kind can always be asked.
         let kind = unsafe { ambient_runtime::amb_kind(function) };
         assert_eq!(

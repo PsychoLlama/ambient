@@ -30,6 +30,7 @@ pub unsafe extern "C" fn amb_context_new() -> *mut Context {
         tail: 0,
         tail_args: [0; crate::ARGUMENTS],
         tail_count: 0,
+        depth: 0,
     }))
 }
 

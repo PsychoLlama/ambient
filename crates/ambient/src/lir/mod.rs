@@ -122,7 +122,14 @@ pub enum Op {
     },
     /// For a call that unwound: if what it called left to make a call,
     /// makes that call and is its result; if not, goes on unwinding.
-    Bounce,
+    /// It is handed how deep the function is: see [`Op::Enter`].
+    Bounce(Value),
+    /// How deep the function is, which weighs `weight` words, as a
+    /// function that makes calls starts: unwinds if that is too deep.
+    Enter { weight: u64 },
+    /// Says how deep the function is, before a call it makes: what it
+    /// calls counts from there.
+    Depth(Value),
     Primitive {
         operation: Primitive,
         args: Vec<Value>,

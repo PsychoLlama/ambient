@@ -68,7 +68,8 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 - A tail call is made after its function has left: the function unwinds with the call pending, and whatever called it makes the call.
 - A loop written as tail calls therefore runs in constant stack on any backend, and a backend needs no tail call of its own.
 - A tail call allocates nothing, so a loop written as tail calls costs what its body does.
-- TODO: a call that is not a tail call takes stack, and recursion deeper than the stack crashes the program instead of faulting.
+- A call that is not a tail call takes stack, and calls nested deeper than a fixed limit are a [fault](values.md), the same one at the same depth on every backend.
+- The limit is counted in what functions keep, not in calls, so a host knows the stack a program can take before it runs one.
 
 ## Bindings
 

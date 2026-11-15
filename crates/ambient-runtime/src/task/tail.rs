@@ -13,6 +13,7 @@ use alloc::vec;
 
 use core::mem::transmute;
 
+use super::depth::NOWHERE;
 use super::{Frame, RESUMING, SUSPENDING, scheduler};
 use crate::object::layout::{DEFINITION_CODE, DEFINITION_METERED};
 use crate::object::{amb_release, amb_retain, fault, words};
@@ -126,7 +127,9 @@ pub unsafe extern "C" fn amb_start(
                 amb_tail_arg(context, *arg);
             }
         }
-        amb_bounce(context)
+        // Nothing compiled is running under it: a host is, or the
+        // scheduler a host called.
+        amb_bounce(context, NOWHERE)
     }
 }
 
@@ -134,8 +137,12 @@ pub unsafe extern "C" fn amb_start(
 /// call, makes that call, and whatever calls it leaves for in turn, and
 /// returns what the last gave. If not, returns [`UNWIND`] and the
 /// unwinding goes on.
+///
+/// `depth` is how deep the function the call was made from is, as
+/// [`super::amb_enter`] gave it: each call it makes starts from there,
+/// whatever the one before it reached.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_bounce(context: *mut Context) -> Word {
+pub unsafe extern "C" fn amb_bounce(context: *mut Context, depth: Word) -> Word {
     unsafe {
         // What the call is made with is copied out of the context,
         // since what is called may leave for a call of its own.
@@ -147,6 +154,7 @@ pub unsafe extern "C" fn amb_bounce(context: *mut Context) -> Word {
         }) = Pending::take(context, &mut args)
         {
             let args = &args[..count];
+            (*context).depth = depth >> 1;
             let result = call(context, code as usize, callee, args);
             if result == UNWIND && (*context).mode == SUSPENDING {
                 // The call is kept, to be made again when the task

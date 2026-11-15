@@ -25,7 +25,7 @@ use crate::hash::Hash;
 /// The bytes of memory below the runtime's data: the stack, which grows
 /// down, so one that overflows leaves memory instead of writing over
 /// what is next to it.
-const STACK: u32 = 1 << 20;
+const STACK: u32 = 4 << 20;
 
 /// The module a unit imports each function its target has from, by
 /// hash, and the one it imports the address of each state from: zero

@@ -102,6 +102,8 @@ fn rewrite(expr: Expr, next: &mut usize) -> Expr {
 fn place(operation: &mut Expr, at: (usize, usize)) {
     match operation {
         Expr::Point { frame, .. } => *frame = Some(at),
+        // A call says how deep it is made from first.
+        Expr::Let { body, .. } => place(body, at),
         Expr::Try { body, recover, .. } => {
             place(body, at);
             place(recover, at);

@@ -60,4 +60,4 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 - A boundary cannot resume what faulted.
 - A boundary contains only faults: an [abort](handlers.md) and a [cancellation](tasks.md) pass through it.
 - Failures a program is expected to handle are union members or errors, never faults.
-- Faults are for conditions no type can rule out, such as exhausted memory; an operation that can fail in ordinary use says so in its type.
+- Faults are for conditions no type can rule out, such as exhausted memory or calls nested too deeply; an operation that can fail in ordinary use says so in its type.
