@@ -1,5 +1,6 @@
 pub module clock;
 pub module console;
+pub module crypto;
 pub module env;
 pub module fs;
 pub module http;

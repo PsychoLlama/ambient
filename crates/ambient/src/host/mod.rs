@@ -5,6 +5,7 @@
 //! the same handlers serve a real process ([`System`]) and a test that
 //! scripts what the world holds.
 
+mod crypto;
 mod files;
 mod http;
 mod network;
@@ -289,7 +290,7 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
         ("process_exit", |_, args| Ok(Value::Int(int(args, 0)?))),
     ];
     let outcomes = Rc::new(RefCell::new(waits::Outcomes(Rc::clone(world))));
-    let natives = Natives::new().answered_by(outcomes);
+    let natives = crypto::offer(Natives::new().answered_by(outcomes));
     let handlers = handlers
         .into_iter()
         .chain(files::HANDLERS)

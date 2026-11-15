@@ -1,0 +1,28 @@
+/// SHA-256: thirty-two bytes. The one to choose when nothing says
+/// otherwise.
+pub tag sha256;
+
+/// SHA-512: sixty-four bytes.
+pub tag sha512;
+
+/// SHA-1: twenty bytes. For the protocols that still name it, and for
+/// nothing new: two inputs with one hash can be found.
+pub tag sha1;
+
+/// A way of hashing.
+pub type Algorithm = sha256 | sha512 | sha1;
+
+/// The hash of `data`: the same bytes for the same data, and no way
+/// back from one to the other.
+pub extern fn hash(algorithm: Algorithm, data: bytes): bytes;
+
+/// The HMAC of `data` under `key`: a hash only a holder of the key
+/// could have made, so one that matches says who sent the data and
+/// that it is whole.
+pub extern fn hmac(algorithm: Algorithm, key: bytes, data: bytes): bytes;
+
+/// Whether two runs of bytes are the same, taking as long whatever
+/// they hold. For comparing a digest that was sent with one that was
+/// worked out, where `==` would tell how far they agree by how long it
+/// took.
+pub extern fn same(left: bytes, right: bytes): bool;

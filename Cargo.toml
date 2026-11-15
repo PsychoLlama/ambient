@@ -17,6 +17,10 @@ wasmparser = { version = "0.263", default-features = false, features = ["std"] }
 wasmtime = { version = "49", default-features = false, features = ["cranelift", "runtime", "std"] }
 blake3 = "1.8"
 getrandom = "0.4"
+hmac = "0.12"
+sha1 = "0.10"
+sha2 = "0.10"
+subtle = "2.6"
 clap = { version = "4.6", features = ["derive"] }
 proptest = "1.12"
 postcard = { version = "1.1", default-features = false, features = ["use-std"] }

@@ -1,3 +1,5 @@
+import ambient.bytes.{of};
+
 /// Sixty-four bits nothing could have guessed, as an integer.
 ///
 /// Everything else here is made from this, so providing it decides
@@ -41,6 +43,28 @@ fn drawn<T>(left: List<T>, out: List<T>): List<T> with bits {
     let at = between(0, left.length());
     let rest = left.take(at).join(left.skip(at + 1));
     return drawn(rest, out.join(left.skip(at).take(1)));
+}
+
+/// This many bytes nothing could have guessed: a key, a token, a salt.
+pub fn bytes(count: int): bytes with bits => of(filled(count, [])) as bytes else "".to_bytes();
+
+/// `held`, with draws added until it holds `count` bytes.
+fn filled(count: int, held: List<int>): List<int> with bits {
+    if held.length() < count {
+        // Seven bytes of each draw: a handler need not fill the sign.
+        return filled(count, held.join(low_bytes(bits!(), 7)));
+    }
+    return held.take(count);
+}
+
+/// The lowest `count` bytes of a number, lowest first.
+fn low_bytes(value: int, count: int): List<int> {
+    if count == 0 {
+        return [];
+    }
+    // Rounded down, where dividing rounds toward zero.
+    let rest = value % 256 < 0 ? value / 256 - 1 : value / 256;
+    return [value - rest * 256].join(low_bytes(rest, count - 1));
 }
 
 /// What `body` gives when the bits it draws follow from `seed` alone:
