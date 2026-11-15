@@ -31,9 +31,19 @@ A target defines the world a program runs in: a root binding for every ability t
 - An embedder defines a target from the host language and supplies native handlers directly.
 - An embedder's target need not include any standard binding; a program is then limited to pure code and what the embedder provides.
 
+## The system package
+
+- The standard library, `ambient`, holds what every target provides, and nothing in it needs a world: the shapes' methods, maps, JSON, errors, cells, cleanup, and what a test checks with.
+- The `system` package holds the abilities of a program on a machine: its streams, environment, files, clocks, commands, and in time the network, randomness, and cryptography.
+- It says what each ability means and promises no target binds it: a target binds whichever it can.
+- A browser's target binds fetching and not serving; an embedder's binds its host's own abilities beside whichever of these the host can do.
+- Its ID is fixed, so every target means the same ability by `system.fs.read`, and a library written against one runs under any target that binds it.
+- It comes with the compiler, as its native code does, and a package reaches it under the name `system` without declaring it.
+- A host may be built without it; a program is then limited as any [embedder's](#embedding) is.
+
 ## Standard targets
 
-- The standard library defines a target for a program run from a command line: its streams, its arguments and environment, files, clocks, commands it runs, and its exit.
+- The `system` package defines a target for a program run from a command line: its streams, its arguments and environment, files, clocks, commands it runs, and its exit.
 - Each of those is a module of abilities, so a row says which of them a function reaches.
 - An operation on a file that can fail in ordinary use gives an [error](errors.md) as a value; the kinds are tags of the module.
 - Exiting is an ability that does not return, so the program's result is the code it exits with.
@@ -42,6 +52,6 @@ A target defines the world a program runs in: a root binding for every ability t
 - What takes time there suspends its [task](tasks.md) and blocks nothing: tasks sleep, run commands, and wait for input together, and a sleep beside other work in a first is a limit on it.
 - Work whose task was cancelled is stopped where it can be: a command is ended, and a line already being read is kept for whoever reads next.
 - Both standard targets bind `throw`: an [error](errors.md) nothing caught ends the program, or fails the test, and is reported as a fault is.
-- It defines a target for a [test](packages.md) as well, which binds a check and nothing of the world.
+- The standard library defines a target for a [test](packages.md), which binds a check and nothing of the world, so it needs no `system`.
 - TODO: there is no standard target for a WebAssembly host yet.
 - The build target and test targets are ordinary targets; see [comptime](comptime.md) and [memoization](memoization.md).

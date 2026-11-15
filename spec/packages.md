@@ -42,14 +42,14 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A package is a directory: a manifest, and its modules as source files under one directory of sources.
 - A source file is the [module](modules.md) its path under the sources names, and the file named `lib` at their top is the library module.
 - The manifest says the package's name and its ID, and lists its dependencies, each by the local name and where the package is, and its preludes.
-- No package's ID is the standard library's.
-- Every package reaches the standard library under the name `ambient` without declaring it.
+- No package's ID is the standard library's, or the [`system`](targets.md) package's.
+- Every package reaches the standard library under the name `ambient`, and the `system` package under its own, without declaring them.
 - TODO: a manifest cannot declare [build grants](comptime.md), so a comptime call in a package on disk takes no ability.
 - TODO: a dependency is only a path to a directory; there are no publishers, versions, locks, or registries yet, and nothing checks that an ID was generated.
 
 ## Running
 
-- The command line runs a function of a package as a program under the standard library's command-line [target](targets.md), and exits with what it gives if that is an integer.
+- The command line runs a function of a package as a program under the `system` package's command-line [target](targets.md), and exits with what it gives if that is an integer.
 - A [fault](values.md) that ends the program is reported as its error: the kind, the message, and the definitions its trace names.
 - Checking a package checks every definition of it and of the packages it depends on, and reports each that is wrong. Each is reported by file, line, and column.
 - Built definitions are kept in one [store](build.md) for every project on the machine, since a definition is kept by its content.
