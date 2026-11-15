@@ -1,0 +1,180 @@
+/// A moment as the calendar and the clock say it, in UTC.
+pub type Date = {
+    year: int,
+    month: int,
+    day: int,
+    hour: int,
+    minute: int,
+    second: int,
+    millisecond: int,
+};
+
+/// How long this many seconds are, in milliseconds.
+pub fn seconds(count: int): int => count * 1000;
+
+/// How long this many minutes are, in milliseconds.
+pub fn minutes(count: int): int => count * 60000;
+
+/// How long this many hours are, in milliseconds.
+pub fn hours(count: int): int => count * 3600000;
+
+/// How long this many days are, in milliseconds.
+pub fn days(count: int): int => count * 86400000;
+
+/// The date of a moment: milliseconds since the start of 1970.
+pub fn date(moment: int): Date {
+    let (year, month, day) = civil(floor(moment, 86400000));
+    let within = moment - floor(moment, 86400000) * 86400000;
+    return {
+        year,
+        month,
+        day,
+        hour: within / 3600000,
+        minute: within / 60000 % 60,
+        second: within / 1000 % 60,
+        millisecond: within % 1000,
+    };
+}
+
+/// The moment of a date, or null if there is no such date.
+pub fn moment(of: Date): int | null {
+    let whole = day_number(of.year, of.month, of.day) * 86400000;
+    let found = whole + of.hour * 3600000 + of.minute * 60000 + of.second * 1000 + of.millisecond;
+    return date(found) == of ? found : null;
+}
+
+/// The day of the week of a moment, from 1, Monday, to 7.
+pub fn weekday(moment: int): int {
+    let day = floor(moment, 86400000) + 3;
+    return day - floor(day, 7) * 7 + 1;
+}
+
+/// A moment as RFC 3339 text in UTC, such as `2026-11-14T09:30:00.000Z`.
+pub fn write(moment: int): string {
+    let at = date(moment);
+    let wide = fn(value: int, width: int): string => value.to_text().pad_start(width, "0");
+    let day = [wide(at.year, 4), wide(at.month, 2), wide(at.day, 2)].join_with("-");
+    let clock = [wide(at.hour, 2), wide(at.minute, 2), wide(at.second, 2)].join_with(":");
+    return day ++ "T" ++ clock ++ "." ++ wide(at.millisecond, 3) ++ "Z";
+}
+
+/// The moment RFC 3339 text says, or null if it says none. A date
+/// alone is its first moment, and text with no offset is in UTC.
+pub fn read(text: string): int | null {
+    let day = text.slice(0, 10) as string else "";
+    let rest = text.slice(10, text.length()) as string else "";
+    match (calendar(day), clock(rest)) {
+        (let whole: int, let within: int) => { return whole * 86400000 + within; }
+        _ => { return null; }
+    }
+}
+
+/// `value` divided by `by`, which is more than zero, rounded down.
+fn floor(value: int, by: int): int => value % by < 0 ? value / by - 1 : value / by;
+
+/// The year, month, and day that is `number` days after the start of
+/// 1970.
+///
+/// Years are counted from March, so that the day a leap year adds is
+/// the last, and in eras of 400 years, which are all the same length.
+fn civil(number: int): (int, int, int) {
+    let shifted = number + 719468;
+    let era = floor(shifted, 146097);
+    let day_of_era = shifted - era * 146097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let shifted_month = (5 * day_of_year + 2) / 153;
+    let month = shifted_month < 10 ? shifted_month + 3 : shifted_month - 9;
+    let year = year_of_era + era * 400 + (month < 3 ? 1 : 0);
+    return (year, month, day_of_year - (153 * shifted_month + 2) / 5 + 1);
+}
+
+/// How many days after the start of 1970 a day is: what [`civil`]
+/// undoes, for a day that exists.
+fn day_number(year: int, month: int, day: int): int {
+    let counted = month < 3 ? year - 1 : year;
+    let era = floor(counted, 400);
+    let year_of_era = counted - era * 400;
+    let day_of_year = (153 * (month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    return era * 146097 + day_of_era - 719468;
+}
+
+/// The number the digits between two positions say, or null if they
+/// are not all digits.
+fn number(text: string, start: int, end: int): int | null {
+    let part = text.slice(start, end) as string else "";
+    let digit = fn(code: int): bool => 47 < code && code < 58;
+    return part != "" && part.to_bytes().iter().every(digit) ? part.to_int() : null;
+}
+
+/// The day number of `YYYY-MM-DD`, or null if that is no day.
+fn calendar(text: string): int | null {
+    if text.slice(4, 5) != "-" || text.slice(7, 8) != "-" {
+        return null;
+    }
+    match (number(text, 0, 4), number(text, 5, 7), number(text, 8, 10)) {
+        (let year: int, let month: int, let day: int) => {
+            let found = day_number(year, month, day);
+            return civil(found) == (year, month, day) ? found : null;
+        }
+        _ => { return null; }
+    }
+}
+
+/// How far into its day in UTC what follows a date says: nothing, or
+/// `T`, hours and minutes, perhaps seconds, and perhaps an offset.
+fn clock(rest: string): int | null {
+    if rest == "" {
+        return 0;
+    }
+    if !"Tt ".contains(rest.slice(0, 1) as string else "") || rest.slice(3, 4) != ":" {
+        return null;
+    }
+    let (extra, tail) = second_part(rest.slice(6, rest.length()) as string else "");
+    match (number(rest, 1, 3), number(rest, 4, 6), extra, offset(tail)) {
+        (let hour: int, let minute: int, let more: int, let ahead: int) => {
+            let within = hour < 24 && minute < 60 && more < 60000;
+            return within ? hour * 3600000 + minute * 60000 + more - ahead : null;
+        }
+        _ => { return null; }
+    }
+}
+
+/// The milliseconds that `:SS` and a fraction say, if the text begins
+/// with them, and the text that follows.
+fn second_part(after: string): (int | null, string) {
+    if !after.starts_with(":") {
+        return (0, after);
+    }
+    let tail = after.slice(3, after.length()) as string else "";
+    let whole = number(after, 1, 3) as int else 60;
+    if !tail.starts_with(".") {
+        return (whole * 1000, tail);
+    }
+    let count = digits(tail, 1) - 1;
+    let fraction = number((tail.slice(1, 1 + count.min(3)) as string else "").pad_end(3, "0"), 0, 3);
+    let rest = tail.slice(1 + count, tail.length()) as string else "";
+    return (count == 0 || fraction == null ? null : whole * 1000 + (fraction as int else 0), rest);
+}
+
+/// The first position from `at` that holds no digit.
+fn digits(text: string, at: int): int =>
+    number(text, at, at + 1) == null ? at : digits(text, at + 1);
+
+/// How far ahead of UTC an offset says its time is, in milliseconds:
+/// nothing, `Z`, or a sign, hours, and minutes.
+fn offset(text: string): int | null {
+    if text == "" || text.to_upper() == "Z" {
+        return 0;
+    }
+    let sign = text.starts_with("+") ? 1 : text.starts_with("-") ? -1 : 0;
+    match (number(text, 1, 3), number(text, 4, 6)) {
+        (let hour: int, let minute: int) => {
+            let well = sign != 0 && text.length() == 6 && text.slice(3, 4) == ":";
+            return well && hour < 24 && minute < 60 ? sign * (hour * 3600000 + minute * 60000) : null;
+        }
+        _ => { return null; }
+    }
+}
