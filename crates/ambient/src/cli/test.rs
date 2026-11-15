@@ -30,7 +30,7 @@ impl Session<'_> {
             project: &project,
             engine: &engine,
         };
-        let target = ModuleId::new(FAULT_PACKAGE, "system").value("tests");
+        let target = ModuleId::new(FAULT_PACKAGE, "test").value("tests");
         let (mut passed, mut failed) = (0, 0);
         let chosen = |test: &Symbol| only.is_none_or(|only| test.identity().contains(only));
         for test in tests(&project).into_iter().filter(chosen) {
@@ -86,7 +86,7 @@ fn tests(project: &Project) -> Vec<Symbol> {
 /// adds what it was for to `unmet`, and the test goes on.
 fn checks(unmet: &Rc<RefCell<Vec<String>>>) -> Natives {
     let unmet = Rc::clone(unmet);
-    Natives::new().with(FAULT_PACKAGE, "system.test_check", move |args| {
+    Natives::new().with(FAULT_PACKAGE, "test.checked", move |args| {
         match args {
             [Value::Bool(true), _] => {}
             [Value::Bool(false), Value::String(what)] => {

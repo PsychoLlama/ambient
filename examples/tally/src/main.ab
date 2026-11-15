@@ -1,8 +1,8 @@
-import ambient.console;
+import system.console;
 import ambient.map;
 import ambient.map.{Map};
-import ambient.env;
-import ambient.fs;
+import system.env;
+import system.fs;
 import ambient.test.{check};
 import ambient.Error;
 

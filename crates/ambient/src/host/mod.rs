@@ -1,5 +1,5 @@
 //! The native side of the standard library's command-line target: what
-//! `ambient.system.cli` binds each ability to. See `spec/targets.md`.
+//! `system.cli` binds each ability to. See `spec/targets.md`.
 //!
 //! Everything a program can do to the world goes through a [`World`], so
 //! the same handlers serve a real process ([`System`]) and a test that
@@ -13,13 +13,11 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use ambient_runtime::FAULT_PACKAGE;
-
 pub use system::System;
 pub use waits::{Done, Work};
 
 use crate::backend::native::Natives;
-use crate::symbol::{ModuleId, Symbol};
+use crate::system::PACKAGE;
 use crate::value::Value;
 
 /// Why the world refused something. The modules whose abilities can be
@@ -120,17 +118,11 @@ pub trait World {
     fn forsake(&mut self, ticket: u64);
 }
 
-/// The target a program run from a command line runs under.
-#[must_use]
-pub fn target() -> Symbol {
-    ModuleId::new(FAULT_PACKAGE, "system").value("cli")
-}
-
 /// The error a failure is, as `ambient.Error` describes one: its kind
 /// is the tag for it of `module`, whose ability was refused.
 fn error(module: &str, failure: &Failure) -> Value {
     let kind = Value::Tag {
-        package: FAULT_PACKAGE.to_owned(),
+        package: PACKAGE.to_owned(),
         tag: format!("{module}.{}", failure.kind.name()),
     };
     let fields = [
@@ -166,7 +158,7 @@ fn texts(args: &[Value], position: usize) -> Result<Vec<String>, String> {
         .collect()
 }
 
-/// What a command gave, as `ambient.process.Output` describes it.
+/// What a command gave, as `system.process.Output` describes it.
 fn output(ran: Ran) -> Value {
     let fields = [
         ("code", Value::Int(ran.code)),
@@ -254,7 +246,7 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
         .into_iter()
         .fold(natives, |natives, (name, handler)| {
             let world = Rc::clone(world);
-            natives.with(FAULT_PACKAGE, &format!("system.{name}"), move |args| {
+            natives.with(PACKAGE, name, move |args| {
                 handler(&mut *world.borrow_mut(), args)
             })
         });
@@ -262,8 +254,7 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
         .into_iter()
         .fold(natives, |natives, (name, starter)| {
             let world = Rc::clone(world);
-            let path = format!("system.{name}");
-            natives.reaching(FAULT_PACKAGE, &path, move |running, args| {
+            natives.reaching(PACKAGE, name, move |running, args| {
                 let work = starter(args)?;
                 world.borrow_mut().begin(running.later()?, work);
                 Ok(Value::Null)

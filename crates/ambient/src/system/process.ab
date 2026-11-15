@@ -1,4 +1,4 @@
-import pkg.Error;
+import ambient.Error;
 
 /// No command of that name is to be found.
 pub tag not_found;

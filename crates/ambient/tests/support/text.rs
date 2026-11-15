@@ -7,13 +7,16 @@ use ambient::workspace::Workspace;
 
 use super::{Outcome, run_in};
 
-/// A workspace whose package `app` has the standard library and one
+/// A workspace whose package `app` has the standard library, the
+/// `system` package, and one
 /// module, `main`, written as `source`.
 pub fn workspace(source: &str) -> Workspace {
     let module = parse(source).unwrap_or_else(|error| panic!("{error}"));
     let mut workspace = Workspace::new();
     ambient::library::install(&mut workspace).unwrap();
+    ambient::system::install(&mut workspace).unwrap();
     workspace.depend("app", "ambient", "ambient").unwrap();
+    workspace.depend("app", "system", "system").unwrap();
     workspace.set(ModuleId::new("app", "main"), module).unwrap();
     workspace
 }

@@ -295,7 +295,7 @@ fn a_value_written_into_a_string_is_asked_for_its_text() {
 #[test]
 fn a_module_in_a_row_is_every_ability_of_it() {
     let source = r#"
-        import ambient.console;
+        import system.console;
 
         fn speak(): null with console {
             console.print!("a");

@@ -27,6 +27,7 @@ pub mod store;
 pub mod surface;
 pub mod symbol;
 pub mod syntax;
+pub mod system;
 pub mod types;
 pub mod value;
 pub mod verify;

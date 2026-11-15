@@ -1,5 +1,5 @@
-import ambient.console;
-import ambient.env;
+import system.console;
+import system.env;
 
 /// Greets whoever the program was started with, or the world.
 pub fn main(): null with console.print, env.args {

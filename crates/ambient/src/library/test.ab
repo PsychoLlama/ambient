@@ -1,3 +1,15 @@
+import pkg.errors;
+
 /// Says that something a test relies on holds, and what it is. A test
 /// goes on after one that does not, so it reports every one.
 pub ability check(holds: bool, what: string): null;
+
+extern handler checked for check;
+extern handler thrown for errors.throw;
+
+/// The world of a test: nothing but a way to say what should hold. A
+/// test that needs more provides it.
+pub target tests {
+    check: checked,
+    errors.throw: thrown,
+}

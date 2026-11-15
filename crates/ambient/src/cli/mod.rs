@@ -115,7 +115,11 @@ impl Session<'_> {
             project: &project,
             engine: &engine,
         };
-        match launch.run(&entry, &host::target(), &host::natives(&self.world))? {
+        match launch.run(
+            &entry,
+            &crate::system::target(),
+            &host::natives(&self.world),
+        )? {
             // A program that gives a number exits with it.
             Value::Int(code) => Ok(i32::try_from(code).unwrap_or(FAILED)),
             _ => Ok(0),
@@ -178,11 +182,19 @@ impl Launch<'_> {
         // the program ends there, and is reported as one that faulted.
         let thrown = Rc::new(RefCell::new(None));
         let kept = Rc::clone(&thrown);
-        let natives = natives
-            .clone()
-            .with(FAULT_PACKAGE, "system.thrown", move |args| {
-                *kept.borrow_mut() = args.first().cloned();
-                Ok(Value::Null)
+        // Each standard target binds `throw` to an extern of its own.
+        let externs = [
+            (crate::system::PACKAGE, "thrown"),
+            (FAULT_PACKAGE, "test.thrown"),
+        ];
+        let natives = externs
+            .into_iter()
+            .fold(natives.clone(), |natives, (package, path)| {
+                let kept = Rc::clone(&kept);
+                natives.with(package, path, move |args| {
+                    *kept.borrow_mut() = args.first().cloned();
+                    Ok(Value::Null)
+                })
             });
         let program = Program::load(&parts, &natives).map_err(failed)?;
         let traced = |said: String, error: Option<&Value>| {

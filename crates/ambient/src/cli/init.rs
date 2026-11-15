@@ -8,7 +8,7 @@ use crate::host::{Failure, World};
 use crate::project::MANIFEST;
 
 /// The module a new package begins with.
-const MAIN: &str = r#"import ambient.console;
+const MAIN: &str = r#"import system.console;
 import ambient.test.{check};
 
 /// What the program says to someone.

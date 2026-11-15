@@ -18,7 +18,7 @@ hello/
 ```
 
 ```ab
-import ambient.console;
+import system.console;
 
 pub fn main(): null with console.print {
     console.print!("hello, world");
@@ -141,8 +141,8 @@ The built-in shapes have methods too, written in the standard library: `"a b".sp
 A function cannot touch the world. What it can do beyond computing is named in its header after `with`, and performed with `!`:
 
 ```ab
-import ambient.console;
-import ambient.fs;
+import system.console;
+import system.fs;
 import ambient.Error;
 
 /// Prints a file, or why it could not.
@@ -168,7 +168,7 @@ pub fn main(): null with console.print, fs.read {
 Any code can supply an ability to what it calls, which is how a test replaces the world:
 
 ```ab
-import ambient.console;
+import system.console;
 
 fn greet(name: string): null with console.print {
     console.print!("hello, ${name}");
@@ -216,7 +216,7 @@ pub fn main(): string {
 
 ```ab
 import ambient.cleanup.{dispose};
-import ambient.console;
+import system.console;
 import ambient.Error;
 
 fn risky(by: int): int => 100 / by;
@@ -261,7 +261,7 @@ pub fn main(): string {
 A function that can fail gives a union, and the caller that cannot go on returns. `let ... else` says so without nesting: the rest of the block is where the value fits, and the arms are where it does not.
 
 ```ab
-import ambient.fs;
+import system.fs;
 import ambient.Error;
 
 fn first_line(path: string): string with fs.read {
@@ -300,7 +300,7 @@ pub fn main(): int {
 A test is a function that takes nothing and whose name begins with `test_`. `ambient test` runs each one and reports every `check` that does not hold.
 
 ```ab
-import ambient.console;
+import system.console;
 import ambient.test.{check};
 
 fn greet(name: string): null with console.print {
@@ -326,18 +326,18 @@ A test is given no world: it provides what the code under test needs, as above, 
 
 ## The standard library
 
-Import a module by path; its public definitions are reached through its name, or taken by name in braces.
+Import a module by path; its public definitions are reached through its name, or taken by name in braces. Two packages come with the compiler: `ambient` is what runs anywhere, and `system` is what a program on a machine can reach.
 
 | Module                                                       | What it has                                                   |
 | ------------------------------------------------------------ | ------------------------------------------------------------- |
 | `ambient.string`, `list`, `int`, `float`, `iterator`, `cell` | the methods of each shape                                     |
 | `ambient.map`                                                | `Map<V>`: values by string key, read in key order             |
 | `ambient.json`                                               | `Json`, `parse`, `write`, `get`, `at`                         |
-| `ambient.console`                                            | `write`, `print`, `warn`, `read_line`                         |
-| `ambient.env`                                                | `args`, `variable`                                            |
-| `ambient.fs`                                                 | `read`, `write`, `list`, `exists`, `remove`, `make_directory` |
-| `ambient.clock`                                              | `now`, `elapsed`, `sleep`                                     |
-| `ambient.process`                                            | `exit`, `run`                                                 |
+| `system.console`                                             | `write`, `print`, `warn`, `read_line`                         |
+| `system.env`                                                 | `args`, `variable`                                            |
+| `system.fs`                                                  | `read`, `write`, `list`, `exists`, `remove`, `make_directory` |
+| `system.clock`                                               | `now`, `elapsed`, `sleep`                                     |
+| `system.process`                                             | `exit`, `run`                                                 |
 | `ambient.cleanup`                                            | the `dispose` key a `using` reads                             |
 
 ```ab

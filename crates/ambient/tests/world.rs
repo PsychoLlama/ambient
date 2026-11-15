@@ -22,7 +22,7 @@ fn run(source: &str, world: &Scripted) -> (Outcome, Scripted) {
     let store = MemoryStore::new();
     let engine = Engine::new(&workspace, &store);
     let entry = engine
-        .program(&value("main", "main"), &host::target())
+        .program(&value("main", "main"), &ambient::system::target())
         .unwrap();
     // Each backend runs in a world of its own; they must agree.
     let left = RefCell::new(Vec::new());
@@ -44,7 +44,7 @@ fn run(source: &str, world: &Scripted) -> (Outcome, Scripted) {
 #[test]
 fn a_program_reads_and_writes_its_streams() {
     let source = r#"
-        import ambient.console;
+        import system.console;
 
         fn main(): null with console.print, console.read_line, console.warn, console.write {
             console.write!("name? ");
@@ -68,7 +68,7 @@ fn a_program_reads_and_writes_its_streams() {
 #[test]
 fn a_file_that_is_missing_is_an_error_a_program_matches_on() {
     let source = r#"
-        import ambient.fs;
+        import system.fs;
         import ambient.Error;
 
         fn main(): string with fs.read, fs.write {
@@ -97,7 +97,7 @@ fn a_file_that_is_missing_is_an_error_a_program_matches_on() {
 #[test]
 fn a_file_is_taken_away_once() {
     let source = r#"
-        import ambient.fs;
+        import system.fs;
         import ambient.Error;
 
         fn main(): string with fs {
@@ -122,8 +122,8 @@ fn a_file_is_taken_away_once() {
 #[test]
 fn a_command_is_run_and_what_it_gave_is_read() {
     let source = r#"
-        import ambient.process;
-        import ambient.process.{Output};
+        import system.process;
+        import system.process.{Output};
         import ambient.Error;
 
         fn ran(command: string): string with process.run {
@@ -158,8 +158,8 @@ fn a_command_is_run_and_what_it_gave_is_read() {
 #[test]
 fn a_program_is_told_how_it_was_started_and_what_time_it_is() {
     let source = r#"
-        import ambient.clock;
-        import ambient.env;
+        import system.clock;
+        import system.env;
 
         fn main(): int with env.args, env.variable, clock.now, clock.sleep {
             let before = clock.now!();
@@ -179,8 +179,8 @@ fn a_program_is_told_how_it_was_started_and_what_time_it_is() {
 #[test]
 fn exiting_ends_the_program_with_its_code() {
     let source = r#"
-        import ambient.console;
-        import ambient.process;
+        import system.console;
+        import system.process;
 
         fn main(): int with console.print, process.exit {
             console.print!("before");
@@ -200,7 +200,7 @@ fn exiting_ends_the_program_with_its_code() {
 #[test]
 fn tasks_that_sleep_do_so_together() {
     let source = r"
-        import ambient.clock;
+        import system.clock;
 
         fn nap(length: int): int with clock.sleep {
             clock.sleep!(length);
@@ -221,8 +221,8 @@ fn tasks_that_sleep_do_so_together() {
 #[test]
 fn a_sleep_is_a_limit_on_how_long_to_wait() {
     let source = r#"
-        import ambient.clock;
-        import ambient.console;
+        import system.clock;
+        import system.console;
 
         fn late(): string with clock.sleep {
             clock.sleep!(100);

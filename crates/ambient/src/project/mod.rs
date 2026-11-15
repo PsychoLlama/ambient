@@ -201,6 +201,7 @@ pub fn open(files: &dyn Files, directory: &Path) -> Result<Project, ProjectError
         modules: Vec::new(),
     };
     crate::library::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
+    crate::system::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
     let root = opening.package(directory)?;
     Ok(Project {
         workspace: opening.workspace,
@@ -289,12 +290,14 @@ impl Opening<'_> {
             }
             None => self.opened.insert(name.clone(), directory.clone()),
         };
-        if name == FAULT_PACKAGE || name == OWN_PACKAGE {
+        let taken = [FAULT_PACKAGE, crate::system::PACKAGE];
+        if taken.contains(&name.as_str()) || name == OWN_PACKAGE {
             let reason = format!("a package cannot be named `{name}`");
             return Err(ProjectError::Manifest { path, reason });
         }
-        // The library's tags are named by its ID: no package takes it.
-        if manifest.id.is_empty() || manifest.id == FAULT_PACKAGE {
+        // What comes with the compiler is named by its ID: no package
+        // takes one.
+        if manifest.id.is_empty() || taken.contains(&manifest.id.as_str()) {
             let reason = format!("a package's ID cannot be `{}`", manifest.id);
             return Err(ProjectError::Manifest { path, reason });
         }
@@ -302,9 +305,11 @@ impl Opening<'_> {
         self.modules(&name, &directory.join(SOURCES))?;
         // Every package reaches the standard library by its name.
         let library = |error| ProjectError::Workspace(error);
-        self.workspace
-            .depend(&name, FAULT_PACKAGE, FAULT_PACKAGE)
-            .map_err(library)?;
+        for given in taken {
+            self.workspace
+                .depend(&name, given, given)
+                .map_err(library)?;
+        }
         for (local, dependency) in &manifest.dependencies {
             let package = self.package(&directory.join(&dependency.path))?;
             self.workspace
@@ -366,8 +371,9 @@ impl Opening<'_> {
         if first == OWN_PACKAGE {
             return Ok(ModuleId::new(package, rest));
         }
-        if first == FAULT_PACKAGE && !manifest.dependencies.contains_key(first) {
-            return Ok(ModuleId::new(FAULT_PACKAGE, rest));
+        let given = [FAULT_PACKAGE, crate::system::PACKAGE].contains(&first);
+        if given && !manifest.dependencies.contains_key(first) {
+            return Ok(ModuleId::new(first, rest));
         }
         let dependency = manifest.dependencies.get(first).ok_or_else(unknown)?;
         let directory = normal(&self.opened[package].join(&dependency.path));

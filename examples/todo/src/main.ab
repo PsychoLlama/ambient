@@ -1,6 +1,6 @@
-import ambient.console;
-import ambient.env;
-import ambient.fs;
+import system.console;
+import system.env;
+import system.fs;
 import ambient.Error;
 import ambient.test.{check};
 import pkg.item;

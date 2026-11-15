@@ -27,7 +27,7 @@ fn a_package_is_its_manifest_and_a_module_for_each_file() {
         (
             "app/src/main.ab",
             r"
-            import ambient.console;
+            import system.console;
             import pkg.text.greeting;
             import words.loud;
 
@@ -311,7 +311,7 @@ fn only_the_tests_asked_for_are_run() {
 #[test]
 fn a_test_reaches_no_world_it_is_not_given() {
     let source = r#"
-        import ambient.console;
+        import system.console;
         import ambient.test.{check};
 
         fn greet(): null with console.print { console.print!("hello"); }
@@ -326,7 +326,7 @@ fn a_test_reaches_no_world_it_is_not_given() {
     let (code, world) = test(&app(source));
 
     assert_eq!(code, 1);
-    let refused = "`ambient:console.print` is not bound here\n";
+    let refused = "`system:console.print` is not bound here\n";
     let (failed, rest) = world.out.split_once(refused).unwrap_or_default();
     assert!(
         failed.starts_with("FAIL  app:main.test_reaches\n"),
@@ -408,5 +408,13 @@ fn a_package_says_an_id_that_is_its_own() {
     assert_eq!(
         refused("name = \"app\"\nid = \"ambient\""),
         "error: app/ambient.toml: a package's ID cannot be `ambient`\n"
+    );
+    assert_eq!(
+        refused("name = \"app\"\nid = \"system\""),
+        "error: app/ambient.toml: a package's ID cannot be `system`\n"
+    );
+    assert_eq!(
+        refused("name = \"system\"\nid = \"app\""),
+        "error: app/ambient.toml: a package cannot be named `system`\n"
     );
 }
