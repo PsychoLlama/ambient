@@ -5,7 +5,9 @@
 //! the same handlers serve a real process ([`System`]) and a test that
 //! scripts what the world holds.
 
+mod pending;
 mod system;
+mod waits;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -14,6 +16,7 @@ use std::rc::Rc;
 use ambient_runtime::FAULT_PACKAGE;
 
 pub use system::System;
+pub use waits::{Done, Work};
 
 use crate::backend::native::Natives;
 use crate::symbol::{ModuleId, Symbol};
@@ -60,8 +63,6 @@ pub trait World {
     fn write(&mut self, text: &str);
     /// Writes to standard error.
     fn warn(&mut self, text: &str);
-    /// The next line of standard input, without its ending.
-    fn read_line(&mut self) -> Option<String>;
     /// What the program was started with.
     fn args(&self) -> Vec<String>;
     fn variable(&self, name: &str) -> Option<String>;
@@ -96,12 +97,6 @@ pub trait World {
     ///
     /// The directory cannot be made.
     fn make_directory(&mut self, path: &str) -> Result<(), Failure>;
-    /// Runs a command with arguments, and waits until it is over.
-    ///
-    /// # Errors
-    ///
-    /// The command cannot be started.
-    fn run(&mut self, command: &str, args: &[String]) -> Result<Ran, Failure>;
     /// The directory a path that does not say where it starts is in.
     fn directory(&self) -> Option<String>;
     /// Bits that nothing could have guessed.
@@ -114,7 +109,15 @@ pub trait World {
     fn now(&mut self) -> i64;
     /// Nanoseconds since a fixed moment.
     fn elapsed(&mut self) -> i64;
-    fn sleep(&mut self, milliseconds: i64);
+    /// Begins work that takes time. What comes of it is given by
+    /// [`World::next`], under `ticket`.
+    fn begin(&mut self, ticket: u64, work: Work);
+    /// What came of the work that is over soonest, waited for if none
+    /// is yet. None if no work is under way.
+    fn next(&mut self) -> Option<(u64, Done)>;
+    /// Stops the work of `ticket`, if it can be stopped: nothing waits
+    /// for it any more.
+    fn forsake(&mut self, ticket: u64);
 }
 
 /// The target a program run from a command line runs under.
@@ -187,7 +190,19 @@ fn strings(items: Vec<String>) -> Value {
 #[must_use]
 pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
     type Handler = fn(&mut dyn World, &[Value]) -> Result<Value, String>;
-    let handlers: [(&str, Handler); 17] = [
+    type Starter = fn(&[Value]) -> Result<Work, String>;
+    // What takes time is begun, and answered when it is over.
+    let starters: [(&str, Starter); 3] = [
+        ("console_read_line", |_| Ok(Work::ReadLine)),
+        ("clock_sleep", |args| Ok(Work::Sleep(int(args, 0)?))),
+        ("process_run", |args| {
+            Ok(Work::Run {
+                command: text(args, 0)?.to_owned(),
+                args: texts(args, 1)?,
+            })
+        }),
+    ];
+    let handlers: [(&str, Handler); 14] = [
         ("console_write", |world, args| {
             world.write(text(args, 0)?);
             Ok(Value::Null)
@@ -199,9 +214,6 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
         ("console_warn", |world, args| {
             world.warn(&format!("{}\n", text(args, 0)?));
             Ok(Value::Null)
-        }),
-        ("console_read_line", |world, _| {
-            Ok(optional(world.read_line()))
         }),
         ("env_args", |world, _| Ok(strings(world.args()))),
         ("env_variable", |world, args| {
@@ -230,26 +242,31 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
             let made = world.make_directory(text(args, 0)?);
             Ok(made.map_or_else(|failure| error("fs", &failure), |()| Value::Null))
         }),
-        ("process_run", |world, args| {
-            let ran = world.run(text(args, 0)?, &texts(args, 1)?);
-            Ok(ran.map_or_else(|failure| error("process", &failure), output))
-        }),
         ("clock_now", |world, _| Ok(Value::Int(world.now()))),
         ("clock_elapsed", |world, _| Ok(Value::Int(world.elapsed()))),
-        ("clock_sleep", |world, args| {
-            world.sleep(int(args, 0)?);
-            Ok(Value::Null)
-        }),
         // What a root handler of an ability that does not return gives
         // is what the program gives.
         ("process_exit", |_, args| Ok(Value::Int(int(args, 0)?))),
     ];
-    handlers
+    let outcomes = Rc::new(RefCell::new(waits::Outcomes(Rc::clone(world))));
+    let natives = Natives::new().answered_by(outcomes);
+    let natives = handlers
         .into_iter()
-        .fold(Natives::new(), |natives, (name, handler)| {
+        .fold(natives, |natives, (name, handler)| {
             let world = Rc::clone(world);
             natives.with(FAULT_PACKAGE, &format!("system.{name}"), move |args| {
                 handler(&mut *world.borrow_mut(), args)
+            })
+        });
+    starters
+        .into_iter()
+        .fold(natives, |natives, (name, starter)| {
+            let world = Rc::clone(world);
+            let path = format!("system.{name}");
+            natives.reaching(FAULT_PACKAGE, &path, move |running, args| {
+                let work = starter(args)?;
+                world.borrow_mut().begin(running.later()?, work);
+                Ok(Value::Null)
             })
         })
 }

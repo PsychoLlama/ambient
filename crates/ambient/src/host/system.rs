@@ -1,15 +1,18 @@
 //! The world of a real process.
 
-use std::io::{self, BufRead, Write};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::io::{self, Write};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use super::{Failure, Kind, Ran, World};
+use super::pending::Pending;
+use super::{Done, Failure, Kind, Work, World};
 
 /// The process the compiler is running in: its streams, files,
 /// environment, and clocks.
 pub struct System {
     args: Vec<String>,
     started: Instant,
+    /// The work it has begun and not yet given the outcome of.
+    pending: Pending,
 }
 
 impl System {
@@ -19,11 +22,12 @@ impl System {
         Self {
             args,
             started: Instant::now(),
+            pending: Pending::default(),
         }
     }
 }
 
-fn failure(error: &io::Error) -> Failure {
+pub(super) fn failure(error: &io::Error) -> Failure {
     let kind = match error.kind() {
         io::ErrorKind::NotFound => Kind::NotFound,
         io::ErrorKind::PermissionDenied => Kind::Denied,
@@ -48,17 +52,6 @@ impl World for System {
 
     fn warn(&mut self, text: &str) {
         let _ = io::stderr().lock().write_all(text.as_bytes());
-    }
-
-    fn read_line(&mut self) -> Option<String> {
-        let mut line = String::new();
-        let read = io::stdin().lock().read_line(&mut line).ok()?;
-        if read == 0 {
-            return None;
-        }
-        let ending = line.trim_end_matches(['\n', '\r']).len();
-        line.truncate(ending);
-        Some(line)
     }
 
     fn args(&self) -> Vec<String> {
@@ -105,16 +98,6 @@ impl World for System {
         std::fs::create_dir_all(path).map_err(|error| failure(&error))
     }
 
-    fn run(&mut self, command: &str, args: &[String]) -> Result<Ran, Failure> {
-        let done = std::process::Command::new(command).args(args).output();
-        let done = done.map_err(|error| failure(&error))?;
-        Ok(Ran {
-            code: done.status.code().map_or(-1, i64::from),
-            out: String::from_utf8_lossy(&done.stdout).into_owned(),
-            err: String::from_utf8_lossy(&done.stderr).into_owned(),
-        })
-    }
-
     fn directory(&self) -> Option<String> {
         let directory = std::env::current_dir().ok()?;
         Some(directory.to_string_lossy().into_owned())
@@ -138,8 +121,15 @@ impl World for System {
         saturating(self.started.elapsed().as_nanos())
     }
 
-    fn sleep(&mut self, milliseconds: i64) {
-        let milliseconds = u64::try_from(milliseconds).unwrap_or(0);
-        std::thread::sleep(Duration::from_millis(milliseconds));
+    fn begin(&mut self, ticket: u64, work: Work) {
+        self.pending.begin(ticket, work);
+    }
+
+    fn next(&mut self) -> Option<(u64, Done)> {
+        self.pending.next()
+    }
+
+    fn forsake(&mut self, ticket: u64) {
+        self.pending.forsake(ticket);
     }
 }

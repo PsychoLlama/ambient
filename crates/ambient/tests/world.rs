@@ -194,3 +194,55 @@ fn exiting_ends_the_program_with_its_code() {
     assert_eq!(outcome, Ok(Value::Int(3)));
     assert_eq!(after.out, "before\n");
 }
+
+// Waiting
+
+#[test]
+fn tasks_that_sleep_do_so_together() {
+    let source = r"
+        import ambient.clock;
+
+        fn nap(length: int): int with clock.sleep {
+            clock.sleep!(length);
+            return length;
+        }
+
+        fn main(): int with clock.sleep, clock.now {
+            let (a, b) = all(fn() => nap(30), fn() => nap(50));
+            return clock.now!() * 1000 + a + b;
+        }
+    ";
+
+    // Fifty milliseconds went by, not eighty.
+    let (outcome, _) = run(source, &Scripted::default());
+    assert_eq!(outcome, Ok(Value::Int(50_080)));
+}
+
+#[test]
+fn a_sleep_is_a_limit_on_how_long_to_wait() {
+    let source = r#"
+        import ambient.clock;
+        import ambient.console;
+
+        fn late(): string with clock.sleep {
+            clock.sleep!(100);
+            return "too late";
+        }
+
+        fn main(): string with clock.sleep, console.read_line {
+            return first(
+                fn() => console.read_line!() as string else "nothing",
+                fn() => late(),
+            );
+        }
+    "#;
+    let world = Scripted {
+        input: ["typed".to_owned()].into(),
+        ..Scripted::default()
+    };
+
+    // The sleep that lost was stopped, and no time went by.
+    let (outcome, after) = run(source, &world);
+    assert_eq!(outcome, Ok(Value::String("typed".to_owned())));
+    assert_eq!((after.time, after.forsaken.len()), (0, 1));
+}

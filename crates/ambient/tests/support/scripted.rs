@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use ambient::cli::{Command, Session};
-use ambient::host::{Failure, Kind, Ran, World};
+use ambient::host::{Done, Failure, Kind, Ran, Work, World};
 use ambient::project::Files;
 use ambient::store::MemoryStore;
 
@@ -26,8 +26,14 @@ pub struct Scripted {
     pub directory: Option<String>,
     /// How many random numbers were asked for; the next is one more.
     pub rolled: u64,
-    /// What the clock says; sleeping moves it on.
+    /// What the clock says. Waiting for work moves it on to when the
+    /// work is over.
     pub time: i64,
+    /// The work under way: when it is over, its ticket, and what
+    /// comes of it.
+    pub waits: Vec<(i64, u64, Done)>,
+    /// The tickets of the work that was stopped, in order.
+    pub forsaken: Vec<u64>,
 }
 
 impl Scripted {
@@ -83,10 +89,6 @@ impl World for Scripted {
         self.err.push_str(text);
     }
 
-    fn read_line(&mut self) -> Option<String> {
-        self.input.pop_front()
-    }
-
     fn args(&self) -> Vec<String> {
         self.args.clone()
     }
@@ -128,14 +130,6 @@ impl World for Scripted {
         Ok(())
     }
 
-    fn run(&mut self, command: &str, args: &[String]) -> Result<Ran, Failure> {
-        let line = [&[command.to_owned()], args].concat().join(" ");
-        self.commands.get(&line).cloned().ok_or_else(|| Failure {
-            kind: Kind::NotFound,
-            message: format!("no command {command}"),
-        })
-    }
-
     fn directory(&self) -> Option<String> {
         self.directory.clone()
     }
@@ -153,7 +147,35 @@ impl World for Scripted {
         self.time * 1_000_000
     }
 
-    fn sleep(&mut self, milliseconds: i64) {
-        self.time += milliseconds;
+    /// Only a sleep takes time here: a command and a line of input
+    /// are over as soon as they are begun.
+    fn begin(&mut self, ticket: u64, work: Work) {
+        let (takes, done) = match work {
+            Work::Sleep(milliseconds) => (milliseconds.max(0), Done::Slept),
+            Work::ReadLine => (0, Done::Line(self.input.pop_front())),
+            Work::Run { command, args } => {
+                let line = [std::slice::from_ref(&command), &args[..]]
+                    .concat()
+                    .join(" ");
+                let ran = self.commands.get(&line).cloned().ok_or_else(|| Failure {
+                    kind: Kind::NotFound,
+                    message: format!("no command {command}"),
+                });
+                (0, Done::Ran(ran))
+            }
+        };
+        self.waits.push((self.time + takes, ticket, done));
+    }
+
+    fn next(&mut self) -> Option<(u64, Done)> {
+        let soonest = (0..self.waits.len()).min_by_key(|index| self.waits[*index].0)?;
+        let (over, ticket, done) = self.waits.remove(soonest);
+        self.time = self.time.max(over);
+        Some((ticket, done))
+    }
+
+    fn forsake(&mut self, ticket: u64) {
+        self.waits.retain(|wait| wait.1 != ticket);
+        self.forsaken.push(ticket);
     }
 }
