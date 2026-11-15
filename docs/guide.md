@@ -32,6 +32,7 @@ ambient run hello -- one two       # what follows `--` is what env.args gives
 ambient run hello --entry tools.fmt
 ambient check hello                # checks every definition, runs nothing
 ambient test hello                 # runs every function named test_*
+ambient build hello -o greet       # one file that runs main.main: no package, no compiler
 ```
 
 A `main` that gives an integer exits with it. What is built is kept by its content in one store for every package on the machine, so a second run compiles only what changed.

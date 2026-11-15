@@ -29,4 +29,20 @@ impl Engine<'_> {
         let node = origins.get(&named)?.get(&function.lambda)?.get(position)?;
         usize::try_from(*node).ok()
     }
+
+    /// The node each expression of a function's core body was checked
+    /// from, by position: every answer [`Self::origin`] has for it.
+    #[must_use]
+    pub fn origins(&self, function: &Symbol) -> Vec<Option<usize>> {
+        let named = function.lambda(&[]);
+        if self.check(&named).is_err() {
+            return Vec::new();
+        }
+        let origins = self.origins.borrow();
+        let nodes = origins
+            .get(&named)
+            .and_then(|lambdas| lambdas.get(&function.lambda));
+        let node = |node: &u32| usize::try_from(*node).ok();
+        nodes.map_or_else(Vec::new, |nodes| nodes.iter().map(node).collect())
+    }
 }

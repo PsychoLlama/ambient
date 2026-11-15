@@ -3,7 +3,9 @@
 //! Everything it touches is handed to it (files, a store, a world), so a
 //! test drives the same code a terminal does.
 
+mod build;
 mod init;
+mod launch;
 mod test;
 mod trace;
 
@@ -12,10 +14,11 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use ambient_runtime::FAULT_PACKAGE;
 use clap::{Parser, Subcommand};
 
-use crate::backend::native::{Native, Natives, Program};
+pub use build::{carried, start};
+use launch::Launch;
+
 use crate::engine::Engine;
 use crate::host::{self, World};
 use crate::project::{self, Files, Project};
@@ -24,7 +27,6 @@ use crate::surface::DefinitionKind;
 use crate::symbol::{ModuleId, Symbol};
 use crate::value::Value;
 use crate::workspace::Sources;
-use trace::{Named, describe};
 
 /// The Ambient programming language.
 #[derive(Debug, Parser)]
@@ -47,6 +49,19 @@ pub enum Command {
         /// What the program is started with.
         #[arg(last = true)]
         args: Vec<String>,
+    },
+    /// Makes an executable of a function of a package: one file that
+    /// runs it without the package or the compiler.
+    Build {
+        /// The package's directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// The function to run: a module path and a name.
+        #[arg(long, default_value = "main.main")]
+        entry: String,
+        /// The file to make; one named for the package, if not said.
+        #[arg(long, short)]
+        output: Option<PathBuf>,
     },
     /// Checks every definition of a package and of those it depends on.
     Check {
@@ -77,6 +92,9 @@ pub struct Session<'a> {
     pub files: &'a dyn Files,
     pub store: &'a dyn Store,
     pub world: Rc<RefCell<dyn World>>,
+    /// The file of the command itself, which loads what it builds; a
+    /// session that has none builds nothing.
+    pub launcher: Option<PathBuf>,
 }
 
 /// The code a command that could not do its work exits with.
@@ -89,6 +107,11 @@ impl Session<'_> {
     pub fn execute(&self, command: &Command) -> i32 {
         let done = match command {
             Command::Run { path, entry, .. } => self.run(path, entry),
+            Command::Build {
+                path,
+                entry,
+                output,
+            } => self.build(path, entry, output.as_deref()),
             Command::Check { path } => self.check(path).map(|()| 0),
             Command::Init { path } => self.init(path),
             Command::Test { path, only } => self.test(path, only.as_deref()),
@@ -109,21 +132,16 @@ impl Session<'_> {
     fn run(&self, path: &Path, entry: &str) -> Result<i32, Vec<String>> {
         let project = self.open(path)?;
         let engine = Engine::new(&project.workspace, self.store);
-        let (module, name) = entry.rsplit_once('.').unwrap_or(("", entry));
-        let entry = ModuleId::new(&project.root, module).value(name);
         let launch = Launch {
             project: &project,
             engine: &engine,
         };
-        match launch.run(
-            &entry,
+        let gave = launch.run(
+            &entry_of(&project, entry),
             &crate::system::target(),
             &host::natives(&self.world),
-        )? {
-            // A program that gives a number exits with it.
-            Value::Int(code) => Ok(i32::try_from(code).unwrap_or(FAILED)),
-            _ => Ok(0),
-        }
+        )?;
+        Ok(code(&gave))
     }
 
     fn check(&self, path: &Path) -> Result<(), Vec<String>> {
@@ -154,67 +172,18 @@ impl Session<'_> {
     }
 }
 
-/// A package, opened, and the engine that builds it.
-struct Launch<'a> {
-    project: &'a Project,
-    engine: &'a Engine<'a>,
+/// The function of a project's package that `entry` names: a module
+/// path and a name.
+fn entry_of(project: &Project, entry: &str) -> Symbol {
+    let (module, name) = entry.rsplit_once('.').unwrap_or(("", entry));
+    ModuleId::new(&project.root, module).value(name)
 }
 
-impl Launch<'_> {
-    /// Runs `entry` as a program under `target`, with `natives` for
-    /// what the target binds. Gives what it gave, or says why it did
-    /// not get that far: what is wrong with it, or the fault that
-    /// ended it and the functions the fault left.
-    fn run(
-        &self,
-        entry: &Symbol,
-        target: &Symbol,
-        natives: &Natives,
-    ) -> Result<Value, Vec<String>> {
-        let Self { project, engine } = self;
-        let failed = |message: String| vec![message];
-        let refused =
-            |error: crate::error::Error| vec![project.report(&error, engine.blame(&error))];
-        let root = engine.program(entry, target).map_err(refused)?;
-        let backend = Native::new().map_err(failed)?;
-        let parts = engine.link(&root, &backend).map_err(refused)?;
-        // An error nothing dealt with reaches the root, which keeps it:
-        // the program ends there, and is reported as one that faulted.
-        let thrown = Rc::new(RefCell::new(None));
-        let kept = Rc::clone(&thrown);
-        // Each standard target binds `throw` to an extern of its own.
-        let externs = [
-            (crate::system::PACKAGE, "thrown"),
-            (FAULT_PACKAGE, "test.thrown"),
-        ];
-        let natives = externs
-            .into_iter()
-            .fold(natives.clone(), |natives, (package, path)| {
-                let kept = Rc::clone(&kept);
-                natives.with(package, path, move |args| {
-                    *kept.borrow_mut() = args.first().cloned();
-                    Ok(Value::Null)
-                })
-            });
-        let program = Program::load(&parts, &natives).map_err(failed)?;
-        let traced = |said: String, error: Option<&Value>| {
-            let named = Named::reached(project, engine, &root);
-            let mut lines = vec![said];
-            lines.extend(error.iter().flat_map(|error| named.trace(error)));
-            vec![lines.join("\n")]
-        };
-        let gave = program.run(&[]).map_err(|fault| {
-            let error = program.error();
-            let said = match (&error, program.failure()) {
-                (_, Some(native)) => format!("{fault:?}: {native}"),
-                (Some(error), None) => describe(error),
-                (None, None) => format!("{fault:?}"),
-            };
-            traced(said, error.as_ref())
-        })?;
-        match thrown.take() {
-            Some(error) => Err(traced(describe(&error), Some(&error))),
-            None => Ok(gave),
-        }
+/// What a program that gave `gave` exits with: the number, if it gave
+/// one.
+fn code(gave: &Value) -> i32 {
+    match gave {
+        Value::Int(code) => i32::try_from(*code).unwrap_or(FAILED),
+        _ => 0,
     }
 }

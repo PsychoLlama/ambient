@@ -64,6 +64,7 @@
 - `throw` is an ability of the library like any other (`library/errors.ab`), re-exported beside `Error`; each standard target binds it to an extern `thrown` of its own package, both of which `cli::Launch` supplies and reports as it does a fault.
 - A lambda with no row takes the row of the function type expected of it (`Checker::infer_as`, `asked`); with none expected it captures everything.
 - `ambient test` runs each `test_*` function that takes nothing as its own program under `ambient.test.tests`, whose one extern is the check (`cli/test.rs`); `cli::Launch` is the one way a command runs a program.
+- An executable is the command's own file with a program after it (`cli/build.rs`): encoded parts, the names and places a report takes (`cli::trace::Frames`), a length, and a mark. `main` looks for the mark in its own file before it reads a command line; `cli::launch::started` is the one way a compiled program is run and reported, built or not.
 - A package on disk is read through `project::Files` (`project/`), and `cli::Session` is handed its files, store, and world, so `tests/cli.rs` drives the command line in memory.
 - The core checker (`verify/`) accepts what `checker/` makes and nothing looser; `support::run` verifies every definition it runs. Typing rules live in `types::Env`, which both checkers ask.
 - A received definition (`engine/pack.rs`) is an `Open` under a made-up symbol: it is verified, then hashed, compiled, and linked like any other. It has no surface tree and never reaches the store.

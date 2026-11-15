@@ -4,6 +4,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde::{Deserialize, Serialize};
+
 use crate::engine::Engine;
 use crate::project::Project;
 use crate::symbol::Symbol;
@@ -25,18 +27,56 @@ pub(super) fn describe(error: &Value) -> String {
 }
 
 /// The definitions a program reaches, by hash: what turns a trace's
-/// frames back into names and places.
-pub(super) struct Named<'a> {
-    project: &'a Project,
-    engine: &'a Engine<'a>,
-    /// The root is a function nobody wrote, so it has no name here and
-    /// no frame names it.
-    names: BTreeMap<String, Option<Symbol>>,
+/// frames back into names and places. It is all a report needs, so an
+/// executable carries one in place of the package it was built from.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Frames {
+    /// The root is a function nobody wrote, so it is held as nothing
+    /// and no frame names it.
+    functions: BTreeMap<String, Option<Function>>,
 }
 
-impl<'a> Named<'a> {
-    pub(super) fn reached(project: &'a Project, engine: &'a Engine<'a>, root: &Symbol) -> Self {
-        let mut names = BTreeMap::new();
+/// A function as a frame names it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Function {
+    name: String,
+    /// The file it was read from, if it was read from one.
+    file: Option<String>,
+    /// The line and column of each expression of its body, by the
+    /// position a frame gives.
+    places: Vec<Option<(usize, usize)>>,
+}
+
+impl Function {
+    fn written(project: &Project, engine: &Engine, symbol: &Symbol) -> Self {
+        let located = project.locate(symbol);
+        let place = |node: Option<usize>| {
+            let at = located?.1.nodes.get(node?)?;
+            Some((at.line, at.column))
+        };
+        Self {
+            name: symbol.to_string(),
+            file: located.map(|(file, _)| file.display().to_string()),
+            places: engine.origins(symbol).into_iter().map(place).collect(),
+        }
+    }
+
+    /// The line of a report for a frame at `position` of this one.
+    fn line(&self, position: Option<usize>) -> String {
+        let place = position.and_then(|position| *self.places.get(position)?);
+        match (&self.file, place) {
+            (Some(file), Some((line, column))) => {
+                format!("  in {} at {file}:{line}:{column}", self.name)
+            }
+            _ => format!("  in {}", self.name),
+        }
+    }
+}
+
+impl Frames {
+    /// Every definition the program of `root` reaches.
+    pub(super) fn reached(project: &Project, engine: &Engine, root: &Symbol) -> Self {
+        let mut functions = BTreeMap::new();
         let mut seen = BTreeSet::new();
         let mut pending = vec![root.clone()];
         while let Some(symbol) = pending.pop() {
@@ -44,18 +84,15 @@ impl<'a> Named<'a> {
                 continue;
             }
             if let Ok(hash) = engine.hash(&symbol) {
-                let written = (symbol != *root).then(|| symbol.clone());
-                names.insert(hash.to_string(), written);
+                let written =
+                    (symbol != *root).then(|| Function::written(project, engine, &symbol));
+                functions.insert(hash.to_string(), written);
             }
             if let Ok(open) = engine.check(&symbol) {
                 pending.extend(open.slots.iter().cloned());
             }
         }
-        Self {
-            project,
-            engine,
-            names,
-        }
+        Self { functions }
     }
 
     /// A line for each frame of an error's trace, nearest first: the
@@ -80,20 +117,13 @@ impl<'a> Named<'a> {
         let Some(Value::String(hash)) = frame.get("definition") else {
             return None;
         };
-        let Some(symbol) = self.names.get(hash) else {
+        let Some(function) = self.functions.get(hash) else {
             return Some(format!("  in {hash}"));
         };
-        let symbol = symbol.as_ref()?;
         let position = match frame.get("position") {
             Some(Value::Int(position)) => usize::try_from(*position).ok(),
             _ => None,
         };
-        let node = position.and_then(|position| self.engine.origin(symbol, position));
-        Some(
-            match node.and_then(|node| self.project.place(symbol, node)) {
-                Some(place) => format!("  in {symbol} at {place}"),
-                None => format!("  in {symbol}"),
-            },
-        )
+        Some(function.as_ref()?.line(position))
     }
 }

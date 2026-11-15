@@ -53,6 +53,9 @@ pub struct Scripted {
     pub answers: Vec<Response>,
 }
 
+/// Where a scripted session says the command's own file is.
+pub const LAUNCHER: &str = "bin/ambient";
+
 impl Scripted {
     /// What a command over `files` exits with in this world, and the
     /// world it leaves.
@@ -64,6 +67,7 @@ impl Scripted {
             files,
             store: &store,
             world,
+            launcher: Some(PathBuf::from(LAUNCHER)),
         };
         let code = session.execute(command);
         let after = scripted.borrow().clone();
