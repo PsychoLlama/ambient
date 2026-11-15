@@ -11,7 +11,7 @@ type Answer = fn(http.Request): http.Response with throw;
 /// `hot [port]`. A deploy is packed code posted to `/deploy`; see
 /// `deploy.main`. Whoever can post there decides what the server runs,
 /// so a real one would ask who is posting.
-pub fn main(): int with console, env, http, code.load {
+pub fn main(): int with console, env, http, code.compile, code.load {
     let port = (env.args!().first() as string else "8080").to_int() as int else 8080;
     match http.listen!("127.0.0.1", port) {
         let error: Error => {
@@ -36,8 +36,8 @@ fn unfit(request: http.Request): http.Response with throw =>
 
 /// Puts the code a request carries in place of what answers, if it is
 /// a way to answer.
-fn deployed(current: Cell<Answer>, request: http.Request): http.Response with code.load {
-    match code.load!(request.body) {
+fn deployed(current: Cell<Answer>, request: http.Request): http.Response with code.compile, code.load {
+    match code.unpack(request.body) {
         let error: Error => { return http.text(400, "${error.message}\n"); }
         let loaded: unknown => {
             let next = loaded as Answer else unfit;

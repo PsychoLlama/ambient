@@ -106,7 +106,7 @@ fn an_executable_packs_its_own_code_and_loads_it() {
         fn greet(name: string): string => "hello, ${name}";
 
         fn main(): null with code, console.print {
-            match code.load!(code.pack!(greet) as bytes else 0x[]) {
+            match code.unpack(code.pack!(greet) as bytes else 0x[]) {
                 let error: Error => { console.print!(error.message); }
                 let loaded: unknown => {
                     let greet = loaded as fn(string): string else other;

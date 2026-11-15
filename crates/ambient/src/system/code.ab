@@ -1,7 +1,7 @@
 import ambient.Error;
 
-/// What was given is not code that can be sent, or not code that can
-/// be loaded; the message says which.
+/// What was given is not code that can be sent, compiled, or loaded;
+/// the message says which.
 pub tag invalid;
 
 /// A function and everything it reaches, as bytes: code to send to a
@@ -9,8 +9,26 @@ pub tag invalid;
 /// nothing is packed; any other is an error.
 pub ability pack(function: unknown): bytes | Error;
 
-/// Adds code that was packed to this program, and gives its function.
-/// Nothing says what that function takes or gives until it is cast to
-/// the type expected of it. Code that could not have been checked is
-/// an error, and none of it is kept.
-pub ability load(code: bytes): unknown | Error;
+/// Compiles code that was packed for this machine, and gives what was
+/// compiled as bytes to load. This is the compiler: the pack is checked
+/// as its source was, and one that could not have been checked is an
+/// error.
+pub ability compile(packed: bytes): bytes | Error;
+
+/// Adds compiled code to this program, and gives its function. Nothing
+/// says what that function takes or gives until it is cast to the type
+/// expected of it.
+///
+/// Compiled code is trusted as the program itself is: nothing checks
+/// it, so load only what this program compiled or kept. Code compiled
+/// by another build of the compiler, or for another machine, is an
+/// error.
+pub ability load(compiled: bytes): unknown | Error;
+
+/// The function code that was packed holds: compiled, and then loaded.
+pub fn unpack(packed: bytes): unknown | Error with compile, load {
+    match compile!(packed) {
+        let error: Error => { return error; }
+        let compiled: bytes => { return load!(compiled); }
+    }
+}

@@ -3,33 +3,47 @@ import system.crypto;
 import system.fs;
 import system.path;
 
-/// The directory packs are kept in, each named for its hash.
-fn directory(): string => "functions";
-
-/// The name a pack is kept and called by: the hash of its bytes.
+/// The name a function is kept and called by: the hash of its pack.
 pub fn name(packed: bytes): string => crypto.hash(crypto.sha256, packed).hex();
 
-/// Where the pack of a name is kept, if it is a name at all. Only a
-/// hash written out is one, so a name never leads out of the directory.
-fn file(name: string): string | null {
+/// Where a function is kept under a name, as a pack or as compiled
+/// code, if it is a name at all. Only a hash written out is one, so a
+/// name never leads out of the directory.
+fn file(name: string, kind: string): string | null {
     let hash = bytes.from_hex(name) as bytes else 0x[];
-    return hash.length() == 32 ? path.join([directory(), "${hash.hex()}.pack"]) : null;
+    return hash.length() == 32 ? path.join([".cache", "${hash.hex()}.${kind}"]) : null;
 }
 
-/// Keeps a pack, and gives the name it is called by.
-pub fn keep(packed: bytes): string | Error with fs.make_directory, fs.write_bytes {
-    let name = name(packed);
-    let _ = fs.make_directory!(directory());
-    match fs.write_bytes!(file(name) as string else "", packed) {
-        let error: Error => { return error; }
-        null => { return name; }
-    }
-}
-
-/// The pack kept under a name, if there is one.
-pub fn kept(name: string): bytes | null with fs.read_bytes {
-    match file(name) {
+fn read(name: string, kind: string): bytes | null with fs.read_bytes {
+    match file(name, kind) {
         null => { return null; }
         let file: string => { return fs.read_bytes!(file) as bytes else null; }
     }
 }
+
+/// Keeps a function, as it was packed and as it was compiled, and
+/// gives the name it is called by.
+pub fn keep(packed: bytes, compiled: bytes): string | Error with fs.make_directory, fs.write_bytes {
+    let name = name(packed);
+    let _ = fs.make_directory!(".cache");
+    match fs.write_bytes!(file(name, "pack") as string else "", packed) {
+        let error: Error => { return error; }
+        null => {
+            compile(name, compiled);
+            return name;
+        }
+    }
+}
+
+/// Keeps what a function compiled to. It is only ever a copy of what
+/// the pack says, so one that cannot be written is done without.
+pub fn compile(name: string, compiled: bytes): null with fs.write_bytes {
+    let _ = fs.write_bytes!(file(name, "code") as string else "", compiled);
+    return null;
+}
+
+/// The pack of the function kept under a name, if there is one.
+pub fn packed(name: string): bytes | null with fs.read_bytes => read(name, "pack");
+
+/// What the function kept under a name compiled to, if that was kept.
+pub fn compiled(name: string): bytes | null with fs.read_bytes => read(name, "code");

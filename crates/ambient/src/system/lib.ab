@@ -52,6 +52,7 @@ extern suspending handler http_accept for http.accept;
 extern handler http_respond for http.respond;
 extern handler http_close for http.close;
 extern handler code_pack for code.pack;
+extern handler code_compile for code.compile;
 extern handler code_load for code.load;
 extern handler thrown for errors.throw;
 
@@ -90,6 +91,7 @@ pub target cli {
     http.respond: http_respond,
     http.close: http_close,
     code.pack: code_pack,
+    code.compile: code_compile,
     code.load: code_load,
     errors.throw: thrown,
 }

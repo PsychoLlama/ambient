@@ -1,10 +1,11 @@
-//! What `system.code` binds: packing a function to send, and loading
-//! one that was sent. See "Code" in `spec/targets.md`.
+//! What `system.code` binds: packing a function to send, compiling
+//! one that was sent, and loading what was compiled. See "Code" in
+//! `spec/targets.md`.
 //!
-//! Neither reaches a world. Both need the compiler, over nothing but
-//! what a pack holds: a pack leaves nothing out, so an engine with an
-//! empty workspace takes one in, and the program's own trees are held
-//! as a pack of its entry.
+//! None of them reaches a world. Packing and compiling need the
+//! compiler, over nothing but what a pack holds: a pack leaves nothing
+//! out, so an engine with an empty workspace takes one in, and the
+//! program's own trees are held as a pack of its entry.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -106,19 +107,26 @@ fn pack(
     Ok(bytes)
 }
 
-/// Takes in a pack, compiles what it holds for the program that asked,
-/// and loads it there, with `natives` for its externs.
-fn load(running: &mut dyn Running, natives: &Natives, code: &[u8]) -> Result<Value, Failure> {
-    let pack = Pack::decode(code).map_err(|error| invalid(&error))?;
+/// Takes in a pack and compiles what it holds for the program that
+/// asked: the bytes of [`Parts::encode`].
+fn compile(running: &mut dyn Running, packed: &[u8]) -> Result<Vec<u8>, Failure> {
+    let pack = Pack::decode(packed).map_err(|error| invalid(&error))?;
     let (workspace, store) = (Workspace::default(), MemoryStore::new());
     let engine = Engine::new(&workspace, &store);
     let entry = engine
         .receive(&pack, &[])
         .map_err(|error| invalid(&error))?;
     let backend = running.backend().map_err(|error| invalid(&error))?;
-    let parts = engine
-        .link_to_load(&entry, &*backend)
-        .map_err(|error| invalid(&error))?;
+    let parts = engine.link_to_load(&entry, &*backend);
+    Ok(parts.map_err(|error| invalid(&error))?.encode(&*backend))
+}
+
+/// Loads what [`compile`] gave into the program that asked, with
+/// `natives` for its externs. The bytes are trusted, as compiled code
+/// is.
+fn load(running: &mut dyn Running, natives: &Natives, compiled: &[u8]) -> Result<Value, Failure> {
+    let backend = running.backend().map_err(|error| invalid(&error))?;
+    let parts = Parts::decode(compiled, backend.name()).map_err(|error| invalid(&error))?;
     running
         .load(&parts, natives)
         .map_err(|error| invalid(&error))
@@ -135,6 +143,10 @@ pub(super) fn offer(natives: Natives, trees: Option<Pack>) -> Natives {
     natives
         .with(PACKAGE, "code_pack", move |args| {
             let done = pack(trees.as_ref(), &packed, args.first());
+            Ok(answer(done.map(Value::Bytes)))
+        })
+        .reaching(PACKAGE, "code_compile", move |running, args| {
+            let done = compile(running, bytes(args, 0)?);
             Ok(answer(done.map(Value::Bytes)))
         })
         .reaching(PACKAGE, "code_load", move |running, args| {

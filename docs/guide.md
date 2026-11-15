@@ -355,7 +355,7 @@ A body is `bytes`, since not everything sent is text: `request.body.to_text()` i
 
 ## Changing a running program
 
-`system.code` packs a function, with everything it reaches, into bytes, and loads such bytes into a program that is running. What is loaded is `unknown` until a cast says what it must be.
+`system.code` packs a function, with everything it reaches, into bytes. `code.compile!` is the compiler: it checks a pack as its source was checked, and gives code for this machine as bytes. `code.load!` adds compiled code to the program that is running, and `code.unpack` does both. What is loaded is `unknown` until a cast says what it must be.
 
 ```ab
 import system.code;
@@ -367,8 +367,8 @@ fn polite(name: string): string => "good day, ${name}";
 fn curt(name: string): string => "hi ${name}";
 
 /// Answers with what was packed from now on, if it is a way to answer.
-fn deploy(current: Cell<Answer>, packed: bytes): null with code.load {
-    let loaded = code.load!(packed);
+fn deploy(current: Cell<Answer>, packed: bytes): null with code.compile, code.load {
+    let loaded = code.unpack(packed);
     let _ = current.update(fn(now: Answer): Answer => loaded as Answer else now);
 }
 
@@ -382,7 +382,9 @@ pub fn main(): null with code, console.print {
 
 Here the bytes never leave the program. They are as good read from a file or the body of a request, packed by a program built from other source: the code is checked again where it arrives, and one whose type is not the one the cast asks for is turned away there. A server that reads what answers from a cell, as above, is one that can be changed without stopping; a program made with `ambient build` loads as one that is run does.
 
-`examples/hot` is a whole one: a server that takes a deploy at `/deploy`, and an entry that packs what the site answers, as it is written now, and sends it. `examples/functions` keeps each function it is sent in a file and calls it at a path named for its hash, loaded for the request and held to a budget; the type it casts to has `throw` for a row, so what it runs can do nothing else to the machine.
+Compiled code can be kept, in a file or anywhere bytes go, and loaded later without compiling again. Nothing checks it then, so load only what the program compiled itself; a pack is what to accept from anyone else.
+
+`examples/hot` is a whole one: a server that takes a deploy at `/deploy`, and an entry that packs what the site answers, as it is written now, and sends it. `examples/functions` compiles each function it is posted, keeps it in a file, and calls it at a path named for its hash: loaded for the request, held to a budget, and let go. The type it casts to has `throw` for a row, so what it runs can do nothing else to the machine.
 
 ## Bytes, hashes, and time
 
@@ -453,7 +455,7 @@ Import a module by path; its public definitions are reached through its name, or
 | `system.clock`                                               | `now`, `elapsed`, `sleep`                                                                                                 |
 | `system.process`                                             | `exit`, `run`, `command`                                                                                                  |
 | `system.http`                                                | `send`, `get`, `post`, `post_json`, `listen`, `serve`, `accept`, `respond`, `close`, `text`, `json`                       |
-| `system.code`                                                | `pack`, `load`                                                                                                            |
+| `system.code`                                                | `pack`, `compile`, `load`, `unpack`                                                                                       |
 | `system.random`                                              | `bits`, `between`, `fraction`, `chance`, `pick`, `shuffle`, `bytes`, `seeded`                                             |
 | `system.crypto`                                              | `hash`, `hmac`, `same`, and the tags `sha256`, `sha512`, `sha1`                                                           |
 | `ambient.cleanup`                                            | the `dispose` key a `using` reads                                                                                         |

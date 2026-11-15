@@ -23,6 +23,8 @@ pub enum Unloadable {
     Malformed,
     /// They are parts as another version of the compiler wrote them.
     Format(u32),
+    /// They were compiled by another build of the compiler.
+    Compiler,
     /// They were compiled for another backend, named here.
     Backend(String),
 }
@@ -32,6 +34,7 @@ impl std::fmt::Display for Unloadable {
         match self {
             Self::Malformed => write!(f, "not compiled parts"),
             Self::Format(format) => write!(f, "compiled parts of format {format}, not {FORMAT}"),
+            Self::Compiler => write!(f, "compiled by another build of the compiler"),
             Self::Backend(name) => write!(f, "compiled for {name}"),
         }
     }
@@ -43,6 +46,9 @@ impl std::error::Error for Unloadable {}
 #[derive(Serialize, Deserialize)]
 struct Header {
     format: u32,
+    /// The build of the compiler that made them: code compiled by one
+    /// relies on the runtime of that one.
+    build: String,
     backend: String,
 }
 
@@ -52,6 +58,7 @@ impl Parts {
     pub fn encode(&self, backend: &dyn Backend) -> Vec<u8> {
         let header = Header {
             format: FORMAT,
+            build: super::BUILD.to_owned(),
             backend: backend.name().to_owned(),
         };
         let mut bytes = crate::hash::encode(&header);
@@ -70,6 +77,9 @@ impl Parts {
         let (header, rest): (Header, _) = postcard::take_from_bytes(bytes).map_err(malformed)?;
         if header.format != FORMAT {
             return Err(Unloadable::Format(header.format));
+        }
+        if header.build != super::BUILD {
+            return Err(Unloadable::Compiler);
         }
         if header.backend != name {
             return Err(Unloadable::Backend(header.backend));

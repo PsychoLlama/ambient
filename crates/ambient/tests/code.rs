@@ -36,8 +36,8 @@ const SENT: &str = r#"
 const CALLED: &str = r#"
     fn other(name: string): string => "not that function";
 
-    fn called(packed: bytes): string with code.load {
-        match code.load!(packed) {
+    fn called(packed: bytes): string with code.compile, code.load {
+        match code.unpack(packed) {
             let error: Error => { return error.message; }
             let loaded: unknown => {
                 let greet = loaded as fn(string): string else other;
@@ -60,7 +60,7 @@ fn a_function_is_packed_and_loaded_where_it_was_never_written() {
 
     let receiver = format!(
         "{CALLED}
-        fn main(): string with code.load, fs.read_bytes =>
+        fn main(): string with code.compile, code.load, fs.read_bytes =>
             called(fs.read_bytes!(\"greet.pack\") as bytes else 0x[]);"
     );
     let (gave, _) = run(&receiver, &sent);
@@ -129,7 +129,7 @@ fn a_loaded_function_does_what_its_caller_provides() {
             console.print!(word.to_upper());
         }
         fn main(): null with code, console.print {
-            let loaded = code.load!(code.pack!(shout) as bytes else 0x[]);
+            let loaded = code.unpack(code.pack!(shout) as bytes else 0x[]);
             let shout = loaded as fn(string): null with console.print else quiet;
             shout("loaded");
         }
@@ -148,8 +148,8 @@ fn a_program_goes_on_with_the_code_it_was_last_given() {
         fn first(name: string): string => "hello, ${name}";
         fn second(name: string): string => "goodbye, ${name}";
 
-        fn deploy(current: Cell<Answer>, packed: bytes): null with code.load {
-            let loaded = code.load!(packed);
+        fn deploy(current: Cell<Answer>, packed: bytes): null with code.compile, code.load {
+            let loaded = code.unpack(packed);
             let _ = current.update(fn(now: Answer): Answer => loaded as Answer else now);
         }
 
@@ -164,4 +164,39 @@ fn a_program_goes_on_with_the_code_it_was_last_given() {
     "#;
     let gave = run(source, &Scripted::default()).0;
     assert_eq!(gave, text("hello, ada; hello, ada; goodbye, ada"));
+}
+
+#[test]
+fn what_was_compiled_is_kept_and_loaded_without_the_compiler() {
+    let source = format!(
+        "{SENT}
+        fn other(name: string): string => \"not that function\";
+
+        fn main(): string with code, fs {{
+            let packed = code.pack!(greet) as bytes else 0x[];
+            let _ = fs.write_bytes!(\"greet.code\", code.compile!(packed) as bytes else 0x[]);
+            let kept = fs.read_bytes!(\"greet.code\") as bytes else 0x[];
+            let greet = code.load!(kept) as fn(string): string else other;
+            return greet(\"ada\");
+        }}"
+    );
+    assert_eq!(run(&source, &Scripted::default()).0, text("hello, ADA!"));
+}
+
+#[test]
+fn only_what_this_compiler_compiled_is_loaded() {
+    // A pack is not compiled code, and neither is anything else.
+    let source = format!(
+        "{SENT}
+        fn said(loaded: unknown | Error): string {{
+            match loaded {{
+                let error: Error => {{ return error.kind == code.invalid ? \"refused\" : \"failed\"; }}
+                _ => {{ return \"loaded\"; }}
+            }}
+        }}
+        fn main(): string with code =>
+            said(code.load!(code.pack!(greet) as bytes else 0x[])) ++ \"; \" ++ said(code.load!(0x[]));"
+    );
+    let gave = run(&source, &Scripted::default()).0;
+    assert_eq!(gave, text("refused; refused"));
 }

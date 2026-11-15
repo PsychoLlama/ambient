@@ -226,5 +226,7 @@ fn a_function_that_was_posted_is_called_by_its_hash() {
         (404, "no function is called that\n".to_owned()),
     ];
     assert_eq!(said(&after), expected);
-    assert_eq!(after.files[&format!("functions/{greets}.pack")], hello);
+    // Both are kept: what was sent, and what it compiled to.
+    assert_eq!(after.files[&format!(".cache/{greets}.pack")], hello);
+    assert!(after.files.contains_key(&format!(".cache/{greets}.code")));
 }

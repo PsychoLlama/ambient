@@ -14,14 +14,17 @@ type Function = fn(Request): Response with throw;
 
 /// Serves functions it is sent: `functions [port]`.
 ///
-/// - `POST /` with a packed function keeps it, and answers with the
-///   path it is called at: `/<hash>`.
+/// - `POST /` with a packed function compiles it, keeps it, and answers
+///   with the path it is called at: `/<hash>`.
 /// - Any request to `/<hash>` or under it is answered by that function,
 ///   which is handed the rest of the path as the request's URL.
 ///
-/// A function is loaded for each request and gone when it is answered;
-/// what is kept is its pack, in a file. See `publish.main` to send one.
-pub fn main(): int with console, env, fs, http, code.load {
+/// A function is compiled once, when it is posted, and what it compiled
+/// to is kept in a file beside its pack. Each request loads that file
+/// and lets it go when it is answered, so nothing is held between
+/// requests however many functions there are. See `publish.main` to
+/// send one.
+pub fn main(): int with console, env, fs, http, code.compile, code.load {
     let port = (env.args!().first() as string else "8080").to_int() as int else 8080;
     match http.listen!("127.0.0.1", port) {
         let error: Error => {
@@ -40,9 +43,9 @@ pub fn main(): int with console, env, fs, http, code.load {
 /// What stands for a function when what was sent is not one.
 fn unfit(request: Request): Response with throw => http.text(500, "not a function\n");
 
-/// The function a pack holds, or why it holds none.
-fn loaded(packed: bytes): Function | Error with code.load {
-    match code.load!(packed) {
+/// The function compiled code holds, or why it holds none.
+fn loaded(compiled: bytes): Function | Error with code.load {
+    match code.load!(compiled) {
         let error: Error => { return error; }
         let loaded: unknown => {
             let function = loaded as Function else unfit;
@@ -54,16 +57,20 @@ fn loaded(packed: bytes): Function | Error with code.load {
 fn unsuited(): Error =>
     { kind: code.invalid, message: "not a way to answer a request", cause: null, trace: [] };
 
-/// Keeps the function a request carries, if it is one, and says where
-/// it is called.
-fn published(request: Request): Response with fs, code.load {
+/// Compiles the function a request carries and keeps it, if it is one,
+/// and says where it is called.
+fn published(request: Request): Response with fs, code.compile, code.load {
     if request.method != "POST" {
         return http.text(405, "post a packed function here\n");
     }
-    match loaded(request.body) {
+    match code.compile!(request.body) {
         let error: Error => { return http.text(400, "${error.message}\n"); }
-        let _: Function => {
-            match store.keep(request.body) {
+        let compiled: bytes => {
+            match loaded(compiled) {
+                let error: Error => { return http.text(400, "${error.message}\n"); }
+                let _: Function => {}
+            }
+            match store.keep(request.body, compiled) {
                 let error: Error => { return http.text(500, "${error.message}\n"); }
                 let name: string => { return http.text(201, "/${name}\n"); }
             }
@@ -71,21 +78,44 @@ fn published(request: Request): Response with fs, code.load {
     }
 }
 
+/// The function kept under a name, or nothing if none is. It is loaded
+/// from what it compiled to; if that is gone, or another compiler made
+/// it, the pack is compiled again.
+fn found(name: string): Function | Error | null with fs, code.compile, code.load {
+    match store.compiled(name) {
+        null => {}
+        let compiled: bytes => {
+            match loaded(compiled) {
+                let function: Function => { return function; }
+                let _: Error => {}
+            }
+        }
+    }
+    match store.packed(name) {
+        null => { return null; }
+        let packed: bytes => {
+            match code.compile!(packed) {
+                let error: Error => { return error; }
+                let compiled: bytes => {
+                    store.compile(name, compiled);
+                    return loaded(compiled);
+                }
+            }
+        }
+    }
+}
+
 /// Answers a request to `/<hash>/<rest>` with what the function kept
 /// under the hash makes of it.
-fn called(request: Request): Response with fs.read_bytes, code.load {
+fn called(request: Request): Response with fs, code.compile, code.load {
     let after = request.url.slice(1, request.url.length()) as string else "";
     let name = after.split("/").first() as string else "";
     let rest = after.slice(name.length(), after.length()) as string else "";
-    match store.kept(name) {
+    match found(name) {
         null => { return http.text(404, "no function is called that\n"); }
-        let packed: bytes => {
-            match loaded(packed) {
-                let error: Error => { return http.text(500, "${error.message}\n"); }
-                let function: Function => {
-                    return run(function, { ...request, url: rest.is_empty() ? "/" : rest });
-                }
-            }
+        let error: Error => { return http.text(500, "${error.message}\n"); }
+        let function: Function => {
+            return run(function, { ...request, url: rest.is_empty() ? "/" : rest });
         }
     }
 }

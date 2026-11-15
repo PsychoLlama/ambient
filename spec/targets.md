@@ -77,15 +77,18 @@ A target defines the world a program runs in: a root binding for every ability t
 
 ## Code
 
-- `system.code` packs a function and loads one: the two halves of [exchange](exchange.md), each an ability.
-- Packing gives a [pack](exchange.md) of a function and everything it reaches, as bytes. It leaves nothing out, so whatever has the compiler can load it.
-- Loading rechecks a pack, compiles it, and adds it to the program. It gives the function as `unknown`, and a [cast](types.md) to the type expected is the check that it fits.
-- Bytes that are not a pack, a pack checking could not have made, and one that needs native code the program lacks are each an [error](errors.md), and nothing of them is kept.
+- `system.code` packs a function, compiles a pack, and loads what was compiled: the halves of [exchange](exchange.md), each an ability.
+- Packing gives a [pack](exchange.md) of a function and everything it reaches, as bytes. It leaves nothing out, so whatever has the compiler can compile it.
+- Compiling rechecks a pack and gives code for the program that asked, as bytes. Bytes that are not a pack, and a pack checking could not have made, are each an [error](errors.md).
+- Loading adds compiled code to the program and gives the function as `unknown`; a [cast](types.md) to the type expected is the check that it fits.
+- Compiled code is trusted as the program is: nothing checks it, so a program loads only what it compiled or kept itself. Holding the ability to load is holding that trust.
+- Compiled code says which build of the compiler made it and what for, and any other is an error, as is code that needs native code the program lacks.
+- Compiling and loading are apart so that what was compiled can be kept: a program that keeps it compiles a function once, however often it is loaded and let go.
 - Only a function that captured nothing is packed.
 - A program whose row reaches loading is compiled as one code can be [loaded](linking.md) into; no other program pays for it.
 - A program whose row reaches packing holds its own trees while it runs; no other does.
 - TODO: a function that captured values is not packed, since what it captured would have to be checked against its definition where it arrives.
-- TODO: a pack carries everything, so loading compiles again what the program already has.
+- TODO: a pack carries everything, so compiling one compiles again what the program already has.
 
 ## Cryptography
 
