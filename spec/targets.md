@@ -69,3 +69,12 @@ A target defines the world a program runs in: a root binding for every ability t
 - A body is [bytes](operations.md#bytes), so anything can be sent and received. Text and JSON are put into a body and read out of one by functions.
 - TODO: a body is held whole; nothing is streamed.
 - TODO: requests a server has not accepted are held without limit.
+
+## Cryptography
+
+- `system.crypto` hashes bytes, and signs them with a key as an HMAC, by an algorithm a tag names: SHA-256, SHA-512, or SHA-1.
+- They are [extern](externs.md) functions and no abilities: a hash is a function of what is hashed, so there is nothing to grant, bind, or record.
+- Comparing two digests takes as long whatever they hold, so how long it took says nothing of where they differ.
+- Random bytes are drawn through `system.random`, the one ability randomness has.
+- SHA-1 is there for the protocols that still name it, and for nothing new.
+- TODO: nothing encrypts, signs with a key pair, or hashes a password.
