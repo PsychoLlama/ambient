@@ -41,6 +41,7 @@ mod cleanup;
 mod closure;
 mod convert;
 mod entry;
+mod handle;
 #[cfg(target_arch = "wasm32")]
 mod heap;
 mod host;
@@ -68,6 +69,7 @@ pub use cleanup::*;
 pub use closure::*;
 pub use convert::*;
 pub use entry::Entry;
+pub use handle::{amb_handle_new, amb_handle_next, amb_handle_number};
 pub use host::*;
 pub use is::{amb_is, descriptor};
 pub use iterator::{
@@ -203,6 +205,9 @@ pub enum Kind {
     Iterator = 14,
     /// Bytes that need not be text.
     Bytes = 15,
+    /// A handle: the brand it was minted under, a tag, and the number
+    /// its host knows it by, which is no value.
+    Handle = 16,
 }
 
 /// The state of one execution. Compiled code receives a pointer to it as

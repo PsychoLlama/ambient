@@ -7,9 +7,9 @@ use crate::closure::{described, generic, type_name};
 use crate::iterator::{Tested, tested};
 use crate::list::members;
 use crate::object::{
-    KIND_BYTES, KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_ITERATOR, KIND_LIST,
-    KIND_METHOD, KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE, boolean, bytes, int, kind,
-    payload, words,
+    KIND_BYTES, KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_HANDLE, KIND_INT, KIND_ITERATOR,
+    KIND_LIST, KIND_METHOD, KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE, boolean, bytes, int,
+    kind, payload, words,
 };
 use crate::record::find;
 use crate::same::Types;
@@ -80,6 +80,8 @@ pub mod descriptor {
     /// counted from the innermost. No value is tested against one.
     pub const BOUND: u64 = 21;
     pub const BYTES: u64 = 22;
+    /// Then the brand a handle was minted under, a tag.
+    pub const HANDLE: u64 = 23;
 }
 
 /// The tests a descriptor makes of the values inside a value.
@@ -274,6 +276,8 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
             d::FLOAT => kind(value) == KIND_FLOAT,
             d::STRING => kind(value) == KIND_STRING,
             d::BYTES => kind(value) == KIND_BYTES,
+            // Brands are tags, and equal tags are one object.
+            d::HANDLE => kind(value) == KIND_HANDLE && words(value)[0] == node(1),
             d::TAG => kind(value) == KIND_TAG,
             d::LITERAL => match node(1) {
                 d::LITERAL_BOOL => value == boolean(node(2) != 0),

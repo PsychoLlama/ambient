@@ -195,6 +195,7 @@ impl Program {
             Ok(returned)
         };
         guest.runtime("amb_context_free", &[context]);
+        guest.heard();
         guest.reclaim();
         outcome
     }

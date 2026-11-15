@@ -108,7 +108,7 @@ pub fn run_in(workspace: &Workspace) -> Outcome {
     execute_in(workspace, &[], None, Natives::new)
 }
 
-fn execute_in(
+pub fn execute_in(
     workspace: &Workspace,
     args: &[i64],
     target: Option<&str>,

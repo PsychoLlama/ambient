@@ -29,7 +29,6 @@ fn node_size(ty: &Type) -> usize {
         | Type::Float
         | Type::String
         | Type::Bytes
-        | Type::Brand(_)
         | Type::Tag => 1,
         // A brand on a type is not there as a program runs.
         Type::Branded(ty, _) => node_size(ty),
@@ -37,7 +36,7 @@ fn node_size(ty: &Type) -> usize {
         Type::Literal(_) | Type::Method { .. } | Type::Iterator(_) => 3,
         Type::Record(fields) => 2 + fields.len() * 2,
         Type::Tuple(members) | Type::Union(members) => 2 + members.len(),
-        Type::List(_) | Type::Cell(_) | Type::Parameter(_) | Type::Bound(_) => 2,
+        Type::List(_) | Type::Cell(_) | Type::Parameter(_) | Type::Bound(_) | Type::Brand(_) => 2,
         Type::Generic { bounds, .. } => 4 + bounds.len(),
         Type::Reference(_, args) => 3 + args.len(),
     }
@@ -80,13 +79,35 @@ impl Statics {
         }
     }
 
+    /// Writes which literal a literal type's node is of, after its tag.
+    fn literal(&mut self, literal: &Literal, at: usize) {
+        let (kind, payload) = match literal {
+            Literal::Bool(value) => (d::LITERAL_BOOL, Field::Word(u64::from(*value))),
+            Literal::Int(value) => (d::LITERAL_INT, Field::Word(value.cast_unsigned())),
+            Literal::Float(bits) => (d::LITERAL_FLOAT, Field::Word(*bits)),
+            Literal::String(text) => (d::LITERAL_STRING, self.text(Make::String, text)),
+            Literal::Bytes(bytes) => (d::LITERAL_BYTES, self.bytes(Make::Bytes, bytes)),
+            Literal::Tag { package, tag } => {
+                let text = Literal::tag_text(package, tag);
+                (d::LITERAL_TAG, self.text(Make::Tag, &text))
+            }
+        };
+        self.set(at + 1, Field::Word(kind));
+        self.set(at + 2, payload);
+    }
+
     /// Writes the node for `ty` at `at`, and the nodes it refers to after
     /// everything written so far.
     fn node(&mut self, ty: &Type, slots: &[Target], at: usize) {
         let tag = |statics: &mut Self, tag| statics.set(at, Field::Word(tag));
         match ty {
-            // TODO: a handle minted under the brand is one.
-            Type::Never | Type::Brand(_) => tag(self, d::NEVER),
+            Type::Never => tag(self, d::NEVER),
+            Type::Brand(brand) => {
+                tag(self, d::HANDLE);
+                let text = Literal::tag_text(&brand.package, &brand.brand);
+                let brand = self.text(Make::Tag, &text);
+                self.set(at + 1, brand);
+            }
             Type::Branded(ty, _) => self.node(ty, slots, at),
             Type::Unknown => tag(self, d::UNKNOWN),
             Type::Null => tag(self, d::NULL),
@@ -108,19 +129,7 @@ impl Statics {
             }
             Type::Literal(literal) => {
                 tag(self, d::LITERAL);
-                let (kind, payload) = match literal {
-                    Literal::Bool(value) => (d::LITERAL_BOOL, Field::Word(u64::from(*value))),
-                    Literal::Int(value) => (d::LITERAL_INT, Field::Word(value.cast_unsigned())),
-                    Literal::Float(bits) => (d::LITERAL_FLOAT, Field::Word(*bits)),
-                    Literal::String(text) => (d::LITERAL_STRING, self.text(Make::String, text)),
-                    Literal::Bytes(bytes) => (d::LITERAL_BYTES, self.bytes(Make::Bytes, bytes)),
-                    Literal::Tag { package, tag } => {
-                        let text = Literal::tag_text(package, tag);
-                        (d::LITERAL_TAG, self.text(Make::Tag, &text))
-                    }
-                };
-                self.set(at + 1, Field::Word(kind));
-                self.set(at + 2, payload);
+                self.literal(literal, at);
             }
             Type::Record(fields) => {
                 tag(self, d::RECORD);

@@ -56,6 +56,9 @@ impl Drop for Program {
         // SAFETY: the word is the one every call's context was given.
         // No call is running, so nothing reads a cell after this.
         unsafe { ambient_runtime::amb_cells_drop(self.cells.get()) }
+        // What its cells held goes with the program, and no host is
+        // told: the next program on this thread must not hear of it.
+        while ambient_runtime::amb_handle_next() != 0 {}
         // A unit that goes gives up the units it refers into, which may
         // be gone already when every unit goes.
         let mut units = self.units.borrow_mut();
@@ -124,6 +127,7 @@ impl Program {
     /// whatever only that referred to. Every load begins with this and
     /// every call ends with it.
     pub fn reclaim(&self) {
+        self.heard();
         loop {
             // SAFETY: the word is the list every unit was given.
             let unit = unsafe { ambient_runtime::amb_unit_take(self.unused.get()) };
@@ -331,6 +335,8 @@ impl Program {
             let value = crate::value::decode(word, &mut super::host::Host);
             // SAFETY: the word is owned here and not used again.
             unsafe { ambient_runtime::amb_release(word) };
+            // What it gave may have held the last of a handle.
+            self.heard();
             value
         })
     }

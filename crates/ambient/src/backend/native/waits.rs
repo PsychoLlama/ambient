@@ -27,6 +27,11 @@ pub trait Waits {
     /// Says the task that held `ticket` left its wait: the work may
     /// stop, and its answer is dropped if it comes.
     fn forsake(&mut self, _ticket: u64) {}
+
+    /// Says the program holds a handle no longer: one minted under the
+    /// brand of this identity in a package, that the host knows by
+    /// `number`. What it stood for may be closed.
+    fn dropped(&mut self, _package: &str, _brand: &str, _number: u64) {}
 }
 
 /// The answers of one host, shared by the native code that starts the
@@ -53,6 +58,7 @@ impl Program {
         unsafe {
             loop {
                 ambient_runtime::amb_schedule(context);
+                self.heard();
                 if (*context).mode != WAITING {
                     return;
                 }
@@ -66,6 +72,26 @@ impl Program {
                 };
                 self.answer(context, ticket, answer);
             }
+        }
+    }
+
+    /// Tells the host of every handle the program dropped since it
+    /// was last told. The runtime notes them as it reclaims them
+    /// (`ambient_runtime::amb_handle_next`), wherever that is, so the
+    /// host asks: before native code runs, when no task can, and when
+    /// a call is over.
+    pub(super) fn heard(&self) {
+        loop {
+            let brand = ambient_runtime::amb_handle_next();
+            if brand == 0 {
+                return;
+            }
+            let number = ambient_runtime::amb_handle_number();
+            let Some(waits) = &self.waits else { continue };
+            let text = value::Inspect::string(&mut super::host::Host, brand);
+            let text = String::from_utf8_lossy(&text);
+            let (package, brand) = text.split_once('\0').unwrap_or(("", &text));
+            waits.borrow_mut().dropped(package, brand, number);
         }
     }
 

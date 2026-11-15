@@ -22,6 +22,14 @@ pub enum Value {
     Float(f64),
     String(String),
     Bytes(Vec<u8>),
+    /// A handle: the brand it was minted under, by the package that
+    /// declares it and its identity there, and the number the host
+    /// that minted it knows it by. See `spec/values.md`.
+    Handle {
+        package: String,
+        brand: String,
+        number: u64,
+    },
     /// A tag, and the package it belongs to.
     Tag {
         package: String,
@@ -150,6 +158,16 @@ pub fn decode(word: Word, inspect: &mut impl Inspect) -> Value {
             }
             kind if kind == Kind::String as u64 => Value::String(text(inspect, word)),
             kind if kind == Kind::Bytes as u64 => Value::Bytes(inspect.string(word)),
+            kind if kind == Kind::Handle as u64 => {
+                let brand = inspect.word_at(word, 0);
+                let text = text(inspect, brand);
+                let (package, brand) = text.split_once('\0').unwrap_or(("", &text));
+                Value::Handle {
+                    package: package.to_owned(),
+                    brand: brand.to_owned(),
+                    number: inspect.word_at(word, 1),
+                }
+            }
             kind if kind == Kind::Tag as u64 => {
                 let text = text(inspect, word);
                 let (package, tag) = text.split_once('\0').unwrap_or(("", &text));
@@ -222,6 +240,9 @@ pub trait Construct {
     fn key(&mut self, name: &[u8]) -> Word;
     /// The tag with this text: see [`crate::literal::Literal::tag_text`].
     fn tag(&mut self, text: &[u8]) -> Word;
+    /// A handle minted under the brand with this text, as a tag's is,
+    /// that its host knows by `number`.
+    fn handle(&mut self, brand: &[u8], number: u64) -> Word;
     /// A tuple, or a list, of `length` nulls.
     fn sequence(&mut self, list: bool, length: u64) -> Word;
     fn sequence_set(&mut self, sequence: Word, index: u64, value: Word);
@@ -307,6 +328,14 @@ pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
             Value::Bytes(bytes) => Some(make.bytes(bytes)),
             Value::Tag { package, tag } => {
                 Some(make.tag(crate::literal::Literal::tag_text(package, tag).as_bytes()))
+            }
+            Value::Handle {
+                package,
+                brand,
+                number,
+            } => {
+                let brand = crate::literal::Literal::tag_text(package, brand);
+                Some(make.handle(brand.as_bytes(), *number))
             }
             Value::Tuple(members) | Value::List(members) => {
                 let list = matches!(next, Value::List(_));

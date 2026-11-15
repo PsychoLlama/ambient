@@ -119,6 +119,8 @@ fn splice(value: &Value) -> Option<(core::Expr, Ty)> {
             tag: tag.clone(),
         }),
         Value::Bytes(value) => literal(Literal::Bytes(value.clone())),
+        // A handle is its host's, and a build has none to give a program.
+        Value::Handle { .. } => return None,
         Value::Tuple(members) => {
             let (exprs, types) = all(members)?;
             (core::Expr::Tuple(exprs), Ty::Tuple(types))

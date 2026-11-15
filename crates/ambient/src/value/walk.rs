@@ -89,6 +89,15 @@ impl Clone for Value {
             Self::Float(value) => Step::Leaf(Self::Float(*value)),
             Self::String(text) => Step::Leaf(Self::String(text.clone())),
             Self::Bytes(bytes) => Step::Leaf(Self::Bytes(bytes.clone())),
+            Self::Handle {
+                package,
+                brand,
+                number,
+            } => Step::Leaf(Self::Handle {
+                package: package.clone(),
+                brand: brand.clone(),
+                number: *number,
+            }),
             Self::Tag { package, tag } => Step::Leaf(Self::Tag {
                 package: package.clone(),
                 tag: tag.clone(),
@@ -142,6 +151,18 @@ impl PartialEq for Value {
                 (Self::Float(left), Self::Float(right)) => left == right,
                 (Self::String(left), Self::String(right)) => left == right,
                 (Self::Bytes(left), Self::Bytes(right)) => left == right,
+                (
+                    Self::Handle {
+                        package,
+                        brand,
+                        number,
+                    },
+                    Self::Handle {
+                        package: other_package,
+                        brand: other_brand,
+                        number: other_number,
+                    },
+                ) => (package, brand, number) == (other_package, other_brand, other_number),
                 (
                     Self::Tag { package, tag },
                     Self::Tag {

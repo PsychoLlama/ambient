@@ -20,6 +20,8 @@ pub enum Unsendable {
     /// It contains an abort handler, which is tied to a provide that is
     /// still running.
     Abort,
+    /// It contains a handle, which is its host's and no other's.
+    Handle,
     /// It contains a function whose definition has no hash to name it
     /// by.
     Function,
@@ -32,6 +34,7 @@ impl fmt::Display for Unsendable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Cell => write!(f, "a cell never leaves its program"),
+            Self::Handle => write!(f, "a handle never leaves its host"),
             Self::Abort => write!(f, "an abort handler never leaves its program"),
             Self::Function => write!(f, "a function has no definition to name"),
             Self::Types => write!(f, "a generic function's type arguments have no encoding"),
@@ -106,6 +109,7 @@ pub fn encode(value: &Value) -> Result<Vec<u8>, Unsendable> {
                 out.push(STRING);
                 text(value, &mut out);
             }
+            Value::Handle { .. } => return Err(Unsendable::Handle),
             Value::Bytes(bytes) => {
                 out.push(BYTES);
                 count(bytes.len(), &mut out);

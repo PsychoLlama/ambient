@@ -233,7 +233,7 @@ impl Types {
                 }
                 // The same parameter of the same generic function type:
                 // the two are compared from the outside in.
-                d::BOUND => word(left, 1) == word(right, 1),
+                d::BOUND | d::HANDLE => word(left, 1) == word(right, 1),
                 // Nothing is known of a parameter read outside any scope.
                 d::PARAMETER => false,
                 _ => true,

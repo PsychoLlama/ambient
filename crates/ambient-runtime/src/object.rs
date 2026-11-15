@@ -32,6 +32,8 @@ pub(crate) const KIND_ITERATOR: u32 = 14;
 
 /// Bytes that need not be text: see `bytes.rs`.
 pub(crate) const KIND_BYTES: u32 = 15;
+/// A handle: see [`crate::handle`].
+pub(crate) const KIND_HANDLE: u32 = 16;
 
 /// The count of an object that is never reclaimed.
 pub(crate) const PINNED: u32 = u32::MAX;
@@ -334,10 +336,22 @@ unsafe fn reclaim(word: Word) {
             for value in held {
                 dead.release(*value);
             }
-            let size = (*header).size as usize;
-            dealloc(header.cast(), layout(size));
-            LIVE.set(LIVE.get() - 1);
+            // A handle is kept until its host has heard that it went.
+            if (*header).kind == KIND_HANDLE {
+                crate::handle::dropped(word);
+            } else {
+                free(word);
+            }
         }
+    }
+}
+
+/// Gives back the memory of an object that holds nothing.
+pub(crate) unsafe fn free(word: Word) {
+    unsafe {
+        let header = header(word);
+        dealloc(header.cast(), layout((*header).size as usize));
+        LIVE.set(LIVE.get() - 1);
     }
 }
 

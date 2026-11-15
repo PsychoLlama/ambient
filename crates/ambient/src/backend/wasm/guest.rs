@@ -84,12 +84,33 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
         self.runtime.get_func(&mut self.store, name).is_some()
     }
 
+    /// Tells the host of every handle the program dropped since it
+    /// was last told: what [`crate::backend::native::Program`] does
+    /// natively, and at the same moments.
+    pub(super) fn heard(&mut self) {
+        loop {
+            let brand = self.words("amb_handle_next", &[]);
+            if brand == 0 {
+                return;
+            }
+            let number = self.words("amb_handle_number", &[]);
+            let Some(waits) = self.state(|state| state.waits.clone()) else {
+                continue;
+            };
+            let text = Inspect::string(self, brand);
+            let text = String::from_utf8_lossy(&text);
+            let (package, brand) = text.split_once('\0').unwrap_or(("", &text));
+            waits.borrow_mut().dropped(package, brand, number);
+        }
+    }
+
     /// Gives suspended tasks their turns until the root can go on,
     /// taking answers from the host whenever none can run without one:
     /// what [`crate::backend::native::Program`] does natively.
     pub(super) fn schedule(&mut self, context: u64) {
         loop {
             self.at("amb_schedule", context, &[]);
+            self.heard();
             if self.at("amb_context_mode", context, &[]) != ambient_runtime::WAITING {
                 return;
             }
@@ -206,6 +227,11 @@ impl<S: AsContextMut<Data = State>> Construct for Guest<S> {
         self.with_bytes("amb_tag", text)
     }
 
+    fn handle(&mut self, brand: &[u8], number: u64) -> u64 {
+        let brand = self.tag(brand);
+        self.words("amb_handle_new", &[brand, number])
+    }
+
     fn sequence(&mut self, list: bool, length: u64) -> u64 {
         self.words("amb_sequence_new", &[u64::from(list), length])
     }
@@ -311,6 +337,8 @@ pub(super) fn native(
         store: &mut caller,
         runtime,
     };
+    let mut guest = guest;
+    guest.heard();
     let mut call = Call {
         guest,
         context: u64::from(context.cast_unsigned()),

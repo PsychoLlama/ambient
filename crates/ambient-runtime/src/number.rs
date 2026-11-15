@@ -4,9 +4,9 @@ use alloc::vec;
 
 use crate::list::members;
 use crate::object::{
-    KIND_BYTES, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_ITERATOR, KIND_LIST, KIND_METHOD,
-    KIND_RECORD, KIND_SCOPE, KIND_STRING, KIND_TUPLE, boolean, bytes, fault, float, header, int,
-    is_object, object, payload, small, words,
+    KIND_BYTES, KIND_CLOSURE, KIND_FLOAT, KIND_HANDLE, KIND_INT, KIND_ITERATOR, KIND_LIST,
+    KIND_METHOD, KIND_RECORD, KIND_SCOPE, KIND_STRING, KIND_TUPLE, boolean, bytes, fault, float,
+    header, int, is_object, object, payload, small, words,
 };
 use crate::{Context, Fault, Word};
 
@@ -161,6 +161,9 @@ pub(crate) unsafe fn equal(left: Word, right: Word) -> bool {
                 (KIND_TUPLE, KIND_TUPLE)
                 | (KIND_RECORD, KIND_RECORD)
                 | (KIND_ITERATOR, KIND_ITERATOR) => all(words(left), words(right)),
+                // The same handle is the same brand and number, which
+                // are not values.
+                (KIND_HANDLE, KIND_HANDLE) => words(left)[..2] == words(right)[..2],
                 (KIND_CLOSURE, KIND_CLOSURE) | (KIND_METHOD, KIND_METHOD) => {
                     let (left, right) = (words(left), words(right));
                     crate::closure::same_definition(left[0], right[0])

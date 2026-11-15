@@ -224,6 +224,7 @@ pub(super) unsafe extern "C" fn dispatch(
         let address = usize::try_from((*context).host).unwrap_or(0);
         &*(address as *const Program)
     };
+    program.heard();
     // A task left a wait: the host may stop working on it.
     if index == ambient_runtime::FORSAKEN {
         program.forsake(bindings);
@@ -323,6 +324,10 @@ impl Construct for Inside<'_> {
 
     fn tag(&mut self, text: &[u8]) -> Word {
         Construct::tag(&mut Host, text)
+    }
+
+    fn handle(&mut self, brand: &[u8], number: u64) -> Word {
+        Construct::handle(&mut Host, brand, number)
     }
 
     fn sequence(&mut self, list: bool, length: u64) -> Word {
@@ -447,6 +452,11 @@ impl Construct for Host {
 
     fn tag(&mut self, text: &[u8]) -> Word {
         unsafe { ambient_runtime::amb_tag(text.as_ptr(), text.len() as u64) }
+    }
+
+    fn handle(&mut self, brand: &[u8], number: u64) -> Word {
+        let brand = self.tag(brand);
+        unsafe { ambient_runtime::amb_handle_new(brand, number) }
     }
 
     fn sequence(&mut self, list: bool, length: u64) -> Word {
