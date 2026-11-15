@@ -56,3 +56,15 @@ A target defines the world a program runs in: a root binding for every ability t
 - The standard library defines a target for a [test](packages.md), which binds a check and nothing of the world, so it needs no `system`.
 - TODO: there is no standard target for a WebAssembly host yet.
 - The build target and test targets are ordinary targets; see [comptime](comptime.md) and [memoization](memoization.md).
+
+## Network
+
+- `system.http` sends a request and gives the response, each whole: a method, a URL, headers, and a body out; a status, headers, and a body back.
+- A response is a value whatever its status. Only a request that got no response is an [error](errors.md).
+- A server is a listener the world holds. Accepting its next request is an ability that suspends, and answering one is another.
+- Serving is library code over those: a group that accepts, and starts a task for each request. What answers is an ordinary function, and leaving the group ends the serving.
+- Nothing takes a timeout: a sleep beside the work in a first is one.
+- A header's name is lower case wherever the world gives one.
+- TODO: a body is text, and one that is not UTF-8 is an error. It waits for bytes.
+- TODO: a body is held whole; nothing is streamed.
+- TODO: requests a server has not accepted are held without limit.
