@@ -40,9 +40,20 @@ impl Native {
     /// Fails if Cranelift does not support the host.
     pub fn new() -> Result<Self, String> {
         let mut flags = settings::builder();
-        flags
-            .set("opt_level", "speed")
-            .map_err(|error| error.to_string())?;
+        // Cranelift checks the code it is given before it compiles it,
+        // which takes a third of the time. What is given is what this
+        // backend wrote, so only a build that tests the backend checks.
+        let verified = if cfg!(debug_assertions) {
+            "true"
+        } else {
+            "false"
+        };
+        let set = [("opt_level", "speed"), ("enable_verifier", verified)];
+        for (name, value) in set {
+            flags
+                .set(name, value)
+                .map_err(|error| error.to_string())?;
+        }
         let isa = cranelift_native::builder()
             .map_err(str::to_owned)?
             .finish(settings::Flags::new(flags))
