@@ -1,18 +1,17 @@
 import system.code;
 import system.console;
 import system.env;
-import system.fs;
 import system.http;
-import pkg.signing;
 import pkg.site;
 
 /// What answers a request.
 type Answer = fn(http.Request): http.Response with throw;
 
 /// Serves `site.answer`, and then whatever is deployed in its place:
-/// `hot [port]`. A deploy is packed code posted to `/deploy`, signed
-/// with the key in `hot.key`; see `deploy.main`.
-pub fn main(): int with console, env, fs, http, code.load {
+/// `hot [port]`. A deploy is packed code posted to `/deploy`; see
+/// `deploy.main`. Whoever can post there decides what the server runs,
+/// so a real one would ask who is posting.
+pub fn main(): int with console, env, http, code.load {
     let port = (env.args!().first() as string else "8080").to_int() as int else 8080;
     match http.listen!("127.0.0.1", port) {
         let error: Error => {
@@ -35,18 +34,9 @@ pub fn main(): int with console, env, fs, http, code.load {
 fn unfit(request: http.Request): http.Response with throw =>
     http.text(500, "nothing answers\n");
 
-/// Puts the code a request carries in place of what answers, if a
-/// holder of the key sent it and it is a way to answer.
-fn deployed(current: Cell<Answer>, request: http.Request): http.Response with fs.read_bytes, code.load {
-    let signature = http.header(request.headers, "x-signature") as string else "";
-    match signing.key() {
-        null => { return http.text(403, "this server takes no deploys\n"); }
-        let key: bytes => {
-            if !signing.signed(key, request.body, signature) {
-                return http.text(403, "not signed with the key\n");
-            }
-        }
-    }
+/// Puts the code a request carries in place of what answers, if it is
+/// a way to answer.
+fn deployed(current: Cell<Answer>, request: http.Request): http.Response with code.load {
     match code.load!(request.body) {
         let error: Error => { return http.text(400, "${error.message}\n"); }
         let loaded: unknown => {

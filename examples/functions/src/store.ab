@@ -1,0 +1,35 @@
+import ambient.bytes;
+import system.crypto;
+import system.fs;
+import system.path;
+
+/// The directory packs are kept in, each named for its hash.
+fn directory(): string => "functions";
+
+/// The name a pack is kept and called by: the hash of its bytes.
+pub fn name(packed: bytes): string => crypto.hash(crypto.sha256, packed).hex();
+
+/// Where the pack of a name is kept, if it is a name at all. Only a
+/// hash written out is one, so a name never leads out of the directory.
+fn file(name: string): string | null {
+    let hash = bytes.from_hex(name) as bytes else 0x[];
+    return hash.length() == 32 ? path.join([directory(), "${hash.hex()}.pack"]) : null;
+}
+
+/// Keeps a pack, and gives the name it is called by.
+pub fn keep(packed: bytes): string | Error with fs.make_directory, fs.write_bytes {
+    let name = name(packed);
+    let _ = fs.make_directory!(directory());
+    match fs.write_bytes!(file(name) as string else "", packed) {
+        let error: Error => { return error; }
+        null => { return name; }
+    }
+}
+
+/// The pack kept under a name, if there is one.
+pub fn kept(name: string): bytes | null with fs.read_bytes {
+    match file(name) {
+        null => { return null; }
+        let file: string => { return fs.read_bytes!(file) as bytes else null; }
+    }
+}

@@ -1,21 +1,17 @@
 import system.code;
 import system.console;
 import system.env;
-import system.fs;
 import system.http;
-import pkg.signing;
 import pkg.site;
 
 /// Sends `site.answer`, as it is written now, to a server that is
 /// running: `ambient run . --entry deploy.main -- [url]`.
-pub fn main(): int with code.pack, console, env, fs, http.send {
+pub fn main(): int with code.pack, console, env, http.send {
     let url = env.args!().first() as string else "http://127.0.0.1:8080/deploy";
-    let key = signing.key() as bytes else 0x[];
     match code.pack!(site.answer) {
         let error: Error => { return failed(error.message); }
         let packed: bytes => {
-            let headers = [("x-signature", signing.sign(key, packed))];
-            match http.send!({ method: "POST", url, headers, body: packed }) {
+            match http.post(url, packed) {
                 let error: Error => { return failed(error.message); }
                 let response: http.Response => {
                     console.write!(response.body.to_text() as string else "");

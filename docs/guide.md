@@ -382,7 +382,7 @@ pub fn main(): null with code, console.print {
 
 Here the bytes never leave the program. They are as good read from a file or the body of a request, packed by a program built from other source: the code is checked again where it arrives, and one whose type is not the one the cast asks for is turned away there. A server that reads what answers from a cell, as above, is one that can be changed without stopping; a program made with `ambient build` loads as one that is run does.
 
-`examples/hot` is a whole one: a server that takes a signed deploy at `/deploy`, and an entry that packs what the site answers, as it is written now, and sends it. Whoever can deliver code decides what the program runs, so it checks a signature first.
+`examples/hot` is a whole one: a server that takes a deploy at `/deploy`, and an entry that packs what the site answers, as it is written now, and sends it. `examples/functions` keeps each function it is sent in a file and calls it at a path named for its hash, loaded for the request and held to a budget; the type it casts to has `throw` for a row, so what it runs can do nothing else to the machine.
 
 ## Bytes, hashes, and time
 

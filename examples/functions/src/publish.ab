@@ -1,0 +1,47 @@
+import system.code;
+import system.console;
+import system.env;
+import system.http;
+import pkg.samples;
+
+/// Sends one of `samples` to a server that is running, and prints
+/// where it can be called:
+/// `ambient run . --entry publish.main -- <name> [server]`.
+pub fn main(): int with code.pack, console, env.args, http.send {
+    let args = env.args!();
+    let server = args.get(1) as string else "http://127.0.0.1:8080";
+    match packed(args.first() as string else "") {
+        let error: Error => { return failed(error.message); }
+        let packed: bytes => {
+            match http.post("${server}/", packed) {
+                let error: Error => { return failed(error.message); }
+                let response: http.Response => {
+                    let said = (response.body.to_text() as string else "").trim();
+                    if !http.ok(response) {
+                        return failed(said);
+                    }
+                    console.print!("${server}${said}");
+                    return 0;
+                }
+            }
+        }
+    }
+}
+
+/// The sample of a name, packed.
+fn packed(name: string): bytes | Error with code.pack {
+    match name {
+        "hello" => { return code.pack!(samples.hello); }
+        "echo" => { return code.pack!(samples.echo); }
+        "sum" => { return code.pack!(samples.sum); }
+        "spin" => { return code.pack!(samples.spin); }
+        _ => {
+            return { kind: code.invalid, message: "no sample is called `${name}`: try hello, echo, sum, or spin", cause: null, trace: [] };
+        }
+    }
+}
+
+fn failed(message: string): int with console.warn {
+    console.warn!("publish: ${message}");
+    return 1;
+}
