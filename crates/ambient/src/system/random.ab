@@ -1,0 +1,55 @@
+/// Sixty-four bits nothing could have guessed, as an integer.
+///
+/// Everything else here is made from this, so providing it decides
+/// every number a body draws: see `seeded`.
+pub ability bits(): int;
+
+/// A whole number from `low` up to, but not including, `high`. It is
+/// `low` if there is no such number.
+pub fn between(low: int, high: int): int with bits {
+    let span = high - low;
+    if span < 1 {
+        return low;
+    }
+    let drawn = bits!() % span;
+    if drawn < 0 {
+        return low + drawn + span;
+    }
+    return low + drawn;
+}
+
+/// A float from zero up to, but not including, one.
+pub fn fraction(): float with bits =>
+    between(0, 9007199254740992).to_float() / 9007199254740992.0;
+
+/// Whether a coin that lands heads `chance` of the time, from zero to
+/// one, landed heads.
+pub fn chance(chance: float): bool with bits => fraction() < chance;
+
+/// A member of a list, or null if it has none.
+pub fn pick<T>(list: List<T>): T | null with bits => list.get(between(0, list.length()));
+
+/// The members of a list in an order nothing could have guessed.
+pub fn shuffle<T>(list: List<T>): List<T> with bits => drawn(list, []);
+
+/// What is left of `left` after one member at a time, each as likely as
+/// any other, is moved to the end of `out`.
+fn drawn<T>(left: List<T>, out: List<T>): List<T> with bits {
+    if left.is_empty() {
+        return out;
+    }
+    let at = between(0, left.length());
+    let rest = left.take(at).join(left.skip(at + 1));
+    return drawn(rest, out.join(left.skip(at).take(1)));
+}
+
+/// What `body` gives when the bits it draws follow from `seed` alone:
+/// the same seed draws the same numbers, on any machine. For a test, a
+/// replay, or a world that must be made the same way twice. Never for
+/// a secret.
+pub fn seeded<T>(seed: int, body: fn(): T with bits): T {
+    // Lehmer's generator: thirty-one bits a step, and never zero.
+    let state = cell<int>(1 + seed.abs() % 2147483646);
+    let step = fn(): int => state.update(fn(last: int): int => last * 48271 % 2147483647);
+    return provide { [bits]() => step() * 2147483648 + step() } => body();
+}

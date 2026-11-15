@@ -43,9 +43,10 @@ A target defines the world a program runs in: a root binding for every ability t
 
 ## Standard targets
 
-- The `system` package defines a target for a program run from a command line: its streams, its arguments and environment, files, clocks, commands it runs, and its exit.
+- The `system` package defines a target for a program run from a command line: its streams, its arguments and environment, files, clocks, random bits, commands it runs, and its exit.
 - Each of those is a module of abilities, so a row says which of them a function reaches.
 - An operation on a file that can fail in ordinary use gives an [error](errors.md) as a value; the kinds are tags of the module.
+- Randomness is one ability, bits nothing could have guessed; every other draw is a function over it, so a provide of that one ability decides them all, and the package has one that follows from a seed.
 - Exiting is an ability that does not return, so the program's result is the code it exits with.
 - Running a command gives what it exited with and what it wrote; no shell reads the command, and one that exits with a code that is not zero has still run.
 - A command that could not be started is an error whose kind is a tag of that module, never one of the files'.

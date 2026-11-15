@@ -194,7 +194,7 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
             })
         }),
     ];
-    let handlers: [(&str, Handler); 14] = [
+    let handlers: [(&str, Handler); 15] = [
         ("console_write", |world, args| {
             world.write(text(args, 0)?);
             Ok(Value::Null)
@@ -233,6 +233,10 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
         ("fs_make_directory", |world, args| {
             let made = world.make_directory(text(args, 0)?);
             Ok(made.map_or_else(|failure| error("fs", &failure), |()| Value::Null))
+        }),
+        ("random_bits", |world, _| {
+            let bits = world.random().map_err(|failure| failure.message)?;
+            Ok(Value::Int(bits.cast_signed()))
         }),
         ("clock_now", |world, _| Ok(Value::Int(world.now()))),
         ("clock_elapsed", |world, _| Ok(Value::Int(world.elapsed()))),

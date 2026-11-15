@@ -328,17 +328,18 @@ A test is given no world: it provides what the code under test needs, as above, 
 
 Import a module by path; its public definitions are reached through its name, or taken by name in braces. Two packages come with the compiler: `ambient` is what runs anywhere, and `system` is what a program on a machine can reach.
 
-| Module                                                       | What it has                                                   |
-| ------------------------------------------------------------ | ------------------------------------------------------------- |
-| `ambient.string`, `list`, `int`, `float`, `iterator`, `cell` | the methods of each shape                                     |
-| `ambient.map`                                                | `Map<V>`: values by string key, read in key order             |
-| `ambient.json`                                               | `Json`, `parse`, `write`, `get`, `at`                         |
-| `system.console`                                             | `write`, `print`, `warn`, `read_line`                         |
-| `system.env`                                                 | `args`, `variable`                                            |
-| `system.fs`                                                  | `read`, `write`, `list`, `exists`, `remove`, `make_directory` |
-| `system.clock`                                               | `now`, `elapsed`, `sleep`                                     |
-| `system.process`                                             | `exit`, `run`                                                 |
-| `ambient.cleanup`                                            | the `dispose` key a `using` reads                             |
+| Module                                                       | What it has                                                          |
+| ------------------------------------------------------------ | -------------------------------------------------------------------- |
+| `ambient.string`, `list`, `int`, `float`, `iterator`, `cell` | the methods of each shape                                            |
+| `ambient.map`                                                | `Map<V>`: values by string key, read in key order                    |
+| `ambient.json`                                               | `Json`, `parse`, `write`, `get`, `at`                                |
+| `system.console`                                             | `write`, `print`, `warn`, `read_line`                                |
+| `system.env`                                                 | `args`, `variable`                                                   |
+| `system.fs`                                                  | `read`, `write`, `list`, `exists`, `remove`, `make_directory`        |
+| `system.clock`                                               | `now`, `elapsed`, `sleep`                                            |
+| `system.process`                                             | `exit`, `run`                                                        |
+| `system.random`                                              | `bits`, `between`, `fraction`, `chance`, `pick`, `shuffle`, `seeded` |
+| `ambient.cleanup`                                            | the `dispose` key a `using` reads                                    |
 
 ```ab
 import ambient.map;

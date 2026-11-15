@@ -246,3 +246,16 @@ fn a_sleep_is_a_limit_on_how_long_to_wait() {
     assert_eq!(outcome, Ok(Value::String("typed".to_owned())));
     assert_eq!((after.time, after.forsaken.len()), (0, 1));
 }
+
+#[test]
+fn a_program_draws_numbers_from_the_world() {
+    let source = r"
+        import system.random;
+
+        fn main(): int with random.bits => random.between(10, 20) * 100 + random.between(0, 5);
+    ";
+
+    // The scripted world's bits count up from one.
+    let (outcome, after) = run(source, &Scripted::default());
+    assert_eq!((outcome, after.rolled), (Ok(Value::Int(1102)), 2));
+}

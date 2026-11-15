@@ -3,6 +3,7 @@ pub module console;
 pub module env;
 pub module fs;
 pub module process;
+pub module random;
 
 import ambient.errors;
 import pkg.clock;
@@ -10,6 +11,7 @@ import pkg.console;
 import pkg.env;
 import pkg.fs;
 import pkg.process;
+import pkg.random;
 
 extern handler console_write for console.write;
 extern handler console_print for console.print;
@@ -28,6 +30,7 @@ extern handler clock_elapsed for clock.elapsed;
 extern suspending handler clock_sleep for clock.sleep;
 extern handler process_exit for process.exit;
 extern suspending handler process_run for process.run;
+extern handler random_bits for random.bits;
 extern handler thrown for errors.throw;
 
 /// The world of a program run from a command line.
@@ -49,5 +52,6 @@ pub target cli {
     clock.sleep: clock_sleep,
     process.exit: process_exit,
     process.run: process_run,
+    random.bits: random_bits,
     errors.throw: thrown,
 }
