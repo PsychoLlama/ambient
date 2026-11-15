@@ -40,6 +40,7 @@ macro_rules! children {
             | Self::Method(inner)
             | Self::Step(inner)
             | Self::Cell { value: inner, .. }
+            | Self::Widen { value: inner, .. }
             | Self::Boundary(inner)
             | Self::Group(inner)
             | Self::Spawn(inner)

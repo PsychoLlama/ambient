@@ -246,6 +246,12 @@ pub enum Expr {
         keys: Vec<Key>,
         methods: Vec<Key>,
     },
+    /// `value`, seen as the type `ty`, which whatever it gives is of:
+    /// what a `let` that states a type holds. Nothing is tested.
+    Widen {
+        value: Box<Expr>,
+        ty: Type,
+    },
     /// Binds the next local to `value` for the extent of `body`.
     Let {
         value: Box<Expr>,

@@ -191,6 +191,11 @@ impl Body<'_, '_> {
                 let alternative = self.infer(otherwise)?;
                 env.union(vec![target, alternative])
             }
+            Expr::Widen { value, ty } => {
+                let seen = verifier.sound(ty)?;
+                self.check(value, &seen)?;
+                seen
+            }
             Expr::Cell { ty, value } => {
                 let held = verifier.sound(ty)?;
                 self.check(value, &held)?;

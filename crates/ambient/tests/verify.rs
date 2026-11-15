@@ -259,3 +259,16 @@ fn only_a_root_names_a_native_handler() {
     assert_eq!(verified(true), Ok(()));
     assert!(matches!(verified(false), Err(Invalid::Shape(_))));
 }
+
+#[test]
+fn a_value_seen_as_a_type_it_is_not_of_is_refused() {
+    let seen = |ty: Type| Expr::Widen {
+        value: Box::new(int(1)),
+        ty,
+    };
+    assert_eq!(with_body(seen(Type::Int)), Ok(()));
+    assert!(matches!(
+        with_body(bind(seen(Type::String), int(1))),
+        Err(Invalid::Mismatch { .. })
+    ));
+}

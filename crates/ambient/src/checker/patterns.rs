@@ -66,7 +66,12 @@ impl Checker<'_> {
     ) -> Result<(core::Expr, Ty), Error> {
         self.well_formed(stated)?;
         let stated = self.env.normalize(stated);
-        let value = self.check(subject, &stated)?;
+        // The core checker infers what the value is, which may be less
+        // than was stated: it is told what the binder holds.
+        let value = core::Expr::Widen {
+            value: Box::new(self.check(subject, &stated)?),
+            ty: self.lower(&stated),
+        };
         self.bind_local(stated);
         let (body, ty) = self.infer_to(body, expected)?;
         let core = core::Expr::Let {

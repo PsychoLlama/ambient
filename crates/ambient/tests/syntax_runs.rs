@@ -430,3 +430,16 @@ fn a_number_with_an_exponent_is_a_float() {
 
     assert_eq!(text(source), "1100.25");
 }
+
+#[test]
+fn a_let_that_states_a_type_holds_that_type_and_no_less() {
+    // What the call gives is a string, but the binder was said to hold
+    // anything, so the match must cover anything.
+    let source = r#"
+        fn main(): bool {
+            let held: unknown = "ab".trim();
+            return match held { let text: string => text.length() == 2, _ => false };
+        }
+    "#;
+    assert_eq!(support::text::run(source), Ok(Value::Bool(true)));
+}

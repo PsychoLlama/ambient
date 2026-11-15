@@ -108,7 +108,7 @@ impl Expr {
             | Self::Closure {
                 type_args: types, ..
             } => deepest(types),
-            Self::Cast { ty, .. } | Self::Cell { ty, .. } => ty.depth(),
+            Self::Cast { ty, .. } | Self::Cell { ty, .. } | Self::Widen { ty, .. } => ty.depth(),
             Self::Match { arms, .. } => {
                 let patterns = arms.iter().map(|(pattern, _)| pattern.depth());
                 patterns.max().unwrap_or(0)
