@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 pub use operator::Operator;
 pub use shape::Shape;
 
-use crate::literal::Literal;
+use crate::literal::{Brand, Literal};
 use crate::symbol::Symbol;
 
 /// A dotted name as written: `x`, `math.add`, `pkg.util.math`.
@@ -107,6 +107,9 @@ pub enum DefinitionKind<N = Path> {
     /// A tag: a name for one value, told from every other by where it
     /// is declared. See "Tags" in `spec/definitions.md`.
     Tag,
+    /// A brand: a name for a mark on a type, told from every other by
+    /// where it is declared. See "Brands" in `spec/types.md`.
+    Brand,
     Extern(Extern<N>),
     Target(Target<N>),
 }
@@ -119,7 +122,7 @@ impl<N> DefinitionKind<N> {
     pub fn namespace(&self) -> crate::symbol::Namespace {
         use crate::symbol::Namespace;
         match self {
-            Self::Type(_) | Self::Tag => Namespace::Type,
+            Self::Type(_) | Self::Tag | Self::Brand => Namespace::Type,
             Self::Function(_) | Self::Extern(_) | Self::Target(_) => Namespace::Value,
             Self::Ability(_) => Namespace::Ability,
             Self::Key(_) => Namespace::Key,
@@ -232,6 +235,12 @@ pub enum Type<N = Path> {
     /// Every tag value.
     Tag,
     Literal(Literal),
+    /// A brand on its own: the type of a handle minted under it.
+    Brand(Brand),
+    /// A type and the brands on it. Written, each brand is a name;
+    /// normalized, each is a [`Type::Brand`], in order, and the type
+    /// under them is not branded.
+    Branded(Box<Type<N>>, Vec<Type<N>>),
     Record(Vec<(Key<N>, Type<N>)>),
     /// A method, as a key of a record type holds one: what it needs of
     /// the record it is read from, and the function reading it gives.

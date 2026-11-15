@@ -145,6 +145,12 @@ impl Env {
             }
             (Ty::Bool, Ty::Union(_)) => self.sub(&booleans(), sup, proof),
             (_, Ty::Union(members)) => members.iter().any(|m| self.sub(sub, m, proof)),
+            // A branded value is one of the type under its brands, and
+            // one with fewer brands.
+            (Ty::Branded(have, brands), Ty::Branded(want, wanted)) => {
+                wanted.iter().all(|brand| brands.contains(brand)) && self.sub(have, want, proof)
+            }
+            (Ty::Branded(have, _), _) => self.sub(have, sup, proof),
             (Ty::Literal(literal), _) => primitive_of(literal) == *sup,
             (Ty::Record(have), Ty::Record(want)) => want.iter().all(|(key, want)| {
                 entry(have, key).is_some_and(|have| self.sub(have, want, proof))
@@ -220,6 +226,10 @@ impl Env {
         let next = depth + 1;
         match (&left, &right) {
             (Ty::Never, _) | (_, Ty::Never) => true,
+            // A brand takes no value from the type it is on.
+            (Ty::Branded(ty, _), other) | (other, Ty::Branded(ty, _)) => {
+                self.apart(ty, other, next)
+            }
             // Two list types share the empty list, two iterator types an
             // iterator of nothing, and two function types may share a
             // function.

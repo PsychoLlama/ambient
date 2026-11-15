@@ -120,6 +120,11 @@ pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
             encode_type(ty, out);
             encode_expr(value, out);
         }
+        Expr::Brand { value, ty } => {
+            out.push(34);
+            encode_type(ty, out);
+            encode_expr(value, out);
+        }
         Expr::Cell { ty, value } => {
             out.push(26);
             encode_type(ty, out);

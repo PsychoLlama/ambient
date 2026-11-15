@@ -144,6 +144,18 @@ pub fn tag(name: &str) -> Definition {
     }
 }
 
+/// A private brand: a mark on a type, told from every other by where
+/// the brand is declared.
+#[must_use]
+pub fn brand(name: &str) -> Definition {
+    Definition {
+        name: name.to_owned(),
+        public: false,
+        doc: None,
+        kind: DefinitionKind::Brand,
+    }
+}
+
 /// A private type definition with type parameters.
 pub fn generic_type<'a>(
     name: &str,
@@ -353,8 +365,9 @@ impl ModuleBuilder {
                     check_type(&key.ty)?;
                     Namespace::Key
                 }
-                // A tag is named as a type and as a value.
-                DefinitionKind::Tag => {
+                // A tag is named as a type and as a value, and a brand
+                // as a type and as what brands a value.
+                DefinitionKind::Tag | DefinitionKind::Brand => {
                     if !defined.insert((Namespace::Value, &definition.name)) {
                         return Err(BuildError::DuplicateDefinition(definition.name.clone()));
                     }

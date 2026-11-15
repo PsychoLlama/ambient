@@ -73,6 +73,15 @@ impl Env {
             Ty::Bytes => core::Type::Bytes,
             Ty::Tag => core::Type::Tag,
             Ty::Literal(literal) => core::Type::Literal(literal.clone()),
+            Ty::Brand(brand) => core::Type::Brand(brand.clone()),
+            Ty::Branded(ty, brands) => {
+                let brand = |brand: &Ty| match brand {
+                    Ty::Brand(brand) => Some(brand.clone()),
+                    _ => None,
+                };
+                let brands = brands.iter().filter_map(brand).collect();
+                core::Type::Branded(Box::new(self.lower(ty, slot)), brands)
+            }
             Ty::Record(fields) => core::Type::Record(
                 self.ordered(fields)
                     .into_iter()

@@ -242,7 +242,9 @@ impl Lowering {
             // A mark is no part of a tree: the checker takes each out.
             core::Expr::At(_, marked) => return self.node(marked),
             // Only checking tells a value from the type it is seen as.
-            core::Expr::Widen { value, .. } => return self.expr(value),
+            core::Expr::Widen { value, .. } | core::Expr::Brand { value, .. } => {
+                return self.expr(value);
+            }
             core::Expr::Null => Op::Copy(Value::Null),
             core::Expr::Literal(literal) => match literal {
                 Literal::Bool(value) => Op::Copy(Value::Bool(*value)),

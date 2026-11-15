@@ -10,7 +10,7 @@
 mod expr;
 
 use super::{Slot, Tree, Type};
-use crate::literal::Literal;
+use crate::literal::{Brand, Literal};
 use expr::{encode_expr, encode_key};
 
 /// Writes what a slot refers to.
@@ -72,7 +72,7 @@ impl<'a> Sink<'a> {
 
 /// The version named by every encoding. Changing the node set or the
 /// encoding means changing this, which changes every hash.
-const FORMAT: u8 = 32;
+const FORMAT: u8 = 33;
 
 impl Tree {
     /// The encoding of the tree as it is stored: slots by index.
@@ -226,6 +226,11 @@ fn encode_literal(literal: &Literal, out: &mut Sink<'_>) {
     }
 }
 
+fn encode_brand(brand: &Brand, out: &mut Sink<'_>) {
+    text(&brand.package, out);
+    text(&brand.brand, out);
+}
+
 fn encode_type(ty: &Type, out: &mut Sink<'_>) {
     match ty {
         Type::Never => out.push(0),
@@ -236,6 +241,18 @@ fn encode_type(ty: &Type, out: &mut Sink<'_>) {
         Type::Float => out.push(5),
         Type::String => out.push(6),
         Type::Bytes => out.push(21),
+        Type::Brand(brand) => {
+            out.push(22);
+            encode_brand(brand, out);
+        }
+        Type::Branded(ty, brands) => {
+            out.push(23);
+            encode_type(ty, out);
+            unsigned(brands.len() as u64, out);
+            for brand in brands {
+                encode_brand(brand, out);
+            }
+        }
         Type::Tag => out.push(16),
         Type::Literal(literal) => {
             out.push(7);

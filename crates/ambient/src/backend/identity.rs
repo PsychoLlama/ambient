@@ -42,6 +42,9 @@ fn spell(ty: &Type, hash: &dyn Fn(Slot) -> Hash) -> Option<String> {
         Type::Float => "float".to_owned(),
         Type::String => "string".to_owned(),
         Type::Bytes => "bytes".to_owned(),
+        Type::Brand(brand) => counted('h', &format!("{}\0{}", brand.package, brand.brand)),
+        // A brand on a type is not there as a program runs.
+        Type::Branded(ty, _) => return spell(ty, hash),
         Type::Tag => "tag".to_owned(),
         Type::Literal(literal) => match literal {
             Literal::Bool(value) => format!("={value}"),

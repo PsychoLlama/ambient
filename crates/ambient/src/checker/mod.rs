@@ -475,6 +475,14 @@ impl<'a> Checker<'a> {
                 let held = fields.iter().try_for_each(|(key, ty)| self.held(key, ty));
                 result = std::mem::replace(&mut result, Ok(())).and(held);
             }
+            if let Ty::Branded(under, brands) = ty {
+                let brand = |ty: &Ty| matches!(self.env.normalize(ty), Ty::Brand(_));
+                if brand(under) || !brands.iter().all(brand) {
+                    result = Err(Error::Intersection {
+                        symbol: self.symbol.clone(),
+                    });
+                }
+            }
             let Ty::Named(name, args) = ty else { return };
             let expected = match name {
                 Reference::Definition(symbol) => self.env.types.get(symbol).map(|info| info.params),

@@ -59,6 +59,14 @@ pub(super) fn show(ty: &Ty, out: &mut String) {
             show(member, out);
             out.push('>');
         }
+        Ty::Brand(brand) => out.push_str(&brand.brand),
+        Ty::Branded(ty, brands) => {
+            show(ty, out);
+            for brand in brands {
+                out.push_str(" & ");
+                show(brand, out);
+            }
+        }
         Ty::Iterator(member) => {
             out.push_str("Iterator<");
             show(member, out);

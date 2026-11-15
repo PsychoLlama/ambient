@@ -134,6 +134,11 @@ impl Parser {
             self.expect(";")?;
             return Ok((name, DefinitionKind::Tag));
         }
+        if self.eat_word("brand") {
+            let name = self.name()?;
+            self.expect(";")?;
+            return Ok((name, DefinitionKind::Brand));
+        }
         if self.eat_word("extern") {
             return self.native();
         }

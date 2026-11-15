@@ -122,6 +122,11 @@ pub enum Error {
     /// A name that is not a value is used as one: a target, or a native
     /// handler, which only a target may name.
     NotValue { symbol: Symbol, name: Symbol },
+    /// A value is branded outside the module that declares the brand.
+    Branding { symbol: Symbol, brand: Symbol },
+    /// Something that is not a brand is intersected with a type, or a
+    /// brand is put on a brand.
+    Intersection { symbol: Symbol },
     /// Something that is not a target is used as one.
     NotTarget(Symbol),
     /// A target binds an ability to something that cannot handle it.
@@ -218,6 +223,8 @@ impl Error {
             | Self::NotBundle { symbol, .. }
             | Self::DuplicateHandler { symbol, .. }
             | Self::NotValue { symbol, .. }
+            | Self::Branding { symbol, .. }
+            | Self::Intersection { symbol }
             | Self::NotHandler { symbol, .. }
             | Self::TargetConflict { symbol, .. }
             | Self::Unbound { symbol, .. }
@@ -302,6 +309,8 @@ impl fmt::Display for Error {
                 write!(f, "{symbol}: depends on a comptime call that depends on it")
             }
             Self::NotValue { .. }
+            | Self::Branding { .. }
+            | Self::Intersection { .. }
             | Self::NotTarget(_)
             | Self::NotHandler { .. }
             | Self::TargetCycle(_)
@@ -435,6 +444,13 @@ impl Error {
     fn fmt_world(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotValue { symbol, name } => write!(f, "{symbol}: `{name}` is not a value"),
+            Self::Branding { symbol, brand } => write!(
+                f,
+                "{symbol}: only the module that declares `{brand}` brands a value with it"
+            ),
+            Self::Intersection { symbol } => {
+                write!(f, "{symbol}: `&` puts brands on a type that is not a brand")
+            }
             Self::NotTarget(symbol) => write!(f, "{symbol}: not a target"),
             Self::NotHandler { symbol, handler } => {
                 write!(f, "{symbol}: `{handler}` cannot be bound as a handler")

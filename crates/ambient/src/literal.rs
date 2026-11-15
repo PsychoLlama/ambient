@@ -22,6 +22,16 @@ pub enum Literal {
     },
 }
 
+/// A brand: a mark on a type, told from every other by where it is
+/// declared. See "Brands" in `spec/types.md`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Brand {
+    /// The package it is declared in.
+    pub package: String,
+    /// Its identity: the module path and name it is declared under.
+    pub brand: String,
+}
+
 impl Literal {
     #[must_use]
     pub fn float(value: f64) -> Self {

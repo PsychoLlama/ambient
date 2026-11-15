@@ -171,7 +171,9 @@ pub(super) fn visit_types(ty: &Ty, visit: &mut impl FnMut(&Ty)) {
                 visit_types(member, visit);
             }
         }
-        Ty::List(member) | Ty::Cell(member) | Ty::Iterator(member) => visit_types(member, visit),
+        Ty::List(member) | Ty::Cell(member) | Ty::Iterator(member) | Ty::Branded(member, _) => {
+            visit_types(member, visit);
+        }
         Ty::Function { params, ret, .. } => {
             for param in params {
                 visit_types(param, visit);

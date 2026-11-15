@@ -29,7 +29,10 @@ fn node_size(ty: &Type) -> usize {
         | Type::Float
         | Type::String
         | Type::Bytes
+        | Type::Brand(_)
         | Type::Tag => 1,
+        // A brand on a type is not there as a program runs.
+        Type::Branded(ty, _) => node_size(ty),
         Type::Function { params, row, .. } => 5 + params.len() + row.len(),
         Type::Literal(_) | Type::Method { .. } | Type::Iterator(_) => 3,
         Type::Record(fields) => 2 + fields.len() * 2,
@@ -82,7 +85,9 @@ impl Statics {
     fn node(&mut self, ty: &Type, slots: &[Target], at: usize) {
         let tag = |statics: &mut Self, tag| statics.set(at, Field::Word(tag));
         match ty {
-            Type::Never => tag(self, d::NEVER),
+            // TODO: a handle minted under the brand is one.
+            Type::Never | Type::Brand(_) => tag(self, d::NEVER),
+            Type::Branded(ty, _) => self.node(ty, slots, at),
             Type::Unknown => tag(self, d::UNKNOWN),
             Type::Null => tag(self, d::NULL),
             Type::Bool => tag(self, d::BOOL),

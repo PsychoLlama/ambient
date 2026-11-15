@@ -261,6 +261,7 @@ impl Checker<'_> {
                 }
             }
             (Ty::List(pattern), Ty::List(member))
+            | (Ty::Branded(pattern, _), Ty::Branded(member, _))
             | (Ty::Cell(pattern), Ty::Cell(member))
             | (Ty::Iterator(pattern), Ty::Iterator(member)) => {
                 self.collect_within(pattern, member, lower, depth);
@@ -333,7 +334,7 @@ impl Checker<'_> {
     }
 
     /// `ty` with each literal type as its primitive.
-    fn widened(&self, ty: &Ty) -> Ty {
+    pub(super) fn widened(&self, ty: &Ty) -> Ty {
         match ty {
             Ty::Literal(Literal::Bool(_)) => Ty::Bool,
             Ty::Literal(Literal::Int(_)) => Ty::Int,

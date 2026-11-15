@@ -113,8 +113,10 @@ pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
         | Ty::Bytes
         | Ty::Tag
         | Ty::Literal(_)
+        | Ty::Brand(_)
         | Ty::Bound(_)
         | Ty::Named(Reference::Local(_), _) => ty.clone(),
+        Ty::Branded(ty, brands) => Ty::Branded(Box::new(substitute(ty, args)), all(brands)),
         // An argument mentions no parameter of a generic function
         // type from outside it, so it goes inside one as it is.
         Ty::Generic { bounds, function } => Ty::Generic {
@@ -178,6 +180,21 @@ fn booleans() -> Ty {
     ])
 }
 
+/// A type under brands, in its one form: the brands of a branded type
+/// under them joined to them, each once, in order.
+fn branded(ty: Ty, mut brands: Vec<Ty>) -> Ty {
+    let ty = match ty {
+        Ty::Branded(inner, held) => {
+            brands.extend(held);
+            *inner
+        }
+        ty => ty,
+    };
+    brands.sort();
+    brands.dedup();
+    Ty::Branded(Box::new(ty), brands)
+}
+
 /// Whether a type mentions a type parameter of the definition it is
 /// written in.
 fn mentions_parameter(ty: &Ty) -> bool {
@@ -186,7 +203,9 @@ fn mentions_parameter(ty: &Ty) -> bool {
         Ty::Named(Reference::Parameter(_), _) => true,
         Ty::Record(fields) => fields.iter().any(|(_, ty)| mentions_parameter(ty)),
         Ty::Tuple(members) | Ty::Union(members) | Ty::Named(_, members) => any(members),
-        Ty::List(member) | Ty::Cell(member) | Ty::Iterator(member) => mentions_parameter(member),
+        Ty::List(member) | Ty::Cell(member) | Ty::Iterator(member) | Ty::Branded(member, _) => {
+            mentions_parameter(member)
+        }
         Ty::Method { needs, function } => mentions_parameter(needs) || mentions_parameter(function),
         Ty::Function { params, ret, .. } => any(params) || mentions_parameter(ret),
         Ty::Generic { bounds, function } => any(bounds) || mentions_parameter(function),
@@ -215,8 +234,9 @@ impl Env {
             // An iterator that a function steps is tested as that
             // function is.
             Ty::Function { .. } | Ty::Generic { .. } | Ty::Iterator(_) => !mentions_parameter(ty),
-            // A test never yields a method: see `spec/methods.md`.
-            Ty::Method { .. } => false,
+            // A test never yields a method: see `spec/methods.md`. And
+            // nothing of a brand on a type is there as a program runs.
+            Ty::Method { .. } | Ty::Branded(..) => false,
             Ty::Record(fields) => fields.iter().all(|(_, ty)| self.tests(ty, seen)),
             Ty::Tuple(members) | Ty::Union(members) => {
                 members.iter().all(|member| self.tests(member, seen))
@@ -257,8 +277,13 @@ impl Env {
             | Ty::Bytes
             | Ty::Tag
             | Ty::Literal(_)
+            | Ty::Brand(_)
             | Ty::Bound(_)
             | Ty::Named(Reference::Local(_) | Reference::Parameter(_), _) => ty.clone(),
+            Ty::Branded(ty, brands) => {
+                let brands = brands.iter().map(|brand| self.normal(brand, absorb));
+                branded(self.normal(ty, absorb), brands.collect())
+            }
             Ty::Generic { bounds, function } => Ty::Generic {
                 bounds: bounds.iter().map(|b| self.normal(b, absorb)).collect(),
                 function: Box::new(self.normal(function, absorb)),

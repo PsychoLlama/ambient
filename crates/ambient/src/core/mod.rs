@@ -10,7 +10,7 @@ mod visit;
 
 use serde::{Deserialize, Serialize};
 
-use crate::literal::Literal;
+use crate::literal::{Brand, Literal};
 use crate::symbol::Symbol;
 
 pub use cost::Cost;
@@ -43,6 +43,10 @@ pub enum Type {
     Bytes,
     Tag,
     Literal(Literal),
+    /// A brand on its own: the type of a handle minted under it.
+    Brand(Brand),
+    /// A type that is not branded, and the brands on it, in order.
+    Branded(Box<Type>, Vec<Brand>),
     /// Fields come first, ordered by name; then handlers, ordered by
     /// their abilities' tags.
     Record(Vec<(Key, Type)>),
@@ -255,6 +259,13 @@ pub enum Expr {
     /// `value`, seen as the type `ty`, which whatever it gives is of:
     /// what a `let` that states a type holds. Nothing is tested.
     Widen {
+        value: Box<Expr>,
+        ty: Type,
+    },
+    /// `value` as a branded type, `ty`, which it is of but for the
+    /// brands. Nothing is tested and nothing is made: a brand is not
+    /// there as a program runs.
+    Brand {
         value: Box<Expr>,
         ty: Type,
     },

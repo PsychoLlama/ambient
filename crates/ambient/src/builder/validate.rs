@@ -137,6 +137,7 @@ fn check_inside(ty: &crate::surface::Type) -> Result<(), BuildError> {
         | Type::String
         | Type::Bytes
         | Type::Tag
+        | Type::Brand(_)
         | Type::Bound(_) => Ok(()),
         Type::Literal(literal) => check_literal(literal),
         Type::Generic { bounds, function } => {
@@ -155,6 +156,10 @@ fn check_inside(ty: &crate::surface::Type) -> Result<(), BuildError> {
             members.iter().try_for_each(check_inside)
         }
         Type::Union(members) => members.iter().try_for_each(check_inside),
+        Type::Branded(ty, brands) => {
+            check_inside(ty)?;
+            brands.iter().try_for_each(check_inside)
+        }
         Type::List(member) | Type::Cell(member) | Type::Iterator(member) => check_inside(member),
         Type::Method { needs, function } => {
             check_inside(needs)?;

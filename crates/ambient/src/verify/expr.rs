@@ -196,6 +196,16 @@ impl Body<'_, '_> {
                 self.check(value, &seen)?;
                 seen
             }
+            // Whoever sent the tree is trusted with its brands
+            // (`spec/exchange.md`): only what is under them is checked.
+            Expr::Brand { value, ty } => {
+                let branded = verifier.sound(ty)?;
+                let Ty::Branded(under, _) = &branded else {
+                    return Err(Invalid::Type);
+                };
+                self.check(value, under)?;
+                branded
+            }
             Expr::Cell { ty, value } => {
                 let held = verifier.sound(ty)?;
                 self.check(value, &held)?;

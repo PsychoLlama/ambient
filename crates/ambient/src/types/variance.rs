@@ -134,7 +134,9 @@ impl Env {
                 }
             }
             Ty::Tuple(members) | Ty::Union(members) => all(members, at),
-            Ty::List(member) | Ty::Iterator(member) => self.varies(member, at, found),
+            Ty::List(member) | Ty::Iterator(member) | Ty::Branded(member, _) => {
+                self.varies(member, at, found);
+            }
             Ty::Cell(member) => self.varies(member, at.of(Variance::Invariant), found),
             Ty::Method { needs, function } => {
                 self.varies(needs, at.of(Variance::Contravariant), found);

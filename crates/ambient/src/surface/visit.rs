@@ -24,6 +24,7 @@ impl<N> Type<N> {
             | Self::Bytes
             | Self::Tag
             | Self::Bound(_)
+            | Self::Brand(_)
             | Self::Literal(_) => {}
             Self::Record(fields) => {
                 for (key, ty) in fields {
@@ -34,6 +35,12 @@ impl<N> Type<N> {
             Self::Tuple(members) | Self::Union(members) => {
                 for ty in members {
                     ty.names(visit);
+                }
+            }
+            Self::Branded(ty, brands) => {
+                ty.names(visit);
+                for brand in brands {
+                    brand.names(visit);
                 }
             }
             Self::List(member) | Self::Cell(member) | Self::Iterator(member) => member.names(visit),
@@ -382,7 +389,7 @@ impl<N> Definition<N> {
                 function.body.names(visit);
             }
             DefinitionKind::Key(key) => key.ty.names(visit),
-            DefinitionKind::Tag => {}
+            DefinitionKind::Tag | DefinitionKind::Brand => {}
             DefinitionKind::Ability(ability) => {
                 for bound in ability.type_params.iter().filter_map(|p| p.bound.as_ref()) {
                     bound.names(visit);

@@ -41,7 +41,21 @@ impl Parser {
         Ok(Type::Union(members))
     }
 
+    /// A member of a union: a type, and the brands on it if any.
     fn ty_member(&mut self) -> Parsed<Type> {
+        let ty = self.ty_single()?;
+        let mut brands = Vec::new();
+        while self.eat("&") {
+            brands.push(self.ty_single()?);
+        }
+        Ok(if brands.is_empty() {
+            ty
+        } else {
+            Type::Branded(Box::new(ty), brands)
+        })
+    }
+
+    fn ty_single(&mut self) -> Parsed<Type> {
         match self.peek().clone() {
             Token::Int(value) => {
                 self.advance();

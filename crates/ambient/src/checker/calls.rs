@@ -4,7 +4,9 @@ use super::Checker;
 use super::generics::function_type;
 use crate::core;
 use crate::error::Error;
+use crate::literal::Brand;
 use crate::surface::{Expr, Reference};
+use crate::symbol::Symbol;
 use crate::types::Ty;
 
 /// An expression already checked: its core form and its type.
@@ -45,11 +47,59 @@ impl Checker<'_> {
         ))
     }
 
+    /// The brand a name is, if what it names is one: a type that is the
+    /// brand told apart by where that very definition is declared.
+    fn brand(&self, symbol: &Symbol) -> Option<Brand> {
+        match &self.env.types.get(symbol)?.ty {
+            Ty::Brand(brand) if brand.brand == symbol.identity() => Some(brand.clone()),
+            _ => None,
+        }
+    }
+
+    /// A call of a brand: its one argument, at its type and the brand.
+    /// Only the module that declares a brand brands with it.
+    fn branding(
+        &mut self,
+        named: &Symbol,
+        brand: Brand,
+        args: &[Expr<Reference>],
+    ) -> Result<(core::Expr, Ty), Error> {
+        if named.module != self.symbol.module {
+            return Err(Error::Branding {
+                symbol: self.symbol.clone(),
+                brand: named.clone(),
+            });
+        }
+        let [value] = args else {
+            return Err(Error::Arity {
+                symbol: self.symbol.clone(),
+                callee: named.clone(),
+                expected: 1,
+                found: args.len(),
+            });
+        };
+        let (value, ty) = self.infer(value)?;
+        let under = Box::new(self.widened(&ty));
+        let ty = self
+            .env
+            .normalize(&Ty::Branded(under, vec![Ty::Brand(brand)]));
+        let core = core::Expr::Brand {
+            value: Box::new(value),
+            ty: self.lower(&ty),
+        };
+        Ok((core, ty))
+    }
+
     pub(super) fn call(
         &mut self,
         callee: &Expr<Reference>,
         args: &[Expr<Reference>],
     ) -> Result<(core::Expr, Ty), Error> {
+        if let Expr::Name(Reference::Definition(named)) = callee
+            && let Some(brand) = self.brand(named)
+        {
+            return self.branding(named, brand, args);
+        }
         if let Expr::Name(Reference::Definition(function)) = callee
             && let Some(signature) = self.generic(function)
         {

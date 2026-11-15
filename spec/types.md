@@ -100,6 +100,10 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - A brand is a type with an [identity](definitions.md) and no structure.
 - `T & Brand` is a subtype of `T`; going the other way is the branding operation.
 - Branding is permitted only in the module that declares the brand.
+- Branding is written as a call of the brand with the value, and gives the value at its type and the brand; a literal's type is widened first, so `Duration(5)` is an `int & Duration`.
+- A branded value is used as its type everywhere: it has that type's methods and operations, and what they give is not branded.
+- A branded type cannot be tested for, since nothing of the brand is there as a program runs: a match on one tests the type under the brand, and only where that is enough to tell.
+- TODO: only a brand is intersected with a type; two record types are not.
 - Brands are erased: they constrain code compiled from source and are not a security boundary; see [exchange](exchange.md).
 - A brand on its own is the type of a [handle](values.md).
 

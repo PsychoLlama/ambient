@@ -33,6 +33,8 @@ impl Env {
             }
             Ty::Tuple(members) => Ty::Tuple(members.iter().map(part).collect()),
             Ty::List(member) => Ty::List(Box::new(part(&member))),
+            // What is under a brand is all there is to test.
+            Ty::Branded(ty, _) => self.nearest_test(&ty),
             Ty::Union(members) => self.union(
                 members
                     .iter()
@@ -267,6 +269,7 @@ impl Env {
             Ty::Float | Ty::Literal(Literal::Float(_)) => Shape::Float,
             Ty::String | Ty::Literal(Literal::String(_)) => Shape::String,
             Ty::Bytes | Ty::Literal(Literal::Bytes(_)) => Shape::Bytes,
+            Ty::Branded(ty, _) => return self.shape(&ty),
             Ty::Tag | Ty::Literal(Literal::Tag { .. }) => Shape::Tag,
             Ty::Tuple(_) => Shape::Tuple,
             Ty::List(_) => Shape::List,

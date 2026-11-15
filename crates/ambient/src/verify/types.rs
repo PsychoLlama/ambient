@@ -29,6 +29,10 @@ pub(super) fn raise(ty: &core::Type, slots: &[Symbol]) -> Result<Ty, Invalid> {
         core::Type::Bytes => Ty::Bytes,
         core::Type::Tag => Ty::Tag,
         core::Type::Literal(literal) => Ty::Literal(literal.clone()),
+        core::Type::Brand(brand) => Ty::Brand(brand.clone()),
+        core::Type::Branded(ty, brands) => {
+            Ty::Branded(one(ty)?, brands.iter().cloned().map(Ty::Brand).collect())
+        }
         core::Type::Record(fields) => {
             let mut raised = Vec::new();
             for (key, ty) in fields {
@@ -125,7 +129,16 @@ impl Verifier<'_> {
             | Ty::Bytes
             | Ty::Tag
             | Ty::Bound(_)
+            | Ty::Brand(_)
             | Ty::Literal(_) => Ok(()),
+            // Brands are on a type that is none itself.
+            Ty::Branded(ty, brands) => {
+                let marks = brands.iter().all(|brand| matches!(brand, Ty::Brand(_)));
+                if !marks || matches!(**ty, Ty::Brand(_) | Ty::Branded(..)) {
+                    return Err(Invalid::Type);
+                }
+                self.well_formed(ty)
+            }
             // Only a function type has type parameters of its own.
             Ty::Generic { bounds, function } => {
                 if !matches!(**function, Ty::Function { .. }) {

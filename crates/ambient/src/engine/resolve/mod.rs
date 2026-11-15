@@ -46,7 +46,7 @@ impl Engine<'_> {
                 .hash(&scoped.digest)
                 .bytes(package.as_bytes());
             // What a tag resolves to holds where it is declared.
-            if matches!(definition.kind, DefinitionKind::Tag) {
+            if matches!(definition.kind, DefinitionKind::Tag | DefinitionKind::Brand) {
                 key.bytes(symbol.identity().as_bytes());
             }
             let key = key.finish();
@@ -136,6 +136,14 @@ impl<'a> Resolver<'a> {
                 ty: Type::Literal(crate::literal::Literal::Tag {
                     package: self.package.to_owned(),
                     tag: self.symbol.identity(),
+                }),
+            }),
+            // And a brand the type of what is minted under it.
+            DefinitionKind::Brand => DefinitionKind::Type(TypeDefinition {
+                params: Vec::new(),
+                ty: Type::Brand(crate::literal::Brand {
+                    package: self.package.to_owned(),
+                    brand: self.symbol.identity(),
                 }),
             }),
             DefinitionKind::Key(key) => DefinitionKind::Key(KeyDefinition {
@@ -286,6 +294,8 @@ impl<'a> Resolver<'a> {
             Type::Bytes => Type::Bytes,
             Type::Tag => Type::Tag,
             Type::Literal(literal) => Type::Literal(literal.clone()),
+            Type::Brand(brand) => Type::Brand(brand.clone()),
+            Type::Branded(ty, brands) => Type::Branded(Box::new(self.ty(ty)?), self.types(brands)?),
             Type::Record(fields) => Type::Record(
                 fields
                     .iter()
