@@ -117,16 +117,16 @@ impl Network {
     }
 
     /// Hands a request a server was sent to whatever waits to accept
-    /// one, or keeps it until something does. One whose body is not
-    /// text is refused here: nothing could hold it.
+    /// one, or keeps it until something does. One whose body cannot
+    /// be read is refused here.
     pub(super) fn arrived(
         &mut self,
         server: i64,
         mut request: tiny_http::Request,
     ) -> Option<(u64, Done)> {
-        let mut body = String::new();
-        if request.as_reader().read_to_string(&mut body).is_err() {
-            let refusal = tiny_http::Response::from_string("the body is not text");
+        let mut body = Vec::new();
+        if request.as_reader().read_to_end(&mut body).is_err() {
+            let refusal = tiny_http::Response::from_string("the body could not be read");
             let _ = request.respond(refusal.with_status_code(400));
             return None;
         }
@@ -227,7 +227,7 @@ fn send(agent: &ureq::Agent, request: Request) -> Result<Response, Failure> {
         (name.as_str().to_owned(), value)
     };
     let headers = response.headers().iter().map(header).collect();
-    let body = response.body_mut().read_to_string();
+    let body = response.body_mut().read_to_vec();
     Ok(Response {
         status: i64::from(response.status().as_u16()),
         headers,

@@ -43,11 +43,7 @@ fn every_test_of_an_example_passes() {
 #[test]
 fn the_tally_counts_the_words_of_a_file() {
     let world = Scripted {
-        files: [(
-            "notes".to_owned(),
-            "the cat and the hat\nthe end".to_owned(),
-        )]
-        .into(),
+        files: [("notes".to_owned(), "the cat and the hat\nthe end".into())].into(),
         args: vec!["notes".to_owned()],
         ..Scripted::default()
     };
@@ -70,7 +66,7 @@ fn the_stock_keeps_its_counts_in_a_file_of_json() {
         args: Vec::new(),
     };
     let world = Scripted {
-        files: [("stock.json".to_owned(), r#"{"tea": 2}"#.to_owned())].into(),
+        files: [("stock.json".to_owned(), r#"{"tea": 2}"#.into())].into(),
         args: ["add", "jam", "3"].map(str::to_owned).to_vec(),
         ..Scripted::default()
     };
@@ -78,7 +74,7 @@ fn the_stock_keeps_its_counts_in_a_file_of_json() {
 
     assert_eq!((code, world.err.as_str()), (0, ""));
     assert_eq!(world.out, "jam         3\ntea         2\n");
-    assert_eq!(world.files["stock.json"], r#"{"jam":3,"tea":2}"#);
+    assert_eq!(world.file("stock.json"), r#"{"jam":3,"tea":2}"#);
 }
 
 #[test]
@@ -87,10 +83,10 @@ fn the_notes_are_served_and_kept_in_a_file_of_json() {
         method: method.to_owned(),
         url: url.to_owned(),
         headers: Vec::new(),
-        body: body.to_owned(),
+        body: body.into(),
     };
     let world = Scripted {
-        files: [("notes.json".to_owned(), "[\"milk\"]".to_owned())].into(),
+        files: [("notes.json".to_owned(), "[\"milk\"]".into())].into(),
         requests: [
             request("POST", "/notes", "eggs"),
             request("DELETE", "/notes/0", ""),
@@ -110,8 +106,12 @@ fn the_notes_are_served_and_kept_in_a_file_of_json() {
     let answers: Vec<_> = world
         .answers
         .iter()
-        .map(|answer| (answer.status, &*answer.body))
+        .map(|answer| (answer.status, String::from_utf8_lossy(&answer.body)))
         .collect();
-    assert_eq!(answers, [(201, "1"), (204, ""), (200, "[\"eggs\"]")]);
-    assert_eq!(world.files["notes.json"], "[\"eggs\"]");
+    let expected = [(201, "1"), (204, ""), (200, "[\"eggs\"]")];
+    assert_eq!(
+        answers,
+        expected.map(|(status, body)| (status, body.into()))
+    );
+    assert_eq!(world.file("notes.json"), "[\"eggs\"]");
 }

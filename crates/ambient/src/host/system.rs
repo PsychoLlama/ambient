@@ -86,12 +86,12 @@ impl World for System {
         })
     }
 
-    fn append(&mut self, path: &str, text: &str) -> Result<(), Failure> {
+    fn append(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
         let file = std::fs::OpenOptions::new()
             .append(true)
             .create(true)
             .open(path);
-        let written = file.and_then(|mut file| file.write_all(text.as_bytes()));
+        let written = file.and_then(|mut file| file.write_all(bytes));
         written.map_err(|error| failure(&error))
     }
 
@@ -104,12 +104,12 @@ impl World for System {
         copied.map_err(|error| failure(&error))
     }
 
-    fn read(&mut self, path: &str) -> Result<String, Failure> {
-        std::fs::read_to_string(path).map_err(|error| failure(&error))
+    fn read(&mut self, path: &str) -> Result<Vec<u8>, Failure> {
+        std::fs::read(path).map_err(|error| failure(&error))
     }
 
-    fn store(&mut self, path: &str, text: &str) -> Result<(), Failure> {
-        std::fs::write(path, text).map_err(|error| failure(&error))
+    fn store(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
+        std::fs::write(path, bytes).map_err(|error| failure(&error))
     }
 
     fn list(&mut self, path: &str) -> Result<Vec<String>, Failure> {

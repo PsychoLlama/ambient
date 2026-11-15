@@ -77,18 +77,18 @@ pub trait World {
     fn variable(&self, name: &str) -> Option<String>;
     /// Every environment variable and its value, in order of name.
     fn variables(&self) -> Vec<(String, String)>;
-    /// The text of a file.
+    /// What a file holds.
     ///
     /// # Errors
     ///
-    /// The file cannot be read as text.
-    fn read(&mut self, path: &str) -> Result<String, Failure>;
-    /// Makes a file hold `text`.
+    /// The file cannot be read.
+    fn read(&mut self, path: &str) -> Result<Vec<u8>, Failure>;
+    /// Makes a file hold `bytes`.
     ///
     /// # Errors
     ///
     /// The file cannot be written.
-    fn store(&mut self, path: &str, text: &str) -> Result<(), Failure>;
+    fn store(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure>;
     /// The names of what a directory holds, in order.
     ///
     /// # Errors
@@ -108,12 +108,12 @@ pub trait World {
     ///
     /// Nothing is there, or it cannot be looked at.
     fn info(&mut self, path: &str) -> Result<Info, Failure>;
-    /// Adds `text` to the end of a file, making it if it is not there.
+    /// Adds `bytes` to the end of a file, making it if it is not there.
     ///
     /// # Errors
     ///
     /// The file cannot be written.
-    fn append(&mut self, path: &str, text: &str) -> Result<(), Failure>;
+    fn append(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure>;
     /// Moves what is at one path to another.
     ///
     /// # Errors
@@ -192,6 +192,13 @@ fn text(args: &[Value], position: usize) -> Result<&str, String> {
     match args.get(position) {
         Some(Value::String(text)) => Ok(text),
         _ => Err(format!("argument {position} is not a string")),
+    }
+}
+
+fn bytes(args: &[Value], position: usize) -> Result<&[u8], String> {
+    match args.get(position) {
+        Some(Value::Bytes(bytes)) => Ok(bytes),
+        _ => Err(format!("argument {position} is not bytes")),
     }
 }
 

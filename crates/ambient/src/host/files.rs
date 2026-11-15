@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use super::http::Handler;
-use super::{Failure, error, strings, text};
+use super::{Failure, Kind, World, bytes, error, strings, text};
 use crate::system::PACKAGE;
 use crate::value::Value;
 
@@ -57,15 +57,36 @@ fn nothing(done: Result<(), Failure>) -> Value {
     gave(done, |()| Value::Null)
 }
 
-pub(super) const HANDLERS: [(&str, Handler); 10] = [
+/// What a file holds, as text.
+fn read_text(world: &mut dyn World, path: &str) -> Result<String, Failure> {
+    String::from_utf8(world.read(path)?).map_err(|_| Failure {
+        kind: Kind::Invalid,
+        message: format!("the file at {path} is not text"),
+    })
+}
+
+pub(super) const HANDLERS: [(&str, Handler); 13] = [
     ("fs_read", |world, args| {
-        Ok(gave(world.read(text(args, 0)?), Value::String))
+        Ok(gave(read_text(world, text(args, 0)?), Value::String))
+    }),
+    ("fs_read_bytes", |world, args| {
+        Ok(gave(world.read(text(args, 0)?), Value::Bytes))
     }),
     ("fs_write", |world, args| {
-        Ok(nothing(world.store(text(args, 0)?, text(args, 1)?)))
+        Ok(nothing(
+            world.store(text(args, 0)?, text(args, 1)?.as_bytes()),
+        ))
+    }),
+    ("fs_write_bytes", |world, args| {
+        Ok(nothing(world.store(text(args, 0)?, bytes(args, 1)?)))
     }),
     ("fs_append", |world, args| {
-        Ok(nothing(world.append(text(args, 0)?, text(args, 1)?)))
+        Ok(nothing(
+            world.append(text(args, 0)?, text(args, 1)?.as_bytes()),
+        ))
+    }),
+    ("fs_append_bytes", |world, args| {
+        Ok(nothing(world.append(text(args, 0)?, bytes(args, 1)?)))
     }),
     ("fs_list", |world, args| {
         Ok(gave(world.list(text(args, 0)?), strings))

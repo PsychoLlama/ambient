@@ -349,7 +349,8 @@ fn a_new_package_runs_and_its_test_passes() {
         (0, "made work/app: `ambient run work/app` runs it\n")
     );
 
-    let written = |(path, text): (&String, &String)| (PathBuf::from(path), text.clone());
+    let held = |bytes: &Vec<u8>| String::from_utf8_lossy(bytes).into_owned();
+    let written = |(path, bytes): (&String, &Vec<u8>)| (PathBuf::from(path), held(bytes));
     let files: Files = world.files.iter().map(written).collect();
     let path = PathBuf::from("work/app");
     let test = ambient::cli::Command::Test { path, only: None };
@@ -361,7 +362,7 @@ fn a_new_package_runs_and_its_test_passes() {
 fn a_new_package_is_named_for_its_directory_and_given_an_id() {
     let world = Scripted {
         directory: Some("/work/tea".to_owned()),
-        files: [("./src/main.ab".to_owned(), "kept".to_owned())].into(),
+        files: [("./src/main.ab".to_owned(), "kept".into())].into(),
         ..Scripted::default()
     };
     let (code, world) = made(".", world);
@@ -369,11 +370,11 @@ fn a_new_package_is_named_for_its_directory_and_given_an_id() {
     assert_eq!((code, world.err.as_str()), (0, ""));
     let id = format!("{:016x}{:016x}", 1, 2);
     assert_eq!(
-        world.files["./ambient.toml"],
+        world.file("./ambient.toml"),
         format!("name = \"tea\"\nid = \"{id}\"\n")
     );
     // What was there already is left as it was.
-    assert_eq!(world.files["./src/main.ab"], "kept");
+    assert_eq!(world.file("./src/main.ab"), "kept");
 }
 
 #[test]
@@ -387,7 +388,7 @@ fn a_package_is_not_made_where_it_cannot_be() {
     );
 
     let world = Scripted {
-        files: [("app/ambient.toml".to_owned(), String::new())].into(),
+        files: [("app/ambient.toml".to_owned(), Vec::new())].into(),
         ..Scripted::default()
     };
     let (_, world) = made("app", world);

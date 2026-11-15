@@ -20,7 +20,8 @@ pub fn answer(request: Request): Response with load, save {
     match url.parse(request.url) {
         null => { return http.text(400, "that is not a URL\n"); }
         let asked: url.Url => {
-            return route(request.method, path.parts(asked.path), request.body);
+            let body = request.body.to_text() as string else "";
+            return route(request.method, path.parts(asked.path), body);
         }
     }
 }
@@ -70,8 +71,9 @@ fn answers(kept: List<string>, requests: List<(string, string, string)>): List<s
     // The row says the notes are whoever calls this one's, not the ones
     // in scope here, where none are kept yet.
     let asked = fn((method, url, body): (string, string, string)): string with load, save {
-        let response = answer({ method, url, headers: [], body });
-        return "${response.status} ${response.body}";
+        let response = answer({ method, url, headers: [], body: body.to_bytes() });
+        let answered = response.body.to_text() as string else "";
+        return "${response.status} ${answered}";
     };
     return provide {
         [load]() => notes.read(),

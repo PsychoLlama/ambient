@@ -70,14 +70,14 @@ impl Session<'_> {
         let made = identifier(&mut *world)
             .and_then(|id| {
                 let text = format!("name = \"{name}\"\nid = \"{id}\"\n");
-                world.store(&manifest.to_string_lossy(), &text)
+                world.store(&manifest.to_string_lossy(), text.as_bytes())
             })
             .and_then(|()| world.make_directory(&path.join("src").to_string_lossy()))
             .and_then(|()| {
                 if begun {
                     return Ok(());
                 }
-                world.store(&main.to_string_lossy(), MAIN)
+                world.store(&main.to_string_lossy(), MAIN.as_bytes())
             });
         if let Err(failure) = made {
             return refuse(&failure.message);

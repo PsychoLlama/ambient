@@ -4,8 +4,8 @@ import ambient.json.{Json, write};
 /// No response came: the host was not found, or would not connect.
 pub tag unreachable;
 
-/// What was to be sent or what came back is not HTTP the world can
-/// carry: a URL it cannot read, or a body that is not text.
+/// What was to be sent is not HTTP the world can carry: a URL it
+/// cannot read, or a header that is not one.
 pub tag invalid;
 
 /// The program may not listen there.
@@ -19,9 +19,9 @@ pub type Header = (string, string);
 
 /// What is sent to a server. A server is handed one whose `url` is the
 /// path and query it was asked for.
-pub type Request = { method: string, url: string, headers: List<Header>, body: string };
+pub type Request = { method: string, url: string, headers: List<Header>, body: bytes };
 
-pub type Response = { status: int, headers: List<Header>, body: string };
+pub type Response = { status: int, headers: List<Header>, body: bytes };
 
 /// A listener the world holds, and the port it listens on.
 pub type Server = { id: int, port: int };
@@ -49,11 +49,20 @@ pub ability close(server: Server): null;
 
 /// What a server gives for `url`.
 pub fn get(url: string): Response | Error with send =>
-    send!({ method: "GET", url, headers: [], body: "" });
+    send!({ method: "GET", url, headers: [], body: "".to_bytes() });
 
 /// What a server gives when `body` is posted to `url`.
-pub fn post(url: string, body: string): Response | Error with send =>
+pub fn post(url: string, body: bytes): Response | Error with send =>
     send!({ method: "POST", url, headers: [], body });
+
+/// What a server gives when a value is posted to `url` as JSON.
+pub fn post_json(url: string, value: Json): Response | Error with send =>
+    send!({
+        method: "POST",
+        url,
+        headers: [("content-type", "application/json")],
+        body: write(value).to_bytes(),
+    });
 
 /// Whether a response says the request was done: a status in the 200s.
 pub fn ok(response: Response): bool => 199 < response.status && response.status < 300;
@@ -73,11 +82,11 @@ pub fn header(headers: List<Header>, name: string): string | null {
 
 /// A response whose body is plain text.
 pub fn text(status: int, body: string): Response =>
-    { status, headers: [("content-type", "text/plain; charset=utf-8")], body };
+    { status, headers: [("content-type", "text/plain; charset=utf-8")], body: body.to_bytes() };
 
 /// A response whose body is a value as JSON.
 pub fn json(status: int, value: Json): Response =>
-    { status, headers: [("content-type", "application/json")], body: write(value) };
+    { status, headers: [("content-type", "application/json")], body: write(value).to_bytes() };
 
 /// Answers the requests a server is sent with what `handle` makes of
 /// each, `tasks` of them at a time, until the server is closed.

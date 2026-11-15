@@ -6,6 +6,9 @@ pub tag not_found;
 /// The program may not do this to what is at the path.
 pub tag denied;
 
+/// What the file holds is not text.
+pub tag invalid;
+
 /// Any other failure; the message says which.
 pub tag failed;
 
@@ -22,11 +25,17 @@ pub tag other;
 /// changed, in milliseconds since the start of 1970.
 pub type Info = { kind: file | directory | other, size: int, modified: int };
 
-/// The text of a file.
+/// The text of a file, which is `invalid` if it does not hold text.
 pub ability read(path: string): string | Error;
+
+/// What a file holds, text or not.
+pub ability read_bytes(path: string): bytes | Error;
 
 /// Makes a file hold `text`, replacing what it held.
 pub ability write(path: string, text: string): null | Error;
+
+/// Makes a file hold `content`, replacing what it held.
+pub ability write_bytes(path: string, content: bytes): null | Error;
 
 /// The names of what a directory holds, in order.
 pub ability list(path: string): List<string> | Error;
@@ -46,6 +55,9 @@ pub ability info(path: string): Info | Error;
 
 /// Adds `text` to the end of a file, which is made if it is not there.
 pub ability append(path: string, text: string): null | Error;
+
+/// Adds `content` to the end of a file, which is made if it is not there.
+pub ability append_bytes(path: string, content: bytes): null | Error;
 
 /// Moves what is at one path to another, replacing a file there.
 pub ability rename(from: string, to: string): null | Error;

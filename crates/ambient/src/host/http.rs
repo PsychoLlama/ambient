@@ -15,14 +15,14 @@ pub struct Request {
     /// Each header's name, in lower case when the world gives it, and
     /// its value.
     pub headers: Vec<(String, String)>,
-    pub body: String,
+    pub body: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Response {
     pub status: i64,
     pub headers: Vec<(String, String)>,
-    pub body: String,
+    pub body: Vec<u8>,
 }
 
 /// A request a server was sent, and what to answer it by.
@@ -55,7 +55,7 @@ impl Request {
             ("method", Value::String(self.method)),
             ("url", Value::String(self.url)),
             ("headers", headers(self.headers)),
-            ("body", Value::String(self.body)),
+            ("body", Value::Bytes(self.body)),
         ])
     }
 
@@ -64,7 +64,7 @@ impl Request {
             method: field_text(value, "method")?,
             url: field_text(value, "url")?,
             headers: field_headers(value)?,
-            body: field_text(value, "body")?,
+            body: field_bytes(value, "body")?,
         })
     }
 }
@@ -74,7 +74,7 @@ impl Response {
         record([
             ("status", Value::Int(self.status)),
             ("headers", headers(self.headers)),
-            ("body", Value::String(self.body)),
+            ("body", Value::Bytes(self.body)),
         ])
     }
 
@@ -82,7 +82,7 @@ impl Response {
         Ok(Self {
             status: field_int(value, "status")?,
             headers: field_headers(value)?,
-            body: field_text(value, "body")?,
+            body: field_bytes(value, "body")?,
         })
     }
 }
@@ -107,6 +107,13 @@ fn field_text(value: &Value, name: &str) -> Result<String, String> {
     match field(value, name)? {
         Value::String(text) => Ok(text.clone()),
         _ => Err(format!("field `{name}` is not a string")),
+    }
+}
+
+fn field_bytes(value: &Value, name: &str) -> Result<Vec<u8>, String> {
+    match field(value, name)? {
+        Value::Bytes(bytes) => Ok(bytes.clone()),
+        _ => Err(format!("field `{name}` is not bytes")),
     }
 }
 

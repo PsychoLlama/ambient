@@ -19,7 +19,7 @@ pub struct Scripted {
     pub out: String,
     pub err: String,
     pub input: VecDeque<String>,
-    pub files: BTreeMap<String, String>,
+    pub files: BTreeMap<String, Vec<u8>>,
     pub args: Vec<String>,
     /// What each command gives, by the command and its arguments with
     /// a space between.
@@ -92,6 +92,13 @@ pub fn run(files: &dyn Files) -> (i32, Scripted) {
     Scripted::default().execute(files, &command)
 }
 
+impl Scripted {
+    /// The text a file holds.
+    pub fn file(&self, path: &str) -> &str {
+        std::str::from_utf8(&self.files[path]).unwrap()
+    }
+}
+
 fn missing(path: &str) -> Failure {
     Failure {
         kind: Kind::NotFound,
@@ -120,7 +127,7 @@ impl World for Scripted {
         vec![("HOME".to_owned(), "/home/me".to_owned())]
     }
 
-    fn read(&mut self, path: &str) -> Result<String, Failure> {
+    fn read(&mut self, path: &str) -> Result<Vec<u8>, Failure> {
         self.files.get(path).cloned().ok_or_else(|| missing(path))
     }
 
@@ -141,11 +148,11 @@ impl World for Scripted {
         })
     }
 
-    fn append(&mut self, path: &str, text: &str) -> Result<(), Failure> {
+    fn append(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
         self.files
             .entry(path.to_owned())
             .or_default()
-            .push_str(text);
+            .extend_from_slice(bytes);
         Ok(())
     }
 
@@ -161,8 +168,8 @@ impl World for Scripted {
         Ok(())
     }
 
-    fn store(&mut self, path: &str, text: &str) -> Result<(), Failure> {
-        self.files.insert(path.to_owned(), text.to_owned());
+    fn store(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
+        self.files.insert(path.to_owned(), bytes.to_owned());
         Ok(())
     }
 

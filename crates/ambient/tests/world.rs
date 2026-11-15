@@ -91,7 +91,7 @@ fn a_file_that_is_missing_is_an_error_a_program_matches_on() {
         outcome,
         Ok(Value::String("kept: no file at missing.txt".to_owned()))
     );
-    assert_eq!(after.files["notes.txt"], "kept");
+    assert_eq!(after.file("notes.txt"), "kept");
 }
 
 #[test]
@@ -292,7 +292,7 @@ fn a_file_is_looked_at_added_to_copied_and_moved() {
     let (outcome, after) = run(source, &Scripted::default());
     let expected = "file of 8, directory, no file at logs/today";
     assert_eq!(outcome, Ok(Value::String(expected.to_owned())));
-    assert_eq!(after.files["logs/old"], "one\ntwo\n");
+    assert_eq!(after.file("logs/old"), "one\ntwo\n");
 }
 
 #[test]
@@ -319,4 +319,31 @@ fn a_program_reads_its_whole_environment() {
         run(source, &world).0,
         Ok(Value::String(expected.to_owned()))
     );
+}
+
+#[test]
+fn a_file_that_is_not_text_is_read_and_written_as_bytes() {
+    let source = r#"
+        import system.fs;
+        import ambient.bytes;
+
+        fn main(): string with fs {
+            let image = bytes.of([137, 80, 78, 71]) as bytes else "".to_bytes();
+            let _ = fs.write_bytes!("logo.png", image);
+            let _ = fs.append_bytes!("logo.png", "!".to_bytes());
+            let held = fs.read_bytes!("logo.png") as bytes else "".to_bytes();
+            match fs.read!("logo.png") {
+                let text: string => { return text; }
+                let error: Error => {
+                    let invalid = error.kind == fs.invalid;
+                    return "${held.hex()} ${invalid}: ${error.message}";
+                }
+            }
+        }
+    "#;
+
+    let (outcome, after) = run(source, &Scripted::default());
+    let expected = "89504e4721 true: the file at logo.png is not text";
+    assert_eq!(outcome, Ok(Value::String(expected.to_owned())));
+    assert_eq!(after.files["logo.png"], [137, 80, 78, 71, b'!']);
 }
