@@ -31,7 +31,7 @@ impl Env {
             | Ty::Named(Reference::Local(_) | Reference::Parameter(_), _) => ty.clone(),
             Ty::Branded(ty, brands) => {
                 let brands = brands.iter().map(|brand| self.normal(brand, absorb));
-                branded(self.normal(ty, absorb), brands.collect())
+                self.intersect(self.normal(ty, absorb), brands.collect(), absorb)
             }
             Ty::Generic { bounds, function } => Ty::Generic {
                 bounds: bounds.iter().map(|b| self.normal(b, absorb)).collect(),
@@ -145,5 +145,61 @@ impl Env {
             1 => kept.remove(0),
             _ => Ty::Union(kept),
         }
+    }
+}
+
+impl Env {
+    /// A normalized type intersected with others: records are made one
+    /// record, and whatever is left is put on it as brands are. What
+    /// is left that is no brand is no type, which
+    /// `Checker::well_formed` says.
+    fn intersect(&self, ty: Ty, with: Vec<Ty>, absorb: bool) -> Ty {
+        let mut left = Vec::new();
+        let ty = with.into_iter().fold(ty, |ty, other| {
+            self.meet(&ty, &other, absorb).unwrap_or_else(|| {
+                left.push(other);
+                ty
+            })
+        });
+        if left.is_empty() {
+            ty
+        } else {
+            branded(ty, left)
+        }
+    }
+
+    /// The record that is both of two records: every field of either,
+    /// and a field of both at the type that is both of its types.
+    /// Nothing if either is not a record, or a field has no such type.
+    fn meet(&self, left: &Ty, right: &Ty, absorb: bool) -> Option<Ty> {
+        let (Ty::Record(left), Ty::Record(right)) = (left, right) else {
+            return None;
+        };
+        let mut fields = left.clone();
+        for (key, ty) in right {
+            match fields.iter_mut().find(|(held, _)| held == key) {
+                Some((_, held)) => *held = self.both(held, ty, absorb)?,
+                None => fields.push((key.clone(), ty.clone())),
+            }
+        }
+        fields.sort_by(|(a, _), (b, _)| a.cmp(b));
+        Some(Ty::Record(fields))
+    }
+
+    /// The type that is both of two types, where one is written without
+    /// a type of its own for it: the same type, two records, or one
+    /// that is already the other.
+    fn both(&self, left: &Ty, right: &Ty, absorb: bool) -> Option<Ty> {
+        if left == right {
+            return Some(left.clone());
+        }
+        if let Some(record) = self.meet(left, right, absorb) {
+            return Some(record);
+        }
+        // Asking unfolds, which a definition being unfolded cannot.
+        if absorb && self.subtype(left, right) {
+            return Some(left.clone());
+        }
+        (absorb && self.subtype(right, left)).then(|| right.clone())
     }
 }

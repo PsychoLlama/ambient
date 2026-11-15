@@ -31,9 +31,11 @@ impl Checker<'_> {
                 let held = fields.iter().try_for_each(|(key, ty)| self.held(key, ty));
                 result = std::mem::replace(&mut result, Ok(())).and(held);
             }
-            if let Ty::Branded(under, brands) = ty {
-                let brand = |ty: &Ty| matches!(self.env.normalize(ty), Ty::Brand(_));
-                if brand(under) || !brands.iter().all(brand) {
+            // Records intersect to a record; what is left of one that
+            // is still an intersection has only brands on it.
+            if let (Ty::Branded(..), Ty::Branded(under, brands)) = (ty, self.env.normalize(ty)) {
+                let brand = |ty: &Ty| matches!(ty, Ty::Brand(_));
+                if brand(&under) || !brands.iter().all(brand) {
                     result = Err(Error::Intersection {
                         symbol: self.symbol.clone(),
                     });
