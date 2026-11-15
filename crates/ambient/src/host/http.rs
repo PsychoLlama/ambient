@@ -96,14 +96,14 @@ impl Incoming {
     }
 }
 
-fn field<'a>(value: &'a Value, name: &str) -> Result<&'a Value, String> {
+pub(super) fn field<'a>(value: &'a Value, name: &str) -> Result<&'a Value, String> {
     let Value::Record(fields) = value else {
         return Err("not a record".to_owned());
     };
     fields.get(name).ok_or_else(|| format!("no field `{name}`"))
 }
 
-fn field_text(value: &Value, name: &str) -> Result<String, String> {
+pub(super) fn field_text(value: &Value, name: &str) -> Result<String, String> {
     match field(value, name)? {
         Value::String(text) => Ok(text.clone()),
         _ => Err(format!("field `{name}` is not a string")),
@@ -125,15 +125,20 @@ fn field_int(value: &Value, name: &str) -> Result<i64, String> {
 }
 
 fn field_headers(value: &Value) -> Result<Vec<(String, String)>, String> {
-    let Value::List(headers) = field(value, "headers")? else {
-        return Err("field `headers` is not a list".to_owned());
+    pairs(field(value, "headers")?)
+}
+
+/// A list of pairs of strings: headers, or variables.
+pub(super) fn pairs(value: &Value) -> Result<Vec<(String, String)>, String> {
+    let Value::List(headers) = value else {
+        return Err("not a list of pairs".to_owned());
     };
     let pair = |header: &Value| match header {
         Value::Tuple(pair) => match &pair[..] {
             [Value::String(name), Value::String(value)] => Ok((name.clone(), value.clone())),
-            _ => Err("a header is not a name and a value".to_owned()),
+            _ => Err("a pair is not a name and a value".to_owned()),
         },
-        _ => Err("a header is not a pair".to_owned()),
+        _ => Err("a member is not a pair".to_owned()),
     };
     headers.iter().map(pair).collect()
 }

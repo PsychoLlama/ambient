@@ -8,6 +8,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use super::Command;
 use super::http::{self, Incoming, Request, Response};
 use super::{Failure, Ran, World, error, optional, output};
 use crate::backend::native::{Answer, Waits};
@@ -18,8 +19,8 @@ use crate::value::Value;
 pub enum Work {
     /// Let this many milliseconds pass.
     Sleep(i64),
-    /// Run a command with arguments, until it is over.
-    Run { command: String, args: Vec<String> },
+    /// Run a command, until it is over.
+    Run(Command),
     /// Read the next line of standard input.
     ReadLine,
     /// Send a request, and receive the response to it.

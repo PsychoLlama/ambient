@@ -27,6 +27,8 @@ pub struct Scripted {
     /// What each command gives, by the command and its arguments with
     /// a space between.
     pub commands: BTreeMap<String, Ran>,
+    /// Every command that was run, in order.
+    pub ran: Vec<ambient::host::Command>,
     /// Where a path that does not say where it starts is.
     pub directory: Option<String>,
     /// How many random numbers were asked for; the next is one more.
@@ -284,14 +286,15 @@ impl World for Scripted {
                     Done::Accepted(request.map(|request| Incoming { id, request })),
                 )
             }
-            Work::Run { command, args } => {
-                let line = [std::slice::from_ref(&command), &args[..]]
+            Work::Run(command) => {
+                let line = [std::slice::from_ref(&command.program), &command.args[..]]
                     .concat()
                     .join(" ");
                 let ran = self.commands.get(&line).cloned().ok_or_else(|| Failure {
                     kind: Kind::NotFound,
-                    message: format!("no command {command}"),
+                    message: format!("no command {}", command.program),
                 });
+                self.ran.push(command);
                 (0, Done::Ran(ran))
             }
         };

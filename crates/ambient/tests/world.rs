@@ -5,7 +5,7 @@
 
 mod support;
 
-use ambient::host::Ran;
+use ambient::host::{Command, Ran};
 use ambient::value::Value;
 use support::Outcome;
 use support::scripted::Scripted;
@@ -102,7 +102,7 @@ fn a_command_is_run_and_what_it_gave_is_read() {
         import ambient.Error;
 
         fn ran(command: string): string with process.run {
-            match process.run!(command, ["status", "--short"]) {
+            match process.run!(process.command(command, ["status", "--short"])) {
                 let error: Error => {
                     match error.kind {
                         process.not_found => { return "none: " ++ error.message; }
@@ -128,6 +128,37 @@ fn a_command_is_run_and_what_it_gave_is_read() {
         run(source, &world).0,
         Ok(Value::String("1: M notes, none: no command hg".to_owned()))
     );
+}
+
+#[test]
+fn a_command_is_told_where_to_run_and_what_to_read() {
+    let source = r#"
+        import system.process;
+
+        fn main(): int with process.run {
+            let sort = {
+                ...process.command("sort", []),
+                directory: "/tmp",
+                variables: [("LC_ALL", "C")],
+                input: "b\na\n",
+            };
+            return (process.run!(sort) as process.Output else { code: -2, out: "", err: "" }).code;
+        }
+    "#;
+    let world = Scripted {
+        commands: [("sort".to_owned(), Ran::default())].into(),
+        ..Scripted::default()
+    };
+
+    let (outcome, after) = run(source, &world);
+    let asked = Command {
+        program: "sort".to_owned(),
+        args: Vec::new(),
+        directory: Some("/tmp".to_owned()),
+        variables: vec![("LC_ALL".to_owned(), "C".to_owned())],
+        input: "b\na\n".to_owned(),
+    };
+    assert_eq!((outcome, after.ran), (Ok(Value::Int(0)), vec![asked]));
 }
 
 #[test]

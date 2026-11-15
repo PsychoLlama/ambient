@@ -5,6 +5,7 @@
 //! the same handlers serve a real process ([`System`]) and a test that
 //! scripts what the world holds.
 
+mod commands;
 mod crypto;
 mod files;
 mod http;
@@ -17,6 +18,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+pub use commands::Command;
 pub use files::{Entry, Info};
 pub use http::{Incoming, Listening, Request, Response};
 pub use system::System;
@@ -210,15 +212,6 @@ fn int(args: &[Value], position: usize) -> Result<i64, String> {
     }
 }
 
-fn texts(args: &[Value], position: usize) -> Result<Vec<String>, String> {
-    let Some(Value::List(items)) = args.get(position) else {
-        return Err(format!("argument {position} is not a list"));
-    };
-    (0..items.len())
-        .map(|item| text(items, item).map(str::to_owned))
-        .collect()
-}
-
 /// What a command gave, as `system.process.Output` describes it.
 fn output(ran: Ran) -> Value {
     let fields = [
@@ -247,12 +240,7 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
     let starters: [(&str, Starter); 3] = [
         ("console_read_line", |_| Ok(Work::ReadLine)),
         ("clock_sleep", |args| Ok(Work::Sleep(int(args, 0)?))),
-        ("process_run", |args| {
-            Ok(Work::Run {
-                command: text(args, 0)?.to_owned(),
-                args: texts(args, 1)?,
-            })
-        }),
+        ("process_run", |args| Ok(Work::Run(Command::read(args)?))),
     ];
     let handlers: [(&str, Handler); 11] = [
         ("console_write", |world, args| {

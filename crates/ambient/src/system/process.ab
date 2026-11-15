@@ -16,8 +16,28 @@ pub type Output = { code: int, out: string, err: string };
 /// Ends the program with an exit code.
 pub ability exit(code: int): never;
 
-/// Runs a command with arguments, and waits until it is over. The
-/// command is found as the system finds one; no shell reads it. One
-/// that exits with a code that is not zero has still run: only a
-/// command that could not be started is an error.
-pub ability run(command: string, args: List<string>): Output | Error;
+/// A command to run: a program, found as the system finds one, and
+/// what it is started with. No shell reads any of it.
+///
+/// - `directory` is where it runs, or null for where this program runs.
+/// - `variables` are given to it beside this program's, by name and
+///   value.
+/// - `input` is what it reads from its standard input.
+pub type Command = {
+    program: string,
+    args: List<string>,
+    directory: string | null,
+    variables: List<(string, string)>,
+    input: string,
+};
+
+/// Runs a command, and waits until it is over. One that exits with a
+/// code that is not zero has still run: only a command that could not
+/// be started is an error.
+pub ability run(command: Command): Output | Error;
+
+/// A program and its arguments as a command that runs here, is told
+/// nothing more, and reads nothing. Copy it to say otherwise:
+/// `{ ...process.command("git", ["status"]), directory: "/repo" }`.
+pub fn command(program: string, args: List<string>): Command =>
+    { program, args, directory: null, variables: [], input: "" };

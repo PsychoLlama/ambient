@@ -6,8 +6,9 @@
 //! waiting for the next outcome gives up when the soonest one is due.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::io::Write;
 use std::io::{BufRead, Read};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -15,7 +16,7 @@ use std::time::{Duration, Instant};
 use super::network::Network;
 use super::system::failure;
 use super::waits::{Done, Work};
-use super::{Failure, Ran, Response};
+use super::{Command, Failure, Ran, Response};
 
 /// What a thread sends back.
 pub(super) enum Sent {
@@ -70,7 +71,7 @@ impl Pending {
                 let length = Duration::from_millis(u64::try_from(milliseconds).unwrap_or(0));
                 self.timers.insert((Instant::now() + length, ticket));
             }
-            Work::Run { command, args } => self.run(ticket, &command, &args),
+            Work::Run(command) => self.run(ticket, command),
             Work::ReadLine => self.read_line(ticket),
             Work::Send(request) => self.network.send(ticket, request),
             Work::Accept(server) => {
@@ -83,11 +84,15 @@ impl Pending {
     /// Starts a command. Threads read what it writes, so it is never
     /// held up by a full pipe; the command itself stays here, where it
     /// can be ended.
-    fn run(&mut self, ticket: u64, command: &str, args: &[String]) {
+    fn run(&mut self, ticket: u64, command: Command) {
         let piped = || Stdio::piped();
-        let spawned = Command::new(command)
-            .args(args)
-            .stdin(Stdio::null())
+        let mut process = std::process::Command::new(&command.program);
+        process.args(&command.args).envs(command.variables);
+        if let Some(directory) = &command.directory {
+            process.current_dir(directory);
+        }
+        let spawned = process
+            .stdin(piped())
             .stdout(piped())
             .stderr(piped())
             .spawn();
@@ -99,6 +104,11 @@ impl Pending {
             }
         };
         let (out, err) = (child.stdout.take(), child.stderr.take());
+        // Written on a thread of its own, and then closed: a command
+        // that reads none of it must not hold up what it writes.
+        if let Some(mut input) = child.stdin.take() {
+            thread::spawn(move || input.write_all(command.input.as_bytes()));
+        }
         let sender = self.sender.clone();
         thread::spawn(move || {
             let errors = thread::spawn(move || text(err));

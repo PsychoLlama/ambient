@@ -419,7 +419,7 @@ Import a module by path; its public definitions are reached through its name, or
 | `system.fs`                                                  | `read`, `write`, `append`, and each with `_bytes`; `list`, `exists`, `info`, `remove`, `make_directory`, `rename`, `copy` |
 | `system.path`                                                | `parts`, `join`, `name`, `parent`, `extension`, `stem`, `is_absolute`                                                     |
 | `system.clock`                                               | `now`, `elapsed`, `sleep`                                                                                                 |
-| `system.process`                                             | `exit`, `run`                                                                                                             |
+| `system.process`                                             | `exit`, `run`, `command`                                                                                                  |
 | `system.http`                                                | `send`, `get`, `post`, `post_json`, `listen`, `serve`, `accept`, `respond`, `close`, `text`, `json`                       |
 | `system.random`                                              | `bits`, `between`, `fraction`, `chance`, `pick`, `shuffle`, `bytes`, `seeded`                                             |
 | `system.crypto`                                              | `hash`, `hmac`, `same`, and the tags `sha256`, `sha512`, `sha1`                                                           |
