@@ -7,11 +7,14 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use ambient::cli::{Command, Session};
+use ambient::engine::Engine;
 use ambient::host::{
     Done, Entry, Failure, Incoming, Info, Kind, Listening, Ran, Request, Response, Work, World,
 };
 use ambient::project::Files;
 use ambient::store::MemoryStore;
+
+use super::Outcome;
 
 /// A world held in memory.
 #[derive(Clone, Default)]
@@ -92,7 +95,41 @@ pub fn run(files: &dyn Files) -> (i32, Scripted) {
     Scripted::default().execute(files, &command)
 }
 
+/// Runs `main` of a program written as one module under the
+/// command-line target, on every backend, each in a world `make` makes.
+pub fn over<W: World + 'static>(source: &str, make: impl Fn() -> Rc<RefCell<W>>) -> Outcome {
+    let workspace = super::text::workspace(source);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let target = ambient::system::target();
+    let entry = engine
+        .program(&super::value("main", "main"), &target)
+        .unwrap();
+    super::run_entry(&engine, &entry, &[], || {
+        let world: Rc<RefCell<dyn World>> = make();
+        ambient::host::natives(&world)
+    })
+}
+
 impl Scripted {
+    /// Runs `main` of a program written as one module in this world,
+    /// and gives what it gave and the world it left. Each backend runs
+    /// in a world of its own, and they must leave the same output.
+    pub fn program(&self, source: &str) -> (Outcome, Scripted) {
+        let left = RefCell::new(Vec::new());
+        let outcome = over(source, || {
+            let world = Rc::new(RefCell::new(self.clone()));
+            left.borrow_mut().push(Rc::clone(&world));
+            world
+        });
+        let mut worlds = left.into_inner().into_iter();
+        let first = worlds.next().unwrap().borrow().clone();
+        for other in worlds {
+            assert_eq!(other.borrow().out, first.out, "the backends disagree");
+        }
+        (outcome, first)
+    }
+
     /// The text a file holds.
     pub fn file(&self, path: &str) -> &str {
         std::str::from_utf8(&self.files[path]).unwrap()

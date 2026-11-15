@@ -5,40 +5,15 @@
 
 mod support;
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
-use ambient::engine::Engine;
-use ambient::host::{self, Ran, World};
-use ambient::store::MemoryStore;
+use ambient::host::Ran;
 use ambient::value::Value;
+use support::Outcome;
 use support::scripted::Scripted;
-use support::{Outcome, run_entry, value};
 
 /// Runs `main` under the command-line target in `world`, on every
 /// backend, and gives what it gave and the world it left.
 fn run(source: &str, world: &Scripted) -> (Outcome, Scripted) {
-    let workspace = support::text::workspace(source);
-    let store = MemoryStore::new();
-    let engine = Engine::new(&workspace, &store);
-    let entry = engine
-        .program(&value("main", "main"), &ambient::system::target())
-        .unwrap();
-    // Each backend runs in a world of its own; they must agree.
-    let left = RefCell::new(Vec::new());
-    let natives = || {
-        let world: Rc<RefCell<Scripted>> = Rc::new(RefCell::new(world.clone()));
-        left.borrow_mut().push(Rc::clone(&world));
-        let world: Rc<RefCell<dyn World>> = world;
-        host::natives(&world)
-    };
-    let outcome = run_entry(&engine, &entry, &[], natives);
-    let mut worlds = left.into_inner().into_iter();
-    let first = worlds.next().unwrap().borrow().clone();
-    for other in worlds {
-        assert_eq!(other.borrow().out, first.out, "the backends disagree");
-    }
-    (outcome, first)
+    world.program(source)
 }
 
 #[test]

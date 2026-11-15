@@ -8,38 +8,15 @@ mod support;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use ambient::engine::Engine;
-use ambient::host::{self, Request, Response, System, World};
-use ambient::store::MemoryStore;
+use ambient::host::{Request, Response, System};
 use ambient::value::Value;
-use support::scripted::Scripted;
-use support::{Outcome, run_entry, value};
+use support::Outcome;
+use support::scripted::{Scripted, over};
 
 /// Runs `main` under the command-line target in `world`, on every
-/// backend, and gives what it gave and the world the first left.
+/// backend, and gives what it gave and the world it left.
 fn run(source: &str, world: &Scripted) -> (Outcome, Scripted) {
-    let left = RefCell::new(Vec::new());
-    let outcome = run_over(source, || {
-        let world = Rc::new(RefCell::new(world.clone()));
-        left.borrow_mut().push(Rc::clone(&world));
-        world
-    });
-    let first = left.borrow()[0].borrow().clone();
-    (outcome, first)
-}
-
-/// Runs `main` under the command-line target on every backend, each in
-/// a world `make` makes.
-fn run_over<W: World + 'static>(source: &str, make: impl Fn() -> Rc<RefCell<W>>) -> Outcome {
-    let workspace = support::text::workspace(source);
-    let store = MemoryStore::new();
-    let engine = Engine::new(&workspace, &store);
-    let target = ambient::system::target();
-    let entry = engine.program(&value("main", "main"), &target).unwrap();
-    run_entry(&engine, &entry, &[], || {
-        let world: Rc<RefCell<dyn World>> = make();
-        host::natives(&world)
-    })
+    world.program(source)
 }
 
 fn text(text: &str) -> Value {
@@ -282,6 +259,6 @@ fn a_program_serves_and_sends_over_a_real_socket() {
         }}"
     );
 
-    let outcome = run_over(&source, || Rc::new(RefCell::new(System::new(Vec::new()))));
+    let outcome = over(&source, || Rc::new(RefCell::new(System::new(Vec::new()))));
     assert_eq!(outcome, Ok(text("200 POST /hello?x=1 there")));
 }
