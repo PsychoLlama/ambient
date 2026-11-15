@@ -52,10 +52,13 @@ impl Parser {
         });
         let (name, mut kind) = self.definition()?;
         // The marks come out here, before anything else sees the tree.
-        if let (DefinitionKind::Function(function), Some(placed)) =
-            (&mut kind, self.defined.last_mut())
-        {
-            place::lift(&mut function.body, &self.positions, at, &mut placed.nodes);
+        let body = match &mut kind {
+            DefinitionKind::Function(function) => Some(&mut function.body),
+            DefinitionKind::Derived(call) => Some(call),
+            _ => None,
+        };
+        if let (Some(body), Some(placed)) = (body, self.defined.last_mut()) {
+            place::lift(body, &self.positions, at, &mut placed.nodes);
         }
         Ok(module.define(Definition {
             name,
@@ -204,6 +207,11 @@ impl Parser {
             Vec::new()
         };
         self.expect("=")?;
+        if params.is_empty() && self.at_word("comptime") {
+            let call = self.expr()?;
+            self.expect(";")?;
+            return Ok((name, DefinitionKind::Derived(call)));
+        }
         let named = |param: &String| Type::Named(Path(vec![param.clone()]), Vec::new());
         self.own = Some(Type::Named(
             Path(vec![name.clone()]),

@@ -22,6 +22,7 @@ mod operators;
 mod patterns;
 mod records;
 mod reflect;
+mod reify;
 mod sends;
 mod tasks;
 mod world;
@@ -40,6 +41,7 @@ pub use blame::{Noted, Origins};
 pub(crate) use generics::{function_type, generic_type};
 use header::header;
 pub use header::{check_ability, check_key, check_type, encode_header};
+pub use reify::{tree, written};
 pub use world::{check_extern, check_target};
 
 /// Checks a function against its own header.

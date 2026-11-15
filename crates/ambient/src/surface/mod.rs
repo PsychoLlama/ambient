@@ -101,6 +101,9 @@ pub struct Definition<N = Path> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DefinitionKind<N = Path> {
     Type(TypeDefinition<N>),
+    /// A type a comptime call gives: the call, which is run for the
+    /// type's tree. See "Splice positions" in `spec/comptime.md`.
+    Derived(Expr<N>),
     Function(Function<N>),
     Ability(Ability<N>),
     Key(KeyDefinition<N>),
@@ -122,7 +125,7 @@ impl<N> DefinitionKind<N> {
     pub fn namespace(&self) -> crate::symbol::Namespace {
         use crate::symbol::Namespace;
         match self {
-            Self::Type(_) | Self::Tag | Self::Brand => Namespace::Type,
+            Self::Type(_) | Self::Derived(_) | Self::Tag | Self::Brand => Namespace::Type,
             Self::Function(_) | Self::Extern(_) | Self::Target(_) => Namespace::Value,
             Self::Ability(_) => Namespace::Ability,
             Self::Key(_) => Namespace::Key,

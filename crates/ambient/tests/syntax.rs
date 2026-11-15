@@ -50,6 +50,14 @@ fn a_function_is_its_header_and_the_expression_its_body_is() {
 }
 
 #[test]
+fn a_type_that_is_a_comptime_call_is_derived() {
+    let source = "type Draft = comptime partial(User);";
+    let call = b::call(b::name("partial"), [b::name("User")]);
+
+    assert_eq!(parse(source).unwrap(), built([b::derived("Draft", call)]));
+}
+
+#[test]
 fn a_block_is_its_statements_nested_in_order() {
     let source = "fn main(): int { let a = 1; side(); let (b, _) = (a, 2); return b; }";
     let pair = pat::tuple([pat::bind("b"), pat::any()]);

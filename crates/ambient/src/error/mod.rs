@@ -111,6 +111,8 @@ pub enum Error {
     /// A comptime argument that is to be a type's tree names no type,
     /// or one that has no tree.
     NoTree { symbol: Symbol, found: String },
+    /// The tree a derived type's call gave stands for no type.
+    NotType(Symbol),
     /// A comptime call's result has no literal form.
     NotSpliceable { symbol: Symbol },
     /// A comptime call faulted.
@@ -193,6 +195,7 @@ impl Error {
             Self::UnknownSymbol(symbol)
             | Self::GenericAbort(symbol)
             | Self::ComptimeCycle(symbol)
+            | Self::NotType(symbol)
             | Self::NotTarget(symbol)
             | Self::TargetCycle(symbol)
             | Self::GenericEntry(symbol)

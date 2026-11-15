@@ -21,6 +21,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 - In expression position the result is spliced as an expression: an [unanchored](values.md) value as a literal of singleton type, a tree as the code it is.
 - An expression tree a call gives names nothing local to where it is spliced; code that needs what is there is a function, which the site calls.
 - In type position the result is a type tree.
+- A type definition whose whole content is a comptime call is a derived type: it is the type the tree stands for, and has the [hash](definitions.md) of that type written out.
 - In module position the result is a set of definitions, forming the whole content of a generated module.
 - A generated module is the only place a comptime call creates [symbols](symbols.md); they are ordinary symbols.
 - A comptime call never adds a name to the scope it is written in; a generated module's definitions are reached by importing them, like any other module's.
@@ -54,7 +55,8 @@ A comptime call runs an ordinary function during compilation and splices what it
 
 ## Unsettled
 
-- TODO: only a value in expression position is built, and the only tree that is a value is that of a type named as an argument. Nothing gives a tree back, and nothing is spliced in type or module position.
+- TODO: the only tree that is a value is a type's: one named as an argument, and one a call gives as the whole of a type definition. No expression or definition is a tree yet, and nothing is spliced in module position.
+- TODO: a type's tree names a brand and an ability by identity alone, which does not say whose it is, so a type cannot be derived from a tree that names one.
 - TODO: a type that refers to itself has no tree, since its normal form does not end; how a tree names the type it is inside is undecided.
 - TODO: how a generated module is written, named, and imported is undecided.
 - TODO: a surface tree names what it refers to, and a generated one has no scope to resolve names in; how it refers to a definition it was handed is undecided.

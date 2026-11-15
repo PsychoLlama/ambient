@@ -17,7 +17,7 @@ use crate::core::{self, Open, Tree};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, encode};
 use crate::lower::deep;
-use crate::surface::{DefinitionKind, Function, Reference};
+use crate::surface::{DefinitionKind, Function, Reference, TypeDefinition};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::{AbilityInfo, Env, KeyInfo, Ty, TypeInfo};
 
@@ -63,8 +63,20 @@ impl Engine<'_> {
     fn type_info(&self, symbol: &Symbol) -> Query<TypeInfo> {
         memo(&self.type_info, symbol, || {
             let resolved = self.resolve(symbol)?;
-            let DefinitionKind::Type(definition) = &resolved.definition.kind else {
-                return Err(Error::UnknownSymbol(symbol.clone()));
+            let definition = match &resolved.definition.kind {
+                DefinitionKind::Type(definition) => definition,
+                // What a call gave names no definition, so it is the
+                // whole of what there is to know.
+                DefinitionKind::Derived(_) => {
+                    return Ok(Arc::new(TypeInfo {
+                        params: 0,
+                        ty: (*self.derived(symbol)?).clone(),
+                        recursive: false,
+                        variance: Vec::new(),
+                        finite: true,
+                    }));
+                }
+                _ => return Err(Error::UnknownSymbol(symbol.clone())),
             };
             let ty = &definition.ty;
 
@@ -202,6 +214,7 @@ impl Engine<'_> {
                 // An extern has nothing but a signature and a tag, and a
                 // target nothing but its bindings.
                 DefinitionKind::Type(_)
+                | DefinitionKind::Derived(_)
                 | DefinitionKind::Tag
                 | DefinitionKind::Brand
                 | DefinitionKind::Ability(_)
@@ -321,6 +334,20 @@ impl Engine<'_> {
                 self.reachable(&env, &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
                     checker::check_type(symbol, definition, &env)
+                })
+            }
+            // A derived type is checked as the type its call gave, which
+            // is what the key then covers.
+            DefinitionKind::Derived(_) => {
+                let ty = (*self.derived(symbol)?).clone();
+                key.bytes(&encode(&ty));
+                let definition = TypeDefinition {
+                    params: Vec::new(),
+                    ty,
+                };
+                self.gather(vec![symbol.clone()], &mut env)?;
+                self.stage(Stage::Check, symbol, key.finish(), || {
+                    checker::check_type(symbol, &definition, &env)
                 })
             }
             DefinitionKind::Ability(ability) => {

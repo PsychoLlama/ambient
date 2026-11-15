@@ -8,20 +8,12 @@ use std::collections::BTreeMap;
 use ambient_runtime::FAULT_PACKAGE;
 
 use super::Checker;
+use super::reify::MODULE;
 use crate::error::Error;
 use crate::literal::Literal;
 use crate::surface::{Expr, Key, Reference};
-use crate::symbol::{ModuleId, Symbol};
 use crate::types::Ty;
 use crate::value::Value;
-
-/// The module of the library that says what a tree is.
-const MODULE: &str = "tree";
-
-/// The type a parameter has that is handed a type.
-pub(super) fn tree() -> Symbol {
-    ModuleId::new(FAULT_PACKAGE, MODULE).ty("Type")
-}
 
 impl Checker<'_> {
     /// The tree of the type a comptime argument names.

@@ -3,8 +3,8 @@
 use std::collections::BTreeSet;
 
 use super::validate::{
-    check_extern, check_function, check_name, check_params, check_path, check_target, check_type,
-    check_type_params,
+    check_expr, check_extern, check_function, check_name, check_params, check_path, check_target,
+    check_type, check_type_params,
 };
 use super::{BuildError, null, ty};
 use crate::surface::{
@@ -118,6 +118,17 @@ pub fn type_(name: &str, ty: crate::surface::Type) -> Definition {
             params: Vec::new(),
             ty,
         }),
+    }
+}
+
+/// A private type that is whatever tree a comptime call gives.
+#[must_use]
+pub fn derived(name: &str, call: crate::surface::Expr) -> Definition {
+    Definition {
+        name: name.to_owned(),
+        public: false,
+        doc: None,
+        kind: DefinitionKind::Derived(crate::surface::Expr::Comptime(Box::new(call))),
     }
 }
 
@@ -350,6 +361,10 @@ impl ModuleBuilder {
                 DefinitionKind::Type(definition) => {
                     check_type_params(definition.params.iter())?;
                     check_type(&definition.ty)?;
+                    Namespace::Type
+                }
+                DefinitionKind::Derived(call) => {
+                    check_expr(call)?;
                     Namespace::Type
                 }
                 DefinitionKind::Function(function) => {

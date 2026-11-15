@@ -65,6 +65,7 @@ impl fmt::Display for Error {
             | Self::NoTree { .. }
             | Self::NotSpliceable { .. }
             | Self::ComptimeFault { .. }
+            | Self::NotType(_)
             | Self::ComptimeCycle(_) => self.fmt_comptime(f),
             Self::NotValue { .. }
             | Self::Branding { .. }
@@ -299,6 +300,10 @@ impl Error {
             Self::ComptimeFault { function, fault } => {
                 write!(f, "`{function}` faulted during compilation: {fault}")
             }
+            Self::NotType(symbol) => write!(
+                f,
+                "{symbol}: what the call gave names a brand or an ability, which a derived type cannot yet"
+            ),
             Self::ComptimeCycle(symbol) => {
                 write!(f, "{symbol}: depends on a comptime call that depends on it")
             }

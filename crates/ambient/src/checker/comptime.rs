@@ -1,7 +1,7 @@
 //! Comptime calls: a function run during checking, and its result put in
 //! the tree. See `spec/comptime.md`.
 
-use super::{Checker, reflect};
+use super::{Checker, reify};
 use crate::core;
 use crate::error::Error;
 use crate::literal::Literal;
@@ -84,7 +84,7 @@ impl Checker<'_> {
 impl Checker<'_> {
     /// Which parameters of `function` are handed the tree of a type.
     fn handed(&self, function: &Symbol) -> Vec<bool> {
-        let tree = Ty::Named(Reference::Definition(reflect::tree()), Vec::new());
+        let tree = Ty::Named(Reference::Definition(reify::tree()), Vec::new());
         let params = self.env.functions.get(function).map(|taken| &taken.params);
         let handed = |param: &Ty| self.env.normalize(param) == tree;
         params.into_iter().flatten().map(handed).collect()

@@ -118,6 +118,7 @@ impl<'a> Resolver<'a> {
                     ty: self.ty(&definition.ty)?,
                 })
             }
+            DefinitionKind::Derived(call) => DefinitionKind::Derived(self.expr(call)?),
             DefinitionKind::Function(function) => {
                 DefinitionKind::Function(self.function(function)?)
             }

@@ -113,3 +113,99 @@ fn a_result_is_not_reused_once_the_type_has_changed() {
     assert_eq!(check(FIELDS), Ok(()));
     assert!(matches!(check(&wider), Err(Error::Mismatch { .. })));
 }
+
+/// A function that gives a record type with every field optional.
+const PARTIAL: &str = "
+    import ambient.tree;
+    type User = { name: string, age: int };
+    fn partial(of: tree.Type): tree.Type {
+        match of {
+            let shape: { record: List<tree.Field> } => {
+                return { record: shape.record.map(fn(field) => {
+                    name: field.name,
+                    holds: { union: [field.holds, tree.nil] },
+                }) };
+            }
+            _ => { return of; }
+        }
+    }
+    type Draft = comptime partial(User);
+";
+
+/// What is wrong with `main` of a program written after [`PARTIAL`].
+fn undrafted(main: &str) -> Error {
+    let workspace = workspace(&format!("{PARTIAL} {main}"));
+    let store = MemoryStore::new();
+    let checked = Engine::new(&workspace, &store).check(&value("main", "main"));
+    checked.unwrap_err()
+}
+
+#[test]
+fn a_type_is_what_a_call_gives() {
+    let main = "
+        fn named(draft: Draft): string {
+            match draft.name {
+                null => { return \"nobody\"; }
+                let name => { return name; }
+            }
+        }
+        fn main(): string => named({ name: null, age: 3 });
+    ";
+
+    assert_eq!(text(&format!("{PARTIAL} {main}")), "nobody");
+}
+
+#[test]
+fn a_derived_type_is_checked_as_one_written_out() {
+    let main = "fn main(): Draft => { name: 1, age: null };";
+
+    assert!(matches!(undrafted(main), Error::Mismatch { .. }));
+}
+
+#[test]
+fn a_derived_type_has_the_hash_of_the_type_written_out() {
+    let written = "type Written = { name: string | null, age: int | null };";
+    let workspace = workspace(&format!("{PARTIAL} {written}"));
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let hash = |name: &str| engine.hash(&support::ty("main", name)).unwrap();
+
+    assert_eq!(hash("Draft"), hash("Written"));
+}
+
+#[test]
+fn a_type_cannot_be_derived_from_itself() {
+    let main = "
+        type Loop = comptime partial(Loop);
+        fn main(): Loop => null;
+    ";
+
+    assert!(matches!(undrafted(main), Error::ComptimeCycle(_)));
+}
+
+#[test]
+fn a_derived_type_follows_the_type_it_was_derived_from() {
+    let main = "fn main(): Draft => { name: null, age: null };";
+    let wider = PARTIAL.replace("age: int", "age: int, email: string");
+    let store = MemoryStore::new();
+    let check = |types: &str| {
+        let workspace = workspace(&format!("{types} {main}"));
+        let checked = Engine::new(&workspace, &store).check(&value("main", "main"));
+        checked.map(|_| ())
+    };
+
+    assert_eq!(check(PARTIAL), Ok(()));
+    assert!(matches!(check(&wider), Err(Error::Mismatch { .. })));
+}
+
+#[test]
+fn a_derived_type_cannot_yet_name_a_brand() {
+    let main = "
+        brand Email;
+        type Address = string & Email;
+        type Same = comptime partial(Address);
+        fn main(): Same => null;
+    ";
+
+    assert!(matches!(undrafted(main), Error::NotType(_)));
+}

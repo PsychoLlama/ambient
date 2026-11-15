@@ -23,6 +23,7 @@
 mod blame;
 mod check;
 mod compile;
+mod derive;
 mod environment;
 mod group;
 mod handed;
@@ -104,6 +105,11 @@ pub struct Engine<'a> {
     resolve: Memo<Symbol, Resolved>,
     interface: Memo<Symbol, Interface>,
     type_info: Memo<Symbol, crate::types::TypeInfo>,
+    /// The type each derived definition's call gave.
+    derived: Memo<Symbol, crate::types::Ty>,
+    /// The derived definitions whose calls are being run, outermost
+    /// first: how one that depends on itself is seen.
+    deriving: RefCell<Vec<Symbol>>,
     check: Memo<Symbol, crate::core::Open>,
     /// The node of its body each function that does not check is wrong
     /// at.
@@ -144,6 +150,8 @@ impl<'a> Engine<'a> {
             resolve: RefCell::default(),
             interface: RefCell::default(),
             type_info: RefCell::default(),
+            derived: RefCell::default(),
+            deriving: RefCell::default(),
             check: RefCell::default(),
             blamed: RefCell::default(),
             origins: RefCell::default(),
