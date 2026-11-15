@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::thread;
 
@@ -22,7 +23,15 @@ struct Listener {
     server: Arc<tiny_http::Server>,
     unaccepted: VecDeque<Incoming>,
     waiting: VecDeque<u64>,
+    /// How many requests its thread has brought that nothing has
+    /// accepted: the thread refuses one more than [`HELD`].
+    held: Arc<AtomicUsize>,
 }
+
+/// The most requests a server holds that nothing has accepted,
+/// wherever they are on the way to the program. A program that falls
+/// further behind than this is not catching up.
+const HELD: usize = 256;
 
 pub(super) struct Network {
     sender: Sender<Sent>,
@@ -96,9 +105,17 @@ impl Network {
         let server = Arc::new(server);
         let id = self.number();
         let (requests, sender) = (Arc::clone(&server), self.sender.clone());
+        let held = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&held);
         // Ends when the server is unblocked, or the program is gone.
         thread::spawn(move || {
             while let Ok(request) = requests.recv() {
+                if count.load(Ordering::Relaxed) >= HELD {
+                    let refusal = tiny_http::Response::from_string("the server is busy");
+                    let _ = request.respond(refusal.with_status_code(503));
+                    continue;
+                }
+                count.fetch_add(1, Ordering::Relaxed);
                 if sender.send(Sent::Request(id, request)).is_err() {
                     return;
                 }
@@ -108,6 +125,7 @@ impl Network {
             server,
             unaccepted: VecDeque::new(),
             waiting: VecDeque::new(),
+            held,
         };
         self.listeners.insert(id, listener);
         Ok(Listening {
@@ -124,8 +142,12 @@ impl Network {
         server: i64,
         mut request: tiny_http::Request,
     ) -> Option<(u64, Done)> {
+        // A request to a server that was closed meanwhile is dropped,
+        // which ends its connection.
+        let held = Arc::clone(&self.listeners.get(&server)?.held);
         let mut body = Vec::new();
         if request.as_reader().read_to_end(&mut body).is_err() {
+            held.fetch_sub(1, Ordering::Relaxed);
             let refusal = tiny_http::Response::from_string("the body could not be read");
             let _ = request.respond(refusal.with_status_code(400));
             return None;
@@ -143,14 +165,13 @@ impl Network {
                 body,
             },
         };
-        // A request to a server that was closed meanwhile is dropped,
-        // which ends its connection.
         let listener = self.listeners.get_mut(&server)?;
         self.unanswered.insert(incoming.id, request);
         let Some(ticket) = listener.waiting.pop_front() else {
             listener.unaccepted.push_back(incoming);
             return None;
         };
+        held.fetch_sub(1, Ordering::Relaxed);
         Some((ticket, Done::Accepted(Some(incoming))))
     }
 
@@ -161,7 +182,9 @@ impl Network {
             return Some(Done::Accepted(None));
         };
         let next = listener.unaccepted.pop_front();
-        if next.is_none() {
+        if next.is_some() {
+            listener.held.fetch_sub(1, Ordering::Relaxed);
+        } else {
             listener.waiting.push_back(ticket);
         }
         next.map(|incoming| Done::Accepted(Some(incoming)))

@@ -73,7 +73,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - A header's name is lower case wherever the world gives one.
 - A body is [bytes](operations.md#bytes), so anything can be sent and received. Text and JSON are put into a body and read out of one by functions.
 - TODO: a body is held whole; nothing is streamed.
-- TODO: requests a server has not accepted are held without limit.
+- A server holds a bounded number of requests nothing has accepted; one sent past that is refused as unavailable, and the program never sees it.
 
 ## Code
 
