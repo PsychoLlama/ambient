@@ -21,6 +21,7 @@ mod observe;
 mod operators;
 mod patterns;
 mod records;
+mod reflect;
 mod sends;
 mod tasks;
 mod world;

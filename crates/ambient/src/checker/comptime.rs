@@ -1,7 +1,7 @@
 //! Comptime calls: a function run during checking, and its result put in
 //! the tree. See `spec/comptime.md`.
 
-use super::Checker;
+use super::{Checker, reflect};
 use crate::core;
 use crate::error::Error;
 use crate::literal::Literal;
@@ -27,17 +27,30 @@ impl Checker<'_> {
         let start = self.next;
         // What the callee takes comes from the build target, not from
         // where the call is written.
+        let handed = self.handed(function);
         self.providing = true;
-        let call_checked = self.infer(call);
+        let call_checked = if handed.contains(&true) {
+            self.given(args, function, &handed)
+        } else {
+            self.infer(call).map(|_| ())
+        };
         self.providing = false;
         call_checked?;
         self.frame().slots.truncate(slots);
         self.frame().lambdas.truncate(lambdas);
 
-        // An argument is known when its type has one value.
+        // An argument is known when its type has one value, and one
+        // that names a type for a parameter that takes its tree is that.
         self.next = start;
         let mut values = Vec::new();
-        for arg in args {
+        for (arg, handed) in args
+            .iter()
+            .zip(handed.iter().chain(std::iter::repeat(&false)))
+        {
+            if *handed {
+                values.push(self.type_argument(arg)?);
+                continue;
+            }
             let (_, ty) = self.infer(arg)?;
             values.push(value_of(&ty).ok_or_else(|| Error::NotComptime {
                 symbol: self.symbol.clone(),
@@ -65,6 +78,46 @@ impl Checker<'_> {
         splice(&result).ok_or_else(|| Error::NotSpliceable {
             symbol: self.symbol.clone(),
         })
+    }
+}
+
+impl Checker<'_> {
+    /// Which parameters of `function` are handed the tree of a type.
+    fn handed(&self, function: &Symbol) -> Vec<bool> {
+        let tree = Ty::Named(Reference::Definition(reflect::tree()), Vec::new());
+        let params = self.env.functions.get(function).map(|taken| &taken.params);
+        let handed = |param: &Ty| self.env.normalize(param) == tree;
+        params.into_iter().flatten().map(handed).collect()
+    }
+
+    /// Checks the arguments of a call that names types: each of the
+    /// others against the parameter it is for.
+    fn given(
+        &mut self,
+        args: &[Expr<Reference>],
+        function: &Symbol,
+        handed: &[bool],
+    ) -> Result<(), Error> {
+        let params = self
+            .env
+            .functions
+            .get(function)
+            .map(|taken| taken.params.clone());
+        let params = params.unwrap_or_default();
+        if params.len() != args.len() {
+            return Err(Error::Arity {
+                symbol: self.symbol.clone(),
+                callee: function.clone(),
+                expected: params.len(),
+                found: args.len(),
+            });
+        }
+        for ((arg, param), handed) in args.iter().zip(&params).zip(handed) {
+            if !handed {
+                self.check(arg, param)?;
+            }
+        }
+        Ok(())
     }
 }
 

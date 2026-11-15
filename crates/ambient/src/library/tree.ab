@@ -1,0 +1,42 @@
+/// The type no value has.
+pub tag none;
+/// The type every value has.
+pub tag any;
+/// The type of null.
+pub tag nil;
+pub tag boolean;
+pub tag integer;
+/// The type of a float.
+pub tag number;
+/// The type of a string.
+pub tag text;
+/// The type of bytes.
+pub tag binary;
+/// The type of every tag.
+pub tag tagged;
+
+/// A type with nothing inside it.
+pub type Primitive = none | any | nil | boolean | integer | number | text | binary | tagged;
+
+/// A field of a record type: its name, and the type of what it holds.
+pub type Field = { name: string, holds: Type };
+
+/// A type, as data: what a comptime function is handed for a
+/// parameter of this type, when its call names a type.
+///
+/// - `literal` is the type of one value, which it holds.
+/// - `function` is the types of the parameters; `takes` is the
+///   abilities of its row, each by its module path and name.
+/// - `brands` are the brands on the type `under` them, each by its
+///   module path and name; a handle is brands on nothing.
+pub type Type =
+    Primitive
+    | { literal: bool | int | float | string | bytes | Tag }
+    | { list: Type }
+    | { mutable: Type }
+    | { iterator: Type }
+    | { tuple: List<Type> }
+    | { record: List<Field> }
+    | { union: List<Type> }
+    | { function: List<Type>, returns: Type, takes: List<string> }
+    | { brands: List<string>, under: Type | null };

@@ -108,6 +108,9 @@ pub enum Error {
     GenericAbort(Symbol),
     /// A comptime argument's value is not known from its type.
     NotComptime { symbol: Symbol, found: String },
+    /// A comptime argument that is to be a type's tree names no type,
+    /// or one that has no tree.
+    NoTree { symbol: Symbol, found: String },
     /// A comptime call's result has no literal form.
     NotSpliceable { symbol: Symbol },
     /// A comptime call faulted.
@@ -219,6 +222,7 @@ impl Error {
             | Self::TypeArguments { symbol, .. }
             | Self::CannotInfer { symbol, .. }
             | Self::NotComptime { symbol, .. }
+            | Self::NoTree { symbol, .. }
             | Self::NotSpliceable { symbol }
             | Self::NotBundle { symbol, .. }
             | Self::DuplicateHandler { symbol, .. }

@@ -61,19 +61,11 @@ impl fmt::Display for Error {
                 "{symbol}: expected {expected} type arguments, found {found}"
             ),
             Self::GenericAbort(_) | Self::CannotInfer { .. } => self.fmt_generic(f),
-            Self::NotComptime { symbol, found } => write!(
-                f,
-                "{symbol}: a comptime argument must have one possible value, found `{found}`"
-            ),
-            Self::NotSpliceable { symbol } => {
-                write!(f, "{symbol}: a comptime result must be plain data")
-            }
-            Self::ComptimeFault { function, fault } => {
-                write!(f, "`{function}` faulted during compilation: {fault}")
-            }
-            Self::ComptimeCycle(symbol) => {
-                write!(f, "{symbol}: depends on a comptime call that depends on it")
-            }
+            Self::NotComptime { .. }
+            | Self::NoTree { .. }
+            | Self::NotSpliceable { .. }
+            | Self::ComptimeFault { .. }
+            | Self::ComptimeCycle(_) => self.fmt_comptime(f),
             Self::NotValue { .. }
             | Self::Branding { .. }
             | Self::Intersection { .. }
@@ -282,6 +274,34 @@ impl Error {
                 f,
                 "{symbol}: method `{name}` needs `{needs}` of its record, which is `{found}`"
             ),
+            _ => Ok(()),
+        }
+    }
+}
+
+impl Error {
+    /// The errors about a comptime call's arguments and its result.
+    fn fmt_comptime(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotComptime { symbol, found } => write!(
+                f,
+                "{symbol}: a comptime argument must have one possible value, found `{found}`"
+            ),
+            Self::NoTree { symbol, found } => {
+                write!(
+                    f,
+                    "{symbol}: a comptime function is handed the tree of a type, and {found} has none"
+                )
+            }
+            Self::NotSpliceable { symbol } => {
+                write!(f, "{symbol}: a comptime result must be plain data")
+            }
+            Self::ComptimeFault { function, fault } => {
+                write!(f, "`{function}` faulted during compilation: {fault}")
+            }
+            Self::ComptimeCycle(symbol) => {
+                write!(f, "{symbol}: depends on a comptime call that depends on it")
+            }
             _ => Ok(()),
         }
     }

@@ -31,6 +31,8 @@ A comptime call runs an ordinary function during compilation and splices what it
 - A definition named as an argument is received as its tree and its checked interface, so a function that generates code sees types and never text.
 - Reading a definition is an observation in the call's [trace](memoization.md): the call runs again when what it read changes.
 - Derived types such as a subset of a record's fields or a function's return type are ordinary functions over type trees.
+- A type's tree is that of its normal form: a name for a type is gone from it, so two ways of writing one type give one tree.
+- A brand, an ability, and a tag appear in a type's tree by [identity](symbols.md).
 - A comptime call operates on closed types only; a type parameter is never an argument.
 - Type-level computation therefore never runs inside generic checking.
 - A spliced tree is checked exactly as a written one; comptime cannot bypass the checker.
@@ -52,7 +54,8 @@ A comptime call runs an ordinary function during compilation and splices what it
 
 ## Unsettled
 
-- TODO: only a value in expression position is built. No tree is a value yet, and nothing is spliced in type or module position.
+- TODO: only a value in expression position is built, and the only tree that is a value is that of a type named as an argument. Nothing gives a tree back, and nothing is spliced in type or module position.
+- TODO: a type that refers to itself has no tree, since its normal form does not end; how a tree names the type it is inside is undecided.
 - TODO: how a generated module is written, named, and imported is undecided.
 - TODO: a surface tree names what it refers to, and a generated one has no scope to resolve names in; how it refers to a definition it was handed is undecided.
 - TODO: a generated node has no [span](trees.md). An error in one is reported at the call, and how the tree is shown is undecided.
