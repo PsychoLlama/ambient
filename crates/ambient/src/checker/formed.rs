@@ -1,0 +1,59 @@
+//! Whether a type that was written is one at all: its definitions
+//! applied to as many arguments as they take, only brands put on it,
+//! and what it holds under each key allowed there.
+
+use super::Checker;
+use super::header::visit_types;
+use crate::error::Error;
+use crate::surface::Reference;
+use crate::types::Ty;
+
+impl Checker<'_> {
+    /// Fails if a type applies a definition to the wrong number of
+    /// arguments, or cannot be tested for as a program runs.
+    pub(super) fn tested(&self, ty: &Ty) -> Result<(), Error> {
+        self.well_formed(ty)?;
+        if self.env.testable(ty) {
+            return Ok(());
+        }
+        Err(Error::Untestable {
+            symbol: self.symbol.clone(),
+            found: self.env.show(ty),
+        })
+    }
+
+    /// Fails if a type applies a definition to the wrong number of
+    /// arguments.
+    pub(super) fn well_formed(&self, ty: &Ty) -> Result<(), Error> {
+        let mut result = Ok(());
+        visit_types(ty, &mut |ty| {
+            if let Ty::Record(fields) = ty {
+                let held = fields.iter().try_for_each(|(key, ty)| self.held(key, ty));
+                result = std::mem::replace(&mut result, Ok(())).and(held);
+            }
+            if let Ty::Branded(under, brands) = ty {
+                let brand = |ty: &Ty| matches!(self.env.normalize(ty), Ty::Brand(_));
+                if brand(under) || !brands.iter().all(brand) {
+                    result = Err(Error::Intersection {
+                        symbol: self.symbol.clone(),
+                    });
+                }
+            }
+            let Ty::Named(name, args) = ty else { return };
+            let expected = match name {
+                Reference::Definition(symbol) => self.env.types.get(symbol).map(|info| info.params),
+                Reference::Local(_) | Reference::Parameter(_) => Some(0),
+            };
+            if let Some(expected) = expected
+                && expected != args.len()
+            {
+                result = Err(Error::TypeArguments {
+                    symbol: self.symbol.clone(),
+                    expected,
+                    found: args.len(),
+                });
+            }
+        });
+        result
+    }
+}

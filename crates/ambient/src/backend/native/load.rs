@@ -7,8 +7,9 @@ use std::collections::{HashMap, HashSet};
 use ambient_runtime::{Entry, Fault, NULL, Word};
 
 use super::externs::Externs;
-use super::host::{Host, Natives, Observation, dispatch};
+use super::host::{Natives, Observation, dispatch};
 use super::unit::{Unit, map};
+use super::values::Host;
 use super::waits::{Answers, Asked};
 use crate::backend::statics::{self, Base, Field, Known, Place};
 use crate::engine::{Body, Part, Parts};
@@ -325,14 +326,14 @@ impl Program {
     ///
     /// Panics if `args` is not as many values as the entry takes.
     pub fn run(&self, args: &[Value]) -> Result<Value, Fault> {
-        let words: Vec<Word> = args.iter().map(super::host::encode).collect();
+        let words: Vec<Word> = args.iter().map(super::values::encode).collect();
         let result = self.call(&words);
         for word in words {
             // SAFETY: each word was made above and is not used again.
             unsafe { ambient_runtime::amb_release(word) };
         }
         result.map(|word| {
-            let value = crate::value::decode(word, &mut super::host::Host);
+            let value = crate::value::decode(word, &mut Host);
             // SAFETY: the word is owned here and not used again.
             unsafe { ambient_runtime::amb_release(word) };
             // What it gave may have held the last of a handle.

@@ -11,8 +11,9 @@ use std::rc::Rc;
 
 use ambient_runtime::{Context, WAITING};
 
-use super::host::{Inside, Observation};
+use super::host::Observation;
 use super::load::Program;
+use super::values::{Host, Inside};
 use crate::value::{self, Value};
 
 /// The answer to a ticket: a result, or what went wrong.
@@ -88,7 +89,7 @@ impl Program {
             }
             let number = ambient_runtime::amb_handle_number();
             let Some(waits) = &self.waits else { continue };
-            let text = value::Inspect::string(&mut super::host::Host, brand);
+            let text = value::Inspect::string(&mut Host, brand);
             let text = String::from_utf8_lossy(&text);
             let (package, brand) = text.split_once('\0').unwrap_or(("", &text));
             waits.borrow_mut().dropped(package, brand, number);
