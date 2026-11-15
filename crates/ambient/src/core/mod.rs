@@ -1,7 +1,4 @@
 //! Core trees: the checked form of a definition. See `spec/core.md`.
-//!
-//! TODO: only the fragment the checker handles so far is here. The node set
-//! in the spec is the target.
 
 mod cost;
 mod depth;

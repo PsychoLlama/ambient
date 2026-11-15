@@ -25,9 +25,8 @@ use crate::literal::Literal;
 
 pub use types::Form;
 
-/// A construct the backends cannot compile yet.
-///
-/// TODO: this goes away as the lowered form grows to cover the core tree.
+/// A tree that lowering has no form for: one the checker never makes,
+/// and the core checker refuses.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Unsupported(pub &'static str);
 
