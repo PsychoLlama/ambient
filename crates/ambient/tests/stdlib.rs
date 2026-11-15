@@ -197,3 +197,19 @@ fn a_list_is_asked_about_its_members() {
 
     assert_eq!(int(source), 12121);
 }
+
+#[test]
+fn a_string_changes_the_case_of_plain_letters_only() {
+    assert_eq!(
+        evaluates(r#""Héllo, World 42".to_upper() ++ " " ++ "ÀBC def".to_lower()"#),
+        "HéLLO, WORLD 42 Àbc def"
+    );
+}
+
+#[test]
+fn a_boolean_is_written_as_text() {
+    assert_eq!(
+        evaluates(r#""${1 < 2} and ${(2 < 1).to_text()}""#),
+        "true and false"
+    );
+}

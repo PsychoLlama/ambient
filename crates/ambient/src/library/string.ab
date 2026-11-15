@@ -191,3 +191,25 @@ pub fn pad_start(self: string, width: int, fill: string): string =>
 /// `width` characters; itself if it is that wide already.
 pub fn pad_end(self: string, width: int, fill: string): string =>
     @join(self, repeat(fill, width - count(self)));
+
+/// This string with each character whose scalar value is from `low` to
+/// `high` moved `by` that many values.
+fn shifted(text: string, low: int, high: int, by: int): string {
+    let moved = fn(character: string): string {
+        let code = character.code() as int else 0;
+        if code < low || high < code {
+            return character;
+        }
+        return (code + by).to_character() as string else character;
+    };
+    return @iterate(text).map(moved).to_list().join_with("");
+}
+
+/// This string with the letters `A` to `Z` in lower case. No other
+/// character is changed: which letters of other alphabets match is not
+/// something the language knows.
+pub fn to_lower(self: string): string => shifted(self, 65, 90, 32);
+
+/// This string with the letters `a` to `z` in upper case, and no other
+/// character changed.
+pub fn to_upper(self: string): string => shifted(self, 97, 122, -32);

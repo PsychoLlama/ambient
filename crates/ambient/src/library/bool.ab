@@ -1,0 +1,2 @@
+/// `true` or `false`.
+pub fn to_text(self: bool): string => self ? "true" : "false";
