@@ -34,6 +34,17 @@ An operation is something the language itself does with values: arithmetic, comp
 - A character is one Unicode scalar value. There is no shape for one: a character is a string that holds it alone.
 - A character converts to its scalar value as an integer, and an integer to the character it is the value of; a string that is not one character and an integer that is no scalar value miss.
 
+## Bytes
+
+- A bytes value is a run of bytes, each an integer from 0 to 255. It is a shape of its own and no kind of string: nothing in it need be text.
+- Its length is how many bytes it holds, and getting one by position gives it as an integer, or misses.
+- Joining and slicing are a list's: a slice misses only when its positions are out of range or out of order.
+- A string converts to the bytes of its UTF-8 encoding, which never misses.
+- Bytes convert to the string they encode, and miss if they encode none.
+- A list of integers converts to bytes, and misses if a member is not from 0 to 255.
+- Two bytes values are equal when they hold the same bytes.
+- TODO: bytes cannot be written out; a program makes them from a string or a list.
+
 ## Lists
 
 - A list's length is how many members it has, and a position is a count of members before it.
