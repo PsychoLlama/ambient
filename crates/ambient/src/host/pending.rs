@@ -21,7 +21,7 @@ use super::{Command, Failure, Ran, Response};
 /// What a thread sends back.
 pub(super) enum Sent {
     /// What a command wrote to its streams, once both were closed.
-    Wrote(u64, String, String),
+    Wrote(u64, Vec<u8>, Vec<u8>),
     /// A line of input, read for a ticket.
     Line(u64, Option<String>),
     /// What came of a request that was sent.
@@ -107,12 +107,12 @@ impl Pending {
         // Written on a thread of its own, and then closed: a command
         // that reads none of it must not hold up what it writes.
         if let Some(mut input) = child.stdin.take() {
-            thread::spawn(move || input.write_all(command.input.as_bytes()));
+            thread::spawn(move || input.write_all(&command.input));
         }
         let sender = self.sender.clone();
         thread::spawn(move || {
-            let errors = thread::spawn(move || text(err));
-            let out = text(out);
+            let errors = thread::spawn(move || written(err));
+            let out = written(out);
             let err = errors.join().unwrap_or_default();
             let _ = sender.send(Sent::Wrote(ticket, out, err));
         });
@@ -224,13 +224,13 @@ impl Pending {
     }
 }
 
-/// Everything a stream holds, as text.
-fn text(stream: Option<impl Read>) -> String {
+/// Everything a stream holds.
+fn written(stream: Option<impl Read>) -> Vec<u8> {
     let mut bytes = Vec::new();
     if let Some(mut stream) = stream {
         let _ = stream.read_to_end(&mut bytes);
     }
-    String::from_utf8_lossy(&bytes).into_owned()
+    bytes
 }
 
 /// The next line of standard input, without its ending.

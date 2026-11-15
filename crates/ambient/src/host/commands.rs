@@ -1,6 +1,6 @@
 //! A command as `system.process` describes one, and as a world runs it.
 
-use super::http::{field, field_text, pairs};
+use super::http::{field, field_bytes, field_text, pairs};
 use crate::value::Value;
 
 /// A command to run. No shell reads any of it.
@@ -13,7 +13,7 @@ pub struct Command {
     /// Variables it is given beside that program's.
     pub variables: Vec<(String, String)>,
     /// What it reads from its standard input.
-    pub input: String,
+    pub input: Vec<u8>,
 }
 
 impl Command {
@@ -37,7 +37,7 @@ impl Command {
             args: given.iter().map(text).collect::<Result<_, _>>()?,
             directory,
             variables: pairs(field(command, "variables")?)?,
-            input: field_text(command, "input")?,
+            input: field_bytes(command, "input")?,
         })
     }
 }

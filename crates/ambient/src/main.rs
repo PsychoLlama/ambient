@@ -31,7 +31,12 @@ fn main() -> ExitCode {
     // A built program is started with everything it was given: no
     // argument is the command's.
     if let Some(program) = carried(launcher.as_ref()) {
-        let args = std::env::args().skip(1).collect();
+        // An argument that is not text cannot be handed to the program.
+        let text = |arg: std::ffi::OsString| arg.into_string().ok();
+        let Some(args) = std::env::args_os().skip(1).map(text).collect() else {
+            System::new(Vec::new()).warn("error: an argument is not text\n");
+            return ExitCode::FAILURE;
+        };
         let world: Rc<RefCell<dyn World>> = Rc::new(RefCell::new(System::new(args)));
         return exit(ambient::cli::start(&program, &world));
     }

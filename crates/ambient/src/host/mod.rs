@@ -65,8 +65,8 @@ pub struct Failure {
 pub struct Ran {
     /// What it exited with, or -1 if it was ended from outside.
     pub code: i64,
-    pub out: String,
-    pub err: String,
+    pub out: Vec<u8>,
+    pub err: Vec<u8>,
 }
 
 /// What a program run from a command line can reach.
@@ -216,8 +216,8 @@ fn int(args: &[Value], position: usize) -> Result<i64, String> {
 fn output(ran: Ran) -> Value {
     let fields = [
         ("code", Value::Int(ran.code)),
-        ("out", Value::String(ran.out)),
-        ("err", Value::String(ran.err)),
+        ("out", Value::Bytes(ran.out)),
+        ("err", Value::Bytes(ran.err)),
     ];
     let named = |(name, value): (&str, Value)| (name.to_owned(), value);
     Value::Record(fields.into_iter().map(named).collect::<BTreeMap<_, _>>())

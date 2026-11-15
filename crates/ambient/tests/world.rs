@@ -109,14 +109,17 @@ fn a_command_is_run_and_what_it_gave_is_read() {
                         _ => { return error.message; }
                     }
                 }
-                let output: Output => { return "${output.code}: ${output.out.trim()}"; }
+                let output: Output => {
+                    let out = output.out.to_text() as string else "not text";
+                    return "${output.code}: ${out.trim()}";
+                }
             }
         }
         fn main(): string with process.run => ran("git") ++ ", " ++ ran("hg");
     "#;
     let gave = Ran {
         code: 1,
-        out: " M notes\n".to_owned(),
+        out: b" M notes\n".to_vec(),
         ..Ran::default()
     };
     let world = Scripted {
@@ -140,9 +143,12 @@ fn a_command_is_told_where_to_run_and_what_to_read() {
                 ...process.command("sort", []),
                 directory: "/tmp",
                 variables: [("LC_ALL", "C")],
-                input: "b\na\n",
+                input: "b\na\n".to_bytes(),
             };
-            return (process.run!(sort) as process.Output else { code: -2, out: "", err: "" }).code;
+            match process.run!(sort) {
+                let output: process.Output => { return output.code; }
+                _ => { return -2; }
+            }
         }
     "#;
     let world = Scripted {
@@ -156,7 +162,7 @@ fn a_command_is_told_where_to_run_and_what_to_read() {
         args: Vec::new(),
         directory: Some("/tmp".to_owned()),
         variables: vec![("LC_ALL".to_owned(), "C".to_owned())],
-        input: "b\na\n".to_owned(),
+        input: b"b\na\n".to_vec(),
     };
     assert_eq!((outcome, after.ran), (Ok(Value::Int(0)), vec![asked]));
 }

@@ -222,11 +222,12 @@ fn send(agent: &ureq::Agent, request: Request) -> Result<Response, Failure> {
     }
     let request = builder.body(request.body).map_err(invalid)?;
     let mut response = agent.run(request).map_err(|error| refused(&error))?;
+    // A header that is not text is not among those the program reads.
     let header = |(name, value): (&http::HeaderName, &http::HeaderValue)| {
-        let value = String::from_utf8_lossy(value.as_bytes()).into_owned();
-        (name.as_str().to_owned(), value)
+        let value = std::str::from_utf8(value.as_bytes()).ok()?;
+        Some((name.as_str().to_owned(), value.to_owned()))
     };
-    let headers = response.headers().iter().map(header).collect();
+    let headers = response.headers().iter().filter_map(header).collect();
     let body = response.body_mut().read_to_vec();
     Ok(Response {
         status: i64::from(response.status().as_u16()),

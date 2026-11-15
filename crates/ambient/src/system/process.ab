@@ -10,8 +10,10 @@ pub tag denied;
 pub tag failed;
 
 /// What a command gave: the code it exited with, which is -1 if it was
-/// ended from outside, and what it wrote to each of its streams.
-pub type Output = { code: int, out: string, err: string };
+/// ended from outside, and what it wrote to each of its streams. A
+/// command writes what it likes: `output.out.to_text()` is what it
+/// wrote as text, or null if that is not text.
+pub type Output = { code: int, out: bytes, err: bytes };
 
 /// Ends the program with an exit code.
 pub ability exit(code: int): never;
@@ -28,7 +30,7 @@ pub type Command = {
     args: List<string>,
     directory: string | null,
     variables: List<(string, string)>,
-    input: string,
+    input: bytes,
 };
 
 /// Runs a command, and waits until it is over. One that exits with a
@@ -40,4 +42,4 @@ pub ability run(command: Command): Output | Error;
 /// nothing more, and reads nothing. Copy it to say otherwise:
 /// `{ ...process.command("git", ["status"]), directory: "/repo" }`.
 pub fn command(program: string, args: List<string>): Command =>
-    { program, args, directory: null, variables: [], input: "" };
+    { program, args, directory: null, variables: [], input: "".to_bytes() };

@@ -110,7 +110,7 @@ pub(super) fn field_text(value: &Value, name: &str) -> Result<String, String> {
     }
 }
 
-fn field_bytes(value: &Value, name: &str) -> Result<Vec<u8>, String> {
+pub(super) fn field_bytes(value: &Value, name: &str) -> Result<Vec<u8>, String> {
     match field(value, name)? {
         Value::Bytes(bytes) => Ok(bytes.clone()),
         _ => Err(format!("field `{name}` is not bytes")),

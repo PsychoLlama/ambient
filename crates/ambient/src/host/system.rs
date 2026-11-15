@@ -1,5 +1,6 @@
 //! The world of a real process.
 
+use std::ffi::OsString;
 use std::io::{self, Write};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -63,7 +64,11 @@ impl World for System {
     }
 
     fn variables(&self) -> Vec<(String, String)> {
-        let mut variables: Vec<_> = std::env::vars().collect();
+        // One that is not text is not the program's to read.
+        let text = |(name, value): (OsString, OsString)| {
+            Some((name.into_string().ok()?, value.into_string().ok()?))
+        };
+        let mut variables: Vec<_> = std::env::vars_os().filter_map(text).collect();
         variables.sort();
         variables
     }
@@ -117,7 +122,11 @@ impl World for System {
         let mut names = Vec::new();
         for entry in entries {
             let entry = entry.map_err(|error| failure(&error))?;
-            names.push(entry.file_name().to_string_lossy().into_owned());
+            let name = entry.file_name().into_string().map_err(|name| Failure {
+                kind: Kind::Invalid,
+                message: format!("{path} holds a name that is not text: {}", name.display()),
+            })?;
+            names.push(name);
         }
         names.sort();
         Ok(names)
@@ -142,7 +151,7 @@ impl World for System {
 
     fn directory(&self) -> Option<String> {
         let directory = std::env::current_dir().ok()?;
-        Some(directory.to_string_lossy().into_owned())
+        directory.into_os_string().into_string().ok()
     }
 
     fn random(&mut self) -> Result<u64, Failure> {
