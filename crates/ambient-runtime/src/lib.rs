@@ -35,6 +35,7 @@ extern crate std;
 
 mod abort;
 mod boundary;
+mod bytes;
 mod cell;
 mod cleanup;
 mod closure;
@@ -61,6 +62,7 @@ mod unit;
 
 pub use abort::*;
 pub use boundary::*;
+pub use bytes::*;
 pub use cell::*;
 pub use cleanup::*;
 pub use closure::*;
@@ -199,6 +201,8 @@ pub enum Kind {
     /// An iterator: its payload is its [`Source`], an integer, and
     /// the two values that keeps.
     Iterator = 14,
+    /// Bytes that need not be text.
+    Bytes = 15,
 }
 
 /// The state of one execution. Compiled code receives a pointer to it as

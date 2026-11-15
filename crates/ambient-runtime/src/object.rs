@@ -30,6 +30,9 @@ pub(crate) const KIND_METHOD: u32 = 13;
 /// An iterator: see `iterator.rs`.
 pub(crate) const KIND_ITERATOR: u32 = 14;
 
+/// Bytes that need not be text: see `bytes.rs`.
+pub(crate) const KIND_BYTES: u32 = 15;
+
 /// The count of an object that is never reclaimed.
 pub(crate) const PINNED: u32 = u32::MAX;
 /// The count of an object in a block of a unit: a reference to it is a

@@ -12,9 +12,9 @@ pub enum Operator {
     Remainder,
     Less,
     Equal,
-    /// How long a string or a list is.
+    /// How long a string, a list, or a bytes value is.
     Length,
-    /// The member of a list at a position.
+    /// The member of a list, or the byte of a bytes value, at a position.
     Get,
     /// A list with one more member.
     Push,
@@ -26,8 +26,10 @@ pub enum Operator {
     ToInt,
     /// An integer or a string as a float.
     ToFloat,
-    /// A number as a string.
+    /// A number as a string, or the string some bytes encode.
     ToText,
+    /// A string's encoding, or a list of integers, as bytes.
+    ToBytes,
     /// The scalar value of a character.
     Code,
     /// The character of a scalar value.
@@ -62,6 +64,7 @@ impl Operator {
             Self::ToInt => "@to_int",
             Self::ToFloat => "@to_float",
             Self::ToText => "@to_text",
+            Self::ToBytes => "@to_bytes",
             Self::Code => "@code",
             Self::Character => "@character",
             Self::Iterator => "@iterator",

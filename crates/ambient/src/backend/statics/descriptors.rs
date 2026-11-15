@@ -4,7 +4,7 @@
 use ambient_runtime::descriptor as d;
 
 use super::{Field, Make, Place, Statics, Target, ability_key};
-use crate::core::{Key, Type};
+use crate::core::{Key, Slot, Type};
 use crate::literal::Literal;
 
 /// How many words a type definition's own node takes.
@@ -28,6 +28,7 @@ fn node_size(ty: &Type) -> usize {
         | Type::Int
         | Type::Float
         | Type::String
+        | Type::Bytes
         | Type::Tag => 1,
         Type::Function { params, row, .. } => 5 + params.len() + row.len(),
         Type::Literal(_) | Type::Method { .. } | Type::Iterator(_) => 3,
@@ -66,6 +67,16 @@ impl Statics {
         Place::Here(at)
     }
 
+    /// Writes a function type's row at `at`: a count, and the key of each
+    /// ability.
+    fn row(&mut self, row: &[Slot], slots: &[Target], at: usize) {
+        self.set(at, Field::Word(row.len() as u64));
+        for (position, slot) in row.iter().enumerate() {
+            let key = self.text(Make::Field, &ability_key(&slots[slot.0].hash));
+            self.set(at + 1 + position, key);
+        }
+    }
+
     /// Writes the node for `ty` at `at`, and the nodes it refers to after
     /// everything written so far.
     fn node(&mut self, ty: &Type, slots: &[Target], at: usize) {
@@ -78,6 +89,7 @@ impl Statics {
             Type::Int => tag(self, d::INT),
             Type::Float => tag(self, d::FLOAT),
             Type::String => tag(self, d::STRING),
+            Type::Bytes => tag(self, d::BYTES),
             Type::Tag => tag(self, d::TAG),
             Type::Function { params, ret, row } => {
                 tag(self, d::FUNCTION);
@@ -85,11 +97,7 @@ impl Statics {
                 let after = at + 2 + params.len();
                 let ret = self.describe(ret, slots);
                 self.set(after, ret.field());
-                self.set(after + 1, Field::Word(row.len() as u64));
-                for (position, slot) in row.iter().enumerate() {
-                    let key = self.text(Make::Field, &ability_key(&slots[slot.0].hash));
-                    self.set(after + 2 + position, key);
-                }
+                self.row(row, slots, after + 1);
                 let name = self.type_name(ty, slots);
                 self.set(after + 2 + row.len(), name);
             }

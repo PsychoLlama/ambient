@@ -228,6 +228,7 @@ pub enum Type<N = Path> {
     Int,
     Float,
     String,
+    Bytes,
     /// Every tag value.
     Tag,
     Literal(Literal),

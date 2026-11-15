@@ -266,6 +266,7 @@ impl Env {
             Ty::Int | Ty::Literal(Literal::Int(_)) => Shape::Int,
             Ty::Float | Ty::Literal(Literal::Float(_)) => Shape::Float,
             Ty::String | Ty::Literal(Literal::String(_)) => Shape::String,
+            Ty::Bytes => Shape::Bytes,
             Ty::Tag | Ty::Literal(Literal::Tag { .. }) => Shape::Tag,
             Ty::Tuple(_) => Shape::Tuple,
             Ty::List(_) => Shape::List,

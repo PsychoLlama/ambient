@@ -89,6 +89,7 @@ impl Parser {
             "int" => Some(Type::Int),
             "float" => Some(Type::Float),
             "string" => Some(Type::String),
+            "bytes" => Some(Type::Bytes),
             "Tag" => Some(Type::Tag),
             "true" => Some(Type::Literal(Literal::Bool(true))),
             "false" => Some(Type::Literal(Literal::Bool(false))),

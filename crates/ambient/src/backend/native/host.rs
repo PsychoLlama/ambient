@@ -313,6 +313,10 @@ impl Construct for Inside<'_> {
         Construct::string(&mut Host, bytes)
     }
 
+    fn bytes(&mut self, bytes: &[u8]) -> Word {
+        Construct::bytes(&mut Host, bytes)
+    }
+
     fn key(&mut self, name: &[u8]) -> Word {
         Construct::key(&mut Host, name)
     }
@@ -431,6 +435,10 @@ impl Construct for Host {
 
     fn string(&mut self, bytes: &[u8]) -> Word {
         unsafe { ambient_runtime::amb_string_new(bytes.as_ptr(), bytes.len() as u64) }
+    }
+
+    fn bytes(&mut self, bytes: &[u8]) -> Word {
+        unsafe { ambient_runtime::amb_bytes_new(bytes.as_ptr(), bytes.len() as u64) }
     }
 
     fn key(&mut self, name: &[u8]) -> Word {

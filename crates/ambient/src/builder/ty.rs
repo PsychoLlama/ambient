@@ -87,6 +87,11 @@ pub fn string() -> Type {
     Type::String
 }
 
+#[must_use]
+pub fn bytes() -> Type {
+    Type::Bytes
+}
+
 pub fn record<'a>(fields: impl IntoIterator<Item = (&'a str, Type)>) -> Type {
     Type::Record(
         fields

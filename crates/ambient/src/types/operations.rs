@@ -122,6 +122,19 @@ impl Env {
             (P::StringInt | P::StringCode, [_]) if all(&Ty::String) => or_null(Ty::Int),
             (P::StringFloat, [_]) if all(&Ty::String) => or_null(Ty::Float),
             (P::CodeString, [_]) if all(&Ty::Int) => or_null(Ty::String),
+            (P::BytesLength, [_]) if all(&Ty::Bytes) => Ty::Int,
+            (P::BytesGet, [bytes, position]) if is(bytes, &Ty::Bytes) && is(position, &Ty::Int) => {
+                or_null(Ty::Int)
+            }
+            (P::BytesJoin, [_, _]) if all(&Ty::Bytes) => Ty::Bytes,
+            (P::BytesSlice, [bytes, start, end])
+                if is(bytes, &Ty::Bytes) && is(start, &Ty::Int) && is(end, &Ty::Int) =>
+            {
+                or_null(Ty::Bytes)
+            }
+            (P::StringBytes, [_]) if all(&Ty::String) => Ty::Bytes,
+            (P::BytesText, [_]) if all(&Ty::Bytes) => or_null(Ty::String),
+            (P::ListBytes, [_]) if all(&Ty::List(Box::new(Ty::Int))) => or_null(Ty::Bytes),
             (P::IteratorNew, [function]) => Ty::Iterator(Box::new(self.stepped_by(function)?)),
             (P::ListIterate, [values]) => Ty::Iterator(Box::new(self.members(values)?)),
             (P::StringIterate, [_]) if all(&Ty::String) => Ty::Iterator(Box::new(Ty::String)),

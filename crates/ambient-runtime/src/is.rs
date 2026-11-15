@@ -7,8 +7,9 @@ use crate::closure::{described, generic, type_name};
 use crate::iterator::{Tested, tested};
 use crate::list::members;
 use crate::object::{
-    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_ITERATOR, KIND_LIST, KIND_METHOD,
-    KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE, boolean, bytes, int, kind, payload, words,
+    KIND_BYTES, KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_ITERATOR, KIND_LIST,
+    KIND_METHOD, KIND_RECORD, KIND_STRING, KIND_TAG, KIND_TUPLE, boolean, bytes, int, kind,
+    payload, words,
 };
 use crate::record::find;
 use crate::same::Types;
@@ -77,6 +78,7 @@ pub mod descriptor {
     /// Then which parameter of the generic function types it is inside,
     /// counted from the innermost. No value is tested against one.
     pub const BOUND: u64 = 21;
+    pub const BYTES: u64 = 22;
 }
 
 /// The tests a descriptor makes of the values inside a value.
@@ -270,6 +272,7 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
             d::INT => integer,
             d::FLOAT => kind(value) == KIND_FLOAT,
             d::STRING => kind(value) == KIND_STRING,
+            d::BYTES => kind(value) == KIND_BYTES,
             d::TAG => kind(value) == KIND_TAG,
             d::LITERAL => match node(1) {
                 d::LITERAL_BOOL => value == boolean(node(2) != 0),

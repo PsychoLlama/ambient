@@ -110,6 +110,7 @@ pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
         | Ty::Int
         | Ty::Float
         | Ty::String
+        | Ty::Bytes
         | Ty::Tag
         | Ty::Literal(_)
         | Ty::Bound(_)
@@ -252,6 +253,7 @@ impl Env {
             | Ty::Int
             | Ty::Float
             | Ty::String
+            | Ty::Bytes
             | Ty::Tag
             | Ty::Literal(_)
             | Ty::Bound(_)

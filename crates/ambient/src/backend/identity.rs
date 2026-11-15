@@ -41,6 +41,7 @@ fn spell(ty: &Type, hash: &dyn Fn(Slot) -> Hash) -> Option<String> {
         Type::Int => "int".to_owned(),
         Type::Float => "float".to_owned(),
         Type::String => "string".to_owned(),
+        Type::Bytes => "bytes".to_owned(),
         Type::Tag => "tag".to_owned(),
         Type::Literal(literal) => match literal {
             Literal::Bool(value) => format!("={value}"),

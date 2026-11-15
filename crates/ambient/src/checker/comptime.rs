@@ -117,6 +117,8 @@ fn splice(value: &Value) -> Option<(core::Expr, Ty)> {
             package: package.clone(),
             tag: tag.clone(),
         }),
+        // Bytes have no literal to be written as.
+        Value::Bytes(_) => return None,
         Value::Tuple(members) => {
             let (exprs, types) = all(members)?;
             (core::Expr::Tuple(exprs), Ty::Tuple(types))

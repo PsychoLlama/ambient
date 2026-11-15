@@ -194,6 +194,10 @@ impl<S: AsContextMut<Data = State>> Construct for Guest<S> {
         self.with_bytes("amb_string_new", bytes)
     }
 
+    fn bytes(&mut self, bytes: &[u8]) -> u64 {
+        self.with_bytes("amb_bytes_new", bytes)
+    }
+
     fn key(&mut self, name: &[u8]) -> u64 {
         self.with_bytes("amb_intern", name)
     }

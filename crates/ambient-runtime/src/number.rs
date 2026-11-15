@@ -4,9 +4,9 @@ use alloc::vec;
 
 use crate::list::members;
 use crate::object::{
-    KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_ITERATOR, KIND_LIST, KIND_METHOD, KIND_RECORD,
-    KIND_SCOPE, KIND_STRING, KIND_TUPLE, boolean, bytes, fault, float, header, int, is_object,
-    object, payload, small, words,
+    KIND_BYTES, KIND_CLOSURE, KIND_FLOAT, KIND_INT, KIND_ITERATOR, KIND_LIST, KIND_METHOD,
+    KIND_RECORD, KIND_SCOPE, KIND_STRING, KIND_TUPLE, boolean, bytes, fault, float, header, int,
+    is_object, object, payload, small, words,
 };
 use crate::{Context, Fault, Word};
 
@@ -144,7 +144,9 @@ pub(crate) unsafe fn equal(left: Word, right: Word) -> bool {
                 (KIND_INT, KIND_INT) => int(left) == int(right),
                 // Equality is structural: a float equals itself, bit for bit.
                 (KIND_FLOAT, KIND_FLOAT) => payload(left).read() == payload(right).read(),
-                (KIND_STRING, KIND_STRING) => bytes(left) == bytes(right),
+                (KIND_STRING, KIND_STRING) | (KIND_BYTES, KIND_BYTES) => {
+                    bytes(left) == bytes(right)
+                }
                 // A record's keys are interned and kept in order, so equal
                 // records have equal keys at equal positions.
                 (KIND_LIST, KIND_LIST) => all(members(left), members(right)),

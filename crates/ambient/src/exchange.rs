@@ -66,6 +66,7 @@ const RECORD: u8 = 9;
 const FUNCTION: u8 = 10;
 const METHOD: u8 = 11;
 const ITERATOR: u8 = 12;
+const BYTES: u8 = 13;
 
 fn text(text: &str, out: &mut Vec<u8>) {
     out.extend_from_slice(&(text.len() as u64).to_le_bytes());
@@ -104,6 +105,11 @@ pub fn encode(value: &Value) -> Result<Vec<u8>, Unsendable> {
             Value::String(value) => {
                 out.push(STRING);
                 text(value, &mut out);
+            }
+            Value::Bytes(bytes) => {
+                out.push(BYTES);
+                count(bytes.len(), &mut out);
+                out.extend_from_slice(bytes);
             }
             Value::Tag { package, tag } => {
                 out.push(TAG);
@@ -211,9 +217,13 @@ impl Reader<'_> {
     }
 
     fn text(&mut self) -> Result<String, Malformed> {
+        String::from_utf8(self.counted()?.to_vec()).map_err(|_| Malformed)
+    }
+
+    /// A length, and that many bytes.
+    fn counted(&mut self) -> Result<&[u8], Malformed> {
         let length = usize::try_from(self.u64()?).map_err(|_| Malformed)?;
-        let bytes = self.take(length)?.to_vec();
-        String::from_utf8(bytes).map_err(|_| Malformed)
+        self.take(length)
     }
 }
 
@@ -292,6 +302,7 @@ pub fn decode(bytes: &[u8]) -> Result<Value, Malformed> {
             INT => Value::Int(reader.u64()?.cast_signed()),
             FLOAT => Value::Float(f64::from_bits(reader.u64()?)),
             STRING => Value::String(reader.text()?),
+            BYTES => Value::Bytes(reader.counted()?.to_vec()),
             TAG => Value::Tag {
                 package: reader.text()?,
                 tag: reader.text()?,

@@ -1,0 +1,34 @@
+/// How many bytes there are.
+pub fn length(self: bytes): int => @length(self);
+
+/// The byte at a position, from 0 to 255, or null if there is none.
+pub fn get(self: bytes, position: int): int | null => @get(self, position);
+
+/// These bytes followed by `other`.
+pub fn join(self: bytes, other: bytes): bytes => @join(self, other);
+
+/// The bytes between two positions, or null if they are out of range or
+/// out of order.
+pub fn slice(self: bytes, start: int, end: int): bytes | null => @slice(self, start, end);
+
+/// Whether there are no bytes.
+pub fn is_empty(self: bytes): bool => @length(self) == 0;
+
+/// The string these bytes encode as UTF-8, or null if they encode none.
+pub fn to_text(self: bytes): string | null => @to_text(self);
+
+/// Each byte, in order.
+pub fn iter(self: bytes): Iterator<int> =>
+    @range(0, @length(self)).map(fn(at: int): int => @get(self, at) as int else 0);
+
+/// Each byte as a member of a list.
+pub fn to_list(self: bytes): List<int> => iter(self).to_list();
+
+/// Each byte as two hexadecimal digits, in lower case.
+pub fn hex(self: bytes): string =>
+    iter(self).map(fn(byte: int): string => digit(byte / 16) ++ digit(byte % 16)).to_list().join_with("");
+
+fn digit(value: int): string => @slice("0123456789abcdef", value, value + 1) as string else "";
+
+/// The bytes a list holds, or null if a member is not from 0 to 255.
+pub fn of(members: List<int>): bytes | null => @to_bytes(members);

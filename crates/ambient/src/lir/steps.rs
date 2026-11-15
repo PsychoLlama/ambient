@@ -415,5 +415,12 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::ListIterate => Entry::ListIterate,
         Primitive::StringIterate => Entry::StringIterate,
         Primitive::IntRange => Entry::IntRange,
+        Primitive::BytesLength => Entry::BytesLength,
+        Primitive::BytesGet => Entry::BytesGet,
+        Primitive::BytesJoin => Entry::BytesJoin,
+        Primitive::BytesSlice => Entry::BytesSlice,
+        Primitive::StringBytes => Entry::StringBytes,
+        Primitive::BytesText => Entry::BytesText,
+        Primitive::ListBytes => Entry::ListBytes,
     }
 }

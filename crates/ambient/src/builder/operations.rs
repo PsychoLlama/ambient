@@ -54,6 +54,12 @@ pub fn iterator(step: Expr) -> Expr {
     operation(Operator::Iterator, [step])
 }
 
+/// A string's encoding, or a list of integers, as bytes.
+#[must_use]
+pub fn to_bytes(value: Expr) -> Expr {
+    operation(Operator::ToBytes, [value])
+}
+
 /// An iterator over the members of a list.
 #[must_use]
 pub fn iterate(list: Expr) -> Expr {

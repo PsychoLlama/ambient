@@ -276,6 +276,7 @@ impl Parser {
             "to_int" => Operator::ToInt,
             "to_float" => Operator::ToFloat,
             "to_text" => Operator::ToText,
+            "to_bytes" => Operator::ToBytes,
             "code" => Operator::Code,
             "character" => Operator::Character,
             "iterator" => Operator::Iterator,

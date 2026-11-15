@@ -21,6 +21,7 @@ impl<N> Type<N> {
             | Self::Int
             | Self::Float
             | Self::String
+            | Self::Bytes
             | Self::Tag
             | Self::Bound(_)
             | Self::Literal(_) => {}

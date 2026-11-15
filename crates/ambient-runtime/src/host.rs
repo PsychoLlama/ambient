@@ -6,8 +6,9 @@ use alloc::vec;
 use crate::list::members;
 use crate::object::layout::DEFINITION_HASH;
 use crate::object::{
-    KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_ITERATOR, KIND_LIST, KIND_METHOD, KIND_RECORD,
-    KIND_SCOPE, KIND_STRING, KIND_TAG, KIND_TOKEN, KIND_TUPLE, header, int, payload, words,
+    KIND_BYTES, KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_ITERATOR, KIND_LIST, KIND_METHOD,
+    KIND_RECORD, KIND_SCOPE, KIND_STRING, KIND_TAG, KIND_TOKEN, KIND_TUPLE, header, int, payload,
+    words,
 };
 use crate::task::Scheduler;
 use crate::{Context, FALSE, Kind, NULL, TRUE, Word};
@@ -76,6 +77,7 @@ pub unsafe extern "C" fn amb_kind(word: Word) -> u64 {
         match unsafe { (*header(word)).kind } {
             KIND_FLOAT => Kind::Float,
             KIND_STRING => Kind::String,
+            KIND_BYTES => Kind::Bytes,
             KIND_TUPLE => Kind::Tuple,
             KIND_LIST => Kind::List,
             KIND_RECORD => Kind::Record,
@@ -120,13 +122,13 @@ pub unsafe extern "C" fn amb_float_bits(word: Word) -> u64 {
 }
 
 /// How many members a tuple or list has, fields a record has, or bytes a
-/// string has.
+/// string or a bytes value has.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_length(word: Word) -> u64 {
     unsafe {
         let size = (*header(word)).size;
         match (*header(word)).kind {
-            KIND_STRING | KIND_TAG => size,
+            KIND_STRING | KIND_TAG | KIND_BYTES => size,
             KIND_RECORD => size / 16,
             KIND_LIST => members(word).len() as u64,
             _ => size / 8,
@@ -134,7 +136,7 @@ pub unsafe extern "C" fn amb_length(word: Word) -> u64 {
     }
 }
 
-/// The address of a string's bytes.
+/// The address of the bytes of a string, a tag, or a bytes value.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_string_bytes(word: Word) -> *const u8 {
     unsafe { payload(word).cast() }

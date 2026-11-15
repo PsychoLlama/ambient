@@ -11,6 +11,7 @@ pub enum Shape {
     Int,
     Float,
     String,
+    Bytes,
     Tag,
     Tuple,
     List,
@@ -20,12 +21,13 @@ pub enum Shape {
 }
 
 impl Shape {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Null,
         Self::Bool,
         Self::Int,
         Self::Float,
         Self::String,
+        Self::Bytes,
         Self::Tag,
         Self::Tuple,
         Self::List,
@@ -44,6 +46,7 @@ impl Shape {
             Self::Int => "int",
             Self::Float => "float",
             Self::String => "string",
+            Self::Bytes => "bytes",
             Self::Tag => "tag",
             Self::Tuple => "tuple",
             Self::List => "list",

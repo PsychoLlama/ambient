@@ -135,6 +135,7 @@ fn check_inside(ty: &crate::surface::Type) -> Result<(), BuildError> {
         | Type::Int
         | Type::Float
         | Type::String
+        | Type::Bytes
         | Type::Tag
         | Type::Bound(_) => Ok(()),
         Type::Literal(literal) => check_literal(literal),

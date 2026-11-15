@@ -26,6 +26,7 @@ pub(super) fn raise(ty: &core::Type, slots: &[Symbol]) -> Result<Ty, Invalid> {
         core::Type::Int => Ty::Int,
         core::Type::Float => Ty::Float,
         core::Type::String => Ty::String,
+        core::Type::Bytes => Ty::Bytes,
         core::Type::Tag => Ty::Tag,
         core::Type::Literal(literal) => Ty::Literal(literal.clone()),
         core::Type::Record(fields) => {
@@ -121,6 +122,7 @@ impl Verifier<'_> {
             | Ty::Int
             | Ty::Float
             | Ty::String
+            | Ty::Bytes
             | Ty::Tag
             | Ty::Bound(_)
             | Ty::Literal(_) => Ok(()),

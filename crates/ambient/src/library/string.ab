@@ -11,6 +11,9 @@ pub fn slice(self: string, start: int, end: int): string | null => @slice(self, 
 /// This string, which is what writing it into another asks for.
 pub fn to_text(self: string): string => self;
 
+/// The bytes of the string's UTF-8 encoding.
+pub fn to_bytes(self: string): bytes => @to_bytes(self);
+
 /// The integer the whole string is, or null if it is not one.
 pub fn to_int(self: string): int | null => @to_int(self);
 

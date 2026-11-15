@@ -283,6 +283,7 @@ impl<'a> Resolver<'a> {
             Type::Int => Type::Int,
             Type::Float => Type::Float,
             Type::String => Type::String,
+            Type::Bytes => Type::Bytes,
             Type::Tag => Type::Tag,
             Type::Literal(literal) => Type::Literal(literal.clone()),
             Type::Record(fields) => Type::Record(

@@ -35,6 +35,7 @@ pub const HOST: &[&str] = &[
     "amb_int_new",
     "amb_float_new",
     "amb_string_new",
+    "amb_bytes_new",
     "amb_intern",
     "amb_tag",
     "amb_sequence_new",

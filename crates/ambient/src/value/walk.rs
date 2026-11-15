@@ -88,6 +88,7 @@ impl Clone for Value {
             Self::Int(value) => Step::Leaf(Self::Int(*value)),
             Self::Float(value) => Step::Leaf(Self::Float(*value)),
             Self::String(text) => Step::Leaf(Self::String(text.clone())),
+            Self::Bytes(bytes) => Step::Leaf(Self::Bytes(bytes.clone())),
             Self::Tag { package, tag } => Step::Leaf(Self::Tag {
                 package: package.clone(),
                 tag: tag.clone(),
@@ -140,6 +141,7 @@ impl PartialEq for Value {
                 (Self::Int(left), Self::Int(right)) => left == right,
                 (Self::Float(left), Self::Float(right)) => left == right,
                 (Self::String(left), Self::String(right)) => left == right,
+                (Self::Bytes(left), Self::Bytes(right)) => left == right,
                 (
                     Self::Tag { package, tag },
                     Self::Tag {

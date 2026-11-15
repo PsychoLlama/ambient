@@ -55,6 +55,11 @@ impl Primitive {
                 | Self::ListPush
                 | Self::ListJoin
                 | Self::ListSlice
+                | Self::BytesJoin
+                | Self::BytesSlice
+                | Self::StringBytes
+                | Self::BytesText
+                | Self::ListBytes
         )
     }
 }
@@ -127,6 +132,8 @@ impl Expr {
                     | Primitive::FloatDivide
                     | Primitive::StringLength
                     | Primitive::ListLength
+                    | Primitive::BytesLength
+                    | Primitive::BytesGet
                     | Primitive::IntFloat
                     | Primitive::FloatInt
                     | Primitive::StringInt

@@ -165,4 +165,11 @@ entries! {
     IntRange = amb_int_range, plain, 2, word;
     IteratorStepper = amb_iterator_stepper, plain, 1, word;
     IteratorAdvance = amb_iterator_advance, plain, 1, word;
+    BytesLength = amb_bytes_length, plain, 1, word;
+    BytesGet = amb_bytes_get, plain, 2, word;
+    BytesJoin = amb_bytes_join, plain, 2, word;
+    BytesSlice = amb_bytes_slice, plain, 3, word;
+    StringBytes = amb_bytes_of_string, plain, 1, word;
+    BytesText = amb_bytes_text, plain, 1, word;
+    ListBytes = amb_bytes_of_list, plain, 1, word;
 }

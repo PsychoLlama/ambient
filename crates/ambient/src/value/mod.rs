@@ -21,6 +21,7 @@ pub enum Value {
     Int(i64),
     Float(f64),
     String(String),
+    Bytes(Vec<u8>),
     /// A tag, and the package it belongs to.
     Tag {
         package: String,
@@ -122,7 +123,7 @@ pub trait Inspect {
     fn length(&mut self, word: Word) -> u64;
     /// A word of an object's payload.
     fn word_at(&mut self, word: Word, index: u64) -> Word;
-    /// The bytes of a string, or of a tag.
+    /// The bytes of a string, of a tag, or of a bytes value.
     fn string(&mut self, word: Word) -> Vec<u8>;
     /// The hash of a function value's definition, as a string.
     fn definition(&mut self, word: Word) -> Word;
@@ -148,6 +149,7 @@ pub fn decode(word: Word, inspect: &mut impl Inspect) -> Value {
                 Value::Float(f64::from_bits(inspect.float_bits(word)))
             }
             kind if kind == Kind::String as u64 => Value::String(text(inspect, word)),
+            kind if kind == Kind::Bytes as u64 => Value::Bytes(inspect.string(word)),
             kind if kind == Kind::Tag as u64 => {
                 let text = text(inspect, word);
                 let (package, tag) = text.split_once('\0').unwrap_or(("", &text));
@@ -214,6 +216,8 @@ pub trait Construct {
     fn int(&mut self, value: i64) -> Word;
     fn float(&mut self, bits: u64) -> Word;
     fn string(&mut self, bytes: &[u8]) -> Word;
+    /// A bytes value: see "Bytes" in `spec/operations.md`.
+    fn bytes(&mut self, bytes: &[u8]) -> Word;
     /// The key a record holds the field `name` under.
     fn key(&mut self, name: &[u8]) -> Word;
     /// The tag with this text: see [`crate::literal::Literal::tag_text`].
@@ -300,6 +304,7 @@ pub fn encode(value: &Value, make: &mut impl Construct) -> Word {
             Value::Int(value) => Some(make.int(*value)),
             Value::Float(value) => Some(make.float(value.to_bits())),
             Value::String(text) => Some(make.string(text.as_bytes())),
+            Value::Bytes(bytes) => Some(make.bytes(bytes)),
             Value::Tag { package, tag } => {
                 Some(make.tag(crate::literal::Literal::tag_text(package, tag).as_bytes()))
             }

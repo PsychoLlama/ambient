@@ -40,6 +40,7 @@ pub enum Type {
     Int,
     Float,
     String,
+    Bytes,
     Tag,
     Literal(Literal),
     /// Fields come first, ordered by name; then handlers, ordered by
@@ -156,6 +157,19 @@ pub enum Primitive {
     StringCode,
     /// The character of a scalar value, or null if it is not one.
     CodeString,
+    BytesLength,
+    /// The byte at a position, as an integer, or null.
+    BytesGet,
+    BytesJoin,
+    /// The bytes between two positions, or null.
+    BytesSlice,
+    /// The bytes of a string's UTF-8 encoding.
+    StringBytes,
+    /// The string some bytes encode, or null if they encode none.
+    BytesText,
+    /// The bytes a list of integers holds, or null if one is not a
+    /// byte.
+    ListBytes,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
