@@ -19,6 +19,7 @@ use super::{FAILED, Session, code, entry_of};
 use crate::backend::native::Native;
 use crate::engine::{Backend, Engine, Parts};
 use crate::host::{self, World};
+use crate::pack::Pack;
 
 /// What a file that carries a program ends with.
 const MARK: &[u8; 8] = b"\0ambient";
@@ -32,6 +33,9 @@ struct Built {
     /// The compiled program, as [`Parts::encode`] writes it.
     parts: Vec<u8>,
     frames: Frames,
+    /// The trees of what the program could pack, as [`Pack::encode`]
+    /// writes them, if it packs.
+    trees: Option<Vec<u8>>,
 }
 
 /// The program a file carries after whatever else it holds, if it
@@ -73,7 +77,11 @@ pub fn start(program: &[u8], world: &Rc<RefCell<dyn World>>) -> i32 {
         let backend = Native::new().map_err(unreadable)?;
         let parts = Parts::decode(&built.parts, backend.name())
             .map_err(|error| unreadable(error.to_string()))?;
-        started(&parts, &host::natives(world), || built.frames.clone())
+        let trees = built.trees.as_deref().map(Pack::decode).transpose();
+        let trees = trees.map_err(|error| unreadable(error.to_string()))?;
+        started(&parts, &host::natives(world, trees), || {
+            built.frames.clone()
+        })
     };
     run().map_or_else(
         |problems: Vec<String>| {
@@ -110,6 +118,7 @@ impl Session<'_> {
         let built = Built {
             parts: linked.parts.encode(&linked.backend),
             frames: launch.frames(&linked.root),
+            trees: linked.trees.as_ref().map(Pack::encode),
         };
         let mut program = crate::hash::encode(&built);
         let size = u64::try_from(program.len()).unwrap_or(u64::MAX);

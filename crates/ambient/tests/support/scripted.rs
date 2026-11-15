@@ -113,12 +113,12 @@ pub fn over<W: World + 'static>(source: &str, make: impl Fn() -> Rc<RefCell<W>>)
     let store = MemoryStore::new();
     let engine = Engine::new(&workspace, &store);
     let target = ambient::system::target();
-    let entry = engine
-        .program(&super::value("main", "main"), &target)
-        .unwrap();
-    super::run_entry(&engine, &entry, &[], || {
+    let entry = super::value("main", "main");
+    let root = engine.program(&entry, &target).unwrap();
+    super::run_linked(|backend| {
+        let linked = ambient::host::link(&engine, &entry, &root, backend).unwrap();
         let world: Rc<RefCell<dyn World>> = make();
-        ambient::host::natives(&world)
+        (linked.parts, ambient::host::natives(&world, linked.trees))
     })
 }
 

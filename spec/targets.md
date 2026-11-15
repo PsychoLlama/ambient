@@ -75,6 +75,18 @@ A target defines the world a program runs in: a root binding for every ability t
 - TODO: a body is held whole; nothing is streamed.
 - TODO: requests a server has not accepted are held without limit.
 
+## Code
+
+- `system.code` packs a function and loads one: the two halves of [exchange](exchange.md), each an ability.
+- Packing gives a [pack](exchange.md) of a function and everything it reaches, as bytes. It leaves nothing out, so whatever has the compiler can load it.
+- Loading rechecks a pack, compiles it, and adds it to the program. It gives the function as `unknown`, and a [cast](types.md) to the type expected is the check that it fits.
+- Bytes that are not a pack, a pack checking could not have made, and one that needs native code the program lacks are each an [error](errors.md), and nothing of them is kept.
+- Only a function that captured nothing is packed.
+- A program whose row reaches loading is compiled as one code can be [loaded](linking.md) into; no other program pays for it.
+- A program whose row reaches packing holds its own trees while it runs; no other does.
+- TODO: a function that captured values is not packed, since what it captured would have to be checked against its definition where it arrives.
+- TODO: a pack carries everything, so loading compiles again what the program already has.
+
 ## Cryptography
 
 - `system.crypto` hashes bytes, and signs them with a key as an HMAC, by an algorithm a tag names: SHA-256, SHA-512, or SHA-1.

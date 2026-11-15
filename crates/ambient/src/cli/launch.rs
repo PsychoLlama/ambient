@@ -10,6 +10,8 @@ use ambient_runtime::FAULT_PACKAGE;
 use super::trace::{Frames, describe};
 use crate::backend::native::{Native, Natives, Program};
 use crate::engine::{Engine, Parts};
+use crate::host;
+use crate::pack::Pack;
 use crate::project::Project;
 use crate::symbol::Symbol;
 use crate::value::Value;
@@ -25,6 +27,8 @@ pub(super) struct Linked {
     /// The function the engine wrote to start it.
     pub(super) root: Symbol,
     pub(super) parts: Parts,
+    /// The trees of what the program could pack, if it packs.
+    pub(super) trees: Option<Pack>,
     pub(super) backend: Native,
 }
 
@@ -37,10 +41,12 @@ impl Launch<'_> {
             |error: crate::error::Error| vec![project.report(&error, engine.blame(&error))];
         let root = engine.program(entry, target).map_err(refused)?;
         let backend = Native::new().map_err(|message| vec![message])?;
-        let parts = engine.link(&root, &backend).map_err(refused)?;
+        let host::Linked { parts, trees } =
+            host::link(engine, entry, &root, &backend).map_err(refused)?;
         Ok(Linked {
             root,
             parts,
+            trees,
             backend,
         })
     }

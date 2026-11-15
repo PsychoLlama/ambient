@@ -136,11 +136,9 @@ impl Session<'_> {
             project: &project,
             engine: &engine,
         };
-        let gave = launch.run(
-            &entry_of(&project, entry),
-            &crate::system::target(),
-            &host::natives(&self.world),
-        )?;
+        let linked = launch.link(&entry_of(&project, entry), &crate::system::target())?;
+        let natives = host::natives(&self.world, linked.trees.clone());
+        let gave = launch::started(&linked.parts, &natives, || launch.frames(&linked.root))?;
         Ok(code(&gave))
     }
 

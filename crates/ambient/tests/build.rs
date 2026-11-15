@@ -97,6 +97,35 @@ fn a_fault_in_an_executable_is_reported_where_it_was_written() {
 }
 
 #[test]
+fn an_executable_packs_its_own_code_and_loads_it() {
+    let source = r#"
+        import system.code;
+        import system.console;
+
+        fn other(name: string): string => "not that function";
+        fn greet(name: string): string => "hello, ${name}";
+
+        fn main(): null with code, console.print {
+            match code.load!(code.pack!(greet) as bytes else 0x[]) {
+                let error: Error => { console.print!(error.message); }
+                let loaded: unknown => {
+                    let greet = loaded as fn(string): string else other;
+                    console.print!(greet("ada"));
+                }
+            }
+        }
+    "#;
+
+    let (code, after) = started(&build(source, b""), Scripted::default());
+    assert_eq!(
+        (code, after.out.as_str()),
+        (0, "hello, ada\n"),
+        "{}",
+        after.err
+    );
+}
+
+#[test]
 fn a_program_that_is_wrong_builds_nothing() {
     let world = Scripted {
         files: [(LAUNCHER.to_owned(), Vec::new())].into(),

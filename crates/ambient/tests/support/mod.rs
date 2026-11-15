@@ -159,6 +159,22 @@ pub fn run_for_error(
     native
 }
 
+/// Runs a program on every backend, as `link` compiles it for each and
+/// with the native code it gives, and returns what they agree on.
+pub fn run_linked(
+    link: impl Fn(&dyn ambient::engine::Backend) -> (ambient::engine::Parts, Natives),
+) -> Outcome {
+    use ambient::backend::native::Native;
+    use ambient::backend::wasm::Wasm;
+
+    let (parts, natives) = link(&Native::new().unwrap());
+    let (native, _) = run_native(&parts, &[], &natives);
+    let (parts, natives) = link(&Wasm);
+    let (wasm, _) = run_wasm(&parts, &[], &natives);
+    assert_eq!(native, wasm, "the backends disagree");
+    native
+}
+
 /// Verifies everything `entry` reaches as a receiver of it would: what
 /// checking makes, the core checker accepts. Everything is checked
 /// first, so that a definition that does not check is the one named.
@@ -211,7 +227,13 @@ fn run_wasm(parts: &ambient::engine::Parts, args: &[i64], natives: &Natives) -> 
     use ambient::backend::wasm::{Program, module};
     use ambient::value::Construct;
 
-    let mut program = Program::load(&module(parts).unwrap(), natives).unwrap();
+    // A program code is loaded into is a module of another kind.
+    let module = if parts.open {
+        ambient::backend::wasm::open_module(parts)
+    } else {
+        module(parts)
+    };
+    let mut program = Program::load(&module.unwrap(), natives).unwrap();
     let live = program.live();
     let words: Vec<u64> = args
         .iter()

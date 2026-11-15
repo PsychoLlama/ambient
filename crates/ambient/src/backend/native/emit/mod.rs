@@ -50,9 +50,7 @@ impl Native {
         };
         let set = [("opt_level", "speed"), ("enable_verifier", verified)];
         for (name, value) in set {
-            flags
-                .set(name, value)
-                .map_err(|error| error.to_string())?;
+            flags.set(name, value).map_err(|error| error.to_string())?;
         }
         let isa = cranelift_native::builder()
             .map_err(str::to_owned)?

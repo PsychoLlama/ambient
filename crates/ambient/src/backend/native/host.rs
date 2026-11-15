@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use super::load::Program;
 use super::waits::{Answers, asked};
-use crate::engine::{Native, Parts};
+use crate::engine::{Backend, Native, Parts};
 use crate::hash::Hash;
 use crate::value::{self, Construct, Inspect, Value};
 
@@ -27,6 +27,14 @@ pub trait Running {
     /// Fails if the function cannot be loaded, or no program is
     /// running.
     fn load(&mut self, parts: &Parts, natives: &Natives) -> Result<Value, String>;
+
+    /// What compiles code for the program, so that it can be loaded.
+    ///
+    /// # Errors
+    ///
+    /// Fails if no program is running, or nothing compiles for it
+    /// here.
+    fn backend(&self) -> Result<Box<dyn Backend>, String>;
 
     /// Says this call will answer later, and gives the ticket the
     /// answer is to come by: see [`super::Waits`]. The task that made
@@ -51,6 +59,10 @@ impl Running for Nowhere {
         Err("no program is running".to_owned())
     }
 
+    fn backend(&self) -> Result<Box<dyn Backend>, String> {
+        Err("no program is running".to_owned())
+    }
+
     fn later(&mut self) -> Result<u64, String> {
         Err("no program is running".to_owned())
     }
@@ -70,6 +82,10 @@ impl Running for Call<'_> {
     fn load(&mut self, parts: &Parts, natives: &Natives) -> Result<Value, String> {
         self.held.push(self.program.add(parts, natives)?);
         parts.function()
+    }
+
+    fn backend(&self) -> Result<Box<dyn Backend>, String> {
+        Ok(Box::new(super::Native::new()?))
     }
 
     fn later(&mut self) -> Result<u64, String> {

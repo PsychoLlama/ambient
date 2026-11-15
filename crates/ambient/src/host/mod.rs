@@ -5,6 +5,7 @@
 //! the same handlers serve a real process ([`System`]) and a test that
 //! scripts what the world holds.
 
+mod code;
 mod commands;
 mod crypto;
 mod files;
@@ -18,6 +19,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+pub use code::{Linked, link};
 pub use commands::Command;
 pub use files::{Entry, Info};
 pub use http::{Incoming, Listening, Request, Response};
@@ -25,6 +27,7 @@ pub use system::System;
 pub use waits::{Done, Work};
 
 use crate::backend::native::Natives;
+use crate::pack::Pack;
 use crate::system::PACKAGE;
 use crate::value::Value;
 
@@ -235,9 +238,9 @@ fn strings(items: Vec<String>) -> Value {
 }
 
 /// The native code for every handler of the command-line target, over
-/// one world.
+/// one world, for a program whose trees are `trees`: see [`link`].
 #[must_use]
-pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
+pub fn natives(world: &Rc<RefCell<dyn World>>, trees: Option<Pack>) -> Natives {
     use http::{Handler, Starter};
     // What takes time is begun, and answered when it is over.
     let starters: [(&str, Starter); 3] = [
@@ -282,6 +285,7 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
     ];
     let outcomes = Rc::new(RefCell::new(waits::Outcomes(Rc::clone(world))));
     let natives = crypto::offer(Natives::new().answered_by(outcomes));
+    let natives = code::offer(natives, trees);
     let handlers = handlers
         .into_iter()
         .chain(files::HANDLERS)

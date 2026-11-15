@@ -14,9 +14,10 @@ use crate::workspace::{Workspace, WorkspaceError};
 pub const PACKAGE: &str = "system";
 
 /// Each module's path and text; the library module's path is empty.
-const SOURCES: [(&str, &str); 10] = [
+const SOURCES: [(&str, &str); 11] = [
     ("", include_str!("lib.ab")),
     ("clock", include_str!("clock.ab")),
+    ("code", include_str!("code.ab")),
     ("console", include_str!("console.ab")),
     ("crypto", include_str!("crypto.ab")),
     ("env", include_str!("env.ab")),

@@ -353,6 +353,35 @@ A body is `bytes`, since not everything sent is text: `request.body.to_text()` i
 
 `examples/notes` is a whole one, with tests that call its routes with requests as values.
 
+## Changing a running program
+
+`system.code` packs a function, with everything it reaches, into bytes, and loads such bytes into a program that is running. What is loaded is `unknown` until a cast says what it must be.
+
+```ab
+import system.code;
+import system.console;
+
+type Answer = fn(string): string;
+
+fn polite(name: string): string => "good day, ${name}";
+fn curt(name: string): string => "hi ${name}";
+
+/// Answers with what was packed from now on, if it is a way to answer.
+fn deploy(current: Cell<Answer>, packed: bytes): null with code.load {
+    let loaded = code.load!(packed);
+    let _ = current.update(fn(now: Answer): Answer => loaded as Answer else now);
+}
+
+pub fn main(): null with code, console.print {
+    let current = cell<Answer>(polite);
+    console.print!(current.read()("ada"));
+    deploy(current, code.pack!(curt) as bytes else 0x[]);
+    console.print!(current.read()("ada"));
+}
+```
+
+Here the bytes never leave the program. They are as good read from a file or the body of a request, packed by a program built from other source: the code is checked again where it arrives, and one whose type is not the one the cast asks for is turned away there. A server that reads what answers from a cell, as above, is one that can be changed without stopping; a program made with `ambient build` loads as one that is run does.
+
 ## Bytes, hashes, and time
 
 `bytes` is a run of bytes that need not be text, written out as `0x[89 50 4E 47]`: a value, a pattern in a match, or a type. A string gives its encoding with `to_bytes()`, and bytes give the string they encode, or null, with `to_text()`. Files and HTTP bodies carry them, and `ambient.base64` and `hex()` write them as text.
@@ -422,6 +451,7 @@ Import a module by path; its public definitions are reached through its name, or
 | `system.clock`                                               | `now`, `elapsed`, `sleep`                                                                                                 |
 | `system.process`                                             | `exit`, `run`, `command`                                                                                                  |
 | `system.http`                                                | `send`, `get`, `post`, `post_json`, `listen`, `serve`, `accept`, `respond`, `close`, `text`, `json`                       |
+| `system.code`                                                | `pack`, `load`                                                                                                            |
 | `system.random`                                              | `bits`, `between`, `fraction`, `chance`, `pick`, `shuffle`, `bytes`, `seeded`                                             |
 | `system.crypto`                                              | `hash`, `hmac`, `same`, and the tags `sha256`, `sha512`, `sha1`                                                           |
 | `ambient.cleanup`                                            | the `dispose` key a `using` reads                                                                                         |
@@ -460,5 +490,6 @@ pub fn main(): string {
 - `all` and `first` followed by `(` always start tasks, so a function cannot be called by those names.
 - A record type that names a key says its type again: `{ [dispose](): null }`.
 - A record with methods, such as a `Map`, can be tested for only where the value's type leaves no doubt: a `Json` can be asked `as Map<Json>`, an `unknown` cannot.
+- Only a function that captured nothing is packed: one written at the top of a module, not one written inside another that uses what is around it.
 - A function written inside another may call itself, and then says its parameter and return types.
 - There is no way yet to depend on a package except by a path in the manifest: `[dependencies] text = { path = "../text" }`.

@@ -62,6 +62,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A [fault](values.md) is reported as it is when run from the package: the executable carries the name of each definition it holds and the place of each expression that can fault, as they were when it was built.
 - An executable never reads a [store](build.md) and never writes one.
 - What loads the program is the compiler's own executable, so a built program can [load](exchange.md) code as one run from its package can.
+- An executable whose program [packs](targets.md#code) code carries the trees of what it could pack; one that does not carries none.
 - TODO: an executable therefore holds the whole compiler, most of which a program that loads nothing never uses.
 - TODO: an executable is only for the machine and system that built it; building for another needs what loads the program built for that one.
 

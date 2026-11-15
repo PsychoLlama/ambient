@@ -1,0 +1,143 @@
+//! What `system.code` binds: packing a function to send, and loading
+//! one that was sent. See "Code" in `spec/targets.md`.
+//!
+//! Neither reaches a world. Both need the compiler, over nothing but
+//! what a pack holds: a pack leaves nothing out, so an engine with an
+//! empty workspace takes one in, and the program's own trees are held
+//! as a pack of its entry.
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use super::{Failure, Kind, bytes, error};
+use crate::backend::native::{Natives, Running};
+use crate::engine::{Backend, Engine, Parts};
+use crate::error::Error;
+use crate::hash::Hash;
+use crate::pack::Pack;
+use crate::store::MemoryStore;
+use crate::symbol::Symbol;
+use crate::system::PACKAGE;
+use crate::value::{Function, Value};
+use crate::workspace::Workspace;
+
+/// A program under the command-line target, compiled.
+pub struct Linked {
+    pub parts: Parts,
+    /// Its entry and everything that reaches, if the program packs.
+    pub trees: Option<Pack>,
+}
+
+/// Compiles the program of `root`, which runs `entry`: as one code is
+/// loaded into if its row reaches loading, and with its trees if its
+/// row reaches packing. A binding the row does not reach is not
+/// linked, so the externs say which.
+///
+/// # Errors
+///
+/// Fails if anything reached does not check or does not compile.
+pub fn link(
+    engine: &Engine,
+    entry: &Symbol,
+    root: &Symbol,
+    backend: &dyn Backend,
+) -> Result<Linked, Error> {
+    let parts = engine.link(root, backend)?;
+    let binds = |name: &str| {
+        let named =
+            |native: &crate::engine::Native| native.package == PACKAGE && native.path == name;
+        parts.natives.iter().any(named)
+    };
+    let trees = binds("code_pack")
+        .then(|| engine.pack(entry, &|_| false))
+        .transpose()?;
+    let parts = if binds("code_load") {
+        engine.link_open(root, backend)?
+    } else {
+        parts
+    };
+    Ok(Linked { parts, trees })
+}
+
+fn invalid(message: &dyn ToString) -> Failure {
+    Failure {
+        kind: Kind::Invalid,
+        message: message.to_string(),
+    }
+}
+
+/// The packs this program made, by the function each is of: packing
+/// one again gives what it gave.
+type Packed = RefCell<HashMap<Hash, Vec<u8>>>;
+
+/// The pack of a function of the program whose trees are `trees`.
+fn pack(
+    trees: Option<&Pack>,
+    packed: &Packed,
+    function: Option<&Value>,
+) -> Result<Vec<u8>, Failure> {
+    let Some(Value::Function(Function {
+        definition: Some(hash),
+        captures,
+    })) = function
+    else {
+        return Err(invalid(&"what was given is not a function"));
+    };
+    if !captures.is_empty() {
+        return Err(invalid(&"a function that captured something is not packed"));
+    }
+    if let Some(bytes) = packed.borrow().get(hash) {
+        return Ok(bytes.clone());
+    }
+    let trees = trees.ok_or_else(|| invalid(&"the program was started without its trees"))?;
+    let (workspace, store) = (Workspace::default(), MemoryStore::new());
+    let engine = Engine::new(&workspace, &store);
+    let entry = engine
+        .receive(trees, &[])
+        .map_err(|error| invalid(&error))?;
+    let found = engine
+        .pack_reached(&[entry], hash)
+        .map_err(|error| invalid(&error))?;
+    let found =
+        found.ok_or_else(|| invalid(&"the function is not one the program was built with"))?;
+    let bytes = found.encode();
+    packed.borrow_mut().insert(*hash, bytes.clone());
+    Ok(bytes)
+}
+
+/// Takes in a pack, compiles what it holds for the program that asked,
+/// and loads it there, with `natives` for its externs.
+fn load(running: &mut dyn Running, natives: &Natives, code: &[u8]) -> Result<Value, Failure> {
+    let pack = Pack::decode(code).map_err(|error| invalid(&error))?;
+    let (workspace, store) = (Workspace::default(), MemoryStore::new());
+    let engine = Engine::new(&workspace, &store);
+    let entry = engine
+        .receive(&pack, &[])
+        .map_err(|error| invalid(&error))?;
+    let backend = running.backend().map_err(|error| invalid(&error))?;
+    let parts = engine
+        .link_to_load(&entry, &*backend)
+        .map_err(|error| invalid(&error))?;
+    running
+        .load(&parts, natives)
+        .map_err(|error| invalid(&error))
+}
+
+/// `natives`, with what `system.code` binds, for a program whose
+/// trees are `trees`. What is loaded is given the natives there were
+/// before: a received definition names no handler.
+pub(super) fn offer(natives: Natives, trees: Option<Pack>) -> Natives {
+    let base = natives.clone();
+    let packed = Rc::new(Packed::default());
+    let answer =
+        |done: Result<Value, Failure>| done.unwrap_or_else(|failure| error("code", &failure));
+    natives
+        .with(PACKAGE, "code_pack", move |args| {
+            let done = pack(trees.as_ref(), &packed, args.first());
+            Ok(answer(done.map(Value::Bytes)))
+        })
+        .reaching(PACKAGE, "code_load", move |running, args| {
+            Ok(answer(load(running, &base, bytes(args, 0)?)))
+        })
+}

@@ -48,6 +48,20 @@ impl Engine<'_> {
         deep(|| self.packed(entry, has))
     }
 
+    /// Packs the definition of this hash among those `roots` reach,
+    /// with everything it reaches, if one of them has it.
+    ///
+    /// # Errors
+    ///
+    /// Fails if anything reached does not check.
+    pub fn pack_reached(&self, roots: &[Symbol], hash: &Hash) -> Result<Option<Pack>, Error> {
+        deep(|| {
+            let found = self.by_hash(roots)?.remove(hash);
+            let packed = found.map(|symbol| self.packed(&symbol, &|_| false));
+            packed.transpose()
+        })
+    }
+
     fn packed(&self, entry: &Symbol, has: &dyn Fn(&Hash) -> bool) -> Result<Pack, Error> {
         let mut positions: HashMap<Hash, usize> = HashMap::new();
         let mut symbols = Vec::new();

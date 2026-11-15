@@ -1,0 +1,16 @@
+import ambient.Error;
+
+/// What was given is not code that can be sent, or not code that can
+/// be loaded; the message says which.
+pub tag invalid;
+
+/// A function and everything it reaches, as bytes: code to send to a
+/// program that was not built with it. Only a function that captured
+/// nothing is packed; any other is an error.
+pub ability pack(function: unknown): bytes | Error;
+
+/// Adds code that was packed to this program, and gives its function.
+/// Nothing says what that function takes or gives until it is cast to
+/// the type expected of it. Code that could not have been checked is
+/// an error, and none of it is kept.
+pub ability load(code: bytes): unknown | Error;

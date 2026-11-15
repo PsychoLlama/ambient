@@ -1,4 +1,5 @@
 pub module clock;
+pub module code;
 pub module console;
 pub module crypto;
 pub module env;
@@ -10,6 +11,7 @@ pub module random;
 
 import ambient.errors;
 import pkg.clock;
+import pkg.code;
 import pkg.console;
 import pkg.env;
 import pkg.fs;
@@ -49,6 +51,8 @@ extern handler http_listen for http.listen;
 extern suspending handler http_accept for http.accept;
 extern handler http_respond for http.respond;
 extern handler http_close for http.close;
+extern handler code_pack for code.pack;
+extern handler code_load for code.load;
 extern handler thrown for errors.throw;
 
 /// The world of a program run from a command line.
@@ -85,5 +89,7 @@ pub target cli {
     http.accept: http_accept,
     http.respond: http_respond,
     http.close: http_close,
+    code.pack: code_pack,
+    code.load: code_load,
     errors.throw: thrown,
 }
