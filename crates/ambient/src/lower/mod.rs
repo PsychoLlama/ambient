@@ -42,11 +42,13 @@ pub struct Unsupported(pub &'static str);
 pub fn lower(definition: &Open, form: &Form) -> Result<lir::Function, Unsupported> {
     let function = match &definition.tree {
         Tree::Function(function) => function,
-        Tree::Extern { params, .. } => {
+        Tree::Extern {
+            params, suspends, ..
+        } => {
             return Ok(native::native(
                 params.len(),
                 definition.slots.len(),
-                form.still,
+                *suspends,
             ));
         }
         _ => return Err(Unsupported("definitions that are not functions")),

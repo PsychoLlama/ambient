@@ -382,6 +382,8 @@ pub enum Tree {
         ret: Type,
         /// The ability it handles, if it is a native handler.
         handles: Option<Slot>,
+        /// Whether it may suspend the task that performs it.
+        suspends: bool,
         /// The abilities it performs, ordered by identity.
         row: Vec<Slot>,
     },

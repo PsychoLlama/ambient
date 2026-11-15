@@ -4,12 +4,14 @@ use super::{Lowering, resume};
 use crate::lir::{self, Constant, Expr, Op, Value};
 
 /// What an extern compiles to: its arguments, as a tuple, handed to the
-/// host with the bindings it was called with.
-pub(super) fn native(arity: usize, slots: usize, still: bool) -> lir::Function {
+/// host with the bindings it was called with. One that `waits` is where
+/// its task suspends until the host answers.
+pub(super) fn native(arity: usize, slots: usize, waits: bool) -> lir::Function {
     let args = arity + 1;
     let members = (1..=arity).map(Value::Local).collect();
     let call = Op::Native {
         index: 0,
+        waits,
         bindings: Value::Local(0),
         args: Value::Local(args),
     };
@@ -27,7 +29,7 @@ pub(super) fn native(arity: usize, slots: usize, still: bool) -> lir::Function {
         })),
         body: Box::new(call),
     };
-    let (body, points) = resume::resumable(body, still);
+    let (body, points) = resume::resumable(body, false);
     lir::Function {
         params: arity + 1,
         locals: arity + 2,

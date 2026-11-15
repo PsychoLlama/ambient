@@ -259,9 +259,11 @@ pub enum Op {
     /// first that is over.
     First(Value),
     /// Runs native code: the extern at `index`, a [`Constant::Native`],
-    /// with the caller's bindings and `args`, a tuple.
+    /// with the caller's bindings and `args`, a tuple. One that `waits`
+    /// may suspend the task until the host answers.
     Native {
         index: usize,
+        waits: bool,
         bindings: Value,
         args: Value,
     },

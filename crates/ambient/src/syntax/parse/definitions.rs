@@ -230,9 +230,11 @@ impl Parser {
     }
 
     /// `extern fn name(params): Type;` or
-    /// `extern handler name for ability with row;`.
+    /// `extern handler name for ability with row;`, which may be
+    /// `extern suspending handler`.
     fn native(&mut self) -> Parsed<(String, DefinitionKind)> {
-        let (name, kind) = if self.eat_word("fn") {
+        let suspends = self.eat_word("suspending");
+        let (name, kind) = if !suspends && self.eat_word("fn") {
             let name = self.name()?;
             let params = self.params()?;
             let ret = self.returns()?;
@@ -246,7 +248,7 @@ impl Parser {
             (name, ExternKind::Handler { ability, row })
         };
         self.expect(";")?;
-        Ok((name, DefinitionKind::Extern(Extern { kind })))
+        Ok((name, DefinitionKind::Extern(Extern { kind, suspends })))
     }
 
     /// `target name extends a, b { ability: handler, ... }`

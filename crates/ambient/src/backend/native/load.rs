@@ -9,6 +9,7 @@ use ambient_runtime::{Entry, Fault, NULL, Word};
 use super::externs::Externs;
 use super::host::{Host, Natives, Observation, dispatch};
 use super::unit::{Unit, map};
+use super::waits::{Answers, Asked};
 use crate::backend::statics::{self, Base, Field, Known, Place};
 use crate::engine::{Body, Part, Parts};
 use crate::hash::Hash;
@@ -44,6 +45,10 @@ pub struct Program {
     cells: Box<UnsafeCell<u64>>,
     /// Whether the program was linked for code to be loaded into it.
     open: bool,
+    /// What brings the answers of native code that answers later.
+    pub(super) waits: Option<Answers>,
+    /// The calls that are to be answered, by ticket.
+    pub(super) asked: RefCell<HashMap<u64, Asked>>,
 }
 
 impl Drop for Program {
@@ -83,6 +88,8 @@ impl Program {
             error: RefCell::default(),
             cells: Box::default(),
             open: parts.open,
+            waits: natives.waits(),
+            asked: RefCell::default(),
         };
         program.entry.set(program.place(parts, natives, false)?);
         Ok(program)
@@ -376,7 +383,7 @@ impl Program {
                 && (*context).mode == ambient_runtime::SUSPENDING
             {
                 (*context).mode = ambient_runtime::RUNNING;
-                ambient_runtime::amb_schedule(context);
+                self.schedule(context);
                 result = invoke();
             }
             ambient_runtime::amb_release(handed);
@@ -392,6 +399,7 @@ impl Program {
                     error
                 });
             *self.error.borrow_mut() = error;
+            self.asked.borrow_mut().clear();
             ambient_runtime::amb_context_free(context);
             self.reclaim();
             if result == ambient_runtime::UNWIND {

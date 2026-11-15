@@ -142,6 +142,7 @@ impl<'a> Resolver<'a> {
                 ty: self.ty(&key.ty)?,
             }),
             DefinitionKind::Extern(native) => DefinitionKind::Extern(Extern {
+                suspends: native.suspends,
                 kind: match &native.kind {
                     ExternKind::Function { params, ret } => ExternKind::Function {
                         params: self.params(params)?,

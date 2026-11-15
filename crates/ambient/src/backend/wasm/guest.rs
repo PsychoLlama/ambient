@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use wasmtime::{AsContextMut, Caller, Func, Instance, Linker, Val};
 
 use super::units::{Known, Unit};
-use crate::backend::native::{Externs, Natives, Running};
+use crate::backend::native::{Answers, Externs, Natives, Running, UNDECLARED};
 use crate::engine::Parts;
 use crate::hash::Hash;
 use crate::value::{self, Construct, Inspect, Value};
@@ -30,6 +30,8 @@ pub struct State {
     /// The address of the word the runtime keeps the units nothing
     /// refers to under.
     pub(super) unused: u64,
+    /// What brings the answers of native code that answers later.
+    pub(super) waits: Option<Answers>,
 }
 
 /// The runtime, reached through a store or through the caller of a
@@ -74,6 +76,37 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
         let mut results = vec![Val::I64(0); function.ty(&self.store).results().len()];
         must(function.call(&mut self.store, args, &mut results), name);
         results.into_iter().next()
+    }
+
+    /// Whether the program was linked with a runtime export: one a
+    /// host calls only of a program that can need it.
+    pub(super) fn has(&mut self, name: &str) -> bool {
+        self.runtime.get_func(&mut self.store, name).is_some()
+    }
+
+    /// Gives suspended tasks their turns until the root can go on,
+    /// taking answers from the host whenever none can run without one:
+    /// what [`crate::backend::native::Program`] does natively.
+    pub(super) fn schedule(&mut self, context: u64) {
+        loop {
+            self.at("amb_schedule", context, &[]);
+            if self.at("amb_context_mode", context, &[]) != ambient_runtime::WAITING {
+                return;
+            }
+            let waits = self.state(|state| state.waits.clone());
+            match waits.and_then(|waits| waits.borrow_mut().next()) {
+                Some((ticket, Ok(value))) => {
+                    let word = value::encode(&value, self);
+                    self.at("amb_answer", context, &[ticket, word]);
+                }
+                Some((ticket, Err(_))) => {
+                    self.at("amb_refuse", context, &[ticket]);
+                }
+                None => {
+                    self.at("amb_strand", context, &[]);
+                }
+            }
+        }
     }
 
     /// Calls a runtime export that takes words, and returns a word or
@@ -216,7 +249,10 @@ impl<S: AsContextMut<Data = State>> Construct for Guest<S> {
 /// functions it loaded, each held until what it returns is made.
 struct Call<'a, 'b> {
     guest: Guest<&'a mut Caller<'b, State>>,
+    context: u64,
     held: Vec<u64>,
+    /// The ticket it took, if it is to answer later.
+    ticket: Option<u64>,
 }
 
 impl Running for Call<'_, '_> {
@@ -226,6 +262,20 @@ impl Running for Call<'_, '_> {
         self.held.push(function);
         parts.function()
     }
+
+    fn later(&mut self) -> Result<u64, String> {
+        let asked = self.guest.has("amb_await");
+        let ticket = if asked {
+            self.guest.at("amb_await", self.context, &[])
+        } else {
+            0
+        };
+        if ticket == 0 {
+            return Err(UNDECLARED.to_owned());
+        }
+        self.ticket = Some(ticket);
+        Ok(ticket)
+    }
 }
 
 /// The host's side of `amb_native`: runs the native code for the extern
@@ -234,12 +284,19 @@ pub(super) fn native(
     mut caller: Caller<'_, State>,
     context: i32,
     index: i64,
-    _bindings: i64,
+    bindings: i64,
     args: i64,
 ) -> i64 {
     let Some(runtime) = caller.data().runtime else {
         panic!("native code ran before the runtime was there");
     };
+    // A task left a wait: the host may stop working on it.
+    if index.cast_unsigned() == ambient_runtime::FORSAKEN {
+        if let Some(waits) = &caller.data().waits {
+            waits.borrow_mut().forsake(bindings.cast_unsigned());
+        }
+        return ambient_runtime::NULL.cast_signed();
+    }
     // Native code may load more into the program, so nothing of the
     // program is borrowed while it runs.
     let offered = usize::try_from(index)
@@ -252,7 +309,9 @@ pub(super) fn native(
     };
     let mut call = Call {
         guest,
+        context: u64::from(context.cast_unsigned()),
         held: Vec::new(),
+        ticket: None,
     };
     let decoded = value::decode(args.cast_unsigned(), &mut call.guest);
     let args: &[Value] = match &decoded {
@@ -260,8 +319,20 @@ pub(super) fn native(
         _ => &[],
     };
     let outcome = offered.map(|offered| (offered.run)(&mut call, args));
-    let Call { mut guest, held } = call;
-    let result = if let Some(Ok(value)) = outcome {
+    let Call {
+        mut guest,
+        held,
+        ticket,
+        ..
+    } = call;
+    let result = if let Some(ticket) = ticket {
+        // It answers later: the task waits, and what it returned is
+        // not looked at, unless it failed at once.
+        if !matches!(outcome, Some(Ok(_))) {
+            guest.at("amb_refuse", u64::from(context.cast_unsigned()), &[ticket]);
+        }
+        ambient_runtime::NULL
+    } else if let Some(Ok(value)) = outcome {
         value::encode(&value, &mut guest)
     } else {
         let code = word(ambient_runtime::Fault::Native as u64);

@@ -180,6 +180,14 @@ fn the_world_is_declared_as_externs_and_a_target() {
     );
 }
 
+#[test]
+fn a_native_handler_says_whether_it_suspends() {
+    let source = "extern suspending handler read for log.read;";
+    let read = b::native_handler("read", "log.read").suspending();
+
+    assert_eq!(parse(source).unwrap(), built([read.into()]));
+}
+
 // What is not text
 
 #[test]

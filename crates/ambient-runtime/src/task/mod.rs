@@ -21,6 +21,7 @@ mod capture;
 mod group;
 mod join;
 mod tail;
+mod wait;
 
 use alloc::collections::VecDeque;
 
@@ -32,6 +33,7 @@ pub use capture::amb_capture;
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
 pub use join::{amb_all, amb_first};
 pub use tail::{amb_bounce, amb_start, amb_tail, amb_tail_arg};
+pub use wait::{FORSAKEN, amb_answer, amb_await, amb_native_wait, amb_refuse, amb_strand};
 
 use crate::object::amb_release;
 use crate::{Context, Fault, NULL, UNWIND, Word};
@@ -41,6 +43,9 @@ use crate::{Context, Fault, NULL, UNWIND, Word};
 pub const RUNNING: u64 = 0;
 pub const SUSPENDING: u64 = 1;
 pub const RESUMING: u64 = 2;
+/// What [`amb_schedule`] leaves when no task can run until the host
+/// answers one that waits on it.
+pub const WAITING: u64 = 3;
 
 /// The task a program's entry runs as.
 const ROOT: usize = 0;
@@ -83,6 +88,8 @@ struct Task {
     budget: Option<usize>,
     /// The trace it asked for, if it suspended to have one captured.
     capture: Capture,
+    /// Its wait on the host, if native code said it would answer later.
+    wait: wait::Wait,
 }
 
 /// Where a task is in having its trace captured.
@@ -143,6 +150,7 @@ pub(crate) struct Scheduler {
     /// Whether every task was once found waiting on something that would
     /// never happen. From then on nothing holds cancellation off.
     stalled: bool,
+    waits: wait::Waits,
 }
 
 impl Scheduler {
@@ -154,6 +162,7 @@ impl Scheduler {
             current: ROOT,
             budgets: Vec::new(),
             stalled: false,
+            waits: wait::Waits::default(),
         }
     }
 
@@ -354,14 +363,21 @@ pub(crate) unsafe fn wake(context: *mut Context, cell: Word) {
 /// Runs tasks until the root can go on, then makes it the current task
 /// and sets the mode so that calling the entry again resumes it.
 ///
-/// If nothing can run and the root still cannot go on, every task is
-/// waiting for something that will not happen. The root is then
-/// cancelled, so that calling the entry again unwinds it.
+/// If nothing can run and a task waits on the host, this returns with
+/// the mode [`WAITING`]: the host hands an answer over and calls this
+/// again.
+///
+/// If nothing can run and nothing is coming, every task is waiting for
+/// something that will not happen. The root is then cancelled, so that
+/// calling the entry again unwinds it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_schedule(context: *mut Context) {
     unsafe {
         loop {
             let scheduler = scheduler(context);
+            if scheduler.awaits() {
+                return wait::idle(context);
+            }
             let id = scheduler.ready.pop_front().unwrap_or_else(|| {
                 scheduler.stalled = true;
                 scheduler.task(ROOT).cancelled = true;

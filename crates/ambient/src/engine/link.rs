@@ -240,9 +240,12 @@ impl Engine<'_> {
     /// task.
     fn still(&self, symbols: &[Symbol]) -> Result<bool, Error> {
         for symbol in symbols {
-            if let Tree::Function(function) = &self.check(symbol)?.tree
-                && function.body.suspends()
-            {
+            let suspends = match &self.check(symbol)?.tree {
+                Tree::Function(function) => function.body.suspends(),
+                Tree::Extern { suspends, .. } => *suspends,
+                _ => false,
+            };
+            if suspends {
                 return Ok(false);
             }
         }

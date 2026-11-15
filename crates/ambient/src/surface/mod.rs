@@ -130,6 +130,9 @@ impl<N> DefinitionKind<N> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Extern<N = Path> {
     pub kind: ExternKind<N>,
+    /// Whether it may suspend the task that performs it: only a
+    /// handler may. See `spec/externs.md`.
+    pub suspends: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

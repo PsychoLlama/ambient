@@ -9,6 +9,7 @@ use ambient_runtime::{Context, Fault, Word};
 use serde::{Deserialize, Serialize};
 
 use super::load::Program;
+use super::waits::{Answers, asked};
 use crate::engine::{Native, Parts};
 use crate::hash::Hash;
 use crate::value::{self, Construct, Inspect, Value};
@@ -26,7 +27,20 @@ pub trait Running {
     /// Fails if the function cannot be loaded, or no program is
     /// running.
     fn load(&mut self, parts: &Parts, natives: &Natives) -> Result<Value, String>;
+
+    /// Says this call will answer later, and gives the ticket the
+    /// answer is to come by: see [`super::Waits`]. The task that made
+    /// the call waits, and what the call returns is not looked at.
+    ///
+    /// # Errors
+    ///
+    /// Fails if no program is running, or the extern was not declared
+    /// `suspending`.
+    fn later(&mut self) -> Result<u64, String>;
 }
+
+/// What asking to answer later says of an extern that may not.
+pub const UNDECLARED: &str = "the extern is not declared `suspending`, or has asked already";
 
 /// No program: what native code is handed when it is called again only
 /// to see whether what it returned still holds.
@@ -36,19 +50,36 @@ impl Running for Nowhere {
     fn load(&mut self, _: &Parts, _: &Natives) -> Result<Value, String> {
         Err("no program is running".to_owned())
     }
+
+    fn later(&mut self) -> Result<u64, String> {
+        Err("no program is running".to_owned())
+    }
 }
 
 /// One call of native code: the program it was made from, and the
 /// functions it loaded, each held until what it returns is made.
 struct Call<'a> {
     program: &'a Program,
+    context: *mut Context,
     held: Vec<Word>,
+    /// The ticket it took, if it is to answer later.
+    ticket: Option<u64>,
 }
 
 impl Running for Call<'_> {
     fn load(&mut self, parts: &Parts, natives: &Natives) -> Result<Value, String> {
         self.held.push(self.program.add(parts, natives)?);
         parts.function()
+    }
+
+    fn later(&mut self) -> Result<u64, String> {
+        // SAFETY: the context is the one this call was handed.
+        let ticket = unsafe { ambient_runtime::amb_await(self.context) };
+        if ticket == 0 {
+            return Err(UNDECLARED.to_owned());
+        }
+        self.ticket = Some(ticket);
+        Ok(ticket)
     }
 }
 
@@ -69,7 +100,11 @@ pub struct Offered {
 /// The native code a host offers, by the package that declares each
 /// extern and the extern's tag.
 #[derive(Clone, Default)]
-pub struct Natives(HashMap<(String, String), Offered>);
+pub struct Natives {
+    offered: HashMap<(String, String), Offered>,
+    /// What brings the answers of native code that answers later.
+    waits: Option<Answers>,
+}
 
 impl Natives {
     #[must_use]
@@ -86,7 +121,7 @@ impl Natives {
     ) -> Self {
         let run: NativeFn = Rc::new(native);
         let key = (package.to_owned(), path.to_owned());
-        self.0.insert(key, Offered { run, verifiable });
+        self.offered.insert(key, Offered { run, verifiable });
         self
     }
 
@@ -126,10 +161,24 @@ impl Natives {
         self.offer(package, path, true, move |_, args| native(args))
     }
 
+    /// Says what brings the answers of native code that answers later.
+    #[must_use]
+    pub fn answered_by(mut self, waits: Answers) -> Self {
+        self.waits = Some(waits);
+        self
+    }
+
+    /// What brings the answers, if anything does.
+    #[must_use]
+    pub fn waits(&self) -> Option<Answers> {
+        self.waits.clone()
+    }
+
     /// The native code offered for one extern.
     #[must_use]
     pub fn get(&self, native: &Native) -> Option<&Offered> {
-        self.0.get(&(native.package.clone(), native.path.clone()))
+        self.offered
+            .get(&(native.package.clone(), native.path.clone()))
     }
 
     /// The native code for each of `externs`, in their order.
@@ -166,7 +215,7 @@ pub struct Observation {
 pub(super) unsafe extern "C" fn dispatch(
     context: *mut Context,
     index: u64,
-    _bindings: Word,
+    bindings: Word,
     args: Word,
 ) -> Word {
     // SAFETY: `Program::call` put itself in the context for the length of
@@ -175,6 +224,11 @@ pub(super) unsafe extern "C" fn dispatch(
         let address = usize::try_from((*context).host).unwrap_or(0);
         &*(address as *const Program)
     };
+    // A task left a wait: the host may stop working on it.
+    if index == ambient_runtime::FORSAKEN {
+        program.forsake(bindings);
+        return ambient_runtime::NULL;
+    }
     let args = match &mut value::decode(args, &mut Host) {
         Value::Tuple(args) => std::mem::take(args),
         _ => Vec::new(),
@@ -186,29 +240,39 @@ pub(super) unsafe extern "C" fn dispatch(
     // Native code is not to unwind through compiled code.
     let mut call = Call {
         program,
+        context,
         held: Vec::new(),
+        ticket: None,
     };
     let outcome = match &offered {
         Some(offered) => catch_unwind(AssertUnwindSafe(|| (offered.run)(&mut call, &args)))
             .unwrap_or_else(|_| Err("native code panicked".to_owned())),
         None => Err("no such extern".to_owned()),
     };
-    if let (Some(trace), Some(offered), Some(native)) =
-        (program.trace.borrow_mut().as_mut(), &offered, native)
-    {
-        trace.push(Observation {
+    let observation = offered
+        .as_ref()
+        .zip(native)
+        .map(|(offered, native)| Observation {
             native,
             args,
             result: outcome.clone(),
             verifiable: offered.verifiable,
         });
-    }
-    let result = match outcome {
-        Ok(value) => value::encode(&value, &mut Inside(program)),
-        Err(message) => {
-            *program.failure.borrow_mut() = Some(message);
+    let result = match (call.ticket, observation) {
+        // It answers later: the task waits, and what it returned is
+        // not looked at.
+        (Some(ticket), Some(observation)) => {
             // SAFETY: the context is the one this call was handed.
-            unsafe { ambient_runtime::amb_fault(context, Fault::Native as u64) }
+            unsafe { asked(program, context, ticket, observation) };
+            ambient_runtime::NULL
+        }
+        (_, observation) => {
+            if let (Some(trace), Some(observation)) =
+                (program.trace.borrow_mut().as_mut(), observation)
+            {
+                trace.push(observation);
+            }
+            answered(program, context, outcome)
         }
     };
     // What was loaded is held from here on by whatever of it the result
@@ -218,6 +282,18 @@ pub(super) unsafe extern "C" fn dispatch(
         unsafe { ambient_runtime::amb_release(function) };
     }
     result
+}
+
+/// What native code gave, as the word its caller takes.
+fn answered(program: &Program, context: *mut Context, outcome: Result<Value, String>) -> Word {
+    match outcome {
+        Ok(value) => value::encode(&value, &mut Inside(program)),
+        Err(message) => {
+            *program.failure.borrow_mut() = Some(message);
+            // SAFETY: the context is the one this call was handed.
+            unsafe { ambient_runtime::amb_fault(context, Fault::Native as u64) }
+        }
+    }
 }
 
 /// Makes words for one program, which is what it takes to make a

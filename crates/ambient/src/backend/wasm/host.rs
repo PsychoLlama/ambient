@@ -62,6 +62,7 @@ impl Program {
         let supplied = natives.resolve(&externs)?;
         let state = guest.store.data_mut();
         state.natives.add(&externs, supplied);
+        state.waits = natives.waits();
         (state.unused, state.linker) = (unused, Some(linker));
         let (entry, _) = guest.init(&module, instance, false, &[])?;
         Ok(Self {
@@ -174,7 +175,7 @@ impl Program {
                 .map(|mode| mode.unwrap_i64())
                 == Some(SUSPENDING.cast_signed())
         {
-            guest.runtime("amb_schedule", &[context]);
+            guest.schedule(u64::from(context.unwrap_i32().cast_unsigned()));
             returned = run(guest);
         }
         guest.words("amb_release", &[handed]);

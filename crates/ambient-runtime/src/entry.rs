@@ -98,6 +98,7 @@ entries! {
     Abort = amb_abort, context, 2, word;
     Caught = amb_caught, context, 1, word;
     Native = amb_native, context, 3, word;
+    NativeWait = amb_native_wait, context, 3, word;
     FramePush = amb_frame_push, context, 3, nothing;
     FrameSave = amb_frame_save, context, 1, nothing;
     FramePoint = amb_frame_point, context, 0, word;

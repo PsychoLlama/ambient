@@ -38,7 +38,10 @@ impl ExternBuilder {
         Self {
             name: name.to_owned(),
             public: false,
-            native: Extern { kind },
+            native: Extern {
+                kind,
+                suspends: false,
+            },
         }
     }
 
@@ -68,6 +71,13 @@ impl ExternBuilder {
         if let ExternKind::Function { ret, .. } = &mut self.native.kind {
             *ret = ty;
         }
+        self
+    }
+
+    /// Says a native handler may suspend the task that performs it.
+    #[must_use]
+    pub fn suspending(mut self) -> Self {
+        self.native.suspends = true;
         self
     }
 

@@ -53,6 +53,7 @@ pub fn check_extern(
     let ret = checker.lower(&ret);
     let handles = handles.map(|ability| checker.slot(&ability));
     let row = checker.row(&row);
+    let suspends = native.suspends && handles.is_some();
     Ok(Open {
         tree: Tree::Extern {
             package: package.to_owned(),
@@ -60,6 +61,7 @@ pub fn check_extern(
             params,
             ret,
             handles,
+            suspends,
             row,
         },
         slots: checker.finish().slots,

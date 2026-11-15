@@ -80,11 +80,12 @@ pub use record::*;
 pub use scope::{amb_scope_new, amb_scope_set, fixed_scope};
 pub use sequence::*;
 pub use task::{
-    LIMITS, RESUMING, RUNNING, SUSPENDING, amb_all, amb_bounce, amb_budget_back, amb_budget_caught,
-    amb_budget_current, amb_budget_enter, amb_budget_leave, amb_budget_switch, amb_capture,
-    amb_charge, amb_charge_read, amb_charge_size, amb_first, amb_frame_drop, amb_frame_load,
-    amb_frame_point, amb_frame_push, amb_frame_save, amb_group_close, amb_group_end, amb_group_new,
-    amb_schedule, amb_spawn, amb_start, amb_tail, amb_tail_arg,
+    FORSAKEN, LIMITS, RESUMING, RUNNING, SUSPENDING, WAITING, amb_all, amb_answer, amb_await,
+    amb_bounce, amb_budget_back, amb_budget_caught, amb_budget_current, amb_budget_enter,
+    amb_budget_leave, amb_budget_switch, amb_capture, amb_charge, amb_charge_read, amb_charge_size,
+    amb_first, amb_frame_drop, amb_frame_load, amb_frame_point, amb_frame_push, amb_frame_save,
+    amb_group_close, amb_group_end, amb_group_new, amb_native_wait, amb_refuse, amb_schedule,
+    amb_spawn, amb_start, amb_strand, amb_tail, amb_tail_arg,
 };
 pub use text::*;
 pub use trace::{TRACE_LIMIT, amb_trace};

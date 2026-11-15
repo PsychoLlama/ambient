@@ -107,7 +107,7 @@ impl Op {
             Self::Call { .. }
             | Self::CallValue { .. }
             | Self::Bounce
-            | Self::Native { .. }
+            | Self::Native { waits: true, .. }
             | Self::All(_)
             | Self::First(_)
             | Self::GroupClose { .. } => true,
@@ -213,13 +213,12 @@ impl Op {
             | Self::First(_) => self.task_steps(),
             Self::Native {
                 index,
+                waits,
                 bindings,
                 args,
             } => {
-                vec![step(
-                    Entry::Native,
-                    [key(index), value(bindings), value(args)],
-                )]
+                let entry = [Entry::Native, Entry::NativeWait][usize::from(*waits)];
+                vec![step(entry, [key(index), value(bindings), value(args)])]
             }
         })
     }
