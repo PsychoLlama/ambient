@@ -47,6 +47,16 @@ impl Checker<'_> {
         let (Some(through), Pattern::Is(near)) = (self.env.narrow(found, &asked), &asked) else {
             return self.tested(ty).map(|()| (value, Ty::Never));
         };
+        // A value the test lets through whatever it is, is the value:
+        // nothing is tested. `otherwise` is checked, and dropped with
+        // whatever it added, since an arm for it could not be reached.
+        if self.env.remainder(found, &asked) == Ty::Never {
+            let (slots, lambdas) = (self.frame().slots.len(), self.frame().lambdas.len());
+            self.infer(otherwise)?;
+            self.frame().slots.truncate(slots);
+            self.frame().lambdas.truncate(lambdas);
+            return Ok((value, found.clone()));
+        }
         // The arm's binder is a local nothing in the text names.
         let frame = self.frame();
         let passed = frame.locals.len();
