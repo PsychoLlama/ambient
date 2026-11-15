@@ -332,6 +332,7 @@ Import a module by path; its public definitions are reached through its name, or
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
 | `ambient.string`, `list`, `int`, `float`, `iterator`, `cell` | the methods of each shape                                                                         |
 | `ambient.map`                                                | `Map<V>`: values by string key, read in key order                                                 |
+| `ambient.url`                                                | `Url`, `parse`, `write`, `query`, `write_query`, `encode`, `decode`                               |
 | `ambient.json`                                               | `Json`, `parse`, `write`, `get`, `at`                                                             |
 | `system.console`                                             | `write`, `print`, `warn`, `read_line`                                                             |
 | `system.env`                                                 | `args`, `variable`, `variables`, `directory`                                                      |

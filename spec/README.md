@@ -42,6 +42,7 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - [iteration](iteration.md): iterators, sources, loops.
 - [maps](maps.md): values by key, in the standard library.
 - [json](json.md): reading and writing JSON, in the standard library.
+- [urls](urls.md): reading and writing URLs, in the standard library.
 - [errors](errors.md): the standard error shape, throwing, traces.
 - [abilities](abilities.md): abilities, rows, performing, capture.
 - [handlers](handlers.md): provides, bundles, abort, sandboxing, recording.

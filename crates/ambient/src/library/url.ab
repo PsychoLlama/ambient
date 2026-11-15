@@ -1,0 +1,209 @@
+/// A URL in parts. One with no scheme is a reference to somewhere on
+/// whatever host it is read by, as a server is asked for: its scheme
+/// and host are empty.
+pub type Url = {
+    scheme: string,
+    host: string,
+    port: int | null,
+    path: string,
+    query: List<(string, string)>,
+    fragment: string | null,
+};
+
+/// What is before the first `separator` in a text, and what is after
+/// it, or null if it is not there.
+fn cut(text: string, separator: string): (string, string | null) {
+    match text.find(separator) {
+        null => { return (text, null); }
+        let at: int => {
+            let before = text.slice(0, at) as string else text;
+            return (before, text.slice(at + separator.length(), text.length()));
+        }
+    }
+}
+
+/// The value of a hexadecimal digit.
+fn digit(character: string): int | null => "0123456789abcdef".find(character.to_lower());
+
+/// A number from 0 to 255 as `%` and two hexadecimal digits.
+fn escaped(byte: int): string {
+    let digits = "0123456789ABCDEF";
+    let high = digits.slice(byte / 16, byte / 16 + 1) as string else "0";
+    let low = digits.slice(byte % 16, byte % 16 + 1) as string else "0";
+    return "%" ++ high ++ low;
+}
+
+/// The bytes of a character's UTF-8 encoding.
+fn bytes(code: int): List<int> {
+    if code < 128 {
+        return [code];
+    }
+    if code < 2048 {
+        return [192 + code / 64, 128 + code % 64];
+    }
+    if code < 65536 {
+        return [224 + code / 4096, 128 + code / 64 % 64, 128 + code % 64];
+    }
+    return [240 + code / 262144, 128 + code / 4096 % 64, 128 + code / 64 % 64, 128 + code % 64];
+}
+
+/// Whether a character is written as itself in any part of a URL.
+fn plain(character: string): bool =>
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~".contains(character);
+
+/// A text with every character that means something in a URL, or that
+/// is not plain ASCII, written as the bytes of its encoding: what a
+/// part of a path or of a query is written as.
+pub fn encode(text: string): string {
+    let written = fn(character: string): string {
+        if plain(character) {
+            return character;
+        }
+        return bytes(character.code() as int else 0).map(escaped).join_with("");
+    };
+    return text.chars().map(written).to_list().join_with("");
+}
+
+/// The scalar value the first bytes of a list encode, and how many
+/// bytes that took, or null if they are not UTF-8.
+fn scalar(bytes: List<int>): (int, int) | null {
+    let at = fn(position: int): int => bytes.get(position) as int else 0;
+    let more = fn(count: int): bool =>
+        bytes.skip(1).take(count).filter(fn(byte: int): bool => 127 < byte && byte < 192).length() == count;
+    let lead = at(0);
+    if lead < 128 {
+        return (lead, 1);
+    }
+    if 191 < lead && lead < 224 && more(1) {
+        return ((lead - 192) * 64 + at(1) - 128, 2);
+    }
+    if 223 < lead && lead < 240 && more(2) {
+        return ((lead - 224) * 4096 + (at(1) - 128) * 64 + at(2) - 128, 3);
+    }
+    if 239 < lead && lead < 248 && more(3) {
+        return ((lead - 240) * 262144 + (at(1) - 128) * 4096 + (at(2) - 128) * 64 + at(3) - 128, 4);
+    }
+    return null;
+}
+
+/// The text some bytes encode, added to `text`, or null if they are
+/// not UTF-8.
+fn decoded(bytes: List<int>, text: string): string | null {
+    if bytes.is_empty() {
+        return text;
+    }
+    match scalar(bytes) {
+        null => { return null; }
+        (let code: int, let took: int) => {
+            match code.to_character() {
+                null => { return null; }
+                let character: string => { return decoded(bytes.skip(took), text ++ character); }
+            }
+        }
+    }
+}
+
+/// Reads characters from `at` on: an escape adds a byte to `pending`,
+/// and anything else ends the run of bytes and is added as it is.
+fn unescape(characters: List<string>, at: int, pending: List<int>, text: string): string | null {
+    match characters.get(at) {
+        null => { return decoded(pending, text); }
+        "%" => {
+            let high = digit(characters.get(at + 1) as string else "?");
+            let low = digit(characters.get(at + 2) as string else "?");
+            match (high, low) {
+                (let high: int, let low: int) => {
+                    return unescape(characters, at + 3, pending.push(high * 16 + low), text);
+                }
+                _ => { return null; }
+            }
+        }
+        let character: string => {
+            match decoded(pending, text) {
+                null => { return null; }
+                let text: string => { return unescape(characters, at + 1, [], text ++ character); }
+            }
+        }
+    }
+}
+
+/// A text that was written with `encode`, or null if it has an escape
+/// that is not one, or bytes that are not text.
+pub fn decode(text: string): string | null => unescape(text.chars().to_list(), 0, [], "");
+
+/// The names and values a query holds, as `a=1&b=two+words` holds two.
+/// A `+` is a space, as a form sends one. Null if a part is not text.
+pub fn query(text: string): List<(string, string)> | null {
+    let pairs = text.split("&").filter(fn(pair: string): bool => !pair.is_empty());
+    return pairs.fold([], fn(read: List<(string, string)> | null, pair: string): List<(string, string)> | null {
+        let (name, value) = cut(pair.replace("+", " "), "=");
+        match (read, decode(name), decode(value as string else "")) {
+            (let read: List<(string, string)>, let name: string, let value: string) => {
+                return read.push((name, value));
+            }
+            _ => { return null; }
+        }
+    });
+}
+
+/// A query that holds some names and values.
+pub fn write_query(pairs: List<(string, string)>): string {
+    let written = fn(pair: (string, string)): string {
+        let (name, value) = pair;
+        return encode(name) ++ "=" ++ encode(value);
+    };
+    return pairs.map(written).join_with("&");
+}
+
+/// A host and a port, as `example.com:8080` is. Null if what follows
+/// the last `:` is not a number.
+fn authority(text: string): (string, int | null) | null {
+    // An address in brackets has colons of its own.
+    let (host, after) = text.starts_with("[") ? cut(text, "]:") : cut(text, ":");
+    match after {
+        null => { return (host, null); }
+        let port: string => {
+            match port.to_int() {
+                null => { return null; }
+                let port: int => { return (text.starts_with("[") ? host ++ "]" : host, port); }
+            }
+        }
+    }
+}
+
+/// A URL read from text, or null if its port is not a number or its
+/// query is not text.
+pub fn parse(text: string): Url | null {
+    let (rest, fragment) = cut(text, "#");
+    let (rest, asked) = cut(rest, "?");
+    let (scheme, after) = cut(rest, "://");
+    // With no scheme the whole of it is a path.
+    let (named, path) = match after {
+        null => ("", rest),
+        let after: string => match cut(after, "/") {
+            (let named, let path: string) => (named, "/" ++ path),
+            (let named, null) => (named, "/"),
+        },
+    };
+    match (authority(named), query(asked as string else "")) {
+        ((let host: string, let port), let query: List<(string, string)>) => {
+            return { scheme: after == null ? "" : scheme, host, port, path, query, fragment };
+        }
+        _ => { return null; }
+    }
+}
+
+/// A URL as text.
+pub fn write(url: Url): string {
+    let port = match url.port {
+        null => "",
+        let port: int => ":${port}",
+    };
+    let origin = url.scheme.is_empty() ? "" : url.scheme ++ "://" ++ url.host ++ port;
+    let query = url.query.is_empty() ? "" : "?" ++ write_query(url.query);
+    let fragment = match url.fragment {
+        null => "",
+        let fragment: string => "#" ++ fragment,
+    };
+    return origin ++ url.path ++ query ++ fragment;
+}
