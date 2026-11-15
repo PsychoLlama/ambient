@@ -46,6 +46,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - The `system` package defines a target for a program run from a command line: its streams, its arguments and environment, files, clocks, random bits, commands it runs, and its exit.
 - Each of those is a module of abilities, so a row says which of them a function reaches.
 - An operation on a file that can fail in ordinary use gives an [error](errors.md) as a value; the kinds are tags of the module.
+- A file is read, written, and added to as text or as [bytes](operations.md#bytes), each by an ability of its own. Reading as text a file that is not UTF-8 is an error of a kind of its own.
 - Randomness is one ability, bits nothing could have guessed; every other draw is a function over it, so a provide of that one ability decides them all, and the package has one that follows from a seed.
 - Exiting is an ability that does not return, so the program's result is the code it exits with.
 - Running a command gives what it exited with and what it wrote; no shell reads the command, and one that exits with a code that is not zero has still run.
@@ -65,6 +66,6 @@ A target defines the world a program runs in: a root binding for every ability t
 - Serving is library code over those: a group that accepts, and starts a task for each request. What answers is an ordinary function, and leaving the group ends the serving.
 - Nothing takes a timeout: a sleep beside the work in a first is one.
 - A header's name is lower case wherever the world gives one.
-- TODO: a body is text, and one that is not UTF-8 is an error. It waits for bytes.
+- A body is [bytes](operations.md#bytes), so anything can be sent and received. Text and JSON are put into a body and read out of one by functions.
 - TODO: a body is held whole; nothing is streamed.
 - TODO: requests a server has not accepted are held without limit.
