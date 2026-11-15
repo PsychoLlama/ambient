@@ -52,6 +52,8 @@ A method is a function reached through a value it then receives. A record's meth
 - Two keys are the same only if they are the same definition, so a key collides with no name and with no other package's key.
 - A record holds under a key only a value of the key's type; holding another is a type error where the record is made.
 - A key is how a protocol names what it expects of a record without reserving a name.
+- Only a record holds a key: what the other [shapes](values.md) do is the language's to say, so no protocol reaches them.
+- A key has no fallback: a record that does not hold one does not meet the protocol, and reading it there is a type error.
 
 ## Built-in methods
 
