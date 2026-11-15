@@ -24,6 +24,8 @@ pub enum Work {
     Run(Command),
     /// Read the next line of standard input.
     ReadLine,
+    /// Read what standard input has next, as bytes: at most this many.
+    Read(i64),
     /// Send a request, and receive the response to it.
     Send(Request),
     /// Take the next request a server was sent.
@@ -34,6 +36,9 @@ pub enum Work {
 /// One that is not text is a failure: the program reads text or stops.
 pub type Line = Result<Option<String>, Failure>;
 
+/// Bytes of input, or nothing at the end of input.
+pub type Chunk = Result<Option<Vec<u8>>, Failure>;
+
 /// What came of work a world began.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Done {
@@ -42,6 +47,8 @@ pub enum Done {
     Ran(Result<Ran, Failure>),
     /// The line, or why there is none to give.
     Line(Line),
+    /// The bytes, or why there are none to give.
+    Read(Chunk),
     /// The response, or why there was none.
     Sent(Result<Response, Failure>),
     /// The request, or nothing once the server is closed.
@@ -56,6 +63,9 @@ impl Done {
             Self::Slept => Value::Null,
             Self::Ran(ran) => ran.map_or_else(|failure| error("process", &failure), output),
             Self::Line(line) => optional(line.map_err(|failure| failure.message)?),
+            Self::Read(chunk) => chunk
+                .map_err(|failure| failure.message)?
+                .map_or(Value::Null, Value::Bytes),
             Self::Sent(sent) => http::sent(sent),
             Self::Accepted(incoming) => incoming.map_or(Value::Null, Incoming::value),
         })

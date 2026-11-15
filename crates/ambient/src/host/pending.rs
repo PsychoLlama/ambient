@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use super::network::Network;
 use super::system::failure;
-use super::waits::{Done, Line, Work};
+use super::waits::{Chunk, Done, Line, Work};
 use super::{Command, Failure, Kind, Ran, Response};
 
 /// What a thread sends back.
@@ -24,6 +24,8 @@ pub(super) enum Sent {
     Wrote(u64, Vec<u8>, Vec<u8>),
     /// A line of input, read for a ticket.
     Line(u64, Line),
+    /// Bytes of input, read for a ticket.
+    Chunk(u64, Chunk),
     /// What came of a request that was sent.
     Response(u64, Result<Response, Failure>),
     /// A request a server was sent.
@@ -40,10 +42,14 @@ pub(super) struct Pending {
     /// The commands that are running.
     children: HashMap<u64, Child>,
     /// The tickets waiting for a line, and whom to ask for the next.
+    /// A ticket is asked for with the most bytes it takes, or nothing
+    /// if it takes a line.
     readers: Vec<u64>,
-    lines: Option<Sender<u64>>,
+    lines: Option<Sender<(u64, Option<usize>)>>,
     /// Lines read for a wait its task left: the next to ask gets them.
     unread: VecDeque<Line>,
+    /// Bytes read for a wait its task left, likewise.
+    unread_bytes: VecDeque<Chunk>,
     pub(super) network: Network,
 }
 
@@ -60,6 +66,7 @@ impl Default for Pending {
             readers: Vec::new(),
             lines: None,
             unread: VecDeque::new(),
+            unread_bytes: VecDeque::new(),
         }
     }
 }
@@ -73,6 +80,7 @@ impl Pending {
             }
             Work::Run(command) => self.run(ticket, command),
             Work::ReadLine => self.read_line(ticket),
+            Work::Read(most) => self.read(ticket, usize::try_from(most).unwrap_or(0)),
             Work::Send(request) => self.network.send(ticket, request),
             Work::Accept(server) => {
                 let done = self.network.accept(ticket, server);
@@ -119,24 +127,51 @@ impl Pending {
         self.children.insert(ticket, child);
     }
 
-    /// Asks the thread that reads input for one more line. There is one
-    /// such thread, so lines are never read out of order.
+    /// Asks the thread that reads input for one more line.
     fn read_line(&mut self, ticket: u64) {
         if let Some(line) = self.unread.pop_front() {
             return self.ready.push_back((ticket, Done::Line(line)));
         }
+        self.ask(ticket, None);
+    }
+
+    /// Asks the thread that reads input for what is next, as bytes.
+    /// Bytes read for a wait its task left are given whole, however
+    /// many were asked for: they were read once and are not read again.
+    fn read(&mut self, ticket: u64, most: usize) {
+        if let Some(chunk) = self.unread_bytes.pop_front() {
+            return self.ready.push_back((ticket, Done::Read(chunk)));
+        }
+        self.ask(ticket, Some(most));
+    }
+
+    /// Asks the thread that reads input to read for a ticket: a line,
+    /// or at most so many bytes. There is one such thread, so input is
+    /// never read out of order.
+    fn ask(&mut self, ticket: u64, most: Option<usize>) {
         self.readers.push(ticket);
         let sender = self.sender.clone();
         let lines = self.lines.get_or_insert_with(|| {
-            let (asks, asked) = channel::<u64>();
+            let (asks, asked) = channel::<(u64, Option<usize>)>();
             thread::spawn(move || {
-                for ticket in asked {
-                    let _ = sender.send(Sent::Line(ticket, line(&mut std::io::stdin().lock())));
+                for (ticket, most) in asked {
+                    let input = &mut std::io::stdin().lock();
+                    let _ = sender.send(match most {
+                        None => Sent::Line(ticket, line(input)),
+                        Some(most) => Sent::Chunk(ticket, chunk(input, most)),
+                    });
                 }
             });
             asks
         });
-        let _ = lines.send(ticket);
+        let _ = lines.send((ticket, most));
+    }
+
+    /// Whether a ticket still waits for what was read for it, which it
+    /// then does not.
+    fn reads(&mut self, ticket: u64) -> bool {
+        let at = self.readers.iter().position(|reader| *reader == ticket);
+        at.map(|at| self.readers.remove(at)).is_some()
     }
 
     pub(super) fn next(&mut self) -> Option<(u64, Done)> {
@@ -184,11 +219,17 @@ impl Pending {
                 self.ready.push_back((ticket, Done::Ran(Ok(ran))));
             }
             Sent::Line(ticket, line) => {
-                if let Some(at) = self.readers.iter().position(|reader| *reader == ticket) {
-                    self.readers.remove(at);
+                if self.reads(ticket) {
                     self.ready.push_back((ticket, Done::Line(line)));
                 } else {
                     self.unread.push_back(line);
+                }
+            }
+            Sent::Chunk(ticket, chunk) => {
+                if self.reads(ticket) {
+                    self.ready.push_back((ticket, Done::Read(chunk)));
+                } else {
+                    self.unread_bytes.push_back(chunk);
                 }
             }
             Sent::Response(ticket, response) => {
@@ -252,9 +293,34 @@ fn line(input: &mut impl BufRead) -> Line {
     Ok(Some(line))
 }
 
+/// What input has next: at least one byte and at most `most`, or
+/// nothing at its end. It takes what a line read before it left in the
+/// buffer, and does not wait for more than is there.
+fn chunk(input: &mut impl BufRead, most: usize) -> Chunk {
+    let failed = |error: std::io::Error| Failure {
+        kind: Kind::Failed,
+        message: error.to_string(),
+    };
+    let held = input.fill_buf().map_err(failed)?;
+    let taken = held.len().min(most.max(1));
+    let bytes = held[..taken].to_vec();
+    input.consume(taken);
+    Ok((!bytes.is_empty()).then_some(bytes))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Kind, line};
+    use super::{Kind, chunk, line};
+
+    #[test]
+    fn bytes_are_read_after_a_line_and_up_to_the_end() {
+        let mut input = &b"one\n\xff\xfe\x00"[..];
+
+        assert_eq!(line(&mut input), Ok(Some("one".to_owned())));
+        assert_eq!(chunk(&mut input, 2), Ok(Some(vec![0xff, 0xfe])));
+        assert_eq!(chunk(&mut input, 9), Ok(Some(vec![0])));
+        assert_eq!(chunk(&mut input, 9), Ok(None));
+    }
 
     #[test]
     fn a_line_that_is_not_text_is_neither_text_nor_the_end() {

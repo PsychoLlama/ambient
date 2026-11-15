@@ -24,7 +24,7 @@ pub use commands::Command;
 pub use files::{Entry, Info};
 pub use http::{Incoming, Listening, Request, Response};
 pub use system::System;
-pub use waits::{Done, Line, Work};
+pub use waits::{Chunk, Done, Line, Work};
 
 use crate::backend::native::Natives;
 use crate::pack::Pack;
@@ -243,8 +243,9 @@ fn strings(items: Vec<String>) -> Value {
 pub fn natives(world: &Rc<RefCell<dyn World>>, trees: Option<Pack>) -> Natives {
     use http::{Handler, Starter};
     // What takes time is begun, and answered when it is over.
-    let starters: [(&str, Starter); 3] = [
+    let starters: [(&str, Starter); 4] = [
         ("console_read_line", |_| Ok(Work::ReadLine)),
+        ("console_read", |args| Ok(Work::Read(int(args, 0)?))),
         ("clock_sleep", |args| Ok(Work::Sleep(int(args, 0)?))),
         ("process_run", |args| Ok(Work::Run(Command::read(args)?))),
     ];

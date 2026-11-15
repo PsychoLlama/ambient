@@ -53,6 +53,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - A command is a record: the program, its arguments, the directory it runs in, variables added to its environment, and what it reads from its input. A function makes one from the first two, to be copied with whatever else is wanted.
 - What a command reads and what it writes are bytes, as a file's are: the command decides what its streams hold.
 - Nothing the world gives is altered to make it text. A file, a response, and a command's streams are bytes; an argument, a variable, and a name in a directory must be text.
+- Standard input is read a line at a time as text, or as bytes, up to a count at a time; each reading takes up where the last left off.
 - A program started with an argument that is not text is not run; a variable that is not text is not among its variables; a directory that holds a name that is not text is not listed, which is an error of kind `invalid`; a header of a response that is not text is not among its headers; a line of standard input that is not text ends the program, as a failure of its native code does.
 - A command that could not be started is an error whose kind is a tag of that module, never one of the files'.
 - What takes time there suspends its [task](tasks.md) and blocks nothing: tasks sleep, run commands, and wait for input together, and a sleep beside other work in a first is a limit on it.

@@ -17,6 +17,29 @@ fn run(source: &str, world: &Scripted) -> (Outcome, Scripted) {
 }
 
 #[test]
+fn a_program_reads_its_input_as_bytes() {
+    let source = r#"
+        import system.console;
+
+        fn rest(read: bytes): bytes with console.read =>
+            match console.read!(4) {
+                null => read,
+                let more: bytes => rest(read ++ more),
+            };
+
+        fn main(): string with console.read, console.read_line {
+            let first = console.read_line!() as string else "";
+            return first ++ ":" ++ rest("".to_bytes()).hex();
+        }
+    "#;
+    let mut world = Scripted::default();
+    world.input.extend(["one", "abcde"].map(str::to_owned));
+
+    let (outcome, _) = run(source, &world);
+    assert_eq!(outcome, Ok(Value::String("one:61626364650a".to_owned())));
+}
+
+#[test]
 fn a_program_reads_and_writes_its_streams() {
     let source = r#"
         import system.console;

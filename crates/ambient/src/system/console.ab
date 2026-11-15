@@ -11,3 +11,8 @@ pub ability warn(text: string): null;
 /// end. Input that is not text ends the program: it is never altered
 /// to make it text.
 pub ability read_line(): string | null;
+
+/// What standard input has next, as bytes: at least one and at most
+/// `most`, or null at its end. It reads input that is not text, and
+/// whatever a line read before it left.
+pub ability read(most: int): bytes | null;

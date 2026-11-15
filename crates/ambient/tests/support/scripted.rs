@@ -307,6 +307,7 @@ impl World for Scripted {
         let (takes, done) = match work {
             Work::Sleep(milliseconds) => (milliseconds.max(0), Done::Slept),
             Work::ReadLine => (0, Done::Line(Ok(self.input.pop_front()))),
+            Work::Read(most) => (0, Done::Read(Ok(self.input_bytes(most)))),
             Work::Send(request) => {
                 let line = format!("{} {}", request.method, request.url);
                 let response = self.responses.get(&line).cloned().ok_or_else(|| Failure {
@@ -349,5 +350,21 @@ impl World for Scripted {
     fn forsake(&mut self, ticket: u64) {
         self.waits.retain(|wait| wait.1 != ticket);
         self.forsaken.push(ticket);
+    }
+}
+
+impl Scripted {
+    /// The bytes of the next line of input and its ending, or as many
+    /// of them as `most`; the rest is the line that is then next. A
+    /// script's input is plain letters, so any cut leaves text.
+    fn input_bytes(&mut self, most: i64) -> Option<Vec<u8>> {
+        let mut bytes = format!("{}\n", self.input.pop_front()?).into_bytes();
+        let most = usize::try_from(most).unwrap_or(1).max(1);
+        if most < bytes.len() {
+            let rest = bytes.split_off(most);
+            let rest = String::from_utf8_lossy(&rest[..rest.len() - 1]).into_owned();
+            self.input.push_front(rest);
+        }
+        Some(bytes)
     }
 }

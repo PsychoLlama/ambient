@@ -23,6 +23,7 @@ extern handler console_write for console.write;
 extern handler console_print for console.print;
 extern handler console_warn for console.warn;
 extern suspending handler console_read_line for console.read_line;
+extern suspending handler console_read for console.read;
 extern handler env_args for env.args;
 extern handler env_variable for env.variable;
 extern handler env_variables for env.variables;
@@ -62,6 +63,7 @@ pub target cli {
     console.print: console_print,
     console.warn: console_warn,
     console.read_line: console_read_line,
+    console.read: console_read,
     env.args: env_args,
     env.variable: env_variable,
     env.variables: env_variables,

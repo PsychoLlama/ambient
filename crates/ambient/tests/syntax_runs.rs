@@ -309,6 +309,7 @@ fn a_module_in_a_row_is_every_ability_of_it() {
                 [console.warn](text) { note(text); },
                 [console.write](text) { note(text); },
                 [console.read_line]() => null,
+                [console.read](most) => null,
             };
             provide quiet { speak(); }
             return said.read();
