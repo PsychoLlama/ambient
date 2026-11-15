@@ -125,6 +125,14 @@ pub unsafe extern "C" fn amb_equal(left: Word, right: Word) -> Word {
 }
 
 pub(crate) unsafe fn equal(left: Word, right: Word) -> bool {
+    // Most comparisons are of words that are the same or of ones that
+    // are no object, and are over before anything is queued.
+    if left == right {
+        return true;
+    }
+    if !is_object(left) || !is_object(right) {
+        return false;
+    }
     // A value can be nested arbitrarily deep, so the pairs still to be
     // compared are queued here, never compared by recursion.
     let mut pending = vec![(left, right)];
