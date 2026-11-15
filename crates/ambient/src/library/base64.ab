@@ -7,13 +7,20 @@ pub fn encode(data: bytes): string => written(data, "+/", "=");
 pub fn encode_url(data: bytes): string => written(data, "-_", "");
 
 /// The bytes some Base64 says, in either form and padded or not, or
-/// null if the text is not Base64.
+/// null if the text is not Base64: only what `encode` or `encode_url`
+/// could have written is.
 pub fn decode(text: string): bytes | null {
     let digits = unpadded(text).to_bytes().iter().map(value).to_list();
     if digits.contains(null) || digits.length() % 4 == 1 {
         return null;
     }
     let digit = fn(at: int): int => digits.get(at) as int else 0;
+    // The last character of a group that is not whole holds bits of a
+    // byte that is not there, which writing leaves zero.
+    let spare = [1, 1, 16, 4].get(digits.length() % 4) as int else 1;
+    if digit(digits.length() - 1) % spare != 0 {
+        return null;
+    }
     let byte = fn(at: int): int {
         let from = at / 3 * 4;
         let held = digit(from) * 262144 + digit(from + 1) * 4096 + digit(from + 2) * 64 + digit(from + 3);

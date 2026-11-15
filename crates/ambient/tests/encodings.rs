@@ -72,6 +72,9 @@ fn base64_is_read_in_either_form_padded_or_not() {
 fn text_that_is_not_base64_is_none() {
     assert_eq!(decoded("Zm9v!"), "not base64");
     assert_eq!(decoded("Zm9vY"), "not base64");
+    // `Zm8` is `fo`; `Zm9` says the same bytes and two bits more.
+    assert_eq!(decoded("Zm9"), "not base64");
+    assert_eq!(decoded("Zh=="), "not base64");
 }
 
 #[test]

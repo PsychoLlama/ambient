@@ -8,4 +8,4 @@ The standard library writes [bytes](operations.md#bytes) as text and reads them 
 - Reading Base64 takes either form, padded or not, so a reader need not know which a sender chose.
 - Reading gives bytes or null; nothing is read halfway, and text with a character of neither form is none.
 - What is written and read back is the same bytes.
-- TODO: bits past the last whole byte are dropped when reading, where a strict reader would refuse them.
+- Text whose last character holds bits past the last whole byte is none too, so each run of bytes is read from one text of each form and no other.
