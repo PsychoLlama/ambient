@@ -21,6 +21,7 @@ use crate::engine::Backend;
 use crate::lir::{self, Arg, Expr, Op};
 use crate::lower::{Form, lower};
 
+mod fast;
 mod resume;
 
 /// Compiles for the machine this process runs on.
@@ -328,7 +329,7 @@ impl Emitter<'_> {
                 self.builder.switch_to_block(done);
 
                 let owned = self.local(*local);
-                self.runtime(Entry::Release, &[owned]);
+                self.count(Entry::Release, owned);
                 self.builder.block_params(done)[0]
             }
             Expr::If {
@@ -376,7 +377,7 @@ impl Emitter<'_> {
             Op::Copy(value) => {
                 let word = self.value(*value);
                 if value.counted() {
-                    self.runtime(Entry::Retain, &[word]);
+                    self.count(Entry::Retain, word);
                 }
                 word
             }
@@ -396,7 +397,7 @@ impl Emitter<'_> {
                 // A reference to a function of loaded code is one into
                 // that code.
                 let function = self.in_definition(*slot);
-                self.runtime(Entry::Retain, &[function]);
+                self.count(Entry::Retain, function);
                 function
             }
             Op::Call {
@@ -415,30 +416,37 @@ impl Emitter<'_> {
                 let callee = self.value(*callee);
                 self.call(callee, args, *metered)
             }
-            _ => {
-                let mut object = self.context;
-                for (position, step) in op.steps().unwrap_or_default().iter().enumerate() {
-                    let args: Vec<Val> = step
-                        .args
-                        .iter()
-                        .map(|arg| match arg {
-                            Arg::Value(value) => self.value(*value),
-                            Arg::Raw(raw) => self.constant(*raw),
-                            Arg::Object => object,
-                            Arg::Definition(slot) => {
-                                let closure = self.in_definition(*slot);
-                                self.load(closure, CLOSURE_DEFINITION)
-                            }
-                        })
-                        .collect();
-                    let result = self.runtime(step.entry, &args);
-                    if position == 0 {
-                        object = result.unwrap_or(object);
+            Op::Primitive { operation, args } => self
+                .fast(*operation, args)
+                .unwrap_or_else(|| self.stepped(op)),
+            _ => self.stepped(op),
+        }
+    }
+
+    /// An operation that is only calls into the runtime: the result of
+    /// the first, which the rest fill in.
+    fn stepped(&mut self, op: &Op) -> Val {
+        let mut object = self.context;
+        for (position, step) in op.steps().unwrap_or_default().iter().enumerate() {
+            let args: Vec<Val> = step
+                .args
+                .iter()
+                .map(|arg| match arg {
+                    Arg::Value(value) => self.value(*value),
+                    Arg::Raw(raw) => self.constant(*raw),
+                    Arg::Object => object,
+                    Arg::Definition(slot) => {
+                        let closure = self.in_definition(*slot);
+                        self.load(closure, CLOSURE_DEFINITION)
                     }
-                }
-                object
+                })
+                .collect();
+            let result = self.runtime(step.entry, &args);
+            if position == 0 {
+                object = result.unwrap_or(object);
             }
         }
+        object
     }
 
     /// Calls an entry point that returns a word.

@@ -11,7 +11,8 @@ use ambient::error::Error;
 use ambient::store::MemoryStore;
 use ambient::surface::{Expr, Type};
 use ambient::value::Value;
-use ambient_runtime::{FAULT_PACKAGE, Fault};
+use ambient_runtime::{FAULT_PACKAGE, Fault, SMALL_MAX, SMALL_MIN};
+use proptest::prelude::*;
 use support::{Outcome, run, value, workspace};
 
 /// `fn main(): ret`, which is `body`.
@@ -310,6 +311,30 @@ fn only_strings_and_lists_have_a_length() {
     let result = checks(ty::int(), b::length(b::int(1)));
 
     assert!(matches!(result, Err(Error::Operands { .. })));
+}
+
+/// Integers near where an immediate one ends, and where any does.
+fn edge() -> impl Strategy<Value = i64> {
+    let ends = [0, SMALL_MIN, SMALL_MAX, i64::MIN + 8, i64::MAX - 8];
+    (proptest::sample::select(ends.to_vec()), -8_i64..=8).prop_map(|(end, by)| end + by)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(24))]
+
+    // A backend answers some of these without the runtime, and must
+    // give what the runtime would.
+    #[test]
+    fn arithmetic_is_the_same_at_every_size(left in edge(), right in edge()) {
+        let (a, b) = (|| b::int(left), || b::int(right));
+        let compared = each([b::less(a(), b()), b::equal(a(), b())]);
+        prop_assert_eq!(compared, vec![Value::Bool(left < right), Value::Bool(left == right)]);
+
+        let sum = outcome(b::add(a(), b())).ok();
+        prop_assert_eq!(sum, left.checked_add(right).map(Value::Int));
+        let difference = outcome(b::subtract(a(), b())).ok();
+        prop_assert_eq!(difference, left.checked_sub(right).map(Value::Int));
+    }
 }
 
 // Budgets
