@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use super::{Failure, Work, World, error, int, text};
+use crate::system::PACKAGE;
 use crate::value::Value;
 
 /// What is sent to a server. One a server was sent has the path and
@@ -37,6 +38,42 @@ pub struct Incoming {
 pub struct Listening {
     pub id: i64,
     pub port: i64,
+}
+
+/// What `system.http` calls the brand of a server's listener, and of
+/// the way to answer a request.
+pub(super) const LISTENER: &str = "http.Listener";
+pub(super) const REPLY: &str = "http.Reply";
+
+/// The handle a program holds for what a world numbered, under a
+/// brand of `system.http`.
+fn handle(brand: &str, number: i64) -> Value {
+    Value::Handle {
+        package: PACKAGE.to_owned(),
+        brand: brand.to_owned(),
+        number: number.cast_unsigned(),
+    }
+}
+
+/// What a world numbered that a field of a record is the handle for.
+fn held(value: &Value, name: &str, brand: &str) -> Result<i64, String> {
+    match field(value, name)? {
+        Value::Handle {
+            package,
+            brand: minted,
+            number,
+        } if package == PACKAGE && minted == brand => Ok(number.cast_signed()),
+        _ => Err(format!("field `{name}` is not a handle of `{brand}`")),
+    }
+}
+
+impl Listening {
+    fn value(self) -> Value {
+        record([
+            ("port", Value::Int(self.port)),
+            ("listener", handle(LISTENER, self.id)),
+        ])
+    }
 }
 
 fn record<const N: usize>(fields: [(&str, Value); N]) -> Value {
@@ -90,8 +127,8 @@ impl Response {
 impl Incoming {
     pub(super) fn value(self) -> Value {
         record([
-            ("id", Value::Int(self.id)),
             ("request", self.request.value()),
+            ("reply", handle(REPLY, self.id)),
         ])
     }
 }
@@ -149,19 +186,20 @@ pub(super) type Handler = fn(&mut dyn World, &[Value]) -> Result<Value, String>;
 pub(super) const HANDLERS: [(&str, Handler); 3] = [
     ("http_listen", |world, args| {
         let listening = world.listen(text(args, 0)?, int(args, 1)?);
-        Ok(listening.map_or_else(
-            |failure| error("http", &failure),
-            |Listening { id, port }| record([("id", Value::Int(id)), ("port", Value::Int(port))]),
-        ))
+        Ok(listening.map_or_else(|failure| error("http", &failure), Listening::value))
     }),
     ("http_respond", |world, args| {
-        let incoming = field_int(args.first().unwrap_or(&Value::Null), "id")?;
+        let incoming = held(args.first().unwrap_or(&Value::Null), "reply", REPLY)?;
         let response = Response::read(args.get(1).unwrap_or(&Value::Null))?;
         let answered = world.respond(incoming, response);
         Ok(answered.map_or_else(|failure| error("http", &failure), |()| Value::Null))
     }),
     ("http_close", |world, args| {
-        world.close(field_int(args.first().unwrap_or(&Value::Null), "id")?);
+        world.close(held(
+            args.first().unwrap_or(&Value::Null),
+            "listener",
+            LISTENER,
+        )?);
         Ok(Value::Null)
     }),
 ];
@@ -175,7 +213,7 @@ pub(super) const STARTERS: [(&str, Starter); 2] = [
         Ok(Work::Send(request))
     }),
     ("http_accept", |args| {
-        let server = field_int(args.first().unwrap_or(&Value::Null), "id")?;
+        let server = held(args.first().unwrap_or(&Value::Null), "listener", LISTENER)?;
         Ok(Work::Accept(server))
     }),
 ];

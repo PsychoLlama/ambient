@@ -67,6 +67,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - `system.http` sends a request and gives the response, each whole: a method, a URL, headers, and a body out; a status, headers, and a body back.
 - A response is a value whatever its status. Only a request that got no response is an [error](errors.md).
 - A server is a listener the world holds. Accepting its next request is an ability that suspends, and answering one is another.
+- A listener and the way to answer a request are [handles](values.md). A listener nothing holds stops listening, and a request nothing can answer is let go, which ends its connection.
 - Serving is library code over those: a group that accepts, and starts a task for each request. What answers is an ordinary function, and leaving the group ends the serving.
 - Nothing takes a timeout: a sleep beside the work in a first is one.
 - A header's name is lower case wherever the world gives one.

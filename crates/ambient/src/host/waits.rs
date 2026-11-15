@@ -12,6 +12,7 @@ use super::Command;
 use super::http::{self, Incoming, Request, Response};
 use super::{Failure, Ran, World, error, optional, output};
 use crate::backend::native::{Answer, Waits};
+use crate::system::PACKAGE;
 use crate::value::Value;
 
 /// Something a world is asked to begin.
@@ -67,5 +68,16 @@ impl Waits for Outcomes {
 
     fn forsake(&mut self, ticket: u64) {
         self.0.borrow_mut().forsake(ticket);
+    }
+
+    /// What a handle stood for is given up with it: a server stops
+    /// listening, and a request is let go.
+    fn dropped(&mut self, package: &str, brand: &str, number: u64) {
+        let number = number.cast_signed();
+        match (package, brand) {
+            (PACKAGE, http::LISTENER) => self.0.borrow_mut().close(number),
+            (PACKAGE, http::REPLY) => self.0.borrow_mut().abandon(number),
+            _ => {}
+        }
     }
 }

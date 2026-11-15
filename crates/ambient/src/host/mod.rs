@@ -163,6 +163,9 @@ pub trait World {
     /// Stops a server listening: whatever waits to accept is given
     /// nothing.
     fn close(&mut self, server: i64);
+    /// Lets go of a request a server accepted, if it was not answered:
+    /// nothing can answer it any more.
+    fn abandon(&mut self, incoming: i64);
     /// Begins work that takes time. What comes of it is given by
     /// [`World::next`], under `ticket`.
     fn begin(&mut self, ticket: u64, work: Work);

@@ -25,11 +25,19 @@ pub type Request = { method: string, url: string, headers: List<Header>, body: b
 
 pub type Response = { status: int, headers: List<Header>, body: bytes };
 
-/// A listener the world holds, and the port it listens on.
-pub type Server = { id: int, port: int };
+/// A listener the world holds. It stops listening when it is closed,
+/// or when nothing holds it any more.
+pub brand Listener;
+
+/// The way to answer one request. A request nothing can answer any
+/// more is let go, which ends its connection.
+pub brand Reply;
+
+/// What listens, and the port it listens on.
+pub type Server = { port: int, listener: Listener };
 
 /// A request a server was sent, to be answered once.
-pub type Incoming = { id: int, request: Request };
+pub type Incoming = { request: Request, reply: Reply };
 
 /// Sends a request and gives the response, whatever its status. Only
 /// a request that got no response is an error.

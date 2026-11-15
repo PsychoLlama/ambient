@@ -225,6 +225,34 @@ fn a_request_the_handler_fails_on_is_answered_and_the_server_goes_on() {
 }
 
 #[test]
+fn what_a_program_holds_no_longer_the_world_gives_up() {
+    // The request is never answered, and the server never closed.
+    let source = r#"
+        import system.http;
+
+        fn main(): string with http {
+            match http.listen!("127.0.0.1", 8080) {
+                let server: http.Server => {
+                    match http.accept!(server) {
+                        let incoming: http.Incoming => { return incoming.request.url; }
+                        null => { return "none"; }
+                    }
+                }
+                let _: Error => { return "refused"; }
+            }
+        }
+    "#;
+    let world = Scripted {
+        requests: [request("GET", "/a", "")].into(),
+        ..Scripted::default()
+    };
+
+    let (outcome, after) = run(source, &world);
+    assert_eq!(outcome, Ok(text("/a")));
+    assert_eq!((after.closed, after.abandoned), (1, vec![0]));
+}
+
+#[test]
 fn a_program_serves_and_sends_over_a_real_socket() {
     // One task serves a single request and closes; the other sends it.
     let source = format!(

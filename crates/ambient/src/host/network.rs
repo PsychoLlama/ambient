@@ -189,6 +189,12 @@ impl Network {
             .map_err(|error| failed(Kind::Failed, &error))
     }
 
+    /// Lets go of a request that was not answered, which ends its
+    /// connection.
+    pub(super) fn abandon(&mut self, incoming: i64) {
+        self.unanswered.remove(&incoming);
+    }
+
     /// Stops a server, and gives the tickets that waited to accept.
     pub(super) fn close(&mut self, server: i64) -> Vec<u64> {
         let Some(listener) = self.listeners.remove(&server) else {

@@ -184,6 +184,10 @@ impl World for System {
         self.pending.close(server);
     }
 
+    fn abandon(&mut self, incoming: i64) {
+        self.pending.network.abandon(incoming);
+    }
+
     fn begin(&mut self, ticket: u64, work: Work) {
         self.pending.begin(ticket, work);
     }

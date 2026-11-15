@@ -51,6 +51,11 @@ pub struct Scripted {
     pub requests: VecDeque<Request>,
     /// Every answer a server gave, in order.
     pub answers: Vec<Response>,
+    /// How many times a server was closed.
+    pub closed: usize,
+    /// The requests that were let go, in order: each by how many were
+    /// still to come when it was accepted.
+    pub abandoned: Vec<i64>,
 }
 
 /// Where a scripted session says the command's own file is.
@@ -265,6 +270,11 @@ impl World for Scripted {
 
     fn close(&mut self, _server: i64) {
         self.requests.clear();
+        self.closed += 1;
+    }
+
+    fn abandon(&mut self, incoming: i64) {
+        self.abandoned.push(incoming);
     }
 
     /// Only a sleep takes time here: a command and a line of input
