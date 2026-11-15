@@ -109,6 +109,7 @@ impl Engine<'_> {
             still: mode.still,
             handed: self.handed(symbol)?,
             slots: slots.collect::<Result<_, _>>()?,
+            own: open.slots.iter().position(|slot| slot == symbol),
         })
     }
 }

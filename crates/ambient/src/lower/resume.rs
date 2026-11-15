@@ -36,6 +36,7 @@ fn suspends(expr: &Expr) -> bool {
         Expr::Try { body, recover, .. } => suspends(body) || suspends(recover),
         Expr::Point { .. } => true,
         Expr::Resumed { value, .. } => suspends(value),
+        Expr::Loop { body, .. } => suspends(body),
         Expr::Fault(_) => false,
     }
 }
@@ -93,6 +94,10 @@ fn rewrite(expr: Expr, next: &mut usize) -> Expr {
                 recovering: (from, *next),
             }
         }
+        Expr::Loop { body, held } => Expr::Loop {
+            body: Box::new(rewrite(*body, next)),
+            held,
+        },
         other => other,
     }
 }

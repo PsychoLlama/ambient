@@ -72,6 +72,8 @@ impl Backend for Wasm {
             saved: PARAMS + params + 3,
             frame: PARAMS + params + 6,
             slots: function.slots,
+            held: 0,
+            resumes: function.points > 0,
             frames: Vec::new(),
             calls: Vec::new(),
             widest: 0,
@@ -121,6 +123,11 @@ pub(super) struct Emitter {
     pub(super) saved: u32,
     /// How many slots the definition has; its constants follow them.
     pub(super) slots: usize,
+    /// Where the loop the function is keeps its parameters: see
+    /// [`Expr::Loop`].
+    pub(super) held: usize,
+    /// Whether the function may be resuming: it has a point.
+    pub(super) resumes: bool,
     /// The control constructs open around the current instruction,
     /// innermost last. `true` marks one that unwinding leaves through: the
     /// body of a `Let`, or of the function.
@@ -222,7 +229,7 @@ impl Emitter {
     }
 
     /// Leaves one word on the stack.
-    fn expr(&mut self, expr: &Expr) {
+    pub(super) fn expr(&mut self, expr: &Expr) {
         match expr {
             Expr::Point { point, op, frame } => self.point(*point, op, *frame),
             Expr::Resumed {
@@ -313,6 +320,7 @@ impl Emitter {
                 self.frames.pop();
                 self.emit(&Instruction::End);
             }
+            Expr::Loop { body, held } => self.looped(body, *held),
             Expr::Fault(fault) => {
                 self.emit(&Instruction::LocalGet(CONTEXT));
                 self.constant(*fault as u64);
@@ -366,6 +374,7 @@ impl Emitter {
                 self.value(*callee);
                 self.call(args, *metered);
             }
+            Op::Again(args) => self.again(args),
             _ => {
                 for (position, step) in op.steps().unwrap_or_default().iter().enumerate() {
                     if step.entry.takes_context() {

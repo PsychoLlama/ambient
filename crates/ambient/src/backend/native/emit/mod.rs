@@ -21,6 +21,7 @@ use crate::engine::Backend;
 use crate::lir::{self, Arg, Expr, Op};
 use crate::lower::{Form, lower};
 
+mod again;
 mod fast;
 mod resume;
 
@@ -100,6 +101,8 @@ impl Backend for Native {
             closure: params[1],
             frame,
             locals: function.locals,
+            params: function.params,
+            held: 0,
             target,
             slots: function.slots,
             unwind: vec![exit],
@@ -148,8 +151,12 @@ struct Emitter<'a> {
     /// live nearly everywhere, and a function with many would take the
     /// register allocator time beyond all proportion to its size.
     frame: StackSlot,
-    /// How many locals there are.
+    /// How many locals there are, and how many are parameters.
     locals: usize,
+    params: usize,
+    /// Where the loop the function is keeps its parameters: see
+    /// [`Expr::Loop`].
+    held: usize,
     /// The point a function that is resuming is going back to, and `-1`
     /// in one that is not.
     target: Variable,
@@ -371,6 +378,7 @@ impl Emitter<'_> {
                 recover,
                 recovering,
             } => self.attempt(body, recover, *recovering),
+            Expr::Loop { body, held } => self.looped(body, *held),
             Expr::Fault(fault) => {
                 let code = self.constant(*fault as u64);
                 let word = self.runtime(Entry::Fault, &[code]);
@@ -428,6 +436,7 @@ impl Emitter<'_> {
             Op::Primitive { operation, args } => self
                 .fast(*operation, args)
                 .unwrap_or_else(|| self.stepped(op)),
+            Op::Again(args) => self.again(args),
             Op::Enter { weight } => self.entered(*weight),
             Op::Depth(depth) => self.said(*depth),
             _ => self.stepped(op),

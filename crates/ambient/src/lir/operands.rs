@@ -57,7 +57,9 @@ impl Op {
             Self::Abort { token, args } => vec![token, args],
             Self::Instantiate { function, types } => vec![function, types],
             Self::Native { bindings, args, .. } => vec![bindings, args],
-            Self::Call { args, .. } | Self::Primitive { args, .. } => args.iter_mut().collect(),
+            Self::Call { args, .. } | Self::Primitive { args, .. } | Self::Again(args) => {
+                args.iter_mut().collect()
+            }
             Self::CallValue { callee, args, .. } | Self::Tail { callee, args, .. } => {
                 std::iter::once(callee).chain(args).collect()
             }

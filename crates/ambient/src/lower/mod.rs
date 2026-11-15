@@ -88,10 +88,16 @@ pub fn lower(definition: &Open, form: &Form) -> Result<lir::Function, Unsupporte
     let named = lowering.binders + 1;
     renumber(&mut body, named);
     let mut locals = named + lowering.temporaries;
-    let (body, points) = resume::resumable(tail::tailed(body, &mut locals), form.still);
+    let params = function.params.len() + 1;
+    let own = tail::Own {
+        slot: form.own,
+        metered: form.metered,
+        params,
+    };
+    let (body, points) = resume::resumable(tail::tailed(body, &mut locals, &own), form.still);
     Ok(lir::Function {
         points,
-        params: function.params.len() + 1,
+        params,
         locals,
         slots: definition.slots.len(),
         constants: lowering.constants,
@@ -119,8 +125,8 @@ fn renumber(expr: &mut Expr, base: usize) {
             renumber(body, base);
             renumber(recover, base);
         }
-        // The last two are made after temporaries are numbered.
-        Expr::Fault(_) | Expr::Point { .. } | Expr::Resumed { .. } => {}
+        // The last three are made after temporaries are numbered.
+        Expr::Fault(_) | Expr::Point { .. } | Expr::Resumed { .. } | Expr::Loop { .. } => {}
         Expr::Let {
             local: bound,
             value: bound_value,

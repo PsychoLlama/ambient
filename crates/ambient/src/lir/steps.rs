@@ -134,7 +134,8 @@ impl Op {
             | Self::Float(_)
             | Self::Slot(_)
             | Self::Call { .. }
-            | Self::CallValue { .. } => return None,
+            | Self::CallValue { .. }
+            | Self::Again(_) => return None,
             Self::Primitive { operation, args } => {
                 vec![step(entry_for(*operation), args.iter().map(value))]
             }
@@ -180,22 +181,11 @@ impl Op {
                 vec![step(Entry::Abort, [value(token), value(args)])]
             }
             Self::Caught(token) => vec![step(Entry::Caught, [value(token)])],
-            Self::Tail {
-                callee,
-                args,
-                metered,
-            } => {
-                // The call is pending from the first step, which is what
-                // the operation gives; each argument then joins it.
-                let metered = Raw(u64::from(*metered));
-                let mut steps = vec![step(Entry::Tail, [value(callee), metered])];
-                steps.extend(args.iter().map(|arg| step(Entry::TailArg, [value(arg)])));
-                steps
-            }
-            Self::Bounce(depth) => vec![step(Entry::Bounce, [value(depth)])],
-            Self::Enter { weight } => vec![step(Entry::Enter, [Raw(*weight)])],
-            Self::Depth(depth) => vec![step(Entry::Depth, [value(depth)])],
-            Self::Hold
+            Self::Tail { .. }
+            | Self::Bounce(_)
+            | Self::Enter { .. }
+            | Self::Depth(_)
+            | Self::Hold
             | Self::Contain
             | Self::BudgetEnter { .. }
             | Self::BudgetLeave(_)
@@ -323,6 +313,21 @@ impl Op {
         use Arg::Raw;
         let value = |value: &Value| Arg::Value(*value);
         match self {
+            Self::Tail {
+                callee,
+                args,
+                metered,
+            } => {
+                // The call is pending from the first step, which is what
+                // the operation gives; each argument then joins it.
+                let metered = Raw(u64::from(*metered));
+                let mut steps = vec![step(Entry::Tail, [value(callee), metered])];
+                steps.extend(args.iter().map(|arg| step(Entry::TailArg, [value(arg)])));
+                steps
+            }
+            Self::Bounce(depth) => vec![step(Entry::Bounce, [value(depth)])],
+            Self::Enter { weight } => vec![step(Entry::Enter, [Raw(*weight)])],
+            Self::Depth(depth) => vec![step(Entry::Depth, [value(depth)])],
             Self::Hold => vec![step(Entry::Hold, [])],
             Self::Contain => vec![step(Entry::Contain, [])],
             Self::BudgetEnter { steps, words } => {

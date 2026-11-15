@@ -95,3 +95,39 @@ fn a_tail_call_inside_a_budget_is_charged_for() {
     let budgeted = b::budget(b::int(1000), b::int(MANY), from("total", MANY));
     assert_eq!(evaluates(budgeted), limit);
 }
+
+/// `fn walk(held: unknown, n: int): unknown`, which holds a new list
+/// each time round and ends with `end`.
+fn walk(end: Expr) -> Definition {
+    let less = b::subtract(b::name("n"), b::int(1));
+    let next = b::call(b::name("walk"), [b::list([b::name("n")]), less]);
+    b::function("walk")
+        .param("held", ty::unknown())
+        .param("n", ty::int())
+        .returns(ty::unknown())
+        .body(b::match_(
+            b::name("n"),
+            [(pat::int(0), end), (pat::any(), next)],
+        ))
+}
+
+/// What `walk` gives from a thousand, with `end` as what it ends with.
+fn walked(end: Expr) -> Result<Value, ambient_runtime::Fault> {
+    let start = b::call(b::name("walk"), [b::null(), b::int(1000)]);
+    let main = b::function("main").returns(ty::unknown()).body(start);
+    run([walk(end), main], &[])
+}
+
+#[test]
+fn a_function_that_calls_itself_holds_only_what_it_was_last_given() {
+    // Running it fails if anything it was given along the way is kept.
+    let last = Value::List(vec![Value::Int(1)]);
+    assert_eq!(walked(b::name("held")), Ok(last));
+}
+
+#[test]
+fn a_fault_in_a_function_that_calls_itself_lets_go_of_what_it_was_given() {
+    let overflows = b::add(b::int(i64::MAX), b::name("n"));
+    let faults = b::add(overflows, b::int(1));
+    assert_eq!(walked(faults), Err(ambient_runtime::Fault::Overflow));
+}

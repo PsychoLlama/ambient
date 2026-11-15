@@ -12,6 +12,7 @@
 //! the pieces of the runtime the unit was told its target has. It
 //! carries the rest of the runtime it reaches.
 
+mod again;
 mod code;
 mod emit;
 mod guest;

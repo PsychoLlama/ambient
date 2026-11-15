@@ -18,6 +18,10 @@ pub struct Form {
     /// The same of the function in each slot. A slot past the end is
     /// one that is not.
     pub slots: Vec<bool>,
+    /// The slot that refers to the function itself, if it has one: a
+    /// call through it that is the last thing the function does is a
+    /// turn of a loop.
+    pub own: Option<usize>,
     /// Whether the function is part of a program in which nothing
     /// suspends, so that it never has to resume: see "Floor" in
     /// `spec/linking.md`.

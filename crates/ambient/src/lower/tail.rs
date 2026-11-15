@@ -5,6 +5,11 @@
 //! makes the call. So every call that is not a tail call is followed
 //! by what does that, should its callee leave so.
 //!
+//! A function that leaves to call itself has no need to leave: it
+//! starts again with what the call was made with, which is a loop
+//! ([`Expr::Loop`]). So a loop written as a function that calls itself
+//! costs what a loop does.
+//!
 //! A call that is not a tail call takes stack, so a function that
 //! makes one counts how deep it is: it asks as it starts, and says
 //! before each call, which is where its callee counts from. See
@@ -17,12 +22,22 @@ use crate::lir::{Expr, Op, Value};
 /// Makes every call in `body` either leave the function or stand ready
 /// for its callee to. `locals` is how many locals the function uses,
 /// and grows by what this adds.
-pub(super) fn tailed(body: Expr, locals: &mut usize) -> Expr {
+pub(super) fn tailed(body: Expr, locals: &mut usize, own: &Own) -> Expr {
     let mut calls = Calls {
         locals,
         depth: None,
+        own,
+        again: false,
     };
-    let body = calls.rewrite(body, true);
+    let mut body = calls.rewrite(body, true);
+    if calls.again {
+        let held = *calls.locals;
+        *calls.locals += 2 * own.params + 1;
+        body = Expr::Loop {
+            body: Box::new(body),
+            held,
+        };
+    }
     let Some((depth, _)) = calls.depth else {
         return body;
     };
@@ -35,8 +50,23 @@ pub(super) fn tailed(body: Expr, locals: &mut usize) -> Expr {
     }
 }
 
+/// What a function being rewritten is, as far as its calls of itself
+/// go.
+pub(super) struct Own {
+    /// The slot that refers to it, if one does.
+    pub slot: Option<usize>,
+    /// Whether this is its metered form: a call of the other form is
+    /// not a call of this one.
+    pub metered: bool,
+    /// How many parameters it has, its bindings among them.
+    pub params: usize,
+}
+
 /// The calls of a function being rewritten.
 struct Calls<'a> {
+    own: &'a Own,
+    /// Whether a call of itself was made a turn of a loop.
+    again: bool,
     locals: &'a mut usize,
     /// The local that holds how deep the function is, and one for what
     /// saying so gives, which is nothing: both made at the first call
@@ -48,6 +78,12 @@ impl Calls<'_> {
     fn local(&mut self) -> usize {
         *self.locals += 1;
         *self.locals - 1
+    }
+
+    /// Whether a call through `slot` is one of this very function.
+    fn own(&self, slot: usize, args: &[Value], metered: bool) -> bool {
+        let own = self.own;
+        own.slot == Some(slot) && own.metered == metered && own.params == args.len()
     }
 
     /// `call` as a call that takes stack: made from the function's
@@ -75,6 +111,14 @@ impl Calls<'_> {
     /// nothing left for the function to do once it is known.
     fn rewrite(&mut self, expr: Expr, last: bool) -> Expr {
         match expr {
+            Expr::Op(Op::Call {
+                slot,
+                args,
+                metered,
+            }) if last && self.own(slot, &args, metered) => {
+                self.again = true;
+                Expr::Op(Op::Again(args))
+            }
             Expr::Op(op @ (Op::Call { .. } | Op::CallValue { .. })) if last => {
                 leave(op, self.locals)
             }

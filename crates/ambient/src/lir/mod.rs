@@ -124,6 +124,11 @@ pub enum Op {
     /// makes that call and is its result; if not, goes on unwinding.
     /// It is handed how deep the function is: see [`Op::Enter`].
     Bounce(Value),
+    /// Starts the function again with these as its parameters, the
+    /// bindings it is handed first: what a call of itself that is the
+    /// last thing it does comes to. Leaves for the [`Expr::Loop`] it
+    /// is in, which takes the turn.
+    Again(Vec<Value>),
     /// How deep the function is, which weighs `weight` words, as a
     /// function that makes calls starts: unwinds if that is too deep.
     Enter { weight: u64 },
@@ -327,6 +332,18 @@ pub enum Expr {
         point: usize,
         op: Op,
         frame: Option<(usize, usize)>,
+    },
+    /// `body`, and `body` again each time an [`Op::Again`] in it says
+    /// so, with what that gave as the function's parameters.
+    ///
+    /// `held` is the first of the locals the loop keeps them in, twice
+    /// as many as the function has parameters and one: those the
+    /// function has now, which the loop owns, then those of the turn
+    /// to come, then whether a turn is. A parameter handed on as it is
+    /// is in neither: nothing about it changes.
+    Loop {
+        body: Box<Expr>,
+        held: usize,
     },
     /// The value a `Let` binds to `local`, in a function that may be
     /// resuming. If it is, and the point it is going back to is not among
