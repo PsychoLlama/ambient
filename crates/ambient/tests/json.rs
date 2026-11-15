@@ -225,11 +225,11 @@ fn a_value_is_told_apart_by_the_type_it_is_asked_for() {
 fn a_cast_that_every_value_passes_tests_nothing() {
     // No value can be tested for JSON, and none need be: what is cast
     // is JSON already, so what the cast falls back to is never reached.
-    let source = r#"
+    let source = r"
         import ambient.json.{Json, write};
 
         fn kept(value: Json): Json => value as Json else null;
         fn main(): string => write(kept([1, 2]));
-    "#;
+    ";
     assert_eq!(text(source), "[1,2]");
 }
