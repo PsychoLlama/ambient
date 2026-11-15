@@ -5,7 +5,7 @@
 
 mod support;
 
-use support::scripted::{app, check, run};
+use support::scripted::{app, check, run, verify};
 
 /// The text of each block of `page` that is marked `ab`.
 fn modules(page: &str) -> Vec<String> {
@@ -21,6 +21,7 @@ fn every_module_in_the_guide_checks_and_runs() {
     assert!(found.len() > 8);
     for module in found {
         let files = app(&module);
+        verify(&files, std::path::Path::new("app"));
         // A `main` that gives an integer exits with it, so only what was
         // reported says whether running went wrong.
         let reported = [check(&files).1.err, run(&files).1.err];

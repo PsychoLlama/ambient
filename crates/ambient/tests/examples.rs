@@ -24,9 +24,11 @@ fn every_example_checks() {
     let mut checked = 0;
     for entry in std::fs::read_dir(example("")).unwrap() {
         let path = entry.unwrap().path();
-        let (code, world) = Scripted::default().execute(&Disk, &Command::Check { path });
+        let command = Command::Check { path: path.clone() };
+        let (code, world) = Scripted::default().execute(&Disk, &command);
 
         assert_eq!((code, world.err.as_str()), (0, ""));
+        support::scripted::verify(&Disk, &path);
         checked += 1;
     }
 

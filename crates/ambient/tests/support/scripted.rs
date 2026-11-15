@@ -13,6 +13,7 @@ use ambient::host::{
 };
 use ambient::project::Files;
 use ambient::store::MemoryStore;
+use ambient::workspace::Sources;
 
 use super::Outcome;
 
@@ -90,6 +91,28 @@ pub fn app(source: &str) -> BTreeMap<PathBuf, String> {
     files.into_iter().map(file).collect()
 }
 
+/// Holds every function of the package at `path`, and all each
+/// reaches, to the core checker: what checking makes of source anyone
+/// wrote, the core checker accepts.
+pub fn verify(files: &dyn Files, path: &std::path::Path) {
+    use ambient::surface::DefinitionKind;
+
+    let project = ambient::project::open(files, path).unwrap();
+    let store = MemoryStore::new();
+    let engine = Engine::new(&project.workspace, &store);
+    for read in &project.modules {
+        let module = project.workspace.module(&read.module).unwrap();
+        let function = |kind: &DefinitionKind| matches!(kind, DefinitionKind::Function(_));
+        let functions = module
+            .definitions()
+            .iter()
+            .filter(|definition| function(&definition.kind));
+        for definition in functions {
+            super::verify_all(&engine, &read.module.value(&definition.name));
+        }
+    }
+}
+
 /// Checks the package `app` of `files`.
 pub fn check(files: &dyn Files) -> (i32, Scripted) {
     let path = PathBuf::from("app");
@@ -115,6 +138,7 @@ pub fn over<W: World + 'static>(source: &str, make: impl Fn() -> Rc<RefCell<W>>)
     let target = ambient::system::target();
     let entry = super::value("main", "main");
     let root = engine.program(&entry, &target).unwrap();
+    super::verify_all(&engine, &root);
     super::run_linked(|backend| {
         let linked = ambient::host::link(&engine, &entry, &root, backend).unwrap();
         let world: Rc<RefCell<dyn World>> = make();

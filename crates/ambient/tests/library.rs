@@ -167,17 +167,22 @@ fn a_union_of_shapes_has_no_methods_until_it_is_narrowed() {
 }
 
 #[test]
-fn every_definition_of_the_library_checks() {
+fn every_definition_that_comes_with_the_compiler_checks() {
     use ambient::surface::DefinitionKind;
     use ambient::symbol::PackageId;
     use ambient::workspace::{Sources, Workspace};
 
     let mut workspace = Workspace::new();
     library::install(&mut workspace).unwrap();
+    ambient::system::install(&mut workspace).unwrap();
     let store = MemoryStore::new();
     let engine = Engine::new(&workspace, &store);
     let mut refused = Vec::new();
-    for id in workspace.modules(&PackageId("ambient".to_owned())) {
+    let packages = ["ambient", "system"].map(|name| PackageId(name.to_owned()));
+    for id in packages
+        .iter()
+        .flat_map(|package| workspace.modules(package))
+    {
         let module = workspace.module(&id).unwrap();
         let functions = module.definitions().iter();
         let functions = functions.filter(|each| matches!(each.kind, DefinitionKind::Function(_)));
