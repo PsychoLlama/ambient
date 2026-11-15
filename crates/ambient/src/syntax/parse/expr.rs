@@ -227,6 +227,7 @@ impl Parser {
             Token::Int(value) => Ok(self.literal_expr(Literal::Int(value))),
             Token::Float(value) => Ok(self.literal_expr(Literal::float(value))),
             Token::Text(text) => Ok(self.literal_expr(Literal::String(text))),
+            Token::Bytes(bytes) => Ok(self.literal_expr(Literal::Bytes(bytes))),
             Token::Mark("(") => {
                 let at = self.position();
                 self.advance();

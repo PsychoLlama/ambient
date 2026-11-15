@@ -48,6 +48,7 @@ fn spell(ty: &Type, hash: &dyn Fn(Slot) -> Hash) -> Option<String> {
             Literal::Int(value) => format!("={value}"),
             Literal::Float(bits) => format!("=f{bits}"),
             Literal::String(text) => counted('s', text),
+            Literal::Bytes(_) => counted('b', &literal.to_string()),
             Literal::Tag { package, tag } => counted('t', &Literal::tag_text(package, tag)),
         },
         Type::Record(fields) => {

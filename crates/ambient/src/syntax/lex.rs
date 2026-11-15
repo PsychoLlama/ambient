@@ -10,6 +10,8 @@ pub(super) enum Token {
     Int(i64),
     Float(f64),
     Text(String),
+    /// Bytes written out: `0x[89 50]`.
+    Bytes(Vec<u8>),
     /// The lines of a `///` comment, joined.
     Doc(String),
     /// Punctuation, as written.
@@ -129,6 +131,9 @@ impl Lexer<'_> {
             let word = self.take_while(|c| c.is_alphanumeric() || c == '_');
             return Ok(Token::Word(word.to_owned()));
         }
+        if self.rest.starts_with("0x[") {
+            return self.bytes();
+        }
         if first.is_ascii_digit() {
             return self.number();
         }
@@ -138,6 +143,27 @@ impl Lexer<'_> {
                 Ok(Token::Mark(mark))
             }
             None => self.fail(&format!("`{first}` is not part of any token")),
+        }
+    }
+
+    /// Bytes written out: pairs of hexadecimal digits, a byte each,
+    /// with any space between pairs.
+    fn bytes(&mut self) -> Result<Token, SyntaxError> {
+        self.take(3);
+        let mut bytes = Vec::new();
+        loop {
+            self.take_while(char::is_whitespace);
+            if self.rest.starts_with(']') {
+                self.take(1);
+                return Ok(Token::Bytes(bytes));
+            }
+            let pair = self.rest.get(..2).unwrap_or_default();
+            let digits = pair.len() == 2 && pair.chars().all(|c| c.is_ascii_hexdigit());
+            match u8::from_str_radix(pair, 16) {
+                Ok(byte) if digits => bytes.push(byte),
+                _ => return self.fail("a byte is written as two hexadecimal digits"),
+            }
+            self.take(2);
         }
     }
 

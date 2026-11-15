@@ -46,6 +46,12 @@ impl Unit {
                     string
                 }
                 Make::String => ambient_runtime::amb_string_pinned(pointer, length),
+                Make::Bytes if loaded => {
+                    let bytes = ambient_runtime::amb_bytes_new(pointer, length);
+                    self.strings.push(bytes);
+                    bytes
+                }
+                Make::Bytes => ambient_runtime::amb_bytes_pinned(pointer, length),
                 Make::Field => ambient_runtime::amb_intern(pointer, length),
                 Make::Tag => ambient_runtime::amb_tag(pointer, length),
             }

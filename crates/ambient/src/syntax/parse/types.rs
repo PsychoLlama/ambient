@@ -55,6 +55,10 @@ impl Parser {
                 self.advance();
                 Ok(Type::Literal(Literal::String(text)))
             }
+            Token::Bytes(bytes) => {
+                self.advance();
+                Ok(Type::Literal(Literal::Bytes(bytes)))
+            }
             Token::Mark("-") => {
                 self.advance();
                 match self.advance() {

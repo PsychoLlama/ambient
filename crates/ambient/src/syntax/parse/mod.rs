@@ -124,6 +124,7 @@ impl Parser {
             Token::Int(value) => format!("`{value}`"),
             Token::Float(value) => format!("`{value}`"),
             Token::Text(_) => "a string".to_owned(),
+            Token::Bytes(_) => "bytes".to_owned(),
             Token::Doc(_) => "a doc comment".to_owned(),
             Token::Mark(mark) => format!("`{mark}`"),
             Token::End => "the end of the file".to_owned(),

@@ -195,7 +195,9 @@ impl Types {
                 d::LITERAL => {
                     word(left, 1) == word(right, 1)
                         && match word(left, 1) {
-                            d::LITERAL_STRING => bytes(word(left, 2)) == bytes(word(right, 2)),
+                            d::LITERAL_STRING | d::LITERAL_BYTES => {
+                                bytes(word(left, 2)) == bytes(word(right, 2))
+                            }
                             _ => word(left, 2) == word(right, 2),
                         }
                 }

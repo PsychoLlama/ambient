@@ -53,6 +53,8 @@ pub enum Field {
 pub enum Make {
     /// A string value.
     String,
+    /// A bytes value.
+    Bytes,
     /// A field name.
     Field,
     /// A tag value.
@@ -194,6 +196,7 @@ pub fn plan(parts: &Parts, base: &Base) -> Statics {
                 for (position, constant) in constants.iter().enumerate() {
                     let field = match constant {
                         Constant::String(text) => statics.text(Make::String, text),
+                        Constant::Bytes(bytes) => statics.bytes(Make::Bytes, bytes),
                         Constant::Tag(text) => statics.text(Make::Tag, text),
                         Constant::Field(name) => statics.text(Make::Field, name),
                         Constant::Type(ty) => statics.constant(ty, &slots).field(),
@@ -306,12 +309,17 @@ impl Statics {
     }
 
     fn text(&mut self, make: Make, text: &str) -> Field {
+        self.bytes(make, text.as_bytes())
+    }
+
+    /// What the runtime makes of `bytes`, which the block holds.
+    fn bytes(&mut self, make: Make, bytes: &[u8]) -> Field {
         let offset = self.text.len();
-        self.text.extend_from_slice(text.as_bytes());
+        self.text.extend_from_slice(bytes);
         Field::Text {
             make,
             offset,
-            length: text.len(),
+            length: bytes.len(),
         }
     }
 

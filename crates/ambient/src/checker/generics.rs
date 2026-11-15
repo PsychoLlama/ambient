@@ -339,6 +339,7 @@ impl Checker<'_> {
             Ty::Literal(Literal::Int(_)) => Ty::Int,
             Ty::Literal(Literal::Float(_)) => Ty::Float,
             Ty::Literal(Literal::String(_)) => Ty::String,
+            Ty::Literal(Literal::Bytes(_)) => Ty::Bytes,
             Ty::Union(members) => {
                 let members = members.iter().map(|member| self.widened(member));
                 self.env.union(members.collect())

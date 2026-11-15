@@ -43,7 +43,7 @@ An operation is something the language itself does with values: arithmetic, comp
 - Bytes convert to the string they encode, and miss if they encode none.
 - A list of integers converts to bytes, and misses if a member is not from 0 to 255.
 - Two bytes values are equal when they hold the same bytes.
-- TODO: bytes cannot be written out; a program makes them from a string or a list.
+- Bytes are [written out](syntax.md) in hexadecimal, and what is written is a literal as a string's is: a value, a pattern, and a type.
 
 ## Lists
 

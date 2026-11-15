@@ -72,7 +72,7 @@ impl<'a> Sink<'a> {
 
 /// The version named by every encoding. Changing the node set or the
 /// encoding means changing this, which changes every hash.
-const FORMAT: u8 = 31;
+const FORMAT: u8 = 32;
 
 impl Tree {
     /// The encoding of the tree as it is stored: slots by index.
@@ -212,6 +212,11 @@ fn encode_literal(literal: &Literal, out: &mut Sink<'_>) {
         Literal::String(value) => {
             out.push(3);
             text(value, out);
+        }
+        Literal::Bytes(value) => {
+            out.push(5);
+            unsigned(value.len() as u64, out);
+            out.extend_from_slice(value);
         }
         Literal::Tag { package, tag } => {
             out.push(4);

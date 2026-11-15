@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use crate::list::members;
 use crate::number::amb_int_new;
-use crate::object::{KIND_BYTES, bytes, int, object, payload};
+use crate::object::{KIND_BYTES, bytes, int, object, payload, pin};
 use crate::{NULL, Word};
 
 /// A bytes value copied from `length` bytes at `pointer`.
@@ -14,6 +14,17 @@ pub unsafe extern "C" fn amb_bytes_new(pointer: *const u8, length: u64) -> Word 
     unsafe {
         let word = object(KIND_BYTES, length as usize);
         core::ptr::copy_nonoverlapping(pointer, payload(word).cast::<u8>(), length as usize);
+        word
+    }
+}
+
+/// A bytes value that is never reclaimed, copied from `length` bytes
+/// at `pointer`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_bytes_pinned(pointer: *const u8, length: u64) -> Word {
+    unsafe {
+        let word = amb_bytes_new(pointer, length);
+        pin(word);
         word
     }
 }

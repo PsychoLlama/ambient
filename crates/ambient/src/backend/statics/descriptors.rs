@@ -108,6 +108,7 @@ impl Statics {
                     Literal::Int(value) => (d::LITERAL_INT, Field::Word(value.cast_unsigned())),
                     Literal::Float(bits) => (d::LITERAL_FLOAT, Field::Word(*bits)),
                     Literal::String(text) => (d::LITERAL_STRING, self.text(Make::String, text)),
+                    Literal::Bytes(bytes) => (d::LITERAL_BYTES, self.bytes(Make::Bytes, bytes)),
                     Literal::Tag { package, tag } => {
                         let text = Literal::tag_text(package, tag);
                         (d::LITERAL_TAG, self.text(Make::Tag, &text))

@@ -166,6 +166,7 @@ fn primitive_of(literal: &Literal) -> Ty {
         Literal::Int(_) => Ty::Int,
         Literal::Float(_) => Ty::Float,
         Literal::String(_) => Ty::String,
+        Literal::Bytes(_) => Ty::Bytes,
         Literal::Tag { .. } => Ty::Tag,
     }
 }

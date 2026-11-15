@@ -159,14 +159,7 @@ pub(super) fn initializer(
                 body.instruction(&Instruction::I32Const(small(offset)?));
                 body.instruction(&Instruction::I32Add);
                 body.instruction(&Instruction::I64Const(number(length)?));
-                let make = match make {
-                    // A unit's strings go when it does.
-                    Make::String if plan.loaded => "amb_string_new",
-                    Make::String => "amb_string_pinned",
-                    Make::Field => "amb_intern",
-                    Make::Tag => "amb_tag",
-                };
-                call(&mut body, &mut calls, make);
+                call(&mut body, &mut calls, maker(make, plan.loaded));
             }
         }
         body.instruction(&Instruction::I64Store(memory(small(word * 8)?)));
@@ -202,6 +195,19 @@ pub(super) fn initializer(
 
 /// The function that gives back what a unit's `init` took: the strings
 /// it holds, its place in the table, and its block.
+/// The entry of the runtime that makes what a block's text is to be.
+fn maker(make: Make, loaded: bool) -> &'static str {
+    match make {
+        // A unit's strings and bytes go when it does.
+        Make::String if loaded => "amb_string_new",
+        Make::String => "amb_string_pinned",
+        Make::Bytes if loaded => "amb_bytes_new",
+        Make::Bytes => "amb_bytes_pinned",
+        Make::Field => "amb_intern",
+        Make::Tag => "amb_tag",
+    }
+}
+
 pub(super) fn reclaimer(
     plan: &Statics,
     functions: u32,
@@ -214,7 +220,8 @@ pub(super) fn reclaimer(
     let mut calls = Calls::new();
     for (word, field) in &plan.fields {
         if let Field::Text {
-            make: Make::String, ..
+            make: Make::String | Make::Bytes,
+            ..
         } = field
         {
             body.instruction(&Instruction::GlobalGet(base));

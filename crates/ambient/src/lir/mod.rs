@@ -59,6 +59,7 @@ impl Value {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Constant {
     String(String),
+    Bytes(Vec<u8>),
     /// A tag: its package and itself, as [`crate::literal::Literal::tag_text`]
     /// spells them.
     Tag(String),

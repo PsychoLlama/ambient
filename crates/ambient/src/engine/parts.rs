@@ -14,7 +14,7 @@ use crate::lir::Constant;
 /// What the bytes begin with. Bump it when [`Parts`] changes, or
 /// anything compiled code relies on: a layout, the calling convention,
 /// an entry point of the runtime.
-const FORMAT: u32 = 20;
+const FORMAT: u32 = 21;
 
 /// Why bytes cannot be loaded.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,6 +111,7 @@ impl Body {
                     Constant::Instance(function, types) => slot(function) && types.iter().all(ty),
                     Constant::Ability(ability) | Constant::AbilityBudget(ability) => slot(ability),
                     Constant::String(_)
+                    | Constant::Bytes(_)
                     | Constant::Tag(_)
                     | Constant::Field(_)
                     | Constant::Native

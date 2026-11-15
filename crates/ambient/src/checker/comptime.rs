@@ -76,6 +76,7 @@ fn value_of(ty: &Ty) -> Option<Value> {
         Ty::Literal(Literal::Int(value)) => Value::Int(*value),
         Ty::Literal(Literal::Float(bits)) => Value::Float(f64::from_bits(*bits)),
         Ty::Literal(Literal::String(value)) => Value::String(value.clone()),
+        Ty::Literal(Literal::Bytes(value)) => Value::Bytes(value.clone()),
         Ty::Literal(Literal::Tag { package, tag }) => Value::Tag {
             package: package.clone(),
             tag: tag.clone(),
@@ -117,8 +118,7 @@ fn splice(value: &Value) -> Option<(core::Expr, Ty)> {
             package: package.clone(),
             tag: tag.clone(),
         }),
-        // Bytes have no literal to be written as.
-        Value::Bytes(_) => return None,
+        Value::Bytes(value) => literal(Literal::Bytes(value.clone())),
         Value::Tuple(members) => {
             let (exprs, types) = all(members)?;
             (core::Expr::Tuple(exprs), Ty::Tuple(types))

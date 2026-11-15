@@ -355,7 +355,7 @@ A body is `bytes`, since not everything sent is text: `request.body.to_text()` i
 
 ## Bytes, hashes, and time
 
-`bytes` is a run of bytes that need not be text. A string gives its encoding with `to_bytes()`, and bytes give the string they encode, or null, with `to_text()`. Files and HTTP bodies carry them, and `ambient.base64` and `hex()` write them as text.
+`bytes` is a run of bytes that need not be text, written out as `0x[89 50 4E 47]`: a value, a pattern in a match, or a type. A string gives its encoding with `to_bytes()`, and bytes give the string they encode, or null, with `to_text()`. Files and HTTP bodies carry them, and `ambient.base64` and `hex()` write them as text.
 
 Hashing is a function, not an ability: it does nothing to the world. The time is an ability, and what is made of it is not.
 

@@ -48,6 +48,7 @@ impl Parser {
             Token::Int(value) => Ok(self.literal(Literal::Int(value))),
             Token::Float(value) => Ok(self.literal(Literal::float(value))),
             Token::Text(text) => Ok(self.literal(Literal::String(text))),
+            Token::Bytes(bytes) => Ok(self.literal(Literal::Bytes(bytes))),
             Token::Word(word) if word == "true" => Ok(self.literal(Literal::Bool(true))),
             Token::Word(word) if word == "false" => Ok(self.literal(Literal::Bool(false))),
             Token::Mark("-") => {

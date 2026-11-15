@@ -8,7 +8,7 @@ mod support;
 use ambient::exchange::{decode, encode};
 use ambient::value::Value;
 use proptest::prelude::*;
-use support::text::{evaluates, run};
+use support::text::{evaluates, run, text};
 
 #[test]
 fn a_string_is_its_encoding_and_back() {
@@ -101,4 +101,55 @@ proptest! {
         let value = Value::Bytes(bytes);
         prop_assert_eq!(decode(&encode(&value).unwrap()), Ok(value));
     }
+}
+
+// Written out
+
+#[test]
+fn bytes_are_written_out_in_hexadecimal() {
+    let source = "fn main(): bytes => 0x[89 504E\n 47];";
+    assert_eq!(run(source), Ok(Value::Bytes(vec![0x89, 0x50, 0x4E, 0x47])));
+    assert_eq!(
+        run("fn main(): bytes => 0x[];"),
+        Ok(Value::Bytes(Vec::new()))
+    );
+}
+
+#[test]
+fn bytes_written_out_are_a_pattern_and_a_type() {
+    let source = r#"
+        type Png = 0x[89 50];
+
+        fn kind(start: bytes): string {
+            match start {
+                0x[89 50] => { return "png"; }
+                0x[ff d8] => { return "jpeg"; }
+                _ => { return "unknown"; }
+            }
+        }
+        fn png(value: unknown): bool => (value as Png else null) != null;
+
+        fn main(): string {
+            let found = [kind(0x[89 50]), kind(0x[FF D8]), kind("P".to_bytes())].join_with(" ");
+            return "${found} ${png(0x[89 50])} ${png(0x[89])} ${png("P")}";
+        }
+    "#;
+    assert_eq!(text(source), "png jpeg unknown true false false");
+}
+
+#[test]
+fn half_a_byte_is_not_bytes() {
+    for source in ["0x[8]", "0x[89 5 0]", "0x[zz]", "0x[89"] {
+        let source = format!("fn main(): bytes => {source};");
+        assert!(ambient::syntax::read(&source).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn a_comptime_call_gives_bytes() {
+    let source = r#"
+        fn magic(): bytes => "PNG".to_bytes();
+        fn main(): bytes => comptime magic();
+    "#;
+    assert_eq!(run(source), Ok(Value::Bytes(b"PNG".to_vec())));
 }

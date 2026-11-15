@@ -38,6 +38,7 @@ pub mod descriptor {
     pub const LITERAL_STRING: u64 = 3;
     /// A tag: equal tags are one object.
     pub const LITERAL_TAG: u64 = 4;
+    pub const LITERAL_BYTES: u64 = 5;
     /// Then a count, and that many pairs of a key and a node.
     pub const RECORD: u64 = 8;
     /// Then a count, and that many nodes.
@@ -279,6 +280,7 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
                 d::LITERAL_INT => integer && int(value) == node(2) as i64,
                 d::LITERAL_FLOAT => kind(value) == KIND_FLOAT && payload(value).read() == node(2),
                 d::LITERAL_TAG => value == node(2),
+                d::LITERAL_BYTES => kind(value) == KIND_BYTES && bytes(value) == bytes(node(2)),
                 _ => kind(value) == KIND_STRING && bytes(value) == bytes(node(2)),
             },
             d::RECORD => {

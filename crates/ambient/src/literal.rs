@@ -12,6 +12,7 @@ pub enum Literal {
     /// The bits of a 64-bit float, so that literals compare exactly.
     Float(u64),
     String(String),
+    Bytes(Vec<u8>),
     /// A tag: a token equal only to the same tag of the same package.
     /// The package is the one the tag is written in, which resolution
     /// fills in; a builder leaves it empty.
@@ -41,6 +42,10 @@ impl fmt::Display for Literal {
             Self::Int(value) => write!(f, "{value}"),
             Self::Float(bits) => write!(f, "{:?}", f64::from_bits(*bits)),
             Self::String(value) => write!(f, "{value:?}"),
+            Self::Bytes(bytes) => {
+                let pairs: Vec<String> = bytes.iter().map(|byte| format!("{byte:02X}")).collect();
+                write!(f, "0x[{}]", pairs.join(" "))
+            }
             Self::Tag { tag, .. } => write!(f, "#{tag}"),
         }
     }
