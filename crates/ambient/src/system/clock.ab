@@ -1,3 +1,5 @@
+import ambient.time.{Duration};
+
 /// Milliseconds since the start of 1970, by the system's clock.
 pub ability now(): int;
 
@@ -5,5 +7,5 @@ pub ability now(): int;
 /// runs. It never goes back.
 pub ability elapsed(): int;
 
-/// Waits at least this many milliseconds.
-pub ability sleep(milliseconds: int): null;
+/// Waits at least this long: `clock.sleep!(time.seconds(2))`.
+pub ability sleep(length: int & Duration): null;

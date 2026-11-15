@@ -4,6 +4,7 @@ The standard library reads a moment as a date and writes it as text. It is writt
 
 - A moment is an integer, milliseconds since the start of 1970, which is what a clock gives.
 - A length of time is an integer of milliseconds too, so moments and lengths add and compare as integers do.
+- A length made as one is [branded](types.md) a duration, and what waits takes only a duration: a bare number is not mistaken for a length, in whatever unit its writer had in mind.
 - A date is a record of a year, a month, a day, an hour, a minute, a second, and a millisecond, by the Gregorian calendar in UTC.
 - Every moment has one date. A date has one moment, or none if there is no such date, as with the thirtieth of February.
 - A day is 86,400 seconds: leap seconds are not counted, as the clock does not count them.

@@ -309,6 +309,7 @@ pub fn main(): int => tasks.map([1, 2, 3, 4], slow).sum();
 Whatever waits on the world suspends its task and blocks nothing: sleeping, running a command, reading a line, sending a request. So tasks wait together, and a sleep beside other work in a `first` is a limit on it. Nothing takes a timeout.
 
 ```ab
+import ambient.time;
 import system.clock;
 import system.http;
 
@@ -319,7 +320,7 @@ fn status(url: string): string with http.send =>
     };
 
 fn late(): string with clock.sleep {
-    clock.sleep!(2000);
+    clock.sleep!(time.seconds(2));
     return "gave up";
 }
 

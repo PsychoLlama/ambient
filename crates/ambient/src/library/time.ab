@@ -9,17 +9,25 @@ pub type Date = {
     millisecond: int,
 };
 
-/// How long this many seconds are, in milliseconds.
-pub fn seconds(count: int): int => count * 1000;
+/// A length of time: an integer of milliseconds that was made as
+/// one, so a count of anything else is not taken for one. It is used
+/// as the integer it is, and added to a moment gives a moment.
+pub brand Duration;
 
-/// How long this many minutes are, in milliseconds.
-pub fn minutes(count: int): int => count * 60000;
+/// How long this many milliseconds are.
+pub fn milliseconds(count: int): int & Duration => Duration(count);
 
-/// How long this many hours are, in milliseconds.
-pub fn hours(count: int): int => count * 3600000;
+/// How long this many seconds are.
+pub fn seconds(count: int): int & Duration => Duration(count * 1000);
 
-/// How long this many days are, in milliseconds.
-pub fn days(count: int): int => count * 86400000;
+/// How long this many minutes are.
+pub fn minutes(count: int): int & Duration => Duration(count * 60000);
+
+/// How long this many hours are.
+pub fn hours(count: int): int & Duration => Duration(count * 3600000);
+
+/// How long this many days are.
+pub fn days(count: int): int & Duration => Duration(count * 86400000);
 
 /// The date of a moment: milliseconds since the start of 1970.
 pub fn date(moment: int): Date {

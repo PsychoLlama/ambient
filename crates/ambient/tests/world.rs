@@ -170,12 +170,13 @@ fn a_command_is_told_where_to_run_and_what_to_read() {
 #[test]
 fn a_program_is_told_how_it_was_started_and_what_time_it_is() {
     let source = r#"
+        import ambient.time;
         import system.clock;
         import system.env;
 
         fn main(): int with env.args, env.variable, clock.now, clock.sleep {
             let before = clock.now!();
-            clock.sleep!(env.args!().length() * 10);
+            clock.sleep!(time.milliseconds(env.args!().length() * 10));
             let home = env.variable!("HOME") as string else "";
             return clock.now!() - before + home.length();
         }
@@ -212,10 +213,11 @@ fn exiting_ends_the_program_with_its_code() {
 #[test]
 fn tasks_that_sleep_do_so_together() {
     let source = r"
+        import ambient.time;
         import system.clock;
 
         fn nap(length: int): int with clock.sleep {
-            clock.sleep!(length);
+            clock.sleep!(time.milliseconds(length));
             return length;
         }
 
@@ -233,11 +235,12 @@ fn tasks_that_sleep_do_so_together() {
 #[test]
 fn a_sleep_is_a_limit_on_how_long_to_wait() {
     let source = r#"
+        import ambient.time;
         import system.clock;
         import system.console;
 
         fn late(): string with clock.sleep {
-            clock.sleep!(100);
+            clock.sleep!(time.milliseconds(100));
             return "too late";
         }
 

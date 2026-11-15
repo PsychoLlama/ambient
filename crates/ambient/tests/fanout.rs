@@ -14,10 +14,11 @@ use support::text::text;
 fn timed(body: &str) -> (String, i64) {
     let source = format!(
         "import ambient.tasks;
+        import ambient.time;
         import system.clock;
 
         fn nap(length: int): int with clock.sleep {{
-            clock.sleep!(length);
+            clock.sleep!(time.milliseconds(length));
             return length;
         }}
 
