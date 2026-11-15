@@ -80,3 +80,38 @@ fn the_stock_keeps_its_counts_in_a_file_of_json() {
     assert_eq!(world.out, "jam         3\ntea         2\n");
     assert_eq!(world.files["stock.json"], r#"{"jam":3,"tea":2}"#);
 }
+
+#[test]
+fn the_notes_are_served_and_kept_in_a_file_of_json() {
+    let request = |method: &str, url: &str, body: &str| ambient::host::Request {
+        method: method.to_owned(),
+        url: url.to_owned(),
+        headers: Vec::new(),
+        body: body.to_owned(),
+    };
+    let world = Scripted {
+        files: [("notes.json".to_owned(), "[\"milk\"]".to_owned())].into(),
+        requests: [
+            request("POST", "/notes", "eggs"),
+            request("DELETE", "/notes/0", ""),
+            request("GET", "/notes", ""),
+        ]
+        .into(),
+        ..Scripted::default()
+    };
+    let command = Command::Run {
+        path: example("notes"),
+        entry: "main.main".to_owned(),
+        args: Vec::new(),
+    };
+    let (code, world) = world.execute(&Disk, &command);
+
+    assert_eq!((code, world.err.as_str()), (0, ""));
+    let answers: Vec<_> = world
+        .answers
+        .iter()
+        .map(|answer| (answer.status, &*answer.body))
+        .collect();
+    assert_eq!(answers, [(201, "1"), (204, ""), (200, "[\"eggs\"]")]);
+    assert_eq!(world.files["notes.json"], "[\"eggs\"]");
+}

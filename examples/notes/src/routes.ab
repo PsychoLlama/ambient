@@ -1,0 +1,109 @@
+import ambient.json;
+import ambient.test.{check};
+import ambient.url;
+import system.http;
+import system.http.{Request, Response};
+import system.path;
+
+/// The notes that are kept, in the order they were added.
+pub ability load(): List<string>;
+
+/// Keeps these notes in place of the ones that were kept.
+pub ability save(notes: List<string>): null;
+
+/// What the server answers a request with:
+///
+/// - `GET /notes` lists the notes.
+/// - `POST /notes` adds its body as one.
+/// - `GET /notes/<n>` gives one, and `DELETE /notes/<n>` forgets it.
+pub fn answer(request: Request): Response with load, save {
+    match url.parse(request.url) {
+        null => { return http.text(400, "that is not a URL\n"); }
+        let asked: url.Url => {
+            return route(request.method, path.parts(asked.path), request.body);
+        }
+    }
+}
+
+fn route(method: string, parts: List<string>, body: string): Response with load, save {
+    if parts.first() != "notes" || parts.length() > 2 {
+        return http.text(404, "there is nothing here\n");
+    }
+    match (method, parts.get(1)) {
+        ("GET", null) => { return http.json(200, load!()); }
+        ("POST", null) => { return add(body.trim()); }
+        ("GET", let which: string) => { return one(which, fn(note: string, _) => http.json(200, note)); }
+        ("DELETE", let which: string) => { return one(which, forget); }
+        _ => { return http.text(405, "notes cannot be asked that\n"); }
+    }
+}
+
+fn add(note: string): Response with load, save {
+    if note.is_empty() {
+        return http.text(400, "a note says something\n");
+    }
+    let notes = load!().push(note);
+    save!(notes);
+    return http.json(201, notes.length() - 1);
+}
+
+/// What `found` makes of the note at a position written out, and the
+/// position, or why there is no such note.
+fn one(which: string, found: fn(string, int): Response): Response with load {
+    let position = which.to_int() as int else -1;
+    match load!().get(position) {
+        null => { return http.text(404, "there is no note ${which}\n"); }
+        let note: string => { return found(note, position); }
+    }
+}
+
+fn forget(_: string, position: int): Response with load, save {
+    let notes = load!();
+    save!(notes.take(position).join(notes.skip(position + 1)));
+    return http.text(204, "");
+}
+
+/// What a run of requests is answered with, as `status body` each,
+/// when the notes are kept in memory and start as `kept`.
+fn answers(kept: List<string>, requests: List<(string, string, string)>): List<string> {
+    let notes = cell<List<string>>(kept);
+    // The row says the notes are whoever calls this one's, not the ones
+    // in scope here, where none are kept yet.
+    let asked = fn((method, url, body): (string, string, string)): string with load, save {
+        let response = answer({ method, url, headers: [], body });
+        return "${response.status} ${response.body}";
+    };
+    return provide {
+        [load]() => notes.read(),
+        [save](changed: List<string>) { notes.update(fn(_) => changed); },
+    } => requests.map(asked);
+}
+
+fn test_notes_are_listed_added_and_forgotten(): null with check {
+    let said = answers(["milk"], [
+        ("POST", "/notes", "eggs\n"),
+        ("GET", "/notes", ""),
+        ("GET", "/notes/1", ""),
+        ("DELETE", "/notes/0", ""),
+        ("GET", "/notes", ""),
+    ]);
+
+    check!(said.get(0) == "201 1", "adding says where the note is");
+    check!(said.get(1) == "200 [\"milk\",\"eggs\"]", "every note is listed, in order");
+    check!(said.get(2) == "200 \"eggs\"", "a note is given by its position");
+    check!(said.get(3) == "204 ", "forgetting a note says nothing");
+    check!(said.get(4) == "200 [\"eggs\"]", "a forgotten note is gone");
+}
+
+fn test_what_cannot_be_answered_says_why(): null with check {
+    let said = answers([], [
+        ("GET", "/elsewhere", ""),
+        ("GET", "/notes/7", ""),
+        ("GET", "/notes/seven", ""),
+        ("POST", "/notes", "  "),
+        ("PUT", "/notes", "x"),
+    ]);
+    let statuses = said.map(fn(line: string): string => line.slice(0, 3) as string else "");
+
+    check!(statuses.join_with(" ") == "404 404 404 400 405", statuses.join_with(" "));
+}

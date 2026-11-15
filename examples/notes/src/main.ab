@@ -1,0 +1,46 @@
+import ambient.json;
+import ambient.{catch, Error};
+import system.console;
+import system.env;
+import system.fs;
+import system.http;
+import pkg.routes;
+
+/// Serves notes over HTTP, kept in a file of JSON: `notes [port]`. See
+/// `routes.answer` for what it answers.
+pub fn main(): int with console, env, fs, http {
+    let port = (env.args!().first() as string else "8080").to_int() as int else 8080;
+    let path = env.variable!("NOTES_FILE") as string else "notes.json";
+    match http.listen!("127.0.0.1", port) {
+        let error: Error => {
+            console.warn!("notes: ${error.message}");
+            return 1;
+        }
+        let server: http.Server => {
+            console.print!("notes are at http://127.0.0.1:${server.port}/notes");
+            // The routes ask for notes; here is where they are kept.
+            http.serve(server, 16, fn(request: http.Request): http.Response =>
+                provide {
+                    [routes.load]() => kept(path),
+                    [routes.save](notes: List<string>) { let _ = fs.write!(path, json.write(notes)); },
+                } => routes.answer(request));
+            return 0;
+        }
+    }
+}
+
+/// The notes a file keeps: a JSON array of strings. A file that is
+/// missing, or holds something else, keeps none.
+fn kept(path: string): List<string> with fs.read {
+    let text = fs.read!(path) as string else "[]";
+    match catch(fn() => json.parse(text)) {
+        let notes: List<json.Json> => {
+            return notes.fold([], fn(found: List<string>, note: json.Json): List<string> =>
+                match note {
+                    let text: string => found.push(text),
+                    _ => found,
+                });
+        }
+        _ => { return []; }
+    }
+}
