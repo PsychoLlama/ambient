@@ -15,15 +15,15 @@ use std::time::{Duration, Instant};
 
 use super::network::Network;
 use super::system::failure;
-use super::waits::{Done, Work};
-use super::{Command, Failure, Ran, Response};
+use super::waits::{Done, Line, Work};
+use super::{Command, Failure, Kind, Ran, Response};
 
 /// What a thread sends back.
 pub(super) enum Sent {
     /// What a command wrote to its streams, once both were closed.
     Wrote(u64, Vec<u8>, Vec<u8>),
     /// A line of input, read for a ticket.
-    Line(u64, Option<String>),
+    Line(u64, Line),
     /// What came of a request that was sent.
     Response(u64, Result<Response, Failure>),
     /// A request a server was sent.
@@ -43,7 +43,7 @@ pub(super) struct Pending {
     readers: Vec<u64>,
     lines: Option<Sender<u64>>,
     /// Lines read for a wait its task left: the next to ask gets them.
-    unread: VecDeque<Option<String>>,
+    unread: VecDeque<Line>,
     pub(super) network: Network,
 }
 
@@ -131,7 +131,7 @@ impl Pending {
             let (asks, asked) = channel::<u64>();
             thread::spawn(move || {
                 for ticket in asked {
-                    let _ = sender.send(Sent::Line(ticket, line()));
+                    let _ = sender.send(Sent::Line(ticket, line(&mut std::io::stdin().lock())));
                 }
             });
             asks
@@ -233,14 +233,39 @@ fn written(stream: Option<impl Read>) -> Vec<u8> {
     bytes
 }
 
-/// The next line of standard input, without its ending.
-fn line() -> Option<String> {
-    let mut line = String::new();
-    let read = std::io::stdin().lock().read_line(&mut line).ok()?;
-    if read == 0 {
-        return None;
+/// The next line of input, without its ending, or nothing at its end.
+/// One that is not text is not made text: it is a failure.
+fn line(input: &mut impl BufRead) -> Line {
+    let mut line = Vec::new();
+    let read = input.read_until(b'\n', &mut line);
+    let failed = |message: String| Failure {
+        kind: Kind::Invalid,
+        message,
+    };
+    if read.map_err(|error| failed(error.to_string()))? == 0 {
+        return Ok(None);
     }
+    let mut line = String::from_utf8(line)
+        .map_err(|_| failed("a line of standard input is not text".to_owned()))?;
     let ending = line.trim_end_matches(['\n', '\r']).len();
     line.truncate(ending);
-    Some(line)
+    Ok(Some(line))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Kind, line};
+
+    #[test]
+    fn a_line_that_is_not_text_is_neither_text_nor_the_end() {
+        let mut input = &b"one\r\n\xff\xfe\nlast"[..];
+        let mut lines = std::iter::from_fn(|| Some(line(&mut input)));
+
+        assert_eq!(lines.next(), Some(Ok(Some("one".to_owned()))));
+        let garbled = lines.next().and_then(Result::err);
+        assert_eq!(garbled.map(|failure| failure.kind), Some(Kind::Invalid));
+        // What follows is still there to read.
+        assert_eq!(lines.next(), Some(Ok(Some("last".to_owned()))));
+        assert_eq!(lines.next(), Some(Ok(None)));
+    }
 }

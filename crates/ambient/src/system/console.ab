@@ -7,5 +7,7 @@ pub ability print(text: string): null;
 /// Writes a line to standard error.
 pub ability warn(text: string): null;
 
-/// The next line of standard input without its ending, or null at its end.
+/// The next line of standard input without its ending, or null at its
+/// end. Input that is not text ends the program: it is never altered
+/// to make it text.
 pub ability read_line(): string | null;

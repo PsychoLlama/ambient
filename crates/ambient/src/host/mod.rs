@@ -24,7 +24,7 @@ pub use commands::Command;
 pub use files::{Entry, Info};
 pub use http::{Incoming, Listening, Request, Response};
 pub use system::System;
-pub use waits::{Done, Work};
+pub use waits::{Done, Line, Work};
 
 use crate::backend::native::Natives;
 use crate::pack::Pack;

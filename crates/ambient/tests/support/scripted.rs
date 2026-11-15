@@ -306,7 +306,7 @@ impl World for Scripted {
     fn begin(&mut self, ticket: u64, work: Work) {
         let (takes, done) = match work {
             Work::Sleep(milliseconds) => (milliseconds.max(0), Done::Slept),
-            Work::ReadLine => (0, Done::Line(self.input.pop_front())),
+            Work::ReadLine => (0, Done::Line(Ok(self.input.pop_front()))),
             Work::Send(request) => {
                 let line = format!("{} {}", request.method, request.url);
                 let response = self.responses.get(&line).cloned().ok_or_else(|| Failure {

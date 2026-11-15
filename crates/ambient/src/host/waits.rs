@@ -30,14 +30,18 @@ pub enum Work {
     Accept(i64),
 }
 
+/// A line of input without its ending, or nothing at the end of input.
+/// One that is not text is a failure: the program reads text or stops.
+pub type Line = Result<Option<String>, Failure>;
+
 /// What came of work a world began.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Done {
     Slept,
     /// What the command gave, or why it could not be started.
     Ran(Result<Ran, Failure>),
-    /// The line, without its ending, or nothing at the end of input.
-    Line(Option<String>),
+    /// The line, or why there is none to give.
+    Line(Line),
     /// The response, or why there was none.
     Sent(Result<Response, Failure>),
     /// The request, or nothing once the server is closed.
@@ -45,15 +49,16 @@ pub enum Done {
 }
 
 impl Done {
-    /// What the handler that began the work gives its program.
-    fn value(self) -> Value {
-        match self {
+    /// What the handler that began the work gives its program, or
+    /// what went wrong in it, which ends the program.
+    fn answer(self) -> Result<Value, String> {
+        Ok(match self {
             Self::Slept => Value::Null,
             Self::Ran(ran) => ran.map_or_else(|failure| error("process", &failure), output),
-            Self::Line(line) => optional(line),
+            Self::Line(line) => optional(line.map_err(|failure| failure.message)?),
             Self::Sent(sent) => http::sent(sent),
             Self::Accepted(incoming) => incoming.map_or(Value::Null, Incoming::value),
-        }
+        })
     }
 }
 
@@ -63,7 +68,7 @@ pub(super) struct Outcomes(pub(super) Rc<RefCell<dyn World>>);
 impl Waits for Outcomes {
     fn next(&mut self) -> Option<Answer> {
         let (ticket, done) = self.0.borrow_mut().next()?;
-        Some((ticket, Ok(done.value())))
+        Some((ticket, done.answer()))
     }
 
     fn forsake(&mut self, ticket: u64) {
