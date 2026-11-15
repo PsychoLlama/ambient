@@ -295,6 +295,16 @@ pub fn main(): int {
 
 `first(...)` gives whichever finishes first and cancels the rest. A `group { ... }` holds tasks started with `spawn`.
 
+Those are written out, one task each. For as many tasks as a list has members, `ambient.tasks` runs a list of functions: `tasks.map` works on every item at once, `tasks.gather` gives what each function of a list gives, and `tasks.race` what the first one does.
+
+```ab
+import ambient.tasks;
+
+fn slow(n: int): int => n * n;
+
+pub fn main(): int => tasks.map([1, 2, 3, 4], slow).sum();
+```
+
 Whatever waits on the world suspends its task and blocks nothing: sleeping, running a command, reading a line, sending a request. So tasks wait together, and a sleep beside other work in a `first` is a limit on it. Nothing takes a timeout.
 
 ```ab
@@ -338,7 +348,28 @@ pub fn main(): null with http, console.print {
 }
 ```
 
+A body is `bytes`, since not everything sent is text: `request.body.to_text()` is the string it encodes, or null. `http.text` and `http.json` make a response from a string or a JSON value.
+
 `examples/notes` is a whole one, with tests that call its routes with requests as values.
+
+## Bytes, hashes, and time
+
+`bytes` is a run of bytes that need not be text. A string gives its encoding with `to_bytes()`, and bytes give the string they encode, or null, with `to_text()`. Files and HTTP bodies carry them, and `ambient.base64` and `hex()` write them as text.
+
+Hashing is a function, not an ability: it does nothing to the world. The time is an ability, and what is made of it is not.
+
+```ab
+import ambient.base64;
+import ambient.time;
+import system.clock;
+import system.crypto;
+
+pub fn main(): string with clock.now {
+    let signed = crypto.hmac(crypto.sha256, "key".to_bytes(), "message".to_bytes());
+    let day = time.date(clock.now!());
+    return "${base64.encode(signed)} in ${day.year}, written ${time.write(time.days(1))}";
+}
+```
 
 ## Testing
 
@@ -373,21 +404,26 @@ A test is given no world: it provides what the code under test needs, as above, 
 
 Import a module by path; its public definitions are reached through its name, or taken by name in braces. Two packages come with the compiler: `ambient` is what runs anywhere, and `system` is what a program on a machine can reach.
 
-| Module                                                       | What it has                                                                                       |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `ambient.string`, `list`, `int`, `float`, `iterator`, `cell` | the methods of each shape                                                                         |
-| `ambient.map`                                                | `Map<V>`: values by string key, read in key order                                                 |
-| `ambient.url`                                                | `Url`, `parse`, `write`, `query`, `write_query`, `encode`, `decode`                               |
-| `ambient.json`                                               | `Json`, `parse`, `write`, `get`, `at`                                                             |
-| `system.console`                                             | `write`, `print`, `warn`, `read_line`                                                             |
-| `system.env`                                                 | `args`, `variable`, `variables`, `directory`                                                      |
-| `system.fs`                                                  | `read`, `write`, `append`, `list`, `exists`, `info`, `remove`, `make_directory`, `rename`, `copy` |
-| `system.path`                                                | `parts`, `join`, `name`, `parent`, `extension`, `stem`, `is_absolute`                             |
-| `system.clock`                                               | `now`, `elapsed`, `sleep`                                                                         |
-| `system.process`                                             | `exit`, `run`                                                                                     |
-| `system.http`                                                | `send`, `get`, `post`, `listen`, `serve`, `accept`, `respond`, `close`, `text`, `json`            |
-| `system.random`                                              | `bits`, `between`, `fraction`, `chance`, `pick`, `shuffle`, `seeded`                              |
-| `ambient.cleanup`                                            | the `dispose` key a `using` reads                                                                 |
+| Module                                                       | What it has                                                                                                               |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `ambient.string`, `list`, `int`, `float`, `iterator`, `cell` | the methods of each shape                                                                                                 |
+| `ambient.map`                                                | `Map<V>`: values by string key, read in key order                                                                         |
+| `ambient.url`                                                | `Url`, `parse`, `write`, `query`, `write_query`, `encode`, `decode`                                                       |
+| `ambient.json`                                               | `Json`, `parse`, `write`, `get`, `at`                                                                                     |
+| `ambient.bytes`                                              | the methods of `bytes`, and `of`, `from_hex`                                                                              |
+| `ambient.base64`                                             | `encode`, `encode_url`, `decode`                                                                                          |
+| `ambient.time`                                               | `Date`, `date`, `moment`, `weekday`, `write`, `read`, `seconds`, `minutes`, `hours`, `days`                               |
+| `ambient.tasks`                                              | `map`, `gather`, `race`                                                                                                   |
+| `system.console`                                             | `write`, `print`, `warn`, `read_line`                                                                                     |
+| `system.env`                                                 | `args`, `variable`, `variables`, `directory`                                                                              |
+| `system.fs`                                                  | `read`, `write`, `append`, and each with `_bytes`; `list`, `exists`, `info`, `remove`, `make_directory`, `rename`, `copy` |
+| `system.path`                                                | `parts`, `join`, `name`, `parent`, `extension`, `stem`, `is_absolute`                                                     |
+| `system.clock`                                               | `now`, `elapsed`, `sleep`                                                                                                 |
+| `system.process`                                             | `exit`, `run`                                                                                                             |
+| `system.http`                                                | `send`, `get`, `post`, `post_json`, `listen`, `serve`, `accept`, `respond`, `close`, `text`, `json`                       |
+| `system.random`                                              | `bits`, `between`, `fraction`, `chance`, `pick`, `shuffle`, `bytes`, `seeded`                                             |
+| `system.crypto`                                              | `hash`, `hmac`, `same`, and the tags `sha256`, `sha512`, `sha1`                                                           |
+| `ambient.cleanup`                                            | the `dispose` key a `using` reads                                                                                         |
 
 ```ab
 import ambient.map;
