@@ -40,6 +40,7 @@ A task is an independent execution of an expression. Tasks exist only inside the
 - A program is correct under either; it may not assume that code between two suspensions runs atomically.
 - A target that owns no thread, such as a browser or an embedding host, runs tasks only while its host calls in, and returns once every task is suspended.
 - No task ever blocks a host's thread.
+- A task waiting on a [native handler](externs.md) can be woken from outside: while one waits, the target waits for the host's answer.
 - When every task of a program is suspended and nothing outside it can wake one, its root task is cancelled, so the program ends by unwinding instead of hanging.
 - Build and test targets schedule deterministically, so a run that mixes tasks and cells is reproducible.
 

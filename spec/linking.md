@@ -23,7 +23,7 @@ A program carries the code it reaches and nothing else, the [runtime](backends.m
 - A program nothing is loaded into, in which no [task](tasks.md) can suspend, has no function compiled to suspend or to resume.
 - A program code can be loaded into has every function compiled to suspend, since what is loaded may suspend in the middle of any call. Loading into any other program is refused.
 - In a program that can suspend, a function that makes no call is still compiled without it: nothing can suspend while it runs.
-- TODO: a [native handler](externs.md) that suspends is not something an extern declares. Until it is, either none may, or every program that reaches an extern pays to suspend.
+- A [native handler](externs.md) says whether it suspends, so a program pays to suspend for the externs it reaches only if one of them does.
 - TODO: one task operation anywhere makes every function that calls another pay to suspend, though most are never running when a task does.
 
 ## Hosts

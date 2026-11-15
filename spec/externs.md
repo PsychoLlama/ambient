@@ -15,6 +15,7 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - An extern is declared in Ambient with a full signature, and is checked like any other header.
 - A native handler names the ability it implements and takes that ability's signature.
 - A native handler may declare a row of abilities it performs.
+- A native handler that may suspend is declared `suspending`; one that is not never does.
 - An extern with no native counterpart for the selected target is a link error only if the entry reaches it.
 
 ## Native side
@@ -25,7 +26,10 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - Native code is handed its arguments and the bindings of its caller, and gives back a value or raises a [fault](values.md).
 - Native code is also handed the program that called it, and can [load](backends.md) a function into it; what it gets back is that function as a value.
 - TODO: native code cannot yet call a function value or perform an ability; besides loading, it can only compute from its arguments.
-- A native handler may suspend the [task](tasks.md) that performed it while it waits on the host.
+- A suspending native handler may suspend the [task](tasks.md) that performed it while it waits on the host.
+- It suspends by saying it will answer later. Other tasks run, and the perform ends when the host gives the answer: a value, or a fault.
+- Native code still runs only when called: whatever does the waiting belongs to the host, which hands the answer over when it next calls in.
+- A task cancelled while it waits leaves the wait. The host is told it may stop, and an answer that comes anyway is dropped.
 - A handle's type is a [brand](types.md) declared alongside the extern that mints it.
 
 ## Linking
