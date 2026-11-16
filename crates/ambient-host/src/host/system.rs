@@ -117,6 +117,17 @@ impl World for System {
         std::fs::write(path, bytes).map_err(|error| failure(&error))
     }
 
+    fn install(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
+        self.store(path, bytes)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let runs = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(path, runs).map_err(|error| failure(&error))?;
+        }
+        Ok(())
+    }
+
     fn list(&mut self, path: &str) -> Result<Vec<String>, Failure> {
         let entries = std::fs::read_dir(path).map_err(|error| failure(&error))?;
         let mut names = Vec::new();

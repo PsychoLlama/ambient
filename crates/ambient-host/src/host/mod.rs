@@ -97,6 +97,12 @@ pub trait World {
     ///
     /// The file cannot be written.
     fn store(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure>;
+    /// Makes a file hold `bytes`, as one that can be run.
+    ///
+    /// # Errors
+    ///
+    /// The file cannot be written.
+    fn install(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure>;
     /// The names of what a directory holds, in order.
     ///
     /// # Errors

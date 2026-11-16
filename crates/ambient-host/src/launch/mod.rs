@@ -2,6 +2,7 @@
 //! of one that did not finish. See "Running" in `spec/packages.md`.
 
 mod built;
+mod own;
 mod trace;
 
 use std::cell::RefCell;
@@ -10,6 +11,7 @@ use std::rc::Rc;
 use ambient_runtime::FAULT_PACKAGE;
 
 pub use built::{Built, carried, start, start_with};
+pub use own::own;
 pub use trace::{Frames, Function, describe};
 
 use crate::native::{Natives, Program};

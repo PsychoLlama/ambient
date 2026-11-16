@@ -250,6 +250,10 @@ impl World for Scripted {
         Ok(())
     }
 
+    fn install(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
+        self.store(path, bytes)
+    }
+
     fn store(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
         self.files.insert(path.to_owned(), bytes.to_owned());
         Ok(())

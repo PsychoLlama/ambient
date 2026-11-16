@@ -59,9 +59,9 @@ const GREETS: &str = r#"
 "#;
 
 #[test]
-fn an_executable_is_the_command_and_then_the_program() {
+fn an_executable_is_a_launcher_and_then_the_program() {
     let executable = build(GREETS, b"the command");
-    assert!(executable.starts_with(b"the command"));
+    assert!(executable.starts_with(ambient::cli::LAUNCHER));
 
     let world = Scripted {
         args: vec!["Ada".to_owned(), "--help".to_owned()],
@@ -96,9 +96,7 @@ fn a_fault_in_an_executable_is_reported_where_it_was_written() {
     );
 }
 
-#[test]
-fn an_executable_packs_its_own_code_and_loads_it() {
-    let source = r#"
+const PACKS: &str = r#"
         import system.code;
         import system.console;
 
@@ -116,7 +114,17 @@ fn an_executable_packs_its_own_code_and_loads_it() {
         }
     "#;
 
-    let (code, after) = started(&build(source, b""), Scripted::default());
+#[test]
+fn a_program_that_packs_code_is_launched_by_the_command() {
+    let executable = build(PACKS, b"the command");
+
+    assert!(executable.starts_with(b"the command"));
+    assert!(!executable.starts_with(ambient::cli::LAUNCHER));
+}
+
+#[test]
+fn an_executable_packs_its_own_code_and_loads_it() {
+    let (code, after) = started(&build(PACKS, b""), Scripted::default());
     assert_eq!(
         (code, after.out.as_str()),
         (0, "hello, ada\n"),

@@ -19,27 +19,14 @@ fn cache() -> Option<PathBuf> {
     Some(base.join("ambient").join("store"))
 }
 
-/// The program this file carries, if it is one `ambient build` made.
-fn carried(launcher: Option<&PathBuf>) -> Option<Vec<u8>> {
-    let mut file = std::fs::File::open(launcher?).ok()?;
-    ambient::cli::carried(&mut file).ok()?
-}
-
 fn main() -> ExitCode {
     let exit = |code: i32| ExitCode::from(u8::try_from(code).unwrap_or(1));
-    let launcher = std::env::current_exe().ok();
-    // A built program is started with everything it was given: no
-    // argument is the command's.
-    if let Some(program) = carried(launcher.as_ref()) {
-        // An argument that is not text cannot be handed to the program.
-        let text = |arg: std::ffi::OsString| arg.into_string().ok();
-        let Some(args) = std::env::args_os().skip(1).map(text).collect() else {
-            System::new(Vec::new()).warn("error: an argument is not text\n");
-            return ExitCode::FAILURE;
-        };
-        let world: Rc<RefCell<dyn World>> = Rc::new(RefCell::new(System::new(args)));
-        return exit(ambient::cli::start(&program, &world));
+    // The command is the launcher of a program that compiles: one
+    // such is this file with the program after it.
+    if let Some(code) = ambient_host::launch::own(ambient::cli::start) {
+        return code;
     }
+    let launcher = std::env::current_exe().ok();
     let cli = Cli::parse();
     let args = match &cli.command {
         Command::Run { args, .. } => args.clone(),

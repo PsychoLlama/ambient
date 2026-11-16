@@ -15,7 +15,7 @@ pub use ambient_host::host::{
     Chunk, Command, Done, Entry, Failure, Incoming, Info, Kind, Line, Listening, Ran, Request,
     Response, System, Work, World, bytes, error, invalid,
 };
-pub use code::{Linked, link, offer as compiling};
+pub use code::{Linked, compiles, link, offer as compiling};
 
 use crate::backend::native::Natives;
 use crate::pack::Pack;

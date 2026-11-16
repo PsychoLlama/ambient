@@ -62,6 +62,16 @@ pub fn link(
     Ok(Linked { parts, trees })
 }
 
+/// Whether a compiled program reaches a handler that needs the
+/// compiler: one that packs code, or compiles it.
+#[must_use]
+pub fn compiles(parts: &Parts) -> bool {
+    let needs = |native: &crate::engine::Native| {
+        native.package == PACKAGE && ["code_pack", "code_compile"].contains(&native.path.as_str())
+    };
+    parts.natives.iter().any(needs)
+}
+
 /// The packs this program made, by the function each is of: packing
 /// one again gives what it gave.
 type Packed = RefCell<HashMap<Hash, Vec<u8>>>;

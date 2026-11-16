@@ -1,0 +1,11 @@
+[package]
+name = "ambient-launcher"
+version.workspace = true
+edition.workspace = true
+description = "What a built Ambient program starts with: a host, and no compiler"
+
+[dependencies]
+ambient-host.workspace = true
+
+[lints]
+workspace = true

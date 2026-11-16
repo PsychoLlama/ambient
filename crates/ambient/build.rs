@@ -63,6 +63,34 @@ fn identify() {
     println!("cargo::rustc-env=AMBIENT_BUILD={:016x}", hasher.finish());
 }
 
+/// Builds the launcher, the file `ambient build` puts a program
+/// after, for the machine the command is being built for and as the
+/// command is: a release build of one is of the other, stripped and
+/// optimized as a whole, since every executable carries it.
+fn launcher(cargo: &std::ffi::OsStr, out: &Path) {
+    println!("cargo::rerun-if-changed=../ambient-launcher");
+    let machine = env::var("TARGET").unwrap_or_default();
+    let release = env::var("PROFILE").is_ok_and(|profile| profile == "release");
+    let target = out.join("launching");
+    let mut build = Command::new(cargo);
+    build
+        .args(["build", "--locked", "--package", "ambient-launcher"])
+        .args(["--target", &machine, "--target-dir"])
+        .arg(&target)
+        // Flags meant for this build's own scripts do not apply.
+        .env_remove("CARGO_ENCODED_RUSTFLAGS");
+    if release {
+        build.args(["--release", "--config", "profile.release.lto=true"]);
+        build.args(["--config", "profile.release.codegen-units=1"]);
+        build.args(["--config", "profile.release.strip=true"]);
+    }
+    run(&mut build, "building the launcher");
+    let profile = if release { "release" } else { "debug" };
+    let made = target.join(&machine).join(profile).join("ambient-launcher");
+    let copied = fs::copy(made, out.join("launcher"));
+    assert!(copied.is_ok(), "the launcher was not where it was built");
+}
+
 fn main() {
     identify();
     println!("cargo::rerun-if-changed=../ambient-runtime/src");
@@ -70,6 +98,8 @@ fn main() {
     println!("cargo::rerun-if-changed=../../Cargo.lock");
 
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap_or_default());
+    let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    launcher(&cargo, &out);
     // A target directory of its own: the one this build is running in is
     // locked by the cargo that is running this script.
     let target = out.join("runtime");
@@ -77,7 +107,7 @@ fn main() {
     // module does not reach is never linked into it, so the runtime is
     // built to be small where it is reached, not to be fast to build.
     run(
-        Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+        Command::new(&cargo)
             .args(["rustc", "--release", "--package", "ambient-runtime"])
             .args(["--target", TARGET, "--crate-type", "staticlib"])
             .arg("--target-dir")

@@ -1,9 +1,11 @@
 //! `ambient build`: an executable of a program, and how one starts.
 //! See "Building" in `spec/packages.md`.
 //!
-//! An executable is the command's own file with a program after it
-//! (`ambient_host::launch::Built`), which the command looks for in its
-//! own file before it reads a command line.
+//! An executable is a launcher with a program after it
+//! (`ambient_host::launch::Built`), which the launcher looks for in its
+//! own file as it starts. The launcher is a host with no compiler
+//! ([`LAUNCHER`]), or for a program that compiles code, the command
+//! itself.
 
 use std::cell::RefCell;
 use std::path::Path;
@@ -16,6 +18,10 @@ use super::{Session, entry_of};
 use crate::engine::{Backend, Engine};
 use crate::host::{self, World};
 use crate::pack::Pack;
+
+/// What a program that needs no compiler is put after: the launcher
+/// (`ambient-launcher`), built beside the command for the same machine.
+pub const LAUNCHER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/launcher"));
 
 /// Runs the program an executable carried in `world`, and gives the
 /// code to exit with. What went wrong is written to the world's
@@ -38,9 +44,6 @@ impl Session<'_> {
         entry: &str,
         output: Option<&Path>,
     ) -> Result<i32, Vec<String>> {
-        let Some(launcher) = &self.launcher else {
-            return Err(vec!["the command cannot find its own file".to_owned()]);
-        };
         let project = self.open(path)?;
         let engine = Engine::new(&project.workspace, self.store);
         let launch = Launch {
@@ -57,10 +60,19 @@ impl Session<'_> {
 
         let output = output.map_or_else(|| project.root.clone(), |path| path.display().to_string());
         let mut world = self.world.borrow_mut();
-        world
-            .copy(&launcher.to_string_lossy(), &output)
-            .and_then(|()| world.append(&output, &program))
-            .map_err(|failure| vec![format!("{output}: {}", failure.message)])?;
+        // A program that packs or compiles code is started by the
+        // command itself, which is the launcher that has the compiler.
+        let written = if host::compiles(&linked.parts) {
+            let Some(command) = &self.launcher else {
+                return Err(vec!["the command cannot find its own file".to_owned()]);
+            };
+            world
+                .copy(&command.to_string_lossy(), &output)
+                .and_then(|()| world.append(&output, &program))
+        } else {
+            world.install(&output, &[LAUNCHER, &program].concat())
+        };
+        written.map_err(|failure| vec![format!("{output}: {}", failure.message)])?;
         world.write(&format!("built {output}\n"));
         Ok(0)
     }

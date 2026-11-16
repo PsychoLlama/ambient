@@ -63,6 +63,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ambient-launcher"
+version = "0.1.0"
+dependencies = [
+ "ambient-host",
+]
+
+[[package]]
 name = "ambient-runtime"
 version = "0.1.0"
 dependencies = [

@@ -18,7 +18,7 @@ use clap::{Parser, Subcommand};
 
 pub use ambient_host::launch::carried;
 use ambient_host::launch::{FAILED, code, started};
-pub use build::start;
+pub use build::{LAUNCHER, start};
 use launch::Launch;
 
 use crate::engine::Engine;

@@ -3,6 +3,7 @@
 - `spec/`: source of truth for the language design. The implementation follows it; change the spec first.
 - `crates/ambient`: the implementation, a library plus an empty binary. Module docs name the spec page each module implements.
 - `crates/ambient-host`: what loads and runs a compiled program, with no compiler in it: trees, values, parts, the native loader, the native side of `system`, and launching. `ambient` gives its modules again at the paths they had (`ambient::core`, `backend::native`, `host`), which is how the bullets below name them.
+- `crates/ambient-launcher`: the binary a built program is put after. It links `ambient-host` and nothing of the compiler; keep it so.
 - `crates/ambient-runtime`: what compiled code calls. Built natively into the compiler, and for wasm32 by `crates/ambient/build.rs` as one relocatable object.
 
 ## Invariants
@@ -76,7 +77,8 @@
 - `throw` is an ability of the library like any other (`library/errors.ab`), re-exported beside `Error`; each standard target binds it to an extern `thrown` of its own package, both of which `launch::started` supplies and reports as it does a fault.
 - A lambda with no row takes the row of the function type expected of it (`Checker::infer_as`, `asked`); with none expected it captures everything.
 - `ambient test` runs each `test_*` function that takes nothing as its own program under `ambient.test.tests`, whose one extern is the check (`cli/test.rs`); `cli::Launch` is the one way a command runs a program.
-- An executable is the command's own file with a program after it (`cli/build.rs`): encoded parts, the names and places a report takes (`cli::trace::Frames`), a length, and a mark. `main` looks for the mark in its own file before it reads a command line; `cli::launch::started` is the one way a compiled program is run and reported, built or not.
+- An executable is a launcher with a program after it (`launch::Built`): encoded parts, the names and places a report takes (`launch::Frames`), a length, and a mark. A launcher looks for the mark in its own file as it starts (`launch::own`); `launch::started` is the one way a compiled program is run and reported, built or not.
+- The launcher is `crates/ambient-launcher`, a host with no compiler, which `crates/ambient/build.rs` builds and the command holds (`cli::LAUNCHER`). A program that packs or compiles code (`host::compiles`) is put after the command's own file instead.
 - A package on disk is read through `project::Files` (`project/`), and `cli::Session` is handed its files, store, and world, so `tests/cli.rs` drives the command line in memory.
 - The core checker (`verify/`) accepts what `checker/` makes and nothing looser; `support::run` verifies every definition it runs. Typing rules live in `types::Env`, which both checkers ask.
 - A received definition (`engine/pack.rs`) is an `Open` under a made-up symbol: it is verified, then hashed, compiled, and linked like any other. It has no surface tree and never reaches the store.
