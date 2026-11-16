@@ -122,16 +122,8 @@ impl Engine<'_> {
     /// entry called under a provide for each layer of the target.
     fn root(&self, root: &Root) -> Result<Function<Reference>, Error> {
         let entry = self.resolve(&root.entry)?;
-        let generated = match &entry.definition.kind {
-            DefinitionKind::Generated(_) => Some(self.generated(&root.entry)?),
-            _ => None,
-        };
-        let header = match &entry.definition.kind {
-            DefinitionKind::Function(header) => header,
-            _ => generated
-                .as_deref()
-                .ok_or_else(|| Error::NotCompilable(root.entry.clone()))?,
-        };
+        let header = self.function_of(&root.entry, &entry.definition)?;
+        let header = header.ok_or_else(|| Error::NotCompilable(root.entry.clone()))?;
         if !header.type_params.is_empty() {
             return Err(Error::GenericEntry(root.entry.clone()));
         }

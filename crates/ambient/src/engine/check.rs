@@ -8,7 +8,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use super::derive::whole;
+use super::generate::whole;
 use super::{Engine, Query, Stage, memo};
 use crate::checker;
 use crate::core::{self, Open, Tree};
@@ -215,14 +215,8 @@ impl Engine<'_> {
                 // The call of a generated module is no definition of it.
                 DefinitionKind::Module(_) => return Err(unknown()),
                 DefinitionKind::Function(_) | DefinitionKind::Generated(_) => {
-                    let generated = match &resolved.definition.kind {
-                        DefinitionKind::Generated(_) => Some(self.generated(symbol)?),
-                        _ => None,
-                    };
-                    let function = match &resolved.definition.kind {
-                        DefinitionKind::Function(function) => function,
-                        _ => generated.as_deref().ok_or_else(unknown)?,
-                    };
+                    let function = self.function_of(symbol, &resolved.definition)?;
+                    let function = &*function.ok_or_else(unknown)?;
                     let mut env = Env::default();
                     self.gather(header_definitions(function), &mut env)?;
                     let (encoding, slots) = checker::encode_header(symbol, function, env)?;

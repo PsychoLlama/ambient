@@ -111,14 +111,8 @@ impl Engine<'_> {
     ) -> Result<Option<(Signature, Vec<Symbol>)>, Error> {
         let resolved = self.resolve(symbol)?;
         // A generated function has the header its call gave.
-        let generated = match &resolved.definition.kind {
-            DefinitionKind::Generated(_) => Some(self.generated(symbol)?),
-            _ => None,
-        };
-        let written = match &resolved.definition.kind {
-            DefinitionKind::Function(header) => Some(header),
-            _ => generated.as_deref(),
-        };
+        let written = self.function_of(symbol, &resolved.definition)?;
+        let written = written.as_deref();
         let named = definitions(|visit| match written {
             Some(header) => header.header_names(&mut |name| visit(name)),
             None => resolved.definition.names(&mut |name| visit(name)),

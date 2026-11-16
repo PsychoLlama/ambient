@@ -23,9 +23,9 @@
 mod blame;
 mod check;
 mod compile;
-mod derive;
 mod environment;
 mod function;
+mod generate;
 mod group;
 mod handed;
 mod link;

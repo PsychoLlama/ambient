@@ -1,11 +1,14 @@
-//! Derived types and generated functions: a definition that is
-//! whatever tree a comptime call gives. See "Splice positions" in
-//! `spec/comptime.md`.
+//! Definitions that are whatever tree a comptime call gives: a derived
+//! type, a generated function, and the definitions of a generated
+//! module. See "Splice positions" in `spec/comptime.md`.
 //!
 //! The call is checked as the body of a function the engine writes,
 //! which takes nothing and gives the tree. Everything a comptime
 //! call needs follows from that: its key, its grants, and its runs.
+//! The tree is then read into what resolution leaves of a definition
+//! that was written, and is that from there on.
 
+use std::ops::Deref;
 use std::sync::Arc;
 
 use super::check::definitions;
@@ -82,23 +85,42 @@ impl Engine<'_> {
                 definition.kind = super::resolve::tag(&id, &declared);
             }
         }
-        // A tree is data, and could name what nothing written here may.
-        let package = &symbol.module.package;
         let named = definitions(|visit| {
             for definition in &made {
                 definition.names(&mut |name| visit(name));
             }
         });
-        match named
+        self.names_only(symbol, named)?;
+        Ok(Arc::new(made))
+    }
+
+    /// Fails unless everything the tree of `symbol` names could be
+    /// named by code written in its package. A tree is data, and a
+    /// function could make up a reference to what nothing written
+    /// there may reach.
+    fn names_only(&self, symbol: &Symbol, named: Vec<Symbol>) -> Result<(), Error> {
+        let package = &symbol.module.package;
+        let hidden = named
             .into_iter()
-            .find(|named| !self.nameable(package, named))
-        {
-            Some(named) => Err(Error::Unnameable {
-                symbol: symbol.clone(),
-                named,
-            }),
-            None => Ok(Arc::new(made)),
-        }
+            .find(|named| !self.nameable(package, named));
+        hidden.map_or(Ok(()), |named| {
+            let symbol = symbol.clone();
+            Err(Error::Unnameable { symbol, named })
+        })
+    }
+
+    /// The function a definition is, if it is one: as written, or as
+    /// its call gave it.
+    pub(super) fn function_of<'a>(
+        &self,
+        symbol: &Symbol,
+        definition: &'a Definition<Reference>,
+    ) -> Result<Option<Told<'a>>, Error> {
+        Ok(match &definition.kind {
+            DefinitionKind::Function(function) => Some(Told::Written(function)),
+            DefinitionKind::Generated(_) => Some(Told::Given(self.generated(symbol)?)),
+            _ => None,
+        })
     }
 
     /// What `run` gives for `symbol`, unless making it came back here:
@@ -133,19 +155,8 @@ impl Engine<'_> {
         };
         let tree = self.given(symbol, &resolved.digest, call, checker::function())?;
         let function = checker::defined(&tree).map_err(|why| not_code(symbol, why))?;
-        // A tree is data, and could name what nothing written here may.
-        let package = &symbol.module.package;
-        let named = definitions(|visit| whole(&function, visit));
-        match named
-            .into_iter()
-            .find(|named| !self.nameable(package, named))
-        {
-            Some(named) => Err(Error::Unnameable {
-                symbol: symbol.clone(),
-                named,
-            }),
-            None => Ok(Arc::new(function)),
-        }
+        self.names_only(symbol, definitions(|visit| whole(&function, visit)))?;
+        Ok(Arc::new(function))
     }
 
     /// The tree `call`, the content of the definition `symbol`, gives:
@@ -177,6 +188,23 @@ impl Engine<'_> {
         match &open?.tree {
             Tree::Function(function) => Ok(function.body.clone()),
             _ => Err(Error::UnknownSymbol(symbol.clone())),
+        }
+    }
+}
+
+/// A function as it was written, or as a call gave it.
+pub(super) enum Told<'a> {
+    Written(&'a Function<Reference>),
+    Given(Arc<Function<Reference>>),
+}
+
+impl Deref for Told<'_> {
+    type Target = Function<Reference>;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Written(function) => function,
+            Self::Given(function) => function,
         }
     }
 }

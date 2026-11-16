@@ -52,6 +52,8 @@ A comptime call runs an ordinary function during compilation and splices what it
 - A function's result is spliced as code when the type it is declared to give is an expression's tree, and as a value otherwise.
 - A reference in spliced code must be one that code written at the call could make: to a definition of the call's own [package](packages.md), or a public one in a module its package lets others reach.
 - A function can make a reference up, so this is what keeps spliced code from reaching an [extern](externs.md) past the ability that guards it. It also means generated code cannot use what is private to the package that generates it.
+- A derived type's tree may refer to any type. The normal form of a public type names the recursive types its package keeps private, and naming a type gives no way to make a value of it.
+- TODO: a reference names its package as the workspace does, so a tree that is stored or sent means something only there.
 - A function named as an argument for a parameter that takes a type's tree is handed the type it has.
 - An [ability](abilities.md) in a function type's tree comes with the types it takes and gives, so a function that is handed a row can make a [handler](handlers.md) for each ability in it.
 - The standard library puts trees of code together from functions, so that no code counts a local by hand: a piece of code is a function of how many locals are bound around it, and what binds one hands its body the code that names it.
