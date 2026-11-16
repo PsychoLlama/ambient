@@ -25,12 +25,23 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - Native code runs only when called; it has no initialisation and no background behaviour.
 - Native code is handed its arguments and the bindings of its caller, and gives back a value or raises a [fault](values.md).
 - Native code is also handed the program that called it, and can [load](backends.md) a function into it; what it gets back is that function as a value.
-- TODO: native code cannot yet call a function value or perform an ability; besides loading, it can only compute from its arguments.
 - A suspending native handler may suspend the [task](tasks.md) that performed it while it waits on the host.
 - It suspends by saying it will answer later. Other tasks run, and the perform ends when the host gives the answer: a value, or a fault.
 - Native code still runs only when called: whatever does the waiting belongs to the host, which hands the answer over when it next calls in.
 - A task cancelled while it waits leaves the wait. The host is told it may stop, and an answer that comes anyway is dropped.
 - A handle's type is a [brand](types.md) declared alongside the extern that mints it.
+
+## Calling back
+
+- Native code calls a function value only while it is itself called, and is given what the function gives.
+- The call belongs to the [task](tasks.md) that called the native code, so nothing runs that a task of the program did not start.
+- A function type in an extern's signature has an empty row. What is handed over was bound where it was handed, by the [capture](abilities.md) rule, so native code holds no bindings for a function that is not its own.
+- Native code performs an ability of its declared row by calling the handler bound for it, as it calls any function value.
+- A function native code called cannot suspend, since nothing can save the native code beneath it. One that would is a [fault](values.md).
+- Code that waits is therefore written in Ambient, around native code that does not.
+- A call back that unwinds, by a fault, an [abort](handlers.md), or a cancellation, unwinds the native code that made it: the native code lets go of what it holds and cannot answer.
+- Native code that calls back counts toward the [depth of calls](backends.md#calls) at a fixed size, so calls nested through native code fault at the limit as any others do.
+- TODO: nothing calls back yet: native code computes from its arguments, and besides loading reaches nothing of its program.
 
 ## Linking
 

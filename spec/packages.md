@@ -45,6 +45,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - No package's ID is the standard library's, or the [`system`](targets.md) package's.
 - Every package reaches the standard library under the name `ambient`, and the `system` package under its own, without declaring them.
 - TODO: a build grant is taken as soon as it is declared: nothing asks whoever installs a package.
+- TODO: nothing says whether two packages may depend on each other. A [snapshot](#identity) that covers its dependencies' snapshots cannot be made of two that do.
 - TODO: a dependency is only a path to a directory; there are no publishers, versions, locks, or registries yet, and nothing checks that an ID was generated.
 
 ## Running

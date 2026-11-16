@@ -31,6 +31,17 @@ A target defines the world a program runs in: a root binding for every ability t
 - An embedder defines a target from the host language and supplies native handlers directly.
 - An embedder's target need not include any standard binding; a program is then limited to pure code and what the embedder provides.
 
+## Calls from the world
+
+- The world never calls a program. Whatever a world would call a function for, a task waits for instead, through an ability that suspends.
+- An event, a request, and a timer are each such a wait, and what handles one is the task that waited: nothing runs outside the [tasks](tasks.md) the program started.
+- What a task waits on is a listener, a [handle](values.md) the world holds. Its next call is the call's arguments and, where the world wants an answer, a handle to answer by.
+- Giving a function to be called for each event is library code: a group that waits, and starts a task for each call.
+- A host that owns the thread hands a call over and runs the program until every task is suspended, before it returns to its world.
+- What a task does before it next waits is therefore done inside the event that woke it, which is when a world takes an answer or lets an event be cancelled.
+- A listener holds a bounded number of calls nothing has taken. One that is not taken inside its event gets no answer there.
+- A listener nothing holds stops listening.
+
 ## The system package
 
 - The standard library, `ambient`, holds what every target provides, and nothing in it needs a world: the shapes' methods, maps, JSON, errors, cells, cleanup, and what a test checks with.
@@ -60,15 +71,28 @@ A target defines the world a program runs in: a root binding for every ability t
 - Work whose task was cancelled is stopped where it can be: a command is ended, and a line already being read is kept for whoever reads next.
 - Both standard targets bind `throw`: an [error](errors.md) nothing caught ends the program, or fails the test, and is reported as a fault is.
 - The standard library defines a target for a [test](packages.md), which binds a check and nothing of the world, so it needs no `system`.
-- TODO: there is no standard target for a WebAssembly host yet.
 - The build target and test targets are ordinary targets; see [comptime](comptime.md) and [memoization](memoization.md).
+
+## WebAssembly hosts
+
+- A WebAssembly program is run by a host that supplies its [native code](externs.md) as imports and owns the thread: tasks run only while it [calls in](tasks.md).
+- The standard host is JavaScript, for a browser and for whatever else runs both.
+- Building for it gives the program and the JavaScript that loads it, with native code for the externs the program reaches and no others. What a page fetches follows from what its entry reaches, as what a program [carries](linking.md) does.
+- A package's native bundle for this host is JavaScript: a function for each extern, found by its identity.
+- A suspending extern's function gives a promise, and what the promise settles to is the answer.
+- A handle minted there stands for a JavaScript object. The host keeps the object by the handle and lets it go when the handle is reclaimed.
+- The compiler comes with the host and with nothing of a browser. A browser's target is a package: its abilities, the bindings of whichever [`system`](#the-system-package) abilities a page can do, and the JavaScript behind both.
+- An event of a page is a [call from the world](#calls-from-the-world), so a handler that cancels one does so before it next waits.
+- TODO: how JavaScript sees a value is undecided. Converting one at each call copies it, and an integer is wider than a JavaScript number.
+- TODO: native code compiled to WebAssembly is a module of its own, which shares no memory with the program; nothing says how the two exchange a value.
+- TODO: none of this is built. A WebAssembly program runs only under the compiler's own tests.
 
 ## Network
 
 - `system.http` sends a request and gives the response, each whole: a method, a URL, headers, and a body out; a status, headers, and a body back.
 - A response is a value whatever its status. Only a request that got no response is an [error](errors.md).
-- A server is a listener the world holds. Accepting its next request is an ability that suspends, and answering one is another.
-- A listener and the way to answer a request are [handles](values.md). A listener nothing holds stops listening, and a request nothing can answer is let go, which ends its connection.
+- A server is a [listener](#calls-from-the-world). Accepting its next request is an ability that suspends, and answering one is another.
+- The way to answer a request is a handle too. A request nothing can answer is let go, which ends its connection.
 - Serving is library code over those: a group that accepts, and starts a task for each request. What answers is an ordinary function, and leaving the group ends the serving.
 - Nothing takes a timeout: a sleep beside the work in a first is one.
 - A header's name is lower case wherever the world gives one.
