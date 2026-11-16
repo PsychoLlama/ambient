@@ -1,5 +1,5 @@
-// The host runs a program built for it. The module is built by the
-// command line before these run: see `web/README.md`.
+// The host runs a program built for it: the one `tests/host.rs` holds,
+// which builds its module and then runs these.
 
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -39,7 +39,7 @@ function clock() {
     });
 }
 
-/** The example's program, over a page that keeps what it is told. */
+/** The program, over a page that keeps what it is told. */
 async function page(natives = {}) {
   const said = [];
   const offered = {
@@ -84,4 +84,16 @@ test("a program that lacks native code is not loaded", async () => {
     load(await readFile(module), {}),
     /no native code for `main\.s/,
   );
+});
+
+test("a module is loaded from the response that carries it", async () => {
+  const headers = { "content-type": "application/wasm" };
+  const response = Promise.resolve(
+    new Response(await readFile(module), { headers }),
+  );
+  const program = await load(response, {
+    [PACKAGE]: { "main.said": () => null, "main.slept": clock() },
+  });
+
+  assert.equal(await program.run(), 4);
 });

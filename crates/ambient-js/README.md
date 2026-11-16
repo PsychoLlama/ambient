@@ -1,0 +1,27 @@
+# The JavaScript host
+
+`host.js` loads a program built with `ambient build --module <target>` and runs it. It is one ES module with no dependencies, and knows of no browser and no Node: a target for either builds on it.
+
+```js
+import { load } from "./host.js";
+
+const program = await load(fetch("page.wasm"), {
+  // By the ID in the package's `ambient.toml`, then the extern's module path and name.
+  "<package id>": {
+    "main.said": (line) => console.log(line),
+    // One that gives a promise answers later: its extern is declared `suspending`.
+    "main.slept": (ms) => new Promise((wake) => setTimeout(wake, ms, null)),
+  },
+});
+console.log(await program.run());
+```
+
+`examples/browser` is a page that does this.
+
+## Testing
+
+- `cargo nextest run -p ambient-js` builds a program and runs `test/*.test.js` under Node's own runner (`tests/host.rs`).
+- The tests are thin: that the host runs what the compiler makes. What a program means is tested in `crates/ambient`.
+- Nothing here is installed from a registry. Keep it so.
+
+See "WebAssembly hosts" and "JavaScript hosts" in `spec/targets.md`.

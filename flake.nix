@@ -63,7 +63,7 @@
 
               pkgs.cargo-nextest
               pkgs.nixfmt
-              # Runs the JavaScript host's tests: `web/`.
+              # Runs the JavaScript host's tests: `crates/ambient-js`.
               pkgs.nodejs
               pkgs.prettier
               pkgs.treefmt

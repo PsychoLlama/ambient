@@ -1,4 +1,6 @@
 /target
+# Modules built from the examples
+*.wasm
 /.direnv
 # Nix build result symlinks
 /result

@@ -3,9 +3,10 @@
 // gives its tasks their turns. See "WebAssembly hosts" and "JavaScript
 // hosts" in `spec/targets.md`.
 //
-// It is one module with no dependencies, for a browser or for Node.
-// What it does is what the host in `crates/ambient/src/backend/wasm`
-// does; where the two differ, that one is right.
+// It is one module with no dependencies, and knows of no browser and
+// no Node: a target for either builds on it. What it does is what the
+// host in `crates/ambient/src/backend/wasm` does; where the two
+// differ, that one is right.
 
 // Words the runtime gives a meaning of their own.
 const UNWIND = 0n;
@@ -84,15 +85,21 @@ const utf8 = new TextDecoder("utf-8", { fatal: false });
 const text = new TextEncoder();
 
 /**
- * Loads a program: the bytes of its module, and the native code for
- * each extern it reaches, as `{ [package id]: { [path]: function } }`.
- * A function that gives a promise is one that answers later, which its
- * extern must be declared `suspending` to do.
+ * Loads a program: its module, and the native code for each extern it
+ * reaches, as `{ [package id]: { [path]: function } }`. A function
+ * that gives a promise is one that answers later, which its extern
+ * must be declared `suspending` to do.
+ *
+ * The module is its bytes, or the response that carries them (or a
+ * promise of one, as `fetch` gives), which is compiled as it arrives.
  */
-export async function load(bytes, natives = {}) {
+export async function load(source, natives = {}) {
   const program = new Program();
   const imports = { host: { native: (...call) => program.native(...call) } };
-  const { instance, module } = await WebAssembly.instantiate(bytes, imports);
+  const bytes = ArrayBuffer.isView(source) || source instanceof ArrayBuffer;
+  const { instance, module } = bytes
+    ? await WebAssembly.instantiate(source, imports)
+    : await WebAssembly.instantiateStreaming(source, imports);
   program.begin(module, instance, natives);
   return program;
 }

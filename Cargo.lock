@@ -63,6 +63,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ambient-js"
+version = "0.1.0"
+dependencies = [
+ "ambient",
+]
+
+[[package]]
 name = "ambient-launcher"
 version = "0.1.0"
 dependencies = [

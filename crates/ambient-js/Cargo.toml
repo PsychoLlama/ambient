@@ -1,0 +1,11 @@
+[package]
+name = "ambient-js"
+version.workspace = true
+edition.workspace = true
+description = "What runs an Ambient program in JavaScript: a host for a browser's target or Node's to build on"
+
+[dev-dependencies]
+ambient = { path = "../ambient" }
+
+[lints]
+workspace = true
