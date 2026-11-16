@@ -8,6 +8,8 @@ mod support;
 use ambient::engine::Engine;
 use ambient::error::Error;
 use ambient::store::MemoryStore;
+use ambient::symbol::ModuleId;
+use ambient::syntax::parse;
 use support::text::{int, text, workspace};
 use support::value;
 
@@ -477,4 +479,36 @@ fn builders_put_code_together_without_counting_locals() {
     ";
 
     assert_eq!(int(&format!("{TWICE} {main}")), 14);
+}
+
+/// Whether `main` checks, over `store`, where it splices a reference
+/// to `shown` of another package, which is written as `other`.
+fn splices_from(other: &str, store: &MemoryStore) -> Result<(), Error> {
+    let main = "
+        import ambient.tree;
+        fn shown(): tree.Expr => {
+            definition: { package: \"other\", module: [], name: \"shown\", kind: \"value\" },
+        };
+        fn main(): int => (comptime shown())();
+    ";
+    let mut workspace = workspace(main);
+    let library = ModuleId::library(&ModuleId::new("other", "").package);
+    workspace.set(library, parse(other).unwrap()).unwrap();
+    workspace.depend("app", "other", "other").unwrap();
+    let checked = Engine::new(&workspace, store).check(&value("main", "main"));
+    checked.map(|_| ())
+}
+
+#[test]
+fn a_stored_check_does_not_outlive_what_its_code_could_name() {
+    // The content of `shown` is the same; only who may name it is not.
+    let store = MemoryStore::new();
+    let public = splices_from("pub fn shown(): int => 1;", &store);
+    let private = splices_from("fn shown(): int => 1;", &store);
+
+    assert_eq!(public, Ok(()));
+    assert!(
+        matches!(private, Err(Error::Unnameable { .. })),
+        "{private:?}"
+    );
 }
