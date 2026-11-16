@@ -80,7 +80,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 
 - An expression's tree has a match, whose patterns bind by position as a function's parameters do: a binding is the local after those around the match and those its pattern bound before it.
 - An operation in a tree is named by its word, which is also how source text can write any operation: `@add(left, right)`.
-- TODO: an expression's tree has no method call, merge, provide, cell, or task, so code that does one calls a function that does. An expression is not yet handed to a function as a tree.
+- TODO: an expression's tree has no merge, provide, cell, or task, so code that does one calls a function that does. An expression is not yet handed to a function as a tree.
 - TODO: an ability with type parameters has no tree, so neither has the type of a function that takes one.
 - An argument of a comptime call may name an ability, for a function that takes a reference to one.
 - TODO: no definition's tree has type parameters, and a generated module defines no key, brand, extern, or target.

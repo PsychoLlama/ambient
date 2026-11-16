@@ -125,6 +125,11 @@ impl Reader {
                 ability: definition(need("perform")?, &["ability"])?,
                 args: self.all(need("given")?)?,
             },
+            _ if has("method") => Expr::Send {
+                target: self.boxed(need("of")?)?,
+                method: Key::Field(text(need("method")?)?.to_owned()),
+                args: self.all(need("given")?)?,
+            },
             _ if has("of") => Expr::Field {
                 target: self.boxed(need("of")?)?,
                 key: Key::Field(text(need("field")?)?.to_owned()),

@@ -122,6 +122,7 @@ pub type Arm = { pattern: Pattern, gives: Expr };
 ///   is the text an observer is told the ability is.
 /// - `cast` is the value at the type `to` if the type describes it,
 ///   and `otherwise` if not.
+/// - `method` is called on the value `of`, as `value.method(...)` is.
 /// - `subject` is matched against each of `arms` in turn, and
 ///   `operation` is done `on` its operands.
 pub type Expr =
@@ -135,6 +136,7 @@ pub type Expr =
     | { members: List<Expr> }
     | { fields: List<Entry> }
     | { field: string, of: Expr }
+    | { method: string, of: Expr, given: List<Expr> }
     | { cast: Expr, to: Type, otherwise: Expr }
     | { bind: Expr, body: Expr }
     | { subject: Expr, arms: List<Arm> }

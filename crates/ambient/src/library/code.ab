@@ -105,6 +105,10 @@ pub fn handlers(of: List<(Reference, Code)>): Code =>
 /// The field `name` of a record.
 pub fn field(of: Code, name: string): Code => fn(depth: int): Expr => { field: name, of: of(depth) };
 
+/// A call of the method `name` of a value with `given`.
+pub fn send(of: Code, name: string, given: List<Code>): Code =>
+    fn(depth: int): Expr => { method: name, of: of(depth), given: placed(given, depth) };
+
 /// `value` at the type `to` if the type describes it, and `otherwise`
 /// if not.
 pub fn cast(value: Code, to: Type, otherwise: Code): Code =>

@@ -112,6 +112,14 @@ fn generated_code_does_operations_and_chooses() {
 }
 
 #[test]
+fn generated_code_calls_a_method() {
+    let shouted = "code.send(code.send(x, \"to_text\", []), \"join\", [code.literal(\"!\")])";
+
+    let ran = support::text::run(&of_seven("text", shouted));
+    assert_eq!(ran, Ok(Value::String("7!".to_owned())));
+}
+
+#[test]
 fn a_generated_match_binds_what_its_patterns_do_in_order() {
     // A tuple's bindings in turn, and a binding before what is inside
     // it: subtraction and the field tell which is which.
