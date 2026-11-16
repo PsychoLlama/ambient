@@ -11,10 +11,10 @@ use super::host::{Natives, Observation, dispatch};
 use super::unit::{Unit, map};
 use super::values::Host;
 use super::waits::{Answers, Asked};
-use crate::backend::stack;
-use crate::backend::statics::{self, Base, Field, Known, Place};
-use crate::engine::{Body, Part, Parts};
 use crate::hash::Hash;
+use crate::parts::{Body, CLOSED, Part, Parts};
+use crate::stack;
+use crate::statics::{self, Base, Field, Known, Place};
 use crate::value::{self, Value};
 
 /// A program loaded into this process, ready to call. More can be
@@ -72,7 +72,7 @@ impl Drop for Program {
 }
 
 impl Program {
-    /// Loads the parts of a program compiled by [`super::Native`], with
+    /// Loads the parts of a program compiled by the native backend, with
     /// the native code for its externs.
     ///
     /// # Errors
@@ -101,7 +101,7 @@ impl Program {
     }
 
     /// Loads more into the program: the parts of a function and what it
-    /// reaches, as [`crate::engine::Engine::link_to_load`] makes them.
+    /// reaches, as `Engine::link_to_load` makes them.
     /// Returns the function, a value the caller owns.
     ///
     /// A part the program has already, by hash, is not loaded again;
@@ -119,7 +119,7 @@ impl Program {
         // What is loaded may suspend in the middle of a call the
         // program made, and only an open program is compiled for that.
         if !self.open {
-            return Err(crate::backend::CLOSED.to_owned());
+            return Err(CLOSED.to_owned());
         }
         self.reclaim();
         self.place(parts, natives, true)

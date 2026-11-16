@@ -16,7 +16,9 @@ use std::rc::Rc;
 
 use clap::{Parser, Subcommand};
 
-pub use build::{carried, start};
+pub use ambient_host::launch::carried;
+use ambient_host::launch::{FAILED, code, started};
+pub use build::start;
 use launch::Launch;
 
 use crate::engine::Engine;
@@ -25,7 +27,6 @@ use crate::project::{self, Files, Project};
 use crate::store::Store;
 use crate::surface::DefinitionKind;
 use crate::symbol::{ModuleId, Symbol};
-use crate::value::Value;
 use crate::workspace::Sources;
 
 /// The Ambient programming language.
@@ -97,9 +98,6 @@ pub struct Session<'a> {
     pub launcher: Option<PathBuf>,
 }
 
-/// The code a command that could not do its work exits with.
-const FAILED: i32 = 1;
-
 impl Session<'_> {
     /// Does what `command` says, and gives the code to exit with. What
     /// went wrong is written to the world's standard error.
@@ -138,7 +136,7 @@ impl Session<'_> {
         };
         let linked = launch.link(&entry_of(&project, entry), &crate::system::target())?;
         let natives = host::natives(&self.world, linked.trees.clone());
-        let gave = launch::started(&linked.parts, &natives, || launch.frames(&linked.root))?;
+        let gave = started(&linked.parts, &natives, || launch.frames(&linked.root))?;
         Ok(code(&gave))
     }
 
@@ -175,13 +173,4 @@ impl Session<'_> {
 fn entry_of(project: &Project, entry: &str) -> Symbol {
     let (module, name) = entry.rsplit_once('.').unwrap_or(("", entry));
     ModuleId::new(&project.root, module).value(name)
-}
-
-/// What a program that gave `gave` exits with: the number, if it gave
-/// one.
-fn code(gave: &Value) -> i32 {
-    match gave {
-        Value::Int(code) => i32::try_from(*code).unwrap_or(FAILED),
-        _ => 0,
-    }
 }

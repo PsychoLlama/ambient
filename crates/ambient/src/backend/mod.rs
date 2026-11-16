@@ -9,18 +9,34 @@
 //! - it reaches other definitions through the slots of its closure's
 //!   definition, and the runtime through entry points.
 
-mod identity;
 pub mod native;
-pub(crate) mod stack;
-pub mod statics;
 pub mod wasm;
 
-/// Why nothing is loaded into a program that was not linked for it.
-pub(crate) const CLOSED: &str =
-    "the program was not linked to be loaded into: see `Engine::link_open`";
+use crate::engine::Backend;
+
+pub(crate) use ambient_host::parts::CLOSED;
+pub(crate) use ambient_host::stack;
+pub use ambient_host::statics;
 
 /// The most parameters a function may take.
 ///
 /// TODO: a limit only because the runtime calls a function of each
 /// arity by a signature it names; nothing else depends on it.
 pub const MAX_ARITY: usize = ambient_runtime::ARGUMENTS;
+
+/// The backend `name` names (`Backend::name`): what compiles code for
+/// a program that says which it was compiled by (`Running::backend`).
+///
+/// # Errors
+///
+/// Fails if no backend here has the name, or the one that has cannot
+/// compile for this machine.
+pub fn named(name: &str) -> Result<Box<dyn Backend>, String> {
+    if name == native::NAME {
+        Ok(Box::new(native::Native::new()?))
+    } else if name == wasm::NAME {
+        Ok(Box::new(wasm::Wasm))
+    } else {
+        Err(format!("nothing here compiles for {name}"))
+    }
+}

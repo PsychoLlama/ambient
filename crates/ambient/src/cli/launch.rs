@@ -2,13 +2,10 @@
 //! report of one that did not finish. See "Running" in
 //! `spec/packages.md`.
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use ambient_host::launch::{Frames, started};
 
-use ambient_runtime::FAULT_PACKAGE;
-
-use super::trace::{Frames, describe};
-use crate::backend::native::{Native, Natives, Program};
+use super::trace;
+use crate::backend::native::{Native, Natives};
 use crate::engine::{Engine, Parts};
 use crate::host;
 use crate::pack::Pack;
@@ -53,7 +50,7 @@ impl Launch<'_> {
 
     /// The names and places a report of the program of `root` takes.
     pub(super) fn frames(&self, root: &Symbol) -> Frames {
-        Frames::reached(self.project, self.engine, root)
+        trace::reached(self.project, self.engine, root)
     }
 
     /// Runs `entry` as a program under `target`, with `natives` for
@@ -68,54 +65,5 @@ impl Launch<'_> {
     ) -> Result<Value, Vec<String>> {
         let linked = self.link(entry, target)?;
         started(&linked.parts, natives, || self.frames(&linked.root))
-    }
-}
-
-/// Loads a compiled program and runs it, with `natives` for what its
-/// target binds. Gives what it gave, or the fault that ended it and
-/// the functions the fault left, which `frames` names if it comes to
-/// that.
-pub(super) fn started(
-    parts: &Parts,
-    natives: &Natives,
-    frames: impl Fn() -> Frames,
-) -> Result<Value, Vec<String>> {
-    let failed = |message: String| vec![message];
-    // An error nothing dealt with reaches the root, which keeps it:
-    // the program ends there, and is reported as one that faulted.
-    let thrown = Rc::new(RefCell::new(None));
-    // Each standard target binds `throw` to an extern of its own.
-    let externs = [
-        (crate::system::PACKAGE, "thrown"),
-        (FAULT_PACKAGE, "test.thrown"),
-    ];
-    let natives = externs
-        .into_iter()
-        .fold(natives.clone(), |natives, (package, path)| {
-            let kept = Rc::clone(&thrown);
-            natives.with(package, path, move |args| {
-                *kept.borrow_mut() = args.first().cloned();
-                Ok(Value::Null)
-            })
-        });
-    let program = Program::load(parts, &natives).map_err(failed)?;
-    let traced = |said: String, error: Option<&Value>| {
-        let frames = frames();
-        let mut lines = vec![said];
-        lines.extend(error.iter().flat_map(|error| frames.trace(error)));
-        vec![lines.join("\n")]
-    };
-    let gave = program.run(&[]).map_err(|fault| {
-        let error = program.error();
-        let said = match (&error, program.failure()) {
-            (_, Some(native)) => format!("{fault:?}: {native}"),
-            (Some(error), None) => describe(error),
-            (None, None) => format!("{fault:?}"),
-        };
-        traced(said, error.as_ref())
-    })?;
-    match thrown.take() {
-        Some(error) => Err(traced(describe(&error), Some(&error))),
-        None => Ok(gave),
     }
 }

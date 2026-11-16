@@ -1,9 +1,10 @@
-//! What `system.code` binds: packing a function to send, compiling
-//! one that was sent, and loading what was compiled. See "Code" in
-//! `spec/targets.md`.
+//! What `system.code` binds that needs the compiler: packing a
+//! function to send, and compiling one that was sent. Loading what was
+//! compiled needs none, and is the host's (`ambient_host::host`). See
+//! "Code" in `spec/targets.md`.
 //!
-//! None of them reaches a world. Packing and compiling need the
-//! compiler, over nothing but what a pack holds: a pack leaves nothing
+//! None of them reaches a world. Packing and compiling work over
+//! nothing but what a pack holds: a pack leaves nothing
 //! out, so an engine with an empty workspace takes one in, and the
 //! program's own trees are held as a pack of its entry.
 
@@ -11,7 +12,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use super::{Failure, Kind, bytes, error};
+use super::{Failure, bytes, error, invalid};
 use crate::backend::native::{Natives, Running};
 use crate::engine::{Backend, Engine, Parts};
 use crate::error::Error;
@@ -59,13 +60,6 @@ pub fn link(
         parts
     };
     Ok(Linked { parts, trees })
-}
-
-fn invalid(message: &dyn ToString) -> Failure {
-    Failure {
-        kind: Kind::Invalid,
-        message: message.to_string(),
-    }
 }
 
 /// The packs this program made, by the function each is of: packing
@@ -116,27 +110,17 @@ fn compile(running: &mut dyn Running, packed: &[u8]) -> Result<Vec<u8>, Failure>
     let entry = engine
         .receive(&pack, &[])
         .map_err(|error| invalid(&error))?;
-    let backend = running.backend().map_err(|error| invalid(&error))?;
+    // The program says which backend it was compiled by.
+    let name = running.backend().map_err(|error| invalid(&error))?;
+    let backend = crate::backend::named(name).map_err(|error| invalid(&error))?;
     let parts = engine.link_to_load(&entry, &*backend);
-    Ok(parts.map_err(|error| invalid(&error))?.encode(&*backend))
+    Ok(parts.map_err(|error| invalid(&error))?.encode(name))
 }
 
-/// Loads what [`compile`] gave into the program that asked, with
-/// `natives` for its externs. The bytes are trusted, as compiled code
-/// is.
-fn load(running: &mut dyn Running, natives: &Natives, compiled: &[u8]) -> Result<Value, Failure> {
-    let backend = running.backend().map_err(|error| invalid(&error))?;
-    let parts = Parts::decode(compiled, backend.name()).map_err(|error| invalid(&error))?;
-    running
-        .load(&parts, natives)
-        .map_err(|error| invalid(&error))
-}
-
-/// `natives`, with what `system.code` binds, for a program whose
-/// trees are `trees`. What is loaded is given the natives there were
-/// before: a received definition names no handler.
-pub(super) fn offer(natives: Natives, trees: Option<Pack>) -> Natives {
-    let base = natives.clone();
+/// `natives`, with what `system.code` binds that needs the compiler,
+/// for a program whose trees are `trees`: see [`link`].
+#[must_use]
+pub fn offer(natives: Natives, trees: Option<Pack>) -> Natives {
     let packed = Rc::new(Packed::default());
     let answer =
         |done: Result<Value, Failure>| done.unwrap_or_else(|failure| error("code", &failure));
@@ -148,8 +132,5 @@ pub(super) fn offer(natives: Natives, trees: Option<Pack>) -> Natives {
         .reaching(PACKAGE, "code_compile", move |running, args| {
             let done = compile(running, bytes(args, 0)?);
             Ok(answer(done.map(Value::Bytes)))
-        })
-        .reaching(PACKAGE, "code_load", move |running, args| {
-            Ok(answer(load(running, &base, bytes(args, 0)?)))
         })
 }

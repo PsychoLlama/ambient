@@ -46,8 +46,8 @@ fn compiled() -> (Vec<u8>, Vec<u8>, String) {
     let main = engine.link_open(&value("main", "main"), &native).unwrap();
     let plugin = engine.link_to_load(&value("plugin", "plugin"), &native);
     (
-        main.encode(&native),
-        plugin.unwrap().encode(&native),
+        main.encode(native.name()),
+        plugin.unwrap().encode(native.name()),
         native.name().to_owned(),
     )
 }

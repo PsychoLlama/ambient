@@ -7,7 +7,7 @@ use wasmtime::{AsContextMut, Caller, Func, Instance, Linker, Val};
 
 use super::units::{Known, Unit};
 use crate::backend::native::{Answers, Externs, Natives, Running, UNDECLARED};
-use crate::engine::{Backend, Parts};
+use crate::engine::Parts;
 use crate::hash::Hash;
 use crate::value::{self, Construct, Inspect, Value};
 
@@ -293,8 +293,8 @@ impl Running for Call<'_, '_> {
         parts.function()
     }
 
-    fn backend(&self) -> Result<Box<dyn Backend>, String> {
-        Ok(Box::new(super::Wasm))
+    fn backend(&self) -> Result<&str, String> {
+        Ok(super::NAME)
     }
 
     fn later(&mut self) -> Result<u64, String> {

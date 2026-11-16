@@ -7,9 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Backend, Body, Part, Parts};
+use super::{BUILD, Body, Constant, Part, Parts};
 use crate::core::{Slot, Type};
-use crate::lir::Constant;
 
 /// What the bytes begin with. Bump it when [`Parts`] changes, or
 /// anything compiled code relies on: a layout, the calling convention,
@@ -53,13 +52,14 @@ struct Header {
 }
 
 impl Parts {
-    /// The parts as bytes, for a host with `backend` and no compiler.
+    /// The parts as bytes, for a host with no compiler and the backend
+    /// `backend` names (`Backend::name`).
     #[must_use]
-    pub fn encode(&self, backend: &dyn Backend) -> Vec<u8> {
+    pub fn encode(&self, backend: &str) -> Vec<u8> {
         let header = Header {
             format: FORMAT,
-            build: super::BUILD.to_owned(),
-            backend: backend.name().to_owned(),
+            build: BUILD.to_owned(),
+            backend: backend.to_owned(),
         };
         let mut bytes = crate::hash::encode(&header);
         bytes.extend(crate::hash::encode(self));
@@ -67,7 +67,7 @@ impl Parts {
     }
 
     /// The parts `bytes` hold, if they were compiled for the backend
-    /// `name` names ([`Backend::name`]).
+    /// `name` names (`Backend::name`).
     ///
     /// # Errors
     ///
@@ -78,7 +78,7 @@ impl Parts {
         if header.format != FORMAT {
             return Err(Unloadable::Format(header.format));
         }
-        if header.build != super::BUILD {
+        if header.build != BUILD {
             return Err(Unloadable::Compiler);
         }
         if header.backend != name {

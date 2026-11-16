@@ -24,8 +24,8 @@ mod operands;
 mod steps;
 
 use ambient_runtime::Fault;
-use serde::{Deserialize, Serialize};
 
+pub use ambient_host::parts::Constant;
 pub use steps::{Arg, Step};
 
 use crate::core::Primitive;
@@ -52,40 +52,6 @@ impl Value {
     pub fn counted(self) -> bool {
         matches!(self, Self::Local(_) | Self::Captured(_) | Self::Constant(_))
     }
-}
-
-/// Something a definition needs that is made once, when its code is
-/// loaded, and kept as long as that code is.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Constant {
-    String(String),
-    Bytes(Vec<u8>),
-    /// A tag: its package and itself, as [`crate::literal::Literal::tag_text`]
-    /// spells them.
-    Tag(String),
-    /// A field name, as the key records are indexed by.
-    Field(String),
-    /// A type, as the descriptor a value is tested against. Its slots are
-    /// those of the definition it is a constant of.
-    Type(crate::core::Type),
-    /// Type arguments that mention no type parameter: what a generic
-    /// function used at them is made with. Their slots are those of the
-    /// definition they are a constant of.
-    Types(Vec<crate::core::Type>),
-    /// The generic function in a slot at type arguments that mention no
-    /// type parameter, as a value: a closure that holds them.
-    Instance(usize, Vec<crate::core::Type>),
-    /// The ability in a slot, as the key bindings hold the budget its
-    /// handler was bound inside under. Only metered code has these.
-    AbilityBudget(usize),
-    /// The ability in a slot, as the key bindings are indexed by.
-    Ability(usize),
-    /// Where the definition, an extern, sits among the externs of the
-    /// program it is loaded into. Not a value.
-    Native,
-    /// The hash of the definition itself, as a string: what a frame of a
-    /// trace names it by. Known only once the program is linked.
-    Own,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

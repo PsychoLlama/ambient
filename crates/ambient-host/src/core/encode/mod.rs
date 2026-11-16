@@ -168,7 +168,8 @@ impl Type {
 }
 
 /// The canonical encoding of a signature alone, for interface digests.
-pub(crate) fn encode_signature(
+#[must_use]
+pub fn encode_signature(
     type_params: &[Type],
     params: &[Type],
     ret: &Type,

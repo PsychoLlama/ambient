@@ -28,9 +28,6 @@ mod resume;
 /// Compiles for the machine this process runs on.
 pub struct Native {
     isa: OwnedTargetIsa,
-    /// The backend and the machine: code for one does not run on
-    /// another.
-    name: String,
 }
 
 impl Native {
@@ -60,14 +57,15 @@ impl Native {
         if isa.pointer_type() != I64 {
             return Err("only 64-bit hosts are supported".to_owned());
         }
-        let name = format!("native-{}", isa.triple());
-        Ok(Self { isa, name })
+        Ok(Self { isa })
     }
 }
 
 impl Backend for Native {
+    /// The loader's name for what this compiles: the backend and the
+    /// machine, since code for one does not run on another.
     fn name(&self) -> &str {
-        &self.name
+        super::NAME
     }
 
     fn compile(&self, definition: &Open, form: &Form) -> Result<Vec<u8>, String> {

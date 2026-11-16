@@ -9,8 +9,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::core::Tree;
+use crate::deep;
 use crate::hash::Hash;
-use crate::lower::deep;
 
 /// What a slot of a packed definition refers to.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,7 +75,7 @@ impl Pack {
     }
 
     /// The pack `bytes` hold. Nothing about it is trusted yet: see
-    /// [`crate::engine::Engine::receive`].
+    /// `Engine::receive`.
     ///
     /// # Errors
     ///

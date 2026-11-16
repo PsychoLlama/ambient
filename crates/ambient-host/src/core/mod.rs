@@ -13,7 +13,7 @@ use crate::symbol::Symbol;
 pub use cost::Cost;
 pub use depth::DEPTH;
 pub use encode::Resolve;
-pub(crate) use encode::encode_signature;
+pub use encode::encode_signature;
 
 /// A reference to another definition, as an index into the slot table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

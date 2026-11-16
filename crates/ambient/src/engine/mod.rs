@@ -29,7 +29,6 @@ mod group;
 mod handed;
 mod link;
 mod pack;
-mod parts;
 mod program;
 mod read;
 mod resolve;
@@ -52,17 +51,21 @@ use crate::store::Store;
 use crate::symbol::{ModuleId, Symbol};
 use crate::workspace::Sources;
 
+pub use ambient_host::parts::{Artifact, Body, Native, Part, Parts, Unloadable};
 pub use check::Interface;
+pub use compile::Backend;
 use compile::Mode;
-pub use compile::{Artifact, Backend};
-pub use link::{Body, Native, Part, Parts};
-pub use parts::Unloadable;
 pub use read::{Entry, Read, Table};
 pub use resolve::Resolved;
 pub use scope::{Member, Members, Scope};
 
 /// The answer to a question: shared, or the problem that prevented it.
 pub type Query<T> = Result<Arc<T>, Error>;
+
+/// The build of the compiler this is: its source, the host's, the
+/// runtime's, and the versions of what they depend on. Nothing one
+/// build stored is reused by another.
+const BUILD: &str = env!("AMBIENT_BUILD");
 
 /// A stage whose results are kept in the store.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -252,9 +255,6 @@ impl<'a> Engine<'a> {
         result.map(Arc::new)
     }
 }
-
-/// This build of the compiler: see `build.rs`.
-const BUILD: &str = env!("AMBIENT_BUILD");
 
 /// Where the result under `key` is kept by one build of the compiler.
 fn kept(key: &Hash, build: &str) -> Hash {

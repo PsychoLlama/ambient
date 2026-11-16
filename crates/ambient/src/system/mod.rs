@@ -10,8 +10,7 @@ use ambient_runtime::FAULT_PACKAGE;
 use crate::symbol::{ModuleId, Symbol};
 use crate::workspace::{Workspace, WorkspaceError};
 
-/// The package's name and its ID, which no other package may take.
-pub const PACKAGE: &str = "system";
+pub use ambient_host::host::PACKAGE;
 
 /// Each module's path and text; the library module's path is empty.
 const SOURCES: [(&str, &str); 11] = [

@@ -24,7 +24,7 @@ mod resume;
 mod runtime;
 mod units;
 
-pub use emit::Wasm;
+pub use emit::{NAME, Wasm};
 pub use guest::{Guest, State};
 pub use host::Program;
 pub use link::Carried;

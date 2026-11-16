@@ -10,9 +10,8 @@ use sha1::Sha1;
 use sha2::{Digest, Sha256, Sha512};
 use subtle::ConstantTimeEq;
 
-use super::bytes;
-use crate::backend::native::Natives;
-use crate::system::PACKAGE;
+use super::{PACKAGE, bytes};
+use crate::native::Natives;
 use crate::value::Value;
 
 /// A way of hashing, as a tag of `system.crypto` names it.

@@ -5,9 +5,9 @@ use std::ops::Range;
 use ambient_runtime::Word;
 use memmap2::{Mmap, MmapMut};
 
-use crate::backend::statics::{Make, Statics};
-use crate::engine::Parts;
 use crate::hash::Hash;
+use crate::parts::Parts;
+use crate::statics::{Make, Statics};
 
 /// What one load brought: code, and the block of words it reads.
 ///

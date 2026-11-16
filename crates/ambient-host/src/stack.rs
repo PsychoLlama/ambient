@@ -6,10 +6,10 @@
 
 /// The stack a program may take, in bytes: what the deepest calls keep,
 /// many times over, since a frame holds more than what is counted.
-pub(crate) const ROOM: usize = 64 << 20;
+pub const ROOM: usize = 64 << 20;
 
 /// Runs `work`, which runs a program, with [`ROOM`] and room for the
 /// host under it.
-pub(crate) fn roomy<R>(work: impl FnOnce() -> R) -> R {
+pub fn roomy<R>(work: impl FnOnce() -> R) -> R {
     stacker::maybe_grow(ROOM + (ROOM >> 4), 2 * ROOM, work)
 }

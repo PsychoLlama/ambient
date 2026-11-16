@@ -17,11 +17,10 @@ mod descriptors;
 
 use descriptors::root_size;
 
-use super::identity;
 use crate::core::Type;
-use crate::engine::{Body, Parts};
 use crate::hash::Hash;
-use crate::lir::Constant;
+use crate::identity;
+use crate::parts::{Body, Constant, Parts};
 
 /// What goes in one word.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

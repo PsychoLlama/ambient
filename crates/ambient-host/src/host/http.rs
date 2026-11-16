@@ -3,8 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{Failure, Work, World, error, int, text};
-use crate::system::PACKAGE;
+use super::{Failure, PACKAGE, Work, World, error, int, text};
 use crate::value::Value;
 
 /// What is sent to a server. One a server was sent has the path and

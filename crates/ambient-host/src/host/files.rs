@@ -3,8 +3,7 @@
 use std::collections::BTreeMap;
 
 use super::http::Handler;
-use super::{Failure, Kind, World, bytes, error, strings, text};
-use crate::system::PACKAGE;
+use super::{Failure, Kind, PACKAGE, World, bytes, error, strings, text};
 use crate::value::Value;
 
 /// What kind of thing a path leads to.

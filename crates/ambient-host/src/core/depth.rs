@@ -2,7 +2,7 @@
 //! `spec/core.md`.
 //!
 //! Everything that walks a tree recurses once per level, so the limit is
-//! what lets [`crate::lower::deep`] promise room for any tree. A tree is
+//! what lets [`crate::deep`] promise room for any tree. A tree is
 //! held to it wherever one is made: by the checker, and here, as one is
 //! decoded.
 

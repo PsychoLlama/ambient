@@ -14,7 +14,7 @@ use crate::literal::Literal;
 
 /// The name of a type, or nothing if the type mentions a type
 /// parameter: what it is then depends on where it is read.
-pub(super) fn name(ty: &Type, hash: &dyn Fn(Slot) -> Hash) -> Option<String> {
+pub(crate) fn name(ty: &Type, hash: &dyn Fn(Slot) -> Hash) -> Option<String> {
     let text = spell(ty, hash)?;
     Some(
         Hasher::new("type")

@@ -11,14 +11,14 @@ use serde::{Deserialize, Serialize};
 use super::load::Program;
 use super::values::{Host, Inside};
 use super::waits::{Answers, asked};
-use crate::engine::{Backend, Native, Parts};
+use crate::parts::{Native, Parts};
 use crate::value::{self, Value};
 
 /// The program that called native code, as far as native code reaches
 /// it. See "Native side" in `spec/externs.md`.
 pub trait Running {
     /// Loads a function into the program and gives it as a value: one
-    /// [`crate::engine::Engine::link_to_load`] made for the program's
+    /// `Engine::link_to_load` made for the program's
     /// backend, with the native code for its externs. Its code stays
     /// while a value refers to it.
     ///
@@ -28,13 +28,14 @@ pub trait Running {
     /// running.
     fn load(&mut self, parts: &Parts, natives: &Natives) -> Result<Value, String>;
 
-    /// What compiles code for the program, so that it can be loaded.
+    /// The name of the backend the program was compiled by
+    /// (`Backend::name`): what code is to be compiled by, so that it
+    /// can be loaded, and what compiled parts are checked against.
     ///
     /// # Errors
     ///
-    /// Fails if no program is running, or nothing compiles for it
-    /// here.
-    fn backend(&self) -> Result<Box<dyn Backend>, String>;
+    /// Fails if no program is running.
+    fn backend(&self) -> Result<&str, String>;
 
     /// Says this call will answer later, and gives the ticket the
     /// answer is to come by: see [`super::Waits`]. The task that made
@@ -59,7 +60,7 @@ impl Running for Nowhere {
         Err("no program is running".to_owned())
     }
 
-    fn backend(&self) -> Result<Box<dyn Backend>, String> {
+    fn backend(&self) -> Result<&str, String> {
         Err("no program is running".to_owned())
     }
 
@@ -84,8 +85,8 @@ impl Running for Call<'_> {
         parts.function()
     }
 
-    fn backend(&self) -> Result<Box<dyn Backend>, String> {
-        Ok(Box::new(super::Native::new()?))
+    fn backend(&self) -> Result<&str, String> {
+        Ok(super::NAME)
     }
 
     fn later(&mut self) -> Result<u64, String> {

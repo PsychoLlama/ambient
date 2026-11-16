@@ -1,17 +1,11 @@
-//! The native backend: Cranelift, and loading what it produced into this
-//! process.
+//! The native backend: Cranelift. Loading what it produced into this
+//! process is `ambient_host::native`, whose names are given again
+//! here.
 
 mod emit;
-mod externs;
-mod host;
-mod load;
-mod unit;
-mod values;
-mod waits;
 
+pub use ambient_host::native::{
+    Answer, Answers, Externs, Host, Inside, NAME, NativeFn, Natives, Nowhere, Observation, Offered,
+    Program, Running, UNDECLARED, Waits, encode,
+};
 pub use emit::Native;
-pub use externs::Externs;
-pub use host::{NativeFn, Natives, Nowhere, Observation, Offered, Running, UNDECLARED};
-pub use load::Program;
-pub use values::{Host, Inside, encode};
-pub use waits::{Answer, Answers, Waits};

@@ -2,13 +2,14 @@
 
 - `spec/`: source of truth for the language design. The implementation follows it; change the spec first.
 - `crates/ambient`: the implementation, a library plus an empty binary. Module docs name the spec page each module implements.
+- `crates/ambient-host`: what loads and runs a compiled program, with no compiler in it: trees, values, parts, the native loader, the native side of `system`, and launching. `ambient` gives its modules again at the paths they had (`ambient::core`, `backend::native`, `host`), which is how the bullets below name them.
 - `crates/ambient-runtime`: what compiled code calls. Built natively into the compiler, and for wasm32 by `crates/ambient/build.rs` as one relocatable object.
 
 ## Invariants
 
 - Text is read by `ambient::syntax` into the same surface trees the builders make, through the builders. Tests still build programs with `ambient::builder`; only tests of the syntax itself, and of whole programs on disk, use text.
 - Every stage result is stored under a key derived from the content of its inputs (`engine/mod.rs`). A stage's compute function reads nothing that is not in its key.
-- The compiler itself is an input no key names: `build.rs` hashes its source into `AMBIENT_BUILD`, and `Engine::stage_if` stores under the key and that.
+- The compiler itself is an input no key names: `build.rs` hashes its source into `AMBIENT_BUILD`, and `Engine::stage_if` stores under the key and that. The host has a build of its own (`parts::BUILD`: its source and the runtime's), which is all compiled parts are held to.
 - A comptime call takes only abilities its package is granted (`Sources::grants`), checked at the call before it runs; the check key of a definition with comptime calls covers the grants.
 - A comptime parameter of type `tree.Type` (`library/tree.ab`) is handed the tree of the type its argument names (`checker/reflect.rs`): the normal form as a value. The check key covers the type, as it does any the body names.
 - A derived type (`DefinitionKind::Derived`, `engine/derive.rs`) is a comptime call checked as the body of a function the engine writes; `checker/reify.rs` reads the type from the literal it was spliced as. From there on it is a type definition whose content is that type.
@@ -70,9 +71,9 @@
 - A match of one arm that binds its subject as a type is an ascription (`Checker::ascribed`): the subject is checked against the type and nothing is tested. The core tree says so (`core::Expr::Widen`), since the core checker would otherwise infer less than the binder was said to hold. It is what the reader makes of `let name: Type = value;`.
 - Names the reader makes up start with `__`, which no program may write.
 - What needs a world is the `system` package (`system/`, `spec/targets.md`), installed beside the library; `ambient` holds nothing that does. The command-line target is `system.cli` (`system/lib.ab`); its native side is `host/`, where every handler goes through `host::World`, and one that takes time begins `host::Work` and is answered later. The real process waits on threads that send what they got (`host/pending.rs`, `host/network.rs`); only the program's thread touches a value. Tests run programs over `support::scripted::Scripted`, never the real process.
-- `system.code` is native code over an engine with an empty workspace (`host/code.rs`): a pack leaves nothing out, so compiling one needs nothing else. It compiles for `Running::backend`, so no handler names a backend, and what `code.load` takes is `Parts::encode`.
+- `system.code` is native code over an engine with an empty workspace (`host/code.rs`): a pack leaves nothing out, so compiling one needs nothing else. It compiles for the backend `Running::backend` names (`backend::named`), and what `code.load` takes is `Parts::encode`. Loading is the host crate's; packing and compiling need the compiler, and are added to its handlers (`host::compiling`).
 - A `system.cli` program is compiled by `host::link`, never `Engine::link`: open if its row reaches `code.load`, and with a pack of its entry (`Linked::trees`) if it reaches `code.pack`. A root binding the row does not reach is not linked, so the externs of the parts say which.
-- `throw` is an ability of the library like any other (`library/errors.ab`), re-exported beside `Error`; each standard target binds it to an extern `thrown` of its own package, both of which `cli::Launch` supplies and reports as it does a fault.
+- `throw` is an ability of the library like any other (`library/errors.ab`), re-exported beside `Error`; each standard target binds it to an extern `thrown` of its own package, both of which `launch::started` supplies and reports as it does a fault.
 - A lambda with no row takes the row of the function type expected of it (`Checker::infer_as`, `asked`); with none expected it captures everything.
 - `ambient test` runs each `test_*` function that takes nothing as its own program under `ambient.test.tests`, whose one extern is the check (`cli/test.rs`); `cli::Launch` is the one way a command runs a program.
 - An executable is the command's own file with a program after it (`cli/build.rs`): encoded parts, the names and places a report takes (`cli::trace::Frames`), a length, and a mark. `main` looks for the mark in its own file before it reads a command line; `cli::launch::started` is the one way a compiled program is run and reported, built or not.
@@ -97,7 +98,7 @@
 - Subtyping is decided only when checking (`types/relate.rs`). The runtime compares two types for sameness alone, for casts to cell types (`ambient-runtime/src/same.rs`); a cast to a function type compares one word, the name of the type (`backend/identity.rs`), which a definition carries.
 - A function whose type depends on type arguments carries a descriptor of it instead of a name (`DEFINITION_DESCRIBED`, `link::says`), and only if it is handed them. A cast reads it in the arguments the closure holds (`closure::described`).
 - A native `Program` keeps a list of its live cells and empties them when it drops (`ambient-runtime/src/cell.rs`), since counting never reclaims a cell that reaches itself. In wasm the instance's memory goes as a whole.
-- `Parts::encode` is compiled code for a host with no compiler (`engine/parts.rs`), refused by another backend, format, or build of the compiler. Bump its `FORMAT` when `Parts`, a layout, the calling convention, or a runtime entry changes.
+- `Parts::encode` is compiled code for a host with no compiler (`ambient-host/src/parts/encode.rs`), refused by another backend, format, or build of the host. Bump its `FORMAT` when `Parts`, a layout, the calling convention, or a runtime entry changes.
 - A value has one encoding (`exchange.rs`); `decode` accepts only what `encode` produces. A host sees inside an iterator (`value::Source`), and only one that keeps what its source keeps (`Source::keeps`) is decoded or made in a program: the runtime steps without looking.
 - `core::Tree::resolved` defines every hash: the tree's encoding with slots replaced by hashes and unions ordered by that. `Tree::encode` is the stored form, which names can order; never hash it. Changing either or the node set means bumping `FORMAT`.
 

@@ -3,9 +3,7 @@
 
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
-
-use super::{Engine, Query, Stage, memo};
+use super::{Artifact, Engine, Query, Stage, memo};
 use crate::core::{Open, Tree};
 use crate::error::Error;
 use crate::hash::Hasher;
@@ -30,9 +28,6 @@ pub trait Backend {
     /// [`crate::lower::lower`] has it.
     fn compile(&self, definition: &Open, form: &Form) -> Result<Vec<u8>, String>;
 }
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Artifact(pub Vec<u8>);
 
 /// Which of a function's compiled forms: all are code for one hash.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

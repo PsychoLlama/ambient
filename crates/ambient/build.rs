@@ -45,12 +45,18 @@ fn feed(path: &Path, hasher: &mut DefaultHasher) {
     }
 }
 
-/// Names this build of the compiler: its source, the runtime's, and
-/// the versions of what both depend on. A stored result is only reused
-/// by the build that made it (`Engine::stage_if`).
+/// Names this build of the compiler: its source, the host's, the
+/// runtime's, and the versions of what they depend on. A stored result
+/// is only reused by the build that made it (`Engine::stage_if`).
 fn identify() {
     let mut hasher = DefaultHasher::new();
-    for input in ["src", "../ambient-runtime/src", "../../Cargo.lock"] {
+    let inputs = [
+        "src",
+        "../ambient-host/src",
+        "../ambient-runtime/src",
+        "../../Cargo.lock",
+    ];
+    for input in inputs {
         println!("cargo::rerun-if-changed={input}");
         feed(Path::new(input), &mut hasher);
     }
@@ -59,7 +65,9 @@ fn identify() {
 
 fn main() {
     identify();
+    println!("cargo::rerun-if-changed=../ambient-runtime/src");
     println!("cargo::rerun-if-changed=../ambient-runtime/Cargo.toml");
+    println!("cargo::rerun-if-changed=../../Cargo.lock");
 
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap_or_default());
     // A target directory of its own: the one this build is running in is

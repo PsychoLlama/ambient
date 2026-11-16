@@ -10,9 +10,8 @@ use std::rc::Rc;
 
 use super::Command;
 use super::http::{self, Incoming, Request, Response};
-use super::{Failure, Ran, World, error, optional, output};
-use crate::backend::native::{Answer, Waits};
-use crate::system::PACKAGE;
+use super::{Failure, PACKAGE, Ran, World, error, optional, output};
+use crate::native::{Answer, Waits};
 use crate::value::Value;
 
 /// Something a world is asked to begin.

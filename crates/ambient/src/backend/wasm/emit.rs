@@ -34,9 +34,12 @@ pub(super) const PARAMS: u32 = 2;
 /// function keeps its locals in a frame it takes from that stack.
 pub(super) const STACK: u32 = 0;
 
+/// What names this backend ([`Backend::name`]).
+pub const NAME: &str = "wasm";
+
 impl Backend for Wasm {
     fn name(&self) -> &'static str {
-        "wasm"
+        NAME
     }
 
     fn compile(&self, definition: &Open, form: &Form) -> Result<Vec<u8>, String> {

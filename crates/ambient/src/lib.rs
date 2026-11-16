@@ -6,29 +6,28 @@
 //! A program enters as [`surface`] trees made with a [`builder`], held by a
 //! [`workspace`]. An [`engine::Engine`] answers questions about it on demand,
 //! keeping every stage result in a [`store`].
+//!
+//! What a host needs to load and run a compiled program is a crate of
+//! its own, `ambient-host`, which has no compiler in it. Its modules
+//! are given again here under the paths they have always had.
+
+pub use ambient_host::{core, exchange, hash, literal, pack, symbol, value};
 
 pub mod backend;
 pub mod builder;
 pub mod checker;
 pub mod cli;
-pub mod core;
 pub mod engine;
 pub mod error;
-pub mod exchange;
-pub mod hash;
 pub mod host;
 pub mod library;
 pub mod lir;
-pub mod literal;
 pub mod lower;
-pub mod pack;
 pub mod project;
 pub mod store;
 pub mod surface;
-pub mod symbol;
 pub mod syntax;
 pub mod system;
 pub mod types;
-pub mod value;
 pub mod verify;
 pub mod workspace;

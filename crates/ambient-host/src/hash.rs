@@ -95,7 +95,7 @@ impl Hasher {
 ///
 /// This is not the canonical encoding of a core tree; see
 /// [`crate::core::Tree::encode`] for that.
-pub(crate) fn encode<T: Serialize>(value: &T) -> Vec<u8> {
+pub fn encode<T: Serialize>(value: &T) -> Vec<u8> {
     match postcard::to_allocvec(value) {
         Ok(bytes) => bytes,
         // Writing to memory cannot fail, and every type passed here derives
@@ -105,6 +105,6 @@ pub(crate) fn encode<T: Serialize>(value: &T) -> Vec<u8> {
 }
 
 /// A digest of one of this crate's own values, for use in a stage key.
-pub(crate) fn digest<T: Serialize>(domain: &str, value: &T) -> Hash {
+pub fn digest<T: Serialize>(domain: &str, value: &T) -> Hash {
     Hasher::new(domain).bytes(&encode(value)).finish()
 }
