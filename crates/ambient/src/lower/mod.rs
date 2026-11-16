@@ -43,12 +43,17 @@ pub fn lower(definition: &Open, form: &Form) -> Result<lir::Function, Unsupporte
     let function = match &definition.tree {
         Tree::Function(function) => function,
         Tree::Extern {
-            params, suspends, ..
+            params,
+            suspends,
+            row,
+            ..
         } => {
             return Ok(native::native(
                 params.len(),
                 definition.slots.len(),
                 *suspends,
+                row,
+                form.metered,
             ));
         }
         _ => return Err(Unsupported("definitions that are not functions")),

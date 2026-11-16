@@ -66,6 +66,8 @@ pub const HOST: &[&str] = &[
     "amb_strand",
     "amb_call_back",
     "amb_call_among",
+    "amb_budget_switch",
+    "amb_budget_back",
 ];
 
 /// What a host calls only of a program that reaches a function: what
@@ -84,6 +86,8 @@ const OFFERED: &[(&str, &[&str])] = &[
     ("amb_strand", &["amb_native_wait"]),
     ("amb_call_back", &["amb_native"]),
     ("amb_call_among", &["amb_native", "amb_suspend"]),
+    ("amb_budget_switch", &["amb_native", "amb_budget_enter"]),
+    ("amb_budget_back", &["amb_native", "amb_budget_enter"]),
 ];
 
 /// What a host that loads units calls besides.
@@ -99,6 +103,17 @@ pub(super) enum Shape<'a> {
 }
 
 impl Shape<'_> {
+    /// What of `host`, the functions a host calls, the module is
+    /// linked for whatever it reaches. A program nothing is loaded
+    /// into is not linked for what it is only offered: it has those
+    /// if it reaches what they need, or if its own code calls them.
+    pub(super) fn roots(&self, host: &[&'static str]) -> Vec<&'static str> {
+        let closed = matches!(self, Self::Program { open: false });
+        let offered = |name: &str| OFFERED.iter().any(|(offered, _)| *offered == name);
+        let asked = host.iter().copied();
+        asked.filter(|name| !(closed && offered(name))).collect()
+    }
+
     pub(super) fn loaded(&self) -> bool {
         matches!(self, Self::Unit(_))
     }
@@ -177,12 +192,7 @@ impl Runtime {
         imports: &mut ImportSection,
     ) -> Result<Self, String> {
         let target = match shape {
-            Shape::Program { open: false } => {
-                for (name, _) in OFFERED {
-                    roots.remove(name);
-                }
-                For::Program(OFFERED)
-            }
+            Shape::Program { open: false } => For::Program(OFFERED),
             Shape::Program { open: true } => {
                 roots.extend(LOADING);
                 For::Program(&[])

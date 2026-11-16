@@ -74,11 +74,13 @@ pub(super) fn externs(
     let mut found = exported(module, instance, store, "native:");
     found.sort_by_key(|(_, position)| *position);
     let native = |(name, _): (String, u64)| {
-        let (package, path) = name.split_once('\t')?;
-        Some(Native {
-            package: package.to_owned(),
-            path: path.to_owned(),
-        })
+        let mut texts = name.split('\t').map(str::to_owned);
+        let (package, path) = (texts.next()?, texts.next()?);
+        let mut row = Vec::new();
+        while let Some(package) = texts.next() {
+            row.push((package, texts.next()?));
+        }
+        Some(Native { package, path, row })
     };
     found.into_iter().filter_map(native).collect()
 }

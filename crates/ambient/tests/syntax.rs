@@ -224,6 +224,16 @@ fn the_world_is_declared_as_externs_and_a_target() {
 }
 
 #[test]
+fn an_extern_function_says_what_it_performs() {
+    let source = "extern fn shout(text: string): null with log.print;";
+    let shout = b::extern_function("shout")
+        .param("text", ty::string())
+        .performs(["log.print"]);
+
+    assert_eq!(parse(source).unwrap(), built([shout.into()]));
+}
+
+#[test]
 fn a_native_handler_says_whether_it_suspends() {
     let source = "extern suspending handler read for log.read;";
     let read = b::native_handler("read", "log.read").suspending();

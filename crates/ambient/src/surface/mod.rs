@@ -159,8 +159,13 @@ pub struct Extern<N = Path> {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExternKind<N = Path> {
-    /// A pure function, called like any other.
-    Function { params: Vec<Param<N>>, ret: Type<N> },
+    /// A function, called like any other, which may perform the
+    /// abilities in `row` and is pure but for them.
+    Function {
+        params: Vec<Param<N>>,
+        ret: Type<N>,
+        row: Vec<N>,
+    },
     /// An implementation of `ability`, which may perform the abilities in
     /// `row`. It can only be bound by a target.
     Handler { ability: N, row: Vec<N> },

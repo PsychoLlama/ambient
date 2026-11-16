@@ -23,14 +23,14 @@ pub fn check_extern(
 ) -> Result<Open, Error> {
     let mut checker = Checker::new(symbol, env);
     let (params, ret, handles, row) = match &native.kind {
-        ExternKind::Function { params, ret } => {
+        ExternKind::Function { params, ret, row } => {
             let mut types = Vec::new();
             for param in params {
                 checker.well_formed(&param.ty)?;
                 types.push(env.normalize(&param.ty));
             }
             checker.well_formed(ret)?;
-            (types, env.normalize(ret), None, Vec::new())
+            (types, env.normalize(ret), None, abilities(row))
         }
         // A native handler takes what its ability takes.
         ExternKind::Handler { ability, row } => {

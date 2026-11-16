@@ -233,9 +233,10 @@ impl<'a> Resolver<'a> {
             DefinitionKind::Extern(native) => DefinitionKind::Extern(Extern {
                 suspends: native.suspends,
                 kind: match &native.kind {
-                    ExternKind::Function { params, ret } => ExternKind::Function {
+                    ExternKind::Function { params, ret, row } => ExternKind::Function {
                         params: self.params(params)?,
                         ret: self.ty(ret)?,
+                        row: self.row(row)?,
                     },
                     ExternKind::Handler { ability, row } => ExternKind::Handler {
                         ability: self.ability(ability)?,

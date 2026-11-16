@@ -285,6 +285,28 @@ impl Type {
         }
     }
 
+    /// Whether the type holds a function type with a row: whether
+    /// calling what it describes may take bindings. An extern takes
+    /// nothing that does, since native code hands what it calls none.
+    #[must_use]
+    pub fn takes_bindings(&self) -> bool {
+        let any = |types: &[Self]| types.iter().any(Self::takes_bindings);
+        match self {
+            Self::Record(fields) => fields.iter().any(|(_, ty)| ty.takes_bindings()),
+            Self::Tuple(members) | Self::Union(members) | Self::Reference(_, members) => {
+                any(members)
+            }
+            Self::List(member) | Self::Cell(member) | Self::Iterator(member) => {
+                member.takes_bindings()
+            }
+            Self::Function { params, ret, row } => {
+                !row.is_empty() || any(params) || ret.takes_bindings()
+            }
+            Self::Generic { bounds, function } => any(bounds) || function.takes_bindings(),
+            _ => false,
+        }
+    }
+
     /// The type as the inside of a generic function type that binds
     /// the type parameters of the definition it is written in, `depth`
     /// parameters of generic function types being bound between.

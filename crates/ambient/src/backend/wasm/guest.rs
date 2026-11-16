@@ -7,7 +7,8 @@ use wasmtime::{AsContextMut, Caller, Func, Instance, Linker, Val};
 
 use super::units::{Known, Unit};
 use crate::backend::native::{
-    ANSWERING, Answers, Externs, Natives, Running, UNCALLABLE, UNDECLARED, UNWOUND,
+    ANSWERING, Answers, Externs, Natives, Running, UNCALLABLE, UNDECLARED, UNDECLARED_ABILITY,
+    UNWOUND, bound,
 };
 use crate::engine::Parts;
 use crate::hash::Hash;
@@ -291,18 +292,25 @@ struct Call<'a, 'b> {
     /// Its number, which the functions read for it hold: see
     /// [`Live`].
     number: u64,
+    /// The abilities its extern declared, and the handlers bound for
+    /// them where it was called: see [`bound`].
+    row: Vec<(String, String)>,
+    handlers: u64,
 }
 
 impl Call<'_, '_> {
-    /// The words a call back hands over: `function` where it is in
-    /// the program, which the arguments of this call hold, and a tuple
-    /// of no bindings and then `args`, which the caller owns. None if
-    /// `function` cannot be called with them.
-    fn handed(&mut self, function: &Value, args: &[Value]) -> Option<(u64, u64)> {
+    /// Calls `callee`, a function of the program that something else
+    /// holds, with nothing bound and `args`.
+    fn made(&mut self, callee: u64, args: &[Value]) -> Result<Value, String> {
+        if self.unwound {
+            return Err(UNWOUND.to_owned());
+        }
+        if self.ticket.is_some() {
+            return Err(ANSWERING.to_owned());
+        }
         let guest = &mut self.guest;
-        let callee = Live::of(function, self.number)?;
         if guest.words("amb_closure_arity", &[callee]) != args.len() as u64 + 1 {
-            return None;
+            return Err(UNCALLABLE.to_owned());
         }
         let handed = guest.words("amb_sequence_new", &[0, args.len() as u64 + 1]);
         for (index, arg) in (1..).zip(args) {
@@ -310,7 +318,22 @@ impl Call<'_, '_> {
             guest.words("amb_sequence_set", &[handed, index, word]);
             guest.words("amb_release", &[word]);
         }
-        Some((callee, handed))
+        // A program in which a task can suspend gives others their
+        // turns beneath the call; any other has nothing that does.
+        let entry = if guest.has("amb_call_among") {
+            "amb_call_among"
+        } else {
+            "amb_call_back"
+        };
+        let result = guest.at(entry, self.context, &[callee, handed]);
+        guest.words("amb_release", &[handed]);
+        if result == ambient_runtime::UNWIND {
+            self.unwound = true;
+            return Err(UNWOUND.to_owned());
+        }
+        let value = value::decode(result, guest);
+        guest.words("amb_release", &[result]);
+        Ok(value)
     }
 }
 
@@ -341,32 +364,31 @@ impl Running for Call<'_, '_> {
     }
 
     fn call(&mut self, function: &Value, args: &[Value]) -> Result<Value, String> {
-        if self.unwound {
-            return Err(UNWOUND.to_owned());
-        }
-        if self.ticket.is_some() {
-            return Err(ANSWERING.to_owned());
-        }
-        let (callee, handed) = self
-            .handed(function, args)
-            .ok_or_else(|| UNCALLABLE.to_owned())?;
-        let guest = &mut self.guest;
-        // A program in which a task can suspend gives others their
-        // turns beneath the call; any other has nothing that does.
-        let entry = if guest.has("amb_call_among") {
-            "amb_call_among"
+        let callee = Live::of(function, self.number).ok_or_else(|| UNCALLABLE.to_owned())?;
+        self.made(callee, args)
+    }
+
+    fn perform(&mut self, package: &str, path: &str, args: &[Value]) -> Result<Value, String> {
+        let handlers = self.handlers;
+        let length = if self.row.is_empty() {
+            0
         } else {
-            "amb_call_back"
+            self.guest.words("amb_length", &[handlers])
         };
-        let result = guest.at(entry, self.context, &[callee, handed]);
-        guest.words("amb_release", &[handed]);
-        if result == ambient_runtime::UNWIND {
-            self.unwound = true;
-            return Err(UNWOUND.to_owned());
+        let (handler, budget) =
+            bound(&self.row, length, package, path).ok_or_else(|| UNDECLARED_ABILITY.to_owned())?;
+        // A handler runs inside the budget it was bound inside. Only a
+        // program that has budgets has metered code to say so.
+        let saved = budget.map(|budget| {
+            let budget = self.guest.words("amb_word_at", &[handlers, budget]);
+            self.guest.at("amb_budget_switch", self.context, &[budget])
+        });
+        let handler = self.guest.words("amb_word_at", &[handlers, handler]);
+        let answered = self.made(handler, args);
+        if let Some(saved) = saved {
+            self.guest.at("amb_budget_back", self.context, &[saved, 0]);
         }
-        let value = value::decode(result, guest);
-        guest.words("amb_release", &[result]);
-        Ok(value)
+        answered
     }
 }
 
@@ -394,6 +416,7 @@ pub(super) fn native(
     let offered = usize::try_from(index)
         .ok()
         .and_then(|index| caller.data().natives.get(index).cloned());
+    let row = offered.as_ref().map(|(native, _)| native.row.clone());
     let offered = offered.map(|(_, offered)| offered);
     let guest = Guest {
         store: &mut caller,
@@ -408,6 +431,8 @@ pub(super) fn native(
         ticket: None,
         unwound: false,
         number: Live::call(),
+        row: row.unwrap_or_default(),
+        handlers: bindings.cast_unsigned(),
     };
     let mut handed = Handed {
         inspect: &mut call.guest,

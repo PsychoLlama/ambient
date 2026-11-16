@@ -60,7 +60,8 @@ fn placed(part: &Part) -> bool {
 /// out the program's definitions and returns the entry's closure, and
 /// `entry`, which takes a context, that closure, and the entry's
 /// arguments. For each extern it reaches it exports a global
-/// `native:<package>\t<tag>`, its position among them.
+/// `native:<package>\t<tag>`, and then the package and tag of each
+/// ability of its row: its position among them.
 ///
 /// # Errors
 ///
@@ -229,7 +230,10 @@ fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assem
         .iter()
         .chain(&draft)
         .flat_map(|(_, calls, _)| calls);
-    let roots = host.iter().copied().chain(called.map(|(_, name)| *name));
+    let roots = shape
+        .roots(host)
+        .into_iter()
+        .chain(called.map(|(_, name)| *name));
     let space = Space {
         types: init_type + 2,
         globals: imported,
@@ -269,7 +273,11 @@ fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assem
         runtime.tell(&mut defined, &mut exports, &mut next_global);
     }
     for (position, native) in parts.natives.iter().enumerate() {
-        let name = format!("native:{}\t{}", native.package, native.path);
+        // Each ability of its row follows, as a package and a path.
+        let mut name = format!("native:{}\t{}", native.package, native.path);
+        for (package, path) in &native.row {
+            name = format!("{name}\t{package}\t{path}");
+        }
         constant(
             &mut defined,
             &mut exports,

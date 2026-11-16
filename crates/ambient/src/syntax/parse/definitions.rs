@@ -259,7 +259,7 @@ impl Parser {
         Ok((name, DefinitionKind::Key(KeyDefinition { ty })))
     }
 
-    /// `extern fn name(params): Type;` or
+    /// `extern fn name(params): Type with row;` or
     /// `extern handler name for ability with row;`, which may be
     /// `extern suspending handler`.
     fn native(&mut self) -> Parsed<(String, DefinitionKind)> {
@@ -268,7 +268,8 @@ impl Parser {
             let name = self.name()?;
             let params = self.params()?;
             let ret = self.returns()?;
-            (name, ExternKind::Function { params, ret })
+            let row = self.row()?;
+            (name, ExternKind::Function { params, ret, row })
         } else {
             self.expect_word("handler")?;
             let name = self.name()?;

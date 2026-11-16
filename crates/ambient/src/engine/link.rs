@@ -187,6 +187,13 @@ impl Engine<'_> {
         })
     }
 
+    /// What a host knows an ability by: its package and its module
+    /// path and name, as it knows an extern.
+    fn named(&self, ability: &Symbol) -> (String, String) {
+        let package = self.sources.identity(&ability.module.package);
+        (package, ability.identity())
+    }
+
     fn reached(&self, entry: &Symbol, backend: &dyn Backend, shape: Shape) -> Result<Parts, Error> {
         let (indices, symbols) = self.reach(entry)?;
 
@@ -264,10 +271,14 @@ impl Engine<'_> {
                 Tree::Ability { .. } | Tree::Key { .. } | Tree::Target { .. } => Body::Inert,
             };
             let native = match &open.tree {
-                Tree::Extern { package, path, .. } => {
+                Tree::Extern {
+                    package, path, row, ..
+                } => {
+                    let named = |slot: &core::Slot| self.named(&open.slots[slot.0]);
                     natives.push(Native {
                         package: package.clone(),
                         path: path.clone(),
+                        row: row.iter().map(named).collect(),
                     });
                     Some(natives.len() - 1)
                 }

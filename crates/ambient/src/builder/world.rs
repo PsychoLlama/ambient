@@ -11,6 +11,7 @@ pub fn extern_function(name: &str) -> ExternBuilder {
     let kind = ExternKind::Function {
         params: Vec::new(),
         ret: ty::null(),
+        row: Vec::new(),
     };
     ExternBuilder::new(name, kind)
 }
@@ -81,13 +82,13 @@ impl ExternBuilder {
         self
     }
 
-    /// Adds abilities, each a dotted path, to what a native handler
-    /// performs. A native function is pure and performs none.
+    /// Adds abilities, each a dotted path, to what the native code
+    /// performs.
     #[must_use]
     pub fn performs<'a>(mut self, abilities: impl IntoIterator<Item = &'a str>) -> Self {
-        if let ExternKind::Handler { row, .. } = &mut self.native.kind {
-            row.extend(abilities.into_iter().map(Path::parse));
-        }
+        let (ExternKind::Handler { row, .. } | ExternKind::Function { row, .. }) =
+            &mut self.native.kind;
+        row.extend(abilities.into_iter().map(Path::parse));
         self
     }
 }

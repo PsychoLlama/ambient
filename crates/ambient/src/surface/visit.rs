@@ -421,11 +421,12 @@ impl<N> Definition<N> {
                 ability.ret.names(visit);
             }
             DefinitionKind::Extern(native) => match &native.kind {
-                ExternKind::Function { params, ret } => {
+                ExternKind::Function { params, ret, row } => {
                     for param in params {
                         param.ty.names(visit);
                     }
                     ret.names(visit);
+                    row.iter().for_each(visit);
                 }
                 ExternKind::Handler { ability, row } => {
                     visit(ability);

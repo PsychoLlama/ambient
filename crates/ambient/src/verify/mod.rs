@@ -364,6 +364,9 @@ impl Verifier<'_> {
         handles: Option<Slot>,
         row: &[Slot],
     ) -> Result<(), Invalid> {
+        if params.iter().any(core::Type::takes_bindings) {
+            return shape("an extern takes a function whose type has a row");
+        }
         let params = self.sound_all(params)?;
         let ret = self.sound(ret)?;
         self.row(row)?;
@@ -372,8 +375,6 @@ impl Verifier<'_> {
             if info.params != params || info.ret != ret {
                 return shape("a native handler does not take what its ability takes");
             }
-        } else if !row.is_empty() {
-            return shape("only a native handler takes abilities");
         }
         Ok(())
     }

@@ -329,6 +329,7 @@ fn native_code_goes_with_the_code_that_reaches_it() {
     let seven = engine::Native {
         package: "app".to_owned(),
         path: "plugin.seven".to_owned(),
+        row: Vec::new(),
     };
     // How many hold the native code: this list, and each load of it.
     let held = || Rc::strong_count(&natives.get(&seven).unwrap().run);

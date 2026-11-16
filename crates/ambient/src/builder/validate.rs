@@ -77,9 +77,10 @@ pub(super) fn check_function(name: &str, function: &Function) -> Result<(), Buil
 
 pub(super) fn check_extern(name: &str, native: &Extern) -> Result<(), BuildError> {
     match &native.kind {
-        ExternKind::Function { params, ret } => {
+        ExternKind::Function { params, ret, row } => {
             check_params(name, params)?;
-            check_type(ret)
+            check_type(ret)?;
+            row.iter().try_for_each(check_path)
         }
         ExternKind::Handler { ability, row } => {
             check_path(ability)?;

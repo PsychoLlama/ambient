@@ -61,6 +61,37 @@ pub trait Running {
     /// [`UNWOUND`] if the call unwound: the native code is then over,
     /// and whatever it returns is not looked at.
     fn call(&mut self, function: &Value, args: &[Value]) -> Result<Value, String>;
+
+    /// Performs an ability of the row the extern declared, which is
+    /// named as an extern is: by its package and its module path and
+    /// name. The handler bound where the extern was called answers,
+    /// as it would a perform written there.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`UNDECLARED_ABILITY`] if the extern's row has no
+    /// such ability, and otherwise as [`Self::call`] does.
+    fn perform(&mut self, package: &str, path: &str, args: &[Value]) -> Result<Value, String>;
+}
+
+/// What a perform says of an ability the extern's row does not hold.
+pub const UNDECLARED_ABILITY: &str = "the extern does not declare the ability in its row";
+
+/// Where an extern that declared `row` finds the handler of an ability
+/// among the `length` words it was handed for it, and where the budget
+/// the handler was bound inside is, if the code that called is
+/// metered: the budgets follow the handlers, in the same order.
+#[must_use]
+pub fn bound(
+    row: &[(String, String)],
+    length: u64,
+    package: &str,
+    path: &str,
+) -> Option<(u64, Option<u64>)> {
+    let named = |(of, at): &(String, String)| of == package && at == path;
+    let at = row.iter().position(named)? as u64;
+    let count = row.len() as u64;
+    Some((at, (length == 2 * count).then_some(count + at)))
 }
 
 /// What a call back that unwound says: a fault, an abort, or a
@@ -97,6 +128,10 @@ impl Running for Nowhere {
     fn call(&mut self, _: &Value, _: &[Value]) -> Result<Value, String> {
         Err("no program is running".to_owned())
     }
+
+    fn perform(&mut self, _: &str, _: &str, _: &[Value]) -> Result<Value, String> {
+        Err("no program is running".to_owned())
+    }
 }
 
 /// One call of native code: the program it was made from, and the
@@ -113,34 +148,48 @@ struct Call<'a> {
     /// Its number, which the functions read for it hold: see
     /// [`Live`].
     number: u64,
+    /// The abilities its extern declared, and the handlers bound for
+    /// them where it was called: see [`bound`].
+    row: Vec<(String, String)>,
+    handlers: Word,
 }
 
 impl Call<'_> {
-    /// The words a call back hands over: `function` where it is in
-    /// the program, which the arguments of this call hold, and a tuple
-    /// of no bindings and then `args`, which the caller owns. None if
-    /// `function` cannot be called with them.
-    fn handed(&self, function: &Value, args: &[Value]) -> Option<(Word, Word)> {
-        let mut make = Inside(self.program);
-        let callee = Live::of(function, self.number)?;
-        // SAFETY: the arguments of this call hold the word, and it is a
-        // function, which has an arity.
-        let takes = unsafe { ambient_runtime::amb_closure_arity(callee) };
-        if takes != args.len() as u64 + 1 {
-            return None;
+    /// Calls `callee`, a function of the program that something else
+    /// holds, with nothing bound and `args`.
+    fn made(&mut self, callee: Word, args: &[Value]) -> Result<Value, String> {
+        if self.unwound {
+            return Err(UNWOUND.to_owned());
         }
-        // SAFETY: each index is within the length asked for, and a
-        // tuple keeps a reference of its own to what it is set.
-        let handed = unsafe {
+        if self.ticket.is_some() {
+            return Err(ANSWERING.to_owned());
+        }
+        let mut make = Inside(self.program);
+        // SAFETY: the word is a function, which has an arity; each
+        // index is within the length asked for, and a tuple keeps a
+        // reference of its own to what it is set. The context is the
+        // one this call was handed, and each word made here is owned
+        // here and not used after it is released.
+        unsafe {
+            if ambient_runtime::amb_closure_arity(callee) != args.len() as u64 + 1 {
+                return Err(UNCALLABLE.to_owned());
+            }
             let handed = ambient_runtime::amb_sequence_new(0, args.len() as u64 + 1);
             for (index, arg) in (1..).zip(args) {
                 let word = value::encode(arg, &mut make);
                 ambient_runtime::amb_sequence_set(handed, index, word);
                 ambient_runtime::amb_release(word);
             }
-            handed
-        };
-        Some((callee, handed))
+            let result = ambient_runtime::amb_call_among(self.context, callee, handed);
+            ambient_runtime::amb_release(handed);
+            if result == ambient_runtime::UNWIND {
+                self.unwound = true;
+                return Err(UNWOUND.to_owned());
+            }
+            let value = value::decode(result, &mut Host);
+            ambient_runtime::amb_release(result);
+            Ok(value)
+        }
     }
 }
 
@@ -165,28 +214,33 @@ impl Running for Call<'_> {
     }
 
     fn call(&mut self, function: &Value, args: &[Value]) -> Result<Value, String> {
-        if self.unwound {
-            return Err(UNWOUND.to_owned());
-        }
-        if self.ticket.is_some() {
-            return Err(ANSWERING.to_owned());
-        }
-        let (callee, handed) = self
-            .handed(function, args)
-            .ok_or_else(|| UNCALLABLE.to_owned())?;
-        // SAFETY: the context is the one this call was handed, the
-        // callee takes as many words as the tuple holds, and each word
-        // is owned here and not used after it is released.
+        let callee = Live::of(function, self.number).ok_or_else(|| UNCALLABLE.to_owned())?;
+        self.made(callee, args)
+    }
+
+    fn perform(&mut self, package: &str, path: &str, args: &[Value]) -> Result<Value, String> {
+        // SAFETY: an extern with a row is handed a tuple, whose length
+        // can be asked; one with none never gets as far as asking.
+        let length = |handlers| unsafe { ambient_runtime::amb_length(handlers) };
+        let length = if self.row.is_empty() {
+            0
+        } else {
+            length(self.handlers)
+        };
+        let (handler, budget) =
+            bound(&self.row, length, package, path).ok_or_else(|| UNDECLARED_ABILITY.to_owned())?;
+        // SAFETY: both places are within the tuple, which the extern's
+        // caller holds for the call, and the context is this call's.
+        // A handler runs inside the budget it was bound inside.
         unsafe {
-            let result = ambient_runtime::amb_call_among(self.context, callee, handed);
-            ambient_runtime::amb_release(handed);
-            if result == ambient_runtime::UNWIND {
-                self.unwound = true;
-                return Err(UNWOUND.to_owned());
+            let at = |index| ambient_runtime::amb_word_at(self.handlers, index);
+            let saved =
+                budget.map(|budget| ambient_runtime::amb_budget_switch(self.context, at(budget)));
+            let answered = self.made(at(handler), args);
+            if let Some(saved) = saved {
+                ambient_runtime::amb_budget_back(self.context, saved, 0);
             }
-            let value = value::decode(result, &mut Host);
-            ambient_runtime::amb_release(result);
-            Ok(value)
+            answered
         }
     }
 }
@@ -359,6 +413,11 @@ pub(super) unsafe extern "C" fn dispatch(
         ticket: None,
         unwound: false,
         number,
+        row: native
+            .as_ref()
+            .map(|native| native.row.clone())
+            .unwrap_or_default(),
+        handlers: bindings,
     };
     let outcome = match &offered {
         Some(offered) => catch_unwind(AssertUnwindSafe(|| (offered.run)(&mut call, &args)))

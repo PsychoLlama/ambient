@@ -79,6 +79,9 @@ pub struct Native {
     pub package: String,
     /// The extern's module path and name, as one text.
     pub path: String,
+    /// The abilities it performs, each by its package and its module
+    /// path and name, in the order it is handed their handlers.
+    pub row: Vec<(String, String)>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]

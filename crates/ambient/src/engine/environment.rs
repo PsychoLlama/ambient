@@ -137,11 +137,15 @@ impl Engine<'_> {
                 native: false,
             },
             (DefinitionKind::Extern(native), _) => match &native.kind {
-                ExternKind::Function { params, ret } => Signature {
+                ExternKind::Function {
+                    params,
+                    ret,
+                    row: takes,
+                } => Signature {
                     type_params: Vec::new(),
                     params: types(params),
                     ret: ret.clone(),
-                    row: Vec::new(),
+                    row: row(takes),
                     native: false,
                 },
                 // A native handler takes what its ability takes.
