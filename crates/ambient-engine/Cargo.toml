@@ -13,7 +13,7 @@ include_dir.workspace = true
 serde = { workspace = true, features = ["rc"] }
 serde_json.workspace = true
 thiserror.workspace = true
-toml = "0.8"
+toml = "0.9"
 uuid.workspace = true
 
 [dev-dependencies]
