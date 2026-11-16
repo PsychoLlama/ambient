@@ -20,6 +20,7 @@ A program carries the code it reaches and nothing else, the [runtime](backends.m
 - Where the checker knows a value's type it picks the operation for that type. Only code that does not know reaches a piece that handles every shape.
 - A program that performs no [task](tasks.md) operation carries no scheduler.
 - A program says when it is compiled whether code can be [loaded](backends.md) into it. One that cannot is known whole, so what it pays for is decided over all of it.
+- Natively no function is compiled to suspend or to resume: a task there is a [stack](backends.md#suspension). The rest of this list is what a WebAssembly program pays.
 - A program nothing is loaded into, in which no [task](tasks.md) can suspend, has no function compiled to suspend or to resume.
 - A program code can be loaded into has every function compiled to suspend, since what is loaded may suspend in the middle of any call. Loading into any other program is refused.
 - In a program that can suspend, a function that makes no call is still compiled without it: nothing can suspend while it runs.

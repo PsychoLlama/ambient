@@ -83,12 +83,13 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 
 ## Suspension
 
-- A [task](tasks.md) suspends by unwinding: each function on its stack saves what it holds and returns, and resuming calls them again from the outermost, each going back to where it was.
-- Suspension is therefore ordinary control flow in the lowered form, like unwinding, and needs nothing from a backend or a host: no second stack and no thread.
-- A suspended task is data on the heap, owned by the task.
+- A [task](tasks.md) is a stack: one that suspends is left as it stands, and resuming it goes on from where it was.
+- Suspending and resuming therefore cost the same however deeply the task's calls nest, and code pays nothing for being able to suspend.
+- Natively the runtime makes each task a stack of its own and switches between them.
+- A WebAssembly program has one stack, which its code cannot leave and come back to. There a task suspends by unwinding: each function on its stack saves what it holds and returns, and resuming calls them again from the outermost, each going back to where it was.
+- Unwinding so is ordinary control flow in the lowered form and needs nothing of a host, at a cost in proportion to the depth of the stack that suspends. Only a function a task can be suspended in [pays](linking.md) for it.
+- Which task runs next is the runtime's to say and the same either way, so a program [behaves identically](#agreement) however its tasks are kept.
 - Cancelling a suspended task resumes it into an unwinding, so its [cleanups](cleanup.md) run as they do on any other exit.
-- A suspension costs in proportion to the depth of the stack that suspends; code that never suspends pays only the check it already makes after each call.
-- The runtime calls compiled code only to start or resume a task.
 
 ## Unwinding
 

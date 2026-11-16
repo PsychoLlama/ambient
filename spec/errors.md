@@ -25,12 +25,12 @@ An error is a structured value of one standard shape, and it is the only thing t
 
 - A trace is a list of frames, each a definition hash and a node position within that definition.
 - A node's position is its place in a walk of the definition's core tree that visits each node before the nodes inside it.
-- The trace of a fault has a frame for the node that faulted and for each call the fault left, nearest the fault first; a task's frames are followed by those of what started it.
+- A trace is gathered as a [fault](values.md) or an [abort](handlers.md) unwinds: a frame for the node it began at and for each call it leaves, nearest first. A task's frames are followed by those of what started it.
+- It ends where the unwinding does: a fault's at the boundary that contains it, an abort's at its provide.
 - A function that left for a [tail call](backends.md) is in no trace.
 - A trace contains no names; a tool with the [index](symbols.md) turns frames into symbols and source positions.
 - A trace is data: it serialises with its error and can be resolved on another machine.
-- Capturing a trace is a language operation, not an ability; a target may bound how much it captures.
-- The trace is captured where the error is made, not where it is thrown.
-- A captured trace has a frame for the capture and for each call it is inside, ordered as a fault's is.
-- A capture costs in proportion to how deeply the task is nested in calls; code that captures nothing pays nothing for it.
-- Nothing else runs between a task asking for its trace and getting it.
+- Reading the trace of the abort a handler is answering is a language operation, not an ability. Anywhere else it gives no frames.
+- An error is made with no trace. Catching gives it the trace of the throw that brought it, after any it had, so one thrown again says both ways it came.
+- An error that is only ever a value has no trace, and costs none.
+- Nothing keeps a record of calls as they are made, so code that never unwinds pays nothing for traces. A target may bound how many frames one keeps.
