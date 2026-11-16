@@ -83,8 +83,12 @@ impl Engine<'_> {
         // the definition is reused.
         let still = |stored: &Result<Checked, Error>| {
             stored.as_ref().is_ok_and(|checked| {
-                let read =
-                    |(reached, seen): &(Symbol, Hash)| self.seen_of(reached).ok() == Some(*seen);
+                // What spliced code named must be what it was, and
+                // still be something the package may name.
+                let read = |(reached, seen): &(Symbol, Hash)| {
+                    self.seen_of(reached).ok() == Some(*seen)
+                        && self.nameable(&symbol.module.package, reached)
+                };
                 self.still_gives(&checked.runs) && checked.reached.iter().all(read)
             })
         };
@@ -107,6 +111,10 @@ impl Engine<'_> {
                         reached.extend(more);
                         reached.sort();
                         reached.dedup();
+                        // The check begins again, and makes its runs
+                        // again: those of this turn are not kept twice.
+                        self.end_runs();
+                        self.begin_runs();
                         let all = used.iter().chain(&reached).cloned().collect();
                         match self.environment(all, &sends, &mut Hasher::new("reached")) {
                             Ok(wider) => env = Some(wider),

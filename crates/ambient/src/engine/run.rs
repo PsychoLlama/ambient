@@ -150,13 +150,14 @@ impl Engine<'_> {
             Ok(native) => native,
             Err(message) => return Err(failed(message.clone())),
         };
-        // Everything the program is made of is covered by the entry's
-        // hash, so linking here reads nothing the key does not cover.
-        let parts = self.link(entry, native)?;
         let still = |stored: &Result<Run, Error>| {
             stored.as_ref().is_ok_and(|run| holds(&run.trace, natives))
         };
         let run = self.stage_if(Stage::Run, function, key.finish(), still, || {
+            // Everything the program is made of is covered by the
+            // entry's hash, so linking here reads nothing the key does
+            // not cover. A run that is reused links nothing.
+            let parts = self.link(entry, native)?;
             let program = Program::load(&parts, natives).map_err(failed)?;
             program.observe();
             let outcome = program.run(args).map_err(|fault| Error::ComptimeFault {
