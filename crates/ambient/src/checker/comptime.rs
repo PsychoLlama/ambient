@@ -29,7 +29,7 @@ impl Checker<'_> {
         // where the call is written.
         let handed = self.handed(function);
         self.providing = true;
-        let call_checked = if handed.contains(&true) {
+        let call_checked = if handed.iter().any(|handed| *handed != Handed::Value) {
             self.given(args, function, &handed)
         } else {
             self.infer(call).map(|_| ())
@@ -45,10 +45,14 @@ impl Checker<'_> {
         let mut values = Vec::new();
         for (arg, handed) in args
             .iter()
-            .zip(handed.iter().chain(std::iter::repeat(&false)))
+            .zip(handed.iter().chain(std::iter::repeat(&Handed::Value)))
         {
-            if *handed {
-                values.push(self.type_argument(arg)?);
+            match handed {
+                Handed::Type => values.push(self.type_argument(arg)?),
+                Handed::Reference => values.push(self.reference_argument(arg)?),
+                Handed::Value => {}
+            }
+            if *handed != Handed::Value {
                 continue;
             }
             let (_, ty) = self.infer(arg)?;
@@ -81,12 +85,31 @@ impl Checker<'_> {
     }
 }
 
+/// What a comptime function is handed for an argument.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Handed {
+    /// The one value the argument's type has.
+    Value,
+    /// The tree of the type the argument names.
+    Type,
+    /// The reference of the definition the argument names.
+    Reference,
+}
+
 impl Checker<'_> {
-    /// Which parameters of `function` are handed the tree of a type.
-    fn handed(&self, function: &Symbol) -> Vec<bool> {
-        let tree = Ty::Named(Reference::Definition(reify::tree()), Vec::new());
+    /// What each parameter of `function` is handed, which its type says.
+    fn handed(&self, function: &Symbol) -> Vec<Handed> {
+        let named = |symbol| {
+            self.env
+                .normalize(&Ty::Named(Reference::Definition(symbol), Vec::new()))
+        };
+        let (tree, reference) = (named(reify::tree()), named(reify::reference()));
         let params = self.env.functions.get(function).map(|taken| &taken.params);
-        let handed = |param: &Ty| self.env.normalize(param) == tree;
+        let handed = |param: &Ty| match self.env.normalize(param) {
+            param if param == tree => Handed::Type,
+            param if param == reference => Handed::Reference,
+            _ => Handed::Value,
+        };
         params.into_iter().flatten().map(handed).collect()
     }
 
@@ -96,7 +119,7 @@ impl Checker<'_> {
         &mut self,
         args: &[Expr<Reference>],
         function: &Symbol,
-        handed: &[bool],
+        handed: &[Handed],
     ) -> Result<(), Error> {
         let params = self
             .env
@@ -113,7 +136,7 @@ impl Checker<'_> {
             });
         }
         for ((arg, param), handed) in args.iter().zip(&params).zip(handed) {
-            if !handed {
+            if *handed == Handed::Value {
                 self.check(arg, param)?;
             }
         }

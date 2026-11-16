@@ -300,10 +300,9 @@ impl Error {
             Self::ComptimeFault { function, fault } => {
                 write!(f, "`{function}` faulted during compilation: {fault}")
             }
-            Self::NotType(symbol) => write!(
-                f,
-                "{symbol}: what the call gave names a brand or an ability, which a derived type cannot yet"
-            ),
+            Self::NotType(symbol) => {
+                write!(f, "{symbol}: the tree the call gave stands for no type")
+            }
             Self::ComptimeCycle(symbol) => {
                 write!(f, "{symbol}: depends on a comptime call that depends on it")
             }

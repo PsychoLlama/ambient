@@ -7,9 +7,9 @@
 use ambient_runtime::FAULT_PACKAGE;
 
 use crate::core::{Expr, Key};
-use crate::literal::Literal;
+use crate::literal::{Brand, Literal};
 use crate::surface::{self, Reference};
-use crate::symbol::{ModuleId, Symbol};
+use crate::symbol::{ModuleId, Namespace, Symbol};
 use crate::types::Ty;
 
 /// The module of the library that says what a tree is.
@@ -22,9 +22,14 @@ pub fn tree() -> Symbol {
     ModuleId::new(FAULT_PACKAGE, MODULE).ty("Type")
 }
 
-/// The type a spliced `tree.Type` stands for, if it stands for one:
-/// a brand and an ability are named in a tree by identity alone, which
-/// does not say whose they are, so a tree with either stands for none.
+/// The type of a reference: what a parameter has that is handed the
+/// definition its argument names.
+#[must_use]
+pub fn reference() -> Symbol {
+    ModuleId::new(FAULT_PACKAGE, MODULE).ty("Reference")
+}
+
+/// The type a spliced `tree.Type` stands for, if it stands for one.
 #[must_use]
 pub fn written(tree: &Expr) -> Option<Ty> {
     match tree {
@@ -58,15 +63,71 @@ fn all(trees: &Expr) -> Option<Vec<Ty>> {
     trees.iter().map(written).collect()
 }
 
-fn empty(list: &Expr) -> bool {
-    matches!(list, Expr::List(members) if members.is_empty())
+/// The field `name` of a record that was spliced.
+fn field<'a>(fields: &'a [(Key, Expr)], name: &str) -> Option<&'a Expr> {
+    let named = |(key, _): &&(Key, Expr)| matches!(key, Key::Field(field) if field == name);
+    fields.iter().find(named).map(|(_, value)| value)
+}
+
+fn text(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Literal(Literal::String(text)) => Some(text),
+        _ => None,
+    }
+}
+
+/// The definition of the namespace `kind` names that a spliced
+/// `tree.Reference` refers to.
+fn definition(reference: &Expr, kind: &str) -> Option<Reference> {
+    let Expr::Record(fields) = reference else {
+        return None;
+    };
+    let text = |name: &str| field(fields, name).and_then(text);
+    let Expr::List(path) = field(fields, "module")? else {
+        return None;
+    };
+    let path = path.iter().map(text_of).collect::<Option<Vec<_>>>()?;
+    let namespace = match text("kind")? {
+        "type" => Namespace::Type,
+        "value" => Namespace::Value,
+        "ability" => Namespace::Ability,
+        "key" => Namespace::Key,
+        _ => return None,
+    };
+    if text("kind")? != kind {
+        return None;
+    }
+    let module = ModuleId::new(text("package")?, &path.join("."));
+    Some(Reference::Definition(
+        module.symbol(namespace, text("name")?),
+    ))
+}
+
+fn text_of(expr: &Expr) -> Option<String> {
+    text(expr).map(str::to_owned)
+}
+
+/// The brand a spliced `tree.Brand` is.
+fn brand(brand: &Expr) -> Option<Ty> {
+    let Expr::Record(fields) = brand else {
+        return None;
+    };
+    let text = |name: &str| field(fields, name).and_then(text_of);
+    Some(Ty::Brand(Brand {
+        package: text("package")?,
+        brand: text("identity")?,
+    }))
+}
+
+fn each<T>(list: &Expr, read: impl Fn(&Expr) -> Option<T>) -> Option<Vec<T>> {
+    let Expr::List(members) = list else {
+        return None;
+    };
+    members.iter().map(read).collect()
 }
 
 fn record(fields: &[(Key, Expr)]) -> Option<Ty> {
-    let field = |name: &str| {
-        let named = |(key, _): &&(Key, Expr)| matches!(key, Key::Field(field) if field == name);
-        fields.iter().find(named).map(|(_, value)| value)
-    };
+    let field = |name: &str| field(fields, name);
     let boxed = |name: &str| field(name).and_then(written).map(Box::new);
     Some(match fields {
         [(Key::Field(name), holds)] => match (name.as_str(), holds) {
@@ -76,17 +137,24 @@ fn record(fields: &[(Key, Expr)]) -> Option<Ty> {
             ("iterator", _) => Ty::Iterator(boxed("iterator")?),
             ("tuple", members) => Ty::Tuple(all(members)?),
             ("union", members) => Ty::Union(all(members)?),
+            ("named", named) => Ty::Named(definition(named, "type")?, Vec::new()),
             ("record", Expr::List(members)) => {
                 Ty::Record(members.iter().map(member).collect::<Option<_>>()?)
             }
             _ => return None,
         },
+        _ if field("brands").is_some() => {
+            let brands = each(field("brands")?, brand)?;
+            match (field("under")?, brands.as_slice()) {
+                (Expr::Null, [handle]) => handle.clone(),
+                (Expr::Null, _) => return None,
+                (under, _) => Ty::Branded(Box::new(written(under)?), brands),
+            }
+        }
         _ => Ty::Function {
             params: all(field("function")?)?,
             ret: boxed("returns")?,
-            row: field("takes")
-                .filter(|row| empty(row))
-                .map(|_| Vec::new())?,
+            row: each(field("takes")?, |ability| definition(ability, "ability"))?,
         },
     })
 }

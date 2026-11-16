@@ -12,6 +12,7 @@ use super::reify::MODULE;
 use crate::error::Error;
 use crate::literal::Literal;
 use crate::surface::{Expr, Key, Reference};
+use crate::symbol::{Namespace, Symbol};
 use crate::types::Ty;
 use crate::value::Value;
 
@@ -36,9 +37,53 @@ impl Checker<'_> {
         let Some(name) = named else {
             return Err(no_tree("what is not the name of a type".to_owned()));
         };
+        // A type that refers to itself is its definition, which names
+        // it where it does.
         let ty = self.env.normalize(&Ty::Named(name.clone(), Vec::new()));
-        type_tree(&ty).ok_or_else(|| no_tree(self.env.show(&ty)))
+        type_tree(&self.env.unfold(&ty)).ok_or_else(|| no_tree(self.env.show(&ty)))
     }
+
+    /// The reference of the definition a comptime argument names.
+    pub(super) fn reference_argument(&self, arg: &Expr<Reference>) -> Result<Value, Error> {
+        match arg {
+            Expr::Name(Reference::Definition(symbol)) => Ok(reference(symbol)),
+            _ => Err(Error::NoTree {
+                symbol: self.symbol.clone(),
+                found: "what is not the name of a definition".to_owned(),
+            }),
+        }
+    }
+}
+
+/// A definition as a `tree.Reference`.
+fn reference(symbol: &Symbol) -> Value {
+    let text = |text: &String| Value::String(text.clone());
+    let kind = match symbol.namespace {
+        Namespace::Type => "type",
+        Namespace::Value => "value",
+        Namespace::Ability => "ability",
+        Namespace::Key => "key",
+    };
+    record([
+        ("package", text(&symbol.module.package.0)),
+        (
+            "module",
+            Value::List(symbol.module.path.0.iter().map(text).collect()),
+        ),
+        ("name", text(&symbol.name)),
+        ("kind", Value::String(kind.to_owned())),
+    ])
+}
+
+/// A brand as a `tree.Brand`.
+fn brand(ty: &Ty) -> Option<Value> {
+    let Ty::Brand(brand) = ty else {
+        return None;
+    };
+    Some(record([
+        ("package", Value::String(brand.package.clone())),
+        ("identity", Value::String(brand.brand.clone())),
+    ]))
 }
 
 fn tag(name: &str) -> Value {
@@ -61,18 +106,18 @@ fn all(types: &[Ty]) -> Option<Value> {
     ))
 }
 
-/// The abilities of a row, each by its identity.
+/// The abilities of a row, each as a `tree.Reference`.
 fn abilities(row: &[Reference]) -> Option<Value> {
     let ability = |ability: &Reference| match ability {
-        Reference::Definition(symbol) => Some(Value::String(symbol.identity())),
+        Reference::Definition(symbol) => Some(reference(symbol)),
         Reference::Local(_) | Reference::Parameter(_) => None,
     };
     Some(Value::List(row.iter().map(ability).collect::<Option<_>>()?))
 }
 
-/// A normalized type as a `tree.Type`, if it has a tree: a type that
-/// refers to itself, a method, and what is held under a key that is
-/// not a field have none yet.
+/// A normalized type as a `tree.Type`, if it has a tree: a type with
+/// arguments that refers to itself, a method, and what is held under a
+/// key that is not a field have none yet.
 fn type_tree(ty: &Ty) -> Option<Value> {
     Some(match ty {
         Ty::Never => tag("none"),
@@ -106,18 +151,16 @@ fn type_tree(ty: &Ty) -> Option<Value> {
             ("returns", type_tree(ret)?),
             ("takes", abilities(row)?),
         ]),
-        Ty::Brand(brand) => record([
-            (
-                "brands",
-                Value::List(vec![Value::String(brand.brand.clone())]),
-            ),
+        Ty::Brand(_) => record([
+            ("brands", Value::List(vec![brand(ty)?])),
             ("under", Value::Null),
         ]),
+        // What is left named in a normal form is a type that refers to
+        // itself.
+        Ty::Named(Reference::Definition(symbol), args) if args.is_empty() => {
+            record([("named", reference(symbol))])
+        }
         Ty::Branded(under, brands) => {
-            let brand = |ty: &Ty| match ty {
-                Ty::Brand(brand) => Some(Value::String(brand.brand.clone())),
-                _ => None,
-            };
             let brands = brands.iter().map(brand).collect::<Option<_>>()?;
             record([
                 ("brands", Value::List(brands)),

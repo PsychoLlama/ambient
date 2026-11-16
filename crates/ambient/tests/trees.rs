@@ -89,13 +89,26 @@ fn only_the_name_of_a_type_is_handed_as_a_tree() {
 }
 
 #[test]
-fn a_type_that_refers_to_itself_has_no_tree() {
-    let main = "
+fn a_type_that_refers_to_itself_is_named_where_it_does() {
+    let source = "
+        import ambient.tree;
         type Chain = { next: Chain | null };
-        fn main(): string => comptime fields(Chain);
+        fn named(of: tree.Type): string {
+            match of {
+                let it: { record: List<tree.Field> } => {
+                    return it.record.map(fn(field) => named(field.holds)).join_with(\" \");
+                }
+                let it: { union: List<tree.Type> } => {
+                    return it.union.map(named).join_with(\"|\");
+                }
+                let it: { named: tree.Reference } => { return it.named.name; }
+                _ => { return \"-\"; }
+            }
+        }
+        fn main(): string => comptime named(Chain);
     ";
 
-    assert!(matches!(refused(main), Error::NoTree { .. }));
+    assert_eq!(text(source), "-|Chain");
 }
 
 #[test]
@@ -199,13 +212,42 @@ fn a_derived_type_follows_the_type_it_was_derived_from() {
 }
 
 #[test]
-fn a_derived_type_cannot_yet_name_a_brand() {
+fn a_derived_type_keeps_the_brands_and_names_it_was_handed() {
     let main = "
         brand Email;
-        type Address = string & Email;
-        type Same = comptime partial(Address);
-        fn main(): Same => null;
+        type Chain = { next: Chain | null, owner: string & Email };
+        type Linked = comptime partial(Chain);
+        type Written = { next: Chain | null, owner: string & Email | null };
+    ";
+    let workspace = workspace(&format!("{PARTIAL} {main}"));
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let hash = |name: &str| engine.hash(&support::ty("main", name)).unwrap();
+
+    assert_eq!(hash("Linked"), hash("Written"));
+}
+
+#[test]
+fn a_function_is_handed_a_reference_to_what_its_call_names() {
+    let source = "
+        import ambient.tree;
+        fn double(n: int): int => n * 2;
+        fn described(of: tree.Reference): string => \"${of.kind} ${of.name}\";
+        fn main(): string => comptime described(double);
     ";
 
-    assert!(matches!(undrafted(main), Error::NotType(_)));
+    assert_eq!(text(source), "value double");
+}
+
+#[test]
+fn a_function_comes_by_a_reference_to_what_its_module_names() {
+    let source = "
+        import ambient.tree;
+        import ambient.json;
+        fn parser(): tree.Reference => comptime tree.reference(json.parse);
+        fn name(of: tree.Reference): string => of.name;
+        fn main(): string => name(parser());
+    ";
+
+    assert_eq!(text(source), "parse");
 }

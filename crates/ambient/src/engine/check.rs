@@ -346,6 +346,7 @@ impl Engine<'_> {
                     ty,
                 };
                 self.gather(vec![symbol.clone()], &mut env)?;
+                self.reachable(&env, &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
                     checker::check_type(symbol, &definition, &env)
                 })

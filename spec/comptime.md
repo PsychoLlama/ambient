@@ -33,7 +33,11 @@ A comptime call runs an ordinary function during compilation and splices what it
 - Reading a definition is an observation in the call's [trace](memoization.md): the call runs again when what it read changes.
 - Derived types such as a subset of a record's fields or a function's return type are ordinary functions over type trees.
 - A type's tree is that of its normal form: a name for a type is gone from it, so two ways of writing one type give one tree.
-- A brand, an ability, and a tag appear in a type's tree by [identity](symbols.md).
+- A tree refers to a definition by a reference: a value that says which definition outright, so nothing in a tree is looked up by name where it lands.
+- A function is handed a reference for a parameter whose type is one, when its call names a definition. The name is resolved where it is written, as any name is.
+- A function comes by a reference to what its own module names the same way: by a comptime call of the function that gives back the reference it is handed.
+- A type that refers to itself has the tree of its definition, with a reference where it names itself.
+- A reference is plain data, read and matched like the rest of a tree. A mark only the compiler makes would be lost in a tree: a test cannot tell a marked value from one shaped like it, so a tree holding one could not be matched.
 - A comptime call operates on closed types only; a type parameter is never an argument.
 - Type-level computation therefore never runs inside generic checking.
 - A spliced tree is checked exactly as a written one; comptime cannot bypass the checker.
@@ -56,9 +60,9 @@ A comptime call runs an ordinary function during compilation and splices what it
 ## Unsettled
 
 - TODO: the only tree that is a value is a type's: one named as an argument, and one a call gives as the whole of a type definition. No expression or definition is a tree yet, and nothing is spliced in module position.
-- TODO: a type's tree names a brand and an ability by identity alone, which does not say whose it is, so a type cannot be derived from a tree that names one.
-- TODO: a type that refers to itself has no tree, since its normal form does not end; how a tree names the type it is inside is undecided.
+- TODO: a function can make up a reference, to a definition no name where its tree lands could reach. A type names nothing that grants anything, so nothing checks this yet; a tree spliced as code must name only what could be named where it lands, or it reaches an [extern](externs.md) past the ability that guards it.
+- TODO: a derived type cannot refer to itself: naming it to the call asks for the type the call has yet to give.
+- TODO: a type with arguments that refers to itself has no tree.
 - TODO: how a generated module is written, named, and imported is undecided.
-- TODO: a surface tree names what it refers to, and a generated one has no scope to resolve names in; how it refers to a definition it was handed is undecided.
 - TODO: a generated node has no [span](trees.md). An error in one is reported at the call, and how the tree is shown is undecided.
 - TODO: a result gathered from many calls, such as one stylesheet from every call that declares a style, has no design. It would be asked of the build, never accumulated by the calls.

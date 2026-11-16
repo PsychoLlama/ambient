@@ -18,6 +18,25 @@ pub tag tagged;
 /// A type with nothing inside it.
 pub type Primitive = none | any | nil | boolean | integer | number | text | binary | tagged;
 
+/// A definition, as what a tree refers to it by. A comptime function is
+/// handed one for a parameter of this type, when its call names a
+/// definition. It says which definition outright, so nothing in a tree
+/// is looked up by a name where the tree lands.
+pub type Reference = {
+    package: string,
+    module: List<string>,
+    name: string,
+    kind: "type" | "value" | "ability" | "key",
+};
+
+/// A brand, as a type's tree refers to it: where it is declared.
+pub type Brand = { package: string, identity: string };
+
+/// The reference of the definition a call names: `comptime
+/// tree.reference(name)` is how a function comes by one for what its
+/// own module can name.
+pub fn reference(of: Reference): Reference => of;
+
 /// A field of a record type: its name, and the type of what it holds.
 pub type Field = { name: string, holds: Type };
 
@@ -25,10 +44,12 @@ pub type Field = { name: string, holds: Type };
 /// parameter of this type, when its call names a type.
 ///
 /// - `literal` is the type of one value, which it holds.
+/// - `named` is a type that refers to itself, where it does: the tree
+///   of such a type is its definition, with the type named inside it.
 /// - `function` is the types of the parameters; `takes` is the
-///   abilities of its row, each by its module path and name.
-/// - `brands` are the brands on the type `under` them, each by its
-///   module path and name; a handle is brands on nothing.
+///   abilities of its row.
+/// - `brands` are the brands on the type `under` them; a handle is
+///   brands on nothing.
 pub type Type =
     Primitive
     | { literal: bool | int | float | string | bytes | Tag }
@@ -38,5 +59,6 @@ pub type Type =
     | { tuple: List<Type> }
     | { record: List<Field> }
     | { union: List<Type> }
-    | { function: List<Type>, returns: Type, takes: List<string> }
-    | { brands: List<string>, under: Type | null };
+    | { named: Reference }
+    | { function: List<Type>, returns: Type, takes: List<Reference> }
+    | { brands: List<Brand>, under: Type | null };
