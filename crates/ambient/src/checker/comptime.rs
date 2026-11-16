@@ -93,6 +93,32 @@ impl Checker<'_> {
     }
 }
 
+impl Checker<'_> {
+    /// Whether whatever a comptime call gives is within `expected`,
+    /// by what its function is declared to give alone.
+    ///
+    /// A value is of the type its function gives, so the literal it
+    /// is spliced as need not be held to `expected` part by part:
+    /// that is a proof as large as the value, and a tree of code a
+    /// call gives is large.
+    pub(super) fn gives_within(&self, call: &Expr<Reference>, expected: &Ty) -> bool {
+        let Expr::Call { callee, .. } = call else {
+            return false;
+        };
+        let Expr::Name(Reference::Definition(function)) = &**callee else {
+            return false;
+        };
+        let code = Ty::Named(Reference::Definition(reify::code()), Vec::new());
+        self.env.functions.get(function).is_some_and(|taken| {
+            // What is spliced as code has the type of the code, and a
+            // generic function's result is not known from here.
+            taken.type_params.is_empty()
+                && taken.ret != self.env.normalize(&code)
+                && self.env.subtype(&taken.ret, expected)
+        })
+    }
+}
+
 /// What a comptime function is handed for an argument.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Handed {

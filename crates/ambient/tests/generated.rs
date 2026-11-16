@@ -67,6 +67,21 @@ fn a_generated_body_is_checked_against_what_the_tree_says_it_gives() {
 }
 
 #[test]
+fn a_generated_body_nests_as_deep_as_a_written_one_may() {
+    // Each call is inside the last: three hundred levels of code.
+    let main = "
+        fn nested(): tree.Function =>
+            code.define([tree.integer], tree.integer, [], fn(given: List<code.Code>): code.Code =>
+                @range(0, 300).fold(given.first() as code.Code else code.literal(0), fn(inner: code.Code, at: int): code.Code =>
+                    code.call(code.definition(comptime tree.reference(times)), [inner, code.literal(1)])));
+        fn deep = comptime nested();
+        fn main(): int => deep(7);
+    ";
+
+    assert_eq!(int(&format!("{SCALED} {main}")), 7);
+}
+
+#[test]
 fn a_generated_function_takes_the_abilities_its_tree_lists() {
     let main = "
         ability ask(): int;

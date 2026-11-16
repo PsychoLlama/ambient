@@ -136,6 +136,9 @@ impl Checker<'_> {
             Expr::Using { value, body, .. } => {
                 return Ok(self.using(value, body, Some(expected))?.0);
             }
+            Expr::Comptime(call) if self.gives_within(call, expected) => {
+                return Ok(self.comptime(call)?.0);
+            }
             _ => {}
         }
         let (core, found) = self.infer_as(expr, expected)?;
