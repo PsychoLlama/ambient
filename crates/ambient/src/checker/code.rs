@@ -165,6 +165,10 @@ impl<'a> Reader<'a> {
                     operands: self.all(need("on")?)?,
                 }
             }
+            _ if has("under") => Expr::Merge {
+                left: self.boxed(need("under")?)?,
+                right: self.boxed(need("over")?)?,
+            },
             _ if has("handlers") => Expr::Provide {
                 bundle: self.boxed(need("handlers")?)?,
                 only: false,

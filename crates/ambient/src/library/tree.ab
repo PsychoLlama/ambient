@@ -135,6 +135,8 @@ pub type Arm = { pattern: Pattern, gives: Expr };
 /// - `method` is called on the value `of`, as `value.method(...)` is.
 /// - `handlers` is a record of them, bound for the extent of `body`:
 ///   a provide.
+/// - `over` is a record whose fields are put over those of the one
+///   `under` it, as `{ ...under, ...over }` is.
 /// - `subject` is matched against each of `arms` in turn, and
 ///   `operation` is done `on` its operands.
 pub type Expr =
@@ -152,6 +154,7 @@ pub type Expr =
     | { cast: Expr, to: Type, otherwise: Expr }
     | { bind: Expr, body: Expr }
     | { handlers: Expr, body: Expr }
+    | { under: Expr, over: Expr }
     | { subject: Expr, arms: List<Arm> }
     | { operation: Operation, on: List<Expr> }
     | { function: List<Type>, body: Expr };
@@ -172,12 +175,12 @@ pub type Function = {
 /// A definition a generated module has: its name, whether other
 /// modules may use it, and what it is. That is a function, the type
 /// the name means and how many type parameters it has, an ability by
-/// what it takes and gives, or a tag, of which there is no more to
-/// say.
+/// what it takes and gives and its type parameters, each by its bound
+/// or by null, or a tag, of which there is no more to say.
 pub type Definition =
     { name: string, public: bool, function: Function }
     | { name: string, public: bool, means: Type, parameters: int }
-    | { name: string, public: bool, ability: List<Type>, returns: Type }
+    | { name: string, public: bool, ability: List<Type>, returns: Type, generic: List<Type | null> }
     | { name: string, public: bool, tag: null };
 
 /// What a call gives for a module whose whole content it is.

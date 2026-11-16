@@ -188,6 +188,19 @@ fn generated_code_provides_handlers() {
 }
 
 #[test]
+fn generated_code_merges_one_record_over_another() {
+    let merged = "code.field(code.merge(
+        code.record([(\"kept\", x), (\"taken\", code.literal(1))]),
+        code.record([(\"taken\", code.literal(35))])), \"taken\")";
+    let sum = format!("code.operate(\"add\", [x, {merged}])");
+
+    assert_eq!(
+        support::text::run(&of_seven("integer", &sum)),
+        Ok(Value::Int(42))
+    );
+}
+
+#[test]
 fn only_a_definition_of_a_module_has_one_beside_it() {
     let main = "
         fn alone(): tree.Function =>

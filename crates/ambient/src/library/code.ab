@@ -112,6 +112,11 @@ pub fn providing(handlers: Code, body: Code): Code =>
 /// another.
 pub fn beside(name: string, kind: Kind): Reference => { beside: null, name, kind };
 
+/// A record with the fields of `over` and, where it has none of a
+/// name, those of `under`.
+pub fn merge(under: Code, over: Code): Code =>
+    fn(depth: int): Expr => { under: under(depth), over: over(depth) };
+
 /// The field `name` of a record.
 pub fn field(of: Code, name: string): Code => fn(depth: int): Expr => { field: name, of: of(depth) };
 
@@ -180,7 +185,16 @@ pub fn named_generic(name: string, parameters: int, means: fn(List<Type>): Type)
 /// A public ability of a generated module, by the name it has there
 /// and what it takes and gives.
 pub fn named_ability(name: string, takes: List<Type>, returns: Type): Definition =>
-    { name, public: true, ability: takes, returns };
+    { name, public: true, ability: takes, returns, generic: [] };
+
+/// A public ability of a generated module with a type parameter for
+/// each of `bounds`, which is its bound or null: `signature` is
+/// handed the type each is, and gives what the ability takes and
+/// gives.
+pub fn named_generic_ability(name: string, bounds: List<Type | null>, signature: fn(List<Type>): (List<Type>, Type)): Definition {
+    let (takes, returns) = signature(@range(0, bounds.length()).map(parameter).to_list());
+    return { name, public: true, ability: takes, returns, generic: bounds };
+}
 
 /// A public tag of a generated module, by the name it has there.
 pub fn named_tag(name: string): Definition => { name, public: true, tag: null };

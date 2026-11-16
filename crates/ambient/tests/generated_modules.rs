@@ -77,6 +77,17 @@ fn a_generated_definition_refers_to_one_beside_it_by_name() {
 }
 
 #[test]
+fn a_generated_ability_has_the_type_parameters_its_tree_says() {
+    let all = "[code.named_generic_ability(\"echo\", [null], fn(types: List<tree.Type>): (List<tree.Type>, tree.Type) =>
+        (types, types.get(0) as tree.Type else tree.none))]";
+    let main = "import pkg.made.{echo};
+        fn asks(): int with echo => echo!(40) + echo!(\"two\").length() - 1;
+        fn main(): int => provide { [echo]<T>(said: T): T => said } => asks();";
+
+    assert_eq!(support::run_in(&program(all, main)), Ok(Value::Int(42)));
+}
+
+#[test]
 fn a_generated_type_has_the_type_parameters_its_tree_says() {
     let all = "[code.named_generic(\"Pair\", 1, fn(types: List<tree.Type>): tree.Type =>
         { tuple: types ++ types })]";

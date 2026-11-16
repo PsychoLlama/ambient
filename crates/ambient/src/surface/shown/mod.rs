@@ -200,6 +200,11 @@ impl<'a> Writer<'a> {
                 let body = Doc::Body(Box::new(self.expr(body)));
                 Doc::Row(vec![text("provide "), self.atom(bundle), text(" =>"), body])
             }
+            Expr::Merge { left, right } => {
+                let under = Doc::Row(vec![text("..."), self.atom(left)]);
+                let over = Doc::Row(vec![text("..."), self.atom(right)]);
+                list("{ ", vec![under, over], " }")
+            }
             Expr::Let { .. } => self.block(expr),
             Expr::Match { subject, arms } => {
                 let subject = self.atom(subject);

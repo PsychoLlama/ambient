@@ -140,10 +140,19 @@ fn kind(home: Home, fields: &[(core::Key, core::Expr)]) -> Read<DefinitionKind<R
     Ok(if let Some(function) = has("function") {
         DefinitionKind::Function(self::function(home, function)?)
     } else if let Some(takes) = has("ability") {
+        let type_params = type_params(home, need(fields, "generic")?)?;
+        let count = type_params.len();
+        let params = params(home, takes)?;
+        let mut held = Ok(());
+        for param in &params {
+            let ty = &param.ty;
+            ty.names(&mut |name| held = held.clone().and(parameter_within(count, name)));
+        }
+        held?;
         DefinitionKind::Ability(Ability {
-            type_params: Vec::new(),
-            params: params(home, takes)?,
-            ret: within(home, 0, need(fields, "returns")?)?,
+            type_params,
+            params,
+            ret: within(home, count, need(fields, "returns")?)?,
         })
     } else if has("tag").is_some() {
         DefinitionKind::Tag
