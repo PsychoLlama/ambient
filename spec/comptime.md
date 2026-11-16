@@ -26,7 +26,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 - A generated function's tree says what it takes and gives and its row, so what names it is checked against that without its body.
 - In module position the result is a set of definitions, forming the whole content of a generated module.
 - A generated module is a module like any other in its [package](packages.md): it has a path, and imports of its own, which are all its call can name.
-- The call gives definitions by name, each a function or a type and public or not; the module has those and no others.
+- The call gives definitions by name, each a function, a type, an ability, or a tag, and public or not; the module has those and no others.
 - What a generated module defines is not in scope for its own call, so a call cannot depend on what it gives.
 - A module the call reaches may import the generated module; only a definition the call reaches cannot name what it gives.
 - A generated module is the only place a comptime call creates [symbols](symbols.md); they are ordinary symbols.
@@ -77,7 +77,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 - TODO: an expression's tree has no match and no operation, so code that decides anything is a function the tree calls. An expression is not yet handed to a function as a tree.
 - TODO: an ability with type parameters has no tree, so neither has the type of a function that takes one.
 - An argument of a comptime call may name an ability, for a function that takes a reference to one.
-- TODO: only a function and a type are a definition's tree, neither with type parameters; a generated module defines no ability, tag, or extern.
+- TODO: no definition's tree has type parameters, and a generated module defines no key, brand, extern, or target.
 - TODO: a derived type cannot refer to itself: naming it to the call asks for the type the call has yet to give. A generated function's body may call it, but its call cannot name it.
 - TODO: a type with arguments that refers to itself has no tree.
 - TODO: a generated node has no [span](trees.md). An error in one is reported at the call, and how the tree is shown is undecided.

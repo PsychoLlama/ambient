@@ -7,7 +7,7 @@ use super::{Checker, core};
 use crate::error::Error;
 use crate::literal::Literal;
 use crate::surface::{
-    Definition, DefinitionKind, Expr, Function, Key, Param, Reference, TypeDefinition,
+    Ability, Definition, DefinitionKind, Expr, Function, Key, Param, Reference, TypeDefinition,
 };
 use crate::symbol::{Namespace, Symbol};
 use crate::types::Ty;
@@ -117,19 +117,44 @@ pub fn definitions(tree: &core::Expr) -> Option<Vec<Definition<Reference>>> {
         let core::Expr::Literal(Literal::Bool(public)) = field(fields, "public")? else {
             return None;
         };
-        let kind = match field(fields, "function") {
-            Some(function) => DefinitionKind::Function(defined(function)?),
-            None => DefinitionKind::Type(TypeDefinition {
-                params: Vec::new(),
-                ty: written(field(fields, "means")?)?,
-            }),
-        };
+        let kind = kind(fields)?;
         let writable = !name.is_empty() && !name.starts_with("__");
         writable.then(|| Definition {
             name: name.to_owned(),
             public: *public,
             doc: None,
             kind,
+        })
+    })
+}
+
+/// What a `tree.Definition` with these fields is. A tag is left a
+/// tag: what it means holds where it is declared, which the engine
+/// knows.
+fn kind(fields: &[(core::Key, core::Expr)]) -> Option<DefinitionKind<Reference>> {
+    let has = |name: &str| field(fields, name);
+    Some(if let Some(function) = has("function") {
+        DefinitionKind::Function(defined(function)?)
+    } else if let Some(takes) = has("ability") {
+        let param = |(at, ty)| Param {
+            name: format!("__{at}"),
+            ty,
+        };
+        DefinitionKind::Ability(Ability {
+            type_params: Vec::new(),
+            params: each(takes, written)?
+                .into_iter()
+                .enumerate()
+                .map(param)
+                .collect(),
+            ret: written(has("returns")?)?,
+        })
+    } else if has("tag").is_some() {
+        DefinitionKind::Tag
+    } else {
+        DefinitionKind::Type(TypeDefinition {
+            params: Vec::new(),
+            ty: written(has("means")?)?,
         })
     })
 }

@@ -63,14 +63,24 @@ impl Engine<'_> {
             return Err(Error::UnknownSymbol(symbol.clone()));
         };
         let tree = self.given(symbol, &resolved.digest, call, checker::module())?;
-        let made = checker::definitions(&tree).ok_or_else(|| Error::NotCode(symbol.clone()))?;
+        let mut made = checker::definitions(&tree).ok_or_else(|| Error::NotCode(symbol.clone()))?;
         let mut seen = std::collections::BTreeSet::new();
-        for definition in &made {
-            if !seen.insert((definition.kind.namespace(), &definition.name)) {
+        let id = self.sources.identity(&symbol.module.package);
+        for definition in &mut made {
+            // A tag is named as a type and as a value, and is a type
+            // from here on, as one that was written is once resolved.
+            let tag = matches!(definition.kind, DefinitionKind::Tag);
+            let twice = !seen.insert((definition.kind.namespace(), definition.name.clone()))
+                || (tag && !seen.insert((Namespace::Value, definition.name.clone())));
+            if twice {
                 return Err(Error::GeneratedTwice {
                     symbol: symbol.clone(),
                     name: definition.name.clone(),
                 });
+            }
+            if tag {
+                let declared = symbol.module.ty(&definition.name);
+                definition.kind = super::resolve::tag(&id, &declared);
             }
         }
         // A tree is data, and could name what nothing written here may.

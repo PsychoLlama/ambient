@@ -111,10 +111,14 @@ pub type Expr =
 pub type Function = { params: List<Type>, returns: Type, takes: List<Reference>, body: Expr };
 
 /// A definition a generated module has: its name, whether other
-/// modules may use it, and the function it is or the type it means.
+/// modules may use it, and what it is. That is a function, the type
+/// the name means, an ability by what it takes and gives, or a tag,
+/// of which there is no more to say.
 pub type Definition =
     { name: string, public: bool, function: Function }
-    | { name: string, public: bool, means: Type };
+    | { name: string, public: bool, means: Type }
+    | { name: string, public: bool, ability: List<Type>, returns: Type }
+    | { name: string, public: bool, tag: null };
 
 /// What a call gives for a module whose whole content it is.
 pub type Module = List<Definition>;

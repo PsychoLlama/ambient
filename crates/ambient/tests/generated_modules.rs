@@ -73,6 +73,34 @@ fn a_generated_definition_has_the_hash_of_one_written_out() {
 }
 
 #[test]
+fn a_call_gives_abilities_and_what_performs_them() {
+    let all = "[
+        code.named_ability(\"ask\", [tree.integer], tree.integer),
+        code.named(\"asked\", code.define([], tree.integer, [asks()], fn(given: List<code.Code>): code.Code =>
+            code.perform(asks(), [code.literal(20)]))),
+    ]";
+    let asks = "fn asks(): tree.Reference =>
+        { package: \"app\", module: [\"made\"], name: \"ask\", kind: \"ability\" };";
+    let call = "import pkg.make; comptime make.all();";
+    let main = "import pkg.made;
+        fn main(): int => provide { [made.ask](n) => n + 1 } => made.asked() + made.ask!(20);";
+    let maker = format!("{} {asks}", make(all));
+    let workspace = modules(&[("make", &maker), ("made", call), ("main", main)]);
+
+    assert_eq!(support::run_in(&workspace), Ok(Value::Int(42)));
+}
+
+#[test]
+fn a_call_gives_tags() {
+    let all = "[code.named_tag(\"ready\"), code.named_tag(\"spent\")]";
+    let main = "import pkg.made;
+        fn state(): made.ready | made.spent => made.ready;
+        fn main(): bool => state() == made.ready && state() != made.spent;";
+
+    assert_eq!(support::run_in(&program(all, main)), Ok(Value::Bool(true)));
+}
+
+#[test]
 fn a_module_has_nothing_its_call_did_not_give() {
     let main = "import pkg.made; fn main(): int => made.halve(4);";
 

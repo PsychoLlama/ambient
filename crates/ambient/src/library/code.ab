@@ -96,3 +96,11 @@ pub fn named(name: string, function: Function): Definition => { name, public: tr
 
 /// A public type of a generated module, by the name it has there.
 pub fn named_type(name: string, means: Type): Definition => { name, public: true, means };
+
+/// A public ability of a generated module, by the name it has there
+/// and what it takes and gives.
+pub fn named_ability(name: string, takes: List<Type>, returns: Type): Definition =>
+    { name, public: true, ability: takes, returns };
+
+/// A public tag of a generated module, by the name it has there.
+pub fn named_tag(name: string): Definition => { name, public: true, tag: null };

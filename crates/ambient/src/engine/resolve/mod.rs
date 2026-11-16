@@ -95,6 +95,19 @@ impl Engine<'_> {
     }
 }
 
+/// What a tag is to everything after resolution: the type of its one
+/// value, a tag told apart by the package's ID and where `symbol`
+/// says it is declared.
+pub(super) fn tag(package: &str, symbol: &Symbol) -> DefinitionKind<Reference> {
+    DefinitionKind::Type(TypeDefinition {
+        params: Vec::new(),
+        ty: Type::Literal(crate::literal::Literal::Tag {
+            package: package.to_owned(),
+            tag: symbol.identity(),
+        }),
+    })
+}
+
 struct Resolver<'a> {
     scope: &'a Scope,
     symbol: &'a Symbol,
@@ -147,13 +160,7 @@ impl<'a> Resolver<'a> {
             }
             // A tag is, to everything after this, the type of its one
             // value: a tag told apart by where this is declared.
-            DefinitionKind::Tag => DefinitionKind::Type(TypeDefinition {
-                params: Vec::new(),
-                ty: Type::Literal(crate::literal::Literal::Tag {
-                    package: self.package.to_owned(),
-                    tag: self.symbol.identity(),
-                }),
-            }),
+            DefinitionKind::Tag => tag(self.package, self.symbol),
             // And a brand the type of what is minted under it.
             DefinitionKind::Brand => DefinitionKind::Type(TypeDefinition {
                 params: Vec::new(),
