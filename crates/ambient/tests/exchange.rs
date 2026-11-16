@@ -14,6 +14,7 @@ fn function((definition, captures): ([u8; 32], Vec<Value>)) -> Value {
     Value::Function(Function {
         definition: Some(Hash::from_bytes(definition)),
         captures,
+        live: None,
     })
 }
 
@@ -201,6 +202,7 @@ fn a_generic_function_has_no_encoding() {
     let generic = Value::Function(Function {
         definition: Some(Hash::from_bytes([0; 32])),
         captures: vec![Value::Types],
+        live: None,
     });
 
     assert_eq!(encode(&generic), Err(Unsendable::Types));

@@ -12,7 +12,7 @@ use super::load::Program;
 use super::values::{Host, Inside};
 use super::waits::{Answers, asked};
 use crate::parts::{Native, Parts};
-use crate::value::{self, Value};
+use crate::value::{self, Handed, Live, Value};
 
 /// The program that called native code, as far as native code reaches
 /// it. See "Native side" in `spec/externs.md`.
@@ -46,7 +46,33 @@ pub trait Running {
     /// Fails if no program is running, or the extern was not declared
     /// `suspending`.
     fn later(&mut self) -> Result<u64, String>;
+
+    /// Calls a function value of the program with `args` and nothing
+    /// bound, and gives what it gives. The call is the task's that
+    /// called this native code: see "Calling back" in
+    /// `spec/externs.md`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if `function` is not a function among the arguments of
+    /// this call that takes as many arguments: a copy of one holds
+    /// nothing the function captured, and is not called. Fails if no
+    /// program is running. Fails with
+    /// [`UNWOUND`] if the call unwound: the native code is then over,
+    /// and whatever it returns is not looked at.
+    fn call(&mut self, function: &Value, args: &[Value]) -> Result<Value, String>;
 }
+
+/// What a call back that unwound says: a fault, an abort, or a
+/// cancellation is on its way through the native code that made it.
+pub const UNWOUND: &str = "the call back unwound";
+
+/// What a call back says once native code has said it will answer
+/// later: its task is waiting, and calls nothing.
+pub const ANSWERING: &str = "native code that answers later has nothing more to call";
+
+/// What a call back says of a value that cannot be called so.
+pub const UNCALLABLE: &str = "not a function this call was handed that takes as many arguments";
 
 /// What asking to answer later says of an extern that may not.
 pub const UNDECLARED: &str = "the extern is not declared `suspending`, or has asked already";
@@ -67,6 +93,10 @@ impl Running for Nowhere {
     fn later(&mut self) -> Result<u64, String> {
         Err("no program is running".to_owned())
     }
+
+    fn call(&mut self, _: &Value, _: &[Value]) -> Result<Value, String> {
+        Err("no program is running".to_owned())
+    }
 }
 
 /// One call of native code: the program it was made from, and the
@@ -77,6 +107,41 @@ struct Call<'a> {
     held: Vec<Word>,
     /// The ticket it took, if it is to answer later.
     ticket: Option<u64>,
+    /// Whether a call it made back unwound: the unwinding goes on
+    /// through it.
+    unwound: bool,
+    /// Its number, which the functions read for it hold: see
+    /// [`Live`].
+    number: u64,
+}
+
+impl Call<'_> {
+    /// The words a call back hands over: `function` where it is in
+    /// the program, which the arguments of this call hold, and a tuple
+    /// of no bindings and then `args`, which the caller owns. None if
+    /// `function` cannot be called with them.
+    fn handed(&self, function: &Value, args: &[Value]) -> Option<(Word, Word)> {
+        let mut make = Inside(self.program);
+        let callee = Live::of(function, self.number)?;
+        // SAFETY: the arguments of this call hold the word, and it is a
+        // function, which has an arity.
+        let takes = unsafe { ambient_runtime::amb_closure_arity(callee) };
+        if takes != args.len() as u64 + 1 {
+            return None;
+        }
+        // SAFETY: each index is within the length asked for, and a
+        // tuple keeps a reference of its own to what it is set.
+        let handed = unsafe {
+            let handed = ambient_runtime::amb_sequence_new(0, args.len() as u64 + 1);
+            for (index, arg) in (1..).zip(args) {
+                let word = value::encode(arg, &mut make);
+                ambient_runtime::amb_sequence_set(handed, index, word);
+                ambient_runtime::amb_release(word);
+            }
+            handed
+        };
+        Some((callee, handed))
+    }
 }
 
 impl Running for Call<'_> {
@@ -97,6 +162,32 @@ impl Running for Call<'_> {
         }
         self.ticket = Some(ticket);
         Ok(ticket)
+    }
+
+    fn call(&mut self, function: &Value, args: &[Value]) -> Result<Value, String> {
+        if self.unwound {
+            return Err(UNWOUND.to_owned());
+        }
+        if self.ticket.is_some() {
+            return Err(ANSWERING.to_owned());
+        }
+        let (callee, handed) = self
+            .handed(function, args)
+            .ok_or_else(|| UNCALLABLE.to_owned())?;
+        // SAFETY: the context is the one this call was handed, the
+        // callee takes as many words as the tuple holds, and each word
+        // is owned here and not used after it is released.
+        unsafe {
+            let result = ambient_runtime::amb_call_among(self.context, callee, handed);
+            ambient_runtime::amb_release(handed);
+            if result == ambient_runtime::UNWIND {
+                self.unwound = true;
+                return Err(UNWOUND.to_owned());
+            }
+            let value = value::decode(result, &mut Host);
+            ambient_runtime::amb_release(result);
+            Ok(value)
+        }
     }
 }
 
@@ -247,7 +338,12 @@ pub(super) unsafe extern "C" fn dispatch(
         program.forsake(bindings);
         return ambient_runtime::NULL;
     }
-    let args = match &mut value::decode(args, &mut Host) {
+    let number = Live::call();
+    let mut handed = Handed {
+        inspect: &mut Host,
+        call: number,
+    };
+    let args = match &mut value::decode(args, &mut handed) {
         Value::Tuple(args) => std::mem::take(args),
         _ => Vec::new(),
     };
@@ -261,6 +357,8 @@ pub(super) unsafe extern "C" fn dispatch(
         context,
         held: Vec::new(),
         ticket: None,
+        unwound: false,
+        number,
     };
     let outcome = match &offered {
         Some(offered) => catch_unwind(AssertUnwindSafe(|| (offered.run)(&mut call, &args)))
@@ -277,6 +375,8 @@ pub(super) unsafe extern "C" fn dispatch(
             verifiable: offered.verifiable,
         });
     let result = match (call.ticket, observation) {
+        // What it called is unwinding, and goes on through it.
+        _ if call.unwound => ambient_runtime::UNWIND,
         // It answers later: the task waits, and what it returned is
         // not looked at.
         (Some(ticket), Some(observation)) => {

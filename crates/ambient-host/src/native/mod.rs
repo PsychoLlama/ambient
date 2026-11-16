@@ -10,7 +10,10 @@ mod values;
 mod waits;
 
 pub use externs::Externs;
-pub use host::{NativeFn, Natives, Nowhere, Observation, Offered, Running, UNDECLARED};
+pub use host::{
+    ANSWERING, NativeFn, Natives, Nowhere, Observation, Offered, Running, UNCALLABLE, UNDECLARED,
+    UNWOUND,
+};
 pub use load::Program;
 pub use values::{Host, Inside, encode};
 pub use waits::{Answer, Answers, Waits};

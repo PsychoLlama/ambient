@@ -1,5 +1,7 @@
 //! Values as the host sees them: what running a program gives back.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use std::collections::BTreeMap;
 
 mod walk;
@@ -114,11 +116,96 @@ impl Source {
 /// A function value: a definition, and what it captured where it was
 /// ready. The bindings it captured are among the captures, as a record,
 /// and then the type arguments of a generic one.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Function {
     /// The hash of its definition, if it has one a host can name.
     pub definition: Option<Hash>,
     pub captures: Vec<Value>,
+    /// Where it is in the program, if it was read for native code to
+    /// call back. What is here beside it is a copy, which holds no cell
+    /// and no handler it captured; only this is the function itself.
+    #[serde(skip)]
+    pub live: Option<Live>,
+}
+
+/// A function is what it is whichever call it was read for.
+impl PartialEq for Function {
+    fn eq(&self, other: &Self) -> bool {
+        self.definition == other.definition && self.captures == other.captures
+    }
+}
+
+/// Where a function value is in the program it was read from, for as
+/// long as the call of native code it was read for lasts.
+#[derive(Clone, Copy, Debug)]
+pub struct Live {
+    /// Which call of native code it was read for: no other may use it.
+    pub call: u64,
+    pub word: Word,
+}
+
+impl Live {
+    /// A number for a call of native code, which no other call in this
+    /// process has.
+    #[must_use]
+    pub fn call() -> u64 {
+        static CALLS: AtomicU64 = AtomicU64::new(1);
+        CALLS.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// The function `value` is in its program, if it is one that was
+    /// read for the call `call`.
+    #[must_use]
+    pub fn of(value: &Value, call: u64) -> Option<Word> {
+        match value {
+            Value::Function(Function {
+                live: Some(live), ..
+            }) if live.call == call => Some(live.word),
+            _ => None,
+        }
+    }
+}
+
+/// Reads the arguments of one call of native code, so that a function
+/// among them can be called back: see [`Live`].
+pub struct Handed<'a, I> {
+    pub inspect: &'a mut I,
+    pub call: u64,
+}
+
+impl<I: Inspect> Inspect for Handed<'_, I> {
+    fn kind(&mut self, word: Word) -> u64 {
+        self.inspect.kind(word)
+    }
+
+    fn int(&mut self, word: Word) -> i64 {
+        self.inspect.int(word)
+    }
+
+    fn float_bits(&mut self, word: Word) -> u64 {
+        self.inspect.float_bits(word)
+    }
+
+    fn length(&mut self, word: Word) -> u64 {
+        self.inspect.length(word)
+    }
+
+    fn word_at(&mut self, word: Word, index: u64) -> Word {
+        self.inspect.word_at(word, index)
+    }
+
+    fn string(&mut self, word: Word) -> Vec<u8> {
+        self.inspect.string(word)
+    }
+
+    fn definition(&mut self, word: Word) -> Word {
+        self.inspect.definition(word)
+    }
+
+    fn live(&mut self, word: Word) -> Option<Live> {
+        let call = self.call;
+        Some(Live { call, word })
+    }
 }
 
 /// Reads words. Each backend has its own way to reach the runtime.
@@ -135,6 +222,10 @@ pub trait Inspect {
     fn string(&mut self, word: Word) -> Vec<u8>;
     /// The hash of a function value's definition, as a string.
     fn definition(&mut self, word: Word) -> Word;
+    /// Where a function is, if what is read is to be called back.
+    fn live(&mut self, _word: Word) -> Option<Live> {
+        None
+    }
 }
 
 /// The value a word represents.
@@ -198,10 +289,12 @@ pub fn decode(word: Word, inspect: &mut impl Inspect) -> Value {
                 let hash = inspect.definition(word);
                 let definition = Hash::parse(&text(inspect, hash));
                 let method = kind == Kind::Method as u64;
+                let live = inspect.live(word);
                 let function = move |captures| {
                     let function = Function {
                         definition,
                         captures,
+                        live,
                     };
                     if method {
                         Value::Method(function)

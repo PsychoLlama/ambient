@@ -49,6 +49,9 @@ pub fn check_extern(
             )
         }
     };
+    if params.iter().any(takes_bindings) {
+        return Err(Error::NativeRow(symbol.clone()));
+    }
     let params = params.iter().map(|ty| checker.lower(ty)).collect();
     let ret = checker.lower(&ret);
     let handles = handles.map(|ability| checker.slot(&ability));
@@ -67,6 +70,21 @@ pub fn check_extern(
         slots: checker.finish().slots,
         lambdas: Vec::new(),
     })
+}
+
+/// Whether a type an extern takes holds a function type with a row.
+/// Native code calls a function with nothing bound, so what it is
+/// handed must be bound already: see "Calling back" in
+/// `spec/externs.md`.
+fn takes_bindings(ty: &Ty) -> bool {
+    let found = std::cell::Cell::new(false);
+    let _ = ty.rewrite(0, &|ty, _| {
+        if matches!(ty, Ty::Function { row, .. } if !row.is_empty()) {
+            found.set(true);
+        }
+        None
+    });
+    found.get()
 }
 
 /// Checks a target, given every binding it has: its own, and those of the

@@ -85,6 +85,7 @@ fn pack(
     let Some(Value::Function(Function {
         definition: Some(hash),
         captures,
+        ..
     })) = function
     else {
         return Err(invalid(&"what was given is not a function"));

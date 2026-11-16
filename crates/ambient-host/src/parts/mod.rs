@@ -142,6 +142,7 @@ impl Parts {
         Ok(Value::Function(Function {
             definition: Some(entry.hash),
             captures: Vec::new(),
+            live: None,
         }))
     }
 

@@ -37,14 +37,16 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - Native code performs an ability of its declared row by calling the handler bound for it, as it calls any function value it was handed.
 - Native code therefore composes as Ambient code does: one that reads a file performs the ability, and never reaches for its host's own way to.
 - A call back belongs to the [task](tasks.md) that called the native code, so nothing runs that a task of the program did not start.
-- A function type in an extern's signature has an empty row. What is handed over was bound where it was handed, by the [capture](abilities.md) rule, so native code holds bindings only for its own row.
-- A suspending extern calls back by asking: it says what to call and that it will go on later, the task makes the call as its own, and the host is handed what the call gave.
-- Nothing native is on the stack while that call runs, so what is called may suspend.
-- Any other native code calls back while it is itself on the stack, and nothing can save it there. What it calls cannot suspend, and one that would is a [fault](values.md).
-- Native code that performs what may wait is therefore declared `suspending`.
+- A function type among an extern's parameters has an empty row. What is handed over was bound where it was handed, by the [capture](abilities.md) rule, so native code holds bindings only for its own row.
+- Native code calls only a function it was handed for the call it is in. What it reads of a function is a copy, which holds no [cell](cells.md) and no handler the function captured.
+- What native code calls may suspend, as any call may. Other tasks take their turns beneath the native code until the task can go on, and the native code sees only that the call took a while.
+- The world cannot answer while native code stands: a host hands answers over from outside every call. A task that can go on only when the world answers, beneath native code, [faults](values.md).
+- A suspending extern that calls what may wait on the world therefore calls back by asking: it says what to call and that it will go on later, the task makes the call as its own, and the host is handed what the call gave.
+- Nothing native is on the stack while that call runs, so it may wait on anything.
 - A call back that unwinds, by a fault, an [abort](handlers.md), or a cancellation, unwinds the native code that made it: the native code lets go of what it holds and cannot answer.
 - Native code that calls back counts toward the [depth of calls](backends.md#calls) at a fixed size, so calls nested through native code fault at the limit as any others do.
-- TODO: nothing calls back yet: native code computes from its arguments, and besides loading reaches nothing of its program.
+- TODO: native code calls a function it was handed and nothing else yet: it performs no ability, and a suspending extern cannot ask.
+- TODO: a function type reached through a named type is not held to an empty row.
 
 ## Linking
 

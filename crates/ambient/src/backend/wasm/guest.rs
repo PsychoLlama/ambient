@@ -6,10 +6,12 @@ use std::collections::HashMap;
 use wasmtime::{AsContextMut, Caller, Func, Instance, Linker, Val};
 
 use super::units::{Known, Unit};
-use crate::backend::native::{Answers, Externs, Natives, Running, UNDECLARED};
+use crate::backend::native::{
+    ANSWERING, Answers, Externs, Natives, Running, UNCALLABLE, UNDECLARED, UNWOUND,
+};
 use crate::engine::Parts;
 use crate::hash::Hash;
-use crate::value::{self, Construct, Inspect, Value};
+use crate::value::{self, Construct, Handed, Inspect, Live, Value};
 
 /// What a WebAssembly host keeps where native code can reach it: the
 /// runtime, once it is instantiated, the native code for each extern of
@@ -283,6 +285,33 @@ struct Call<'a, 'b> {
     held: Vec<u64>,
     /// The ticket it took, if it is to answer later.
     ticket: Option<u64>,
+    /// Whether a call it made back unwound: the unwinding goes on
+    /// through it.
+    unwound: bool,
+    /// Its number, which the functions read for it hold: see
+    /// [`Live`].
+    number: u64,
+}
+
+impl Call<'_, '_> {
+    /// The words a call back hands over: `function` where it is in
+    /// the program, which the arguments of this call hold, and a tuple
+    /// of no bindings and then `args`, which the caller owns. None if
+    /// `function` cannot be called with them.
+    fn handed(&mut self, function: &Value, args: &[Value]) -> Option<(u64, u64)> {
+        let guest = &mut self.guest;
+        let callee = Live::of(function, self.number)?;
+        if guest.words("amb_closure_arity", &[callee]) != args.len() as u64 + 1 {
+            return None;
+        }
+        let handed = guest.words("amb_sequence_new", &[0, args.len() as u64 + 1]);
+        for (index, arg) in (1..).zip(args) {
+            let word = value::encode(arg, guest);
+            guest.words("amb_sequence_set", &[handed, index, word]);
+            guest.words("amb_release", &[word]);
+        }
+        Some((callee, handed))
+    }
 }
 
 impl Running for Call<'_, '_> {
@@ -309,6 +338,35 @@ impl Running for Call<'_, '_> {
         }
         self.ticket = Some(ticket);
         Ok(ticket)
+    }
+
+    fn call(&mut self, function: &Value, args: &[Value]) -> Result<Value, String> {
+        if self.unwound {
+            return Err(UNWOUND.to_owned());
+        }
+        if self.ticket.is_some() {
+            return Err(ANSWERING.to_owned());
+        }
+        let (callee, handed) = self
+            .handed(function, args)
+            .ok_or_else(|| UNCALLABLE.to_owned())?;
+        let guest = &mut self.guest;
+        // A program in which a task can suspend gives others their
+        // turns beneath the call; any other has nothing that does.
+        let entry = if guest.has("amb_call_among") {
+            "amb_call_among"
+        } else {
+            "amb_call_back"
+        };
+        let result = guest.at(entry, self.context, &[callee, handed]);
+        guest.words("amb_release", &[handed]);
+        if result == ambient_runtime::UNWIND {
+            self.unwound = true;
+            return Err(UNWOUND.to_owned());
+        }
+        let value = value::decode(result, guest);
+        guest.words("amb_release", &[result]);
+        Ok(value)
     }
 }
 
@@ -348,8 +406,14 @@ pub(super) fn native(
         context: u64::from(context.cast_unsigned()),
         held: Vec::new(),
         ticket: None,
+        unwound: false,
+        number: Live::call(),
     };
-    let decoded = value::decode(args.cast_unsigned(), &mut call.guest);
+    let mut handed = Handed {
+        inspect: &mut call.guest,
+        call: call.number,
+    };
+    let decoded = value::decode(args.cast_unsigned(), &mut handed);
     let args: &[Value] = match &decoded {
         Value::Tuple(args) => args,
         _ => &[],
@@ -359,9 +423,13 @@ pub(super) fn native(
         mut guest,
         held,
         ticket,
+        unwound,
         ..
     } = call;
-    let result = if let Some(ticket) = ticket {
+    let result = if unwound {
+        // What it called is unwinding, and goes on through it.
+        ambient_runtime::UNWIND
+    } else if let Some(ticket) = ticket {
         // It answers later: the task waits, and what it returned is
         // not looked at, unless it failed at once.
         if !matches!(outcome, Some(Ok(_))) {

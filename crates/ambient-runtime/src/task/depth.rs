@@ -20,6 +20,11 @@ pub const DEPTH: u64 = 400_000;
 /// and the runtime keep for a call.
 pub const FRAME: u64 = 32;
 
+/// What native code that calls back into its program weighs: room for
+/// what it and its host keep between the call it was made by and the
+/// call it makes.
+pub const NATIVE: u64 = 4096;
+
 /// The depth of what is called from outside compiled code.
 pub(super) const NOWHERE: Word = 1;
 

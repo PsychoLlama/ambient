@@ -16,6 +16,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
+mod back;
 mod budget;
 mod capture;
 mod depth;
@@ -26,15 +27,17 @@ mod wait;
 
 use alloc::collections::VecDeque;
 
+pub use back::{amb_call_among, amb_call_back};
 pub use budget::{
     LIMITS, amb_budget_back, amb_budget_caught, amb_budget_current, amb_budget_enter,
     amb_budget_leave, amb_budget_switch, amb_charge, amb_charge_read, amb_charge_size,
     amb_charge_tasks,
 };
 pub use capture::amb_capture;
-pub use depth::{DEPTH, FRAME, amb_depth, amb_enter};
+pub use depth::{DEPTH, FRAME, NATIVE, amb_depth, amb_enter};
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
 pub use join::{amb_all, amb_first};
+use tail::start;
 pub use tail::{amb_bounce, amb_start, amb_tail, amb_tail_arg};
 pub use wait::{FORSAKEN, amb_answer, amb_await, amb_native_wait, amb_refuse, amb_strand};
 
@@ -93,6 +96,22 @@ struct Task {
     capture: Capture,
     /// Its wait on the host, if native code said it would answer later.
     wait: wait::Wait,
+    /// Where it is with native code it called.
+    beneath: Beneath,
+}
+
+/// Where a task is with native code that called back into it.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Beneath {
+    /// No native code it called is on the stack.
+    #[default]
+    Free,
+    /// Native code it called is on the stack beneath it, so only the
+    /// call back that native code made can resume it.
+    Pinned,
+    /// It is to unwind to that native code, since nothing that can run
+    /// while the native code stands will let it go on.
+    Stuck,
 }
 
 /// Where a task is in having its trace captured.
@@ -208,7 +227,10 @@ impl Scheduler {
     fn interrupted(&mut self) -> bool {
         let stalled = self.stalled;
         let task = self.current();
-        (task.cancelled || task.disturbed > 0) && (task.masked == 0 || stalled)
+        // One that is stuck beneath native code would wait for ever in
+        // a cleanup too.
+        task.beneath == Beneath::Stuck
+            || (task.cancelled || task.disturbed > 0) && (task.masked == 0 || stalled)
     }
 
     /// Notes that the current task has entered a cleanup, or left one.
@@ -219,6 +241,16 @@ impl Scheduler {
         } else {
             task.masked.saturating_sub(1)
         };
+    }
+
+    /// Makes `id` the current task, to be resumed by whatever calls
+    /// what it suspended in again: the host, for the root, or the call
+    /// back it suspended beneath.
+    unsafe fn resumes(&mut self, context: *mut Context, id: usize) {
+        self.current = id;
+        unsafe { self.capture(id) };
+        self.task(id).queued = false;
+        unsafe { (*context).mode = RESUMING };
     }
 
     /// Records that a task is over, with `result` if it gave one.
@@ -399,30 +431,38 @@ pub unsafe extern "C" fn amb_schedule(context: *mut Context) {
                 scheduler.task(ROOT).cancelled = true;
                 ROOT
             });
-            scheduler.current = id;
-            scheduler.capture(id);
-            let task = scheduler.task(id);
-            task.queued = false;
             if id == ROOT {
-                (*context).mode = RESUMING;
-                return;
+                return scheduler.resumes(context, id);
             }
-            if task.cancelled && !task.started {
-                scheduler.finish(id, None);
-                continue;
-            }
-            (*context).mode = if task.started { RESUMING } else { RUNNING };
-            task.started = true;
-            let thunk = task.thunk;
-            // A task inside a budget is metered, as what started it was.
-            let metered = u64::from(task.budget.is_some());
-            // A thunk takes nothing but the bindings every function is
-            // handed, and it is handed none: it captured its own.
-            let nothing = crate::sequence::amb_sequence_new(0, 1);
-            let result = amb_start(context, thunk, nothing, metered);
-            amb_release(nothing);
-            ended(context, id, result);
+            turn(context, id, depth::NOWHERE);
         }
+    }
+}
+
+/// Gives the task `id`, which is not the root, its turn: starts it or
+/// resumes it, from `depth`, and notes what came of it.
+unsafe fn turn(context: *mut Context, id: usize, depth: Word) {
+    unsafe {
+        let scheduler = scheduler(context);
+        scheduler.current = id;
+        scheduler.capture(id);
+        let task = scheduler.task(id);
+        task.queued = false;
+        if task.cancelled && !task.started {
+            scheduler.finish(id, None);
+            return;
+        }
+        (*context).mode = if task.started { RESUMING } else { RUNNING };
+        task.started = true;
+        let thunk = task.thunk;
+        // A task inside a budget is metered, as what started it was.
+        let metered = u64::from(task.budget.is_some());
+        // A thunk takes nothing but the bindings every function is
+        // handed, and it is handed none: it captured its own.
+        let nothing = crate::sequence::amb_sequence_new(0, 1);
+        let result = start(context, thunk, nothing, metered, depth);
+        amb_release(nothing);
+        ended(context, id, result);
     }
 }
 

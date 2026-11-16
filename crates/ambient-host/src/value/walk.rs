@@ -120,10 +120,12 @@ impl Clone for Value {
             Self::Function(function) | Self::Method(function) => {
                 let definition = function.definition;
                 let method = matches!(value, Self::Method(_));
+                let live = function.live;
                 let made = move |captures| {
                     let function = Function {
                         definition,
                         captures,
+                        live,
                     };
                     if method {
                         Self::Method(function)

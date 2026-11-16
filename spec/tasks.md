@@ -33,7 +33,7 @@ A task is an independent execution of an expression. Tasks exist only inside the
 ## Suspension
 
 - A task suspends only when it waits on a group, an all, a first, or a cell, or performs an ability whose [native handler](externs.md) suspends.
-- A task cannot suspend beneath [native code](externs.md#calling-back) that is calling back into the program.
+- A task that suspends beneath [native code](externs.md#calling-back) it called is resumed there: others run until it can go on, and none of them waits on the world meanwhile.
 - Suspension is invisible in types: no function is marked as suspending, and any function may call any other.
 - There is one way to write code, and it reads as blocking.
 

@@ -155,6 +155,9 @@ pub enum Error {
     NotHandler { symbol: Symbol, handler: Symbol },
     /// A target extends itself, or one of its handlers needs itself.
     TargetCycle(Symbol),
+    /// An extern takes a function whose type has a row: native code
+    /// hands what it calls no bindings.
+    NativeRow(Symbol),
     /// Two targets a target extends bind one ability differently, and it
     /// does not say which it wants.
     TargetConflict { symbol: Symbol, ability: Symbol },
@@ -219,6 +222,7 @@ impl Error {
             | Self::Reaches { symbol, .. }
             | Self::NotTarget(symbol)
             | Self::TargetCycle(symbol)
+            | Self::NativeRow(symbol)
             | Self::GenericEntry(symbol)
             | Self::SpawnOutsideGroup(symbol)
             | Self::ComptimeAbilities(symbol)

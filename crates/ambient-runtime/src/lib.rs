@@ -83,7 +83,7 @@ pub use object::{amb_release, amb_retain, fixed_closure, layout};
 pub use record::*;
 pub use scope::{amb_scope_new, amb_scope_set, fixed_scope};
 pub use sequence::*;
-pub use task::{DEPTH, FRAME, amb_depth, amb_enter};
+pub use task::{DEPTH, FRAME, NATIVE, amb_call_among, amb_call_back, amb_depth, amb_enter};
 pub use task::{
     FORSAKEN, LIMITS, RESUMING, RUNNING, SUSPENDING, WAITING, amb_all, amb_answer, amb_await,
     amb_bounce, amb_budget_back, amb_budget_caught, amb_budget_current, amb_budget_enter,
@@ -144,6 +144,9 @@ pub enum Fault {
     Tail = 10,
     /// Calls nested deeper than [`DEPTH`] allows.
     Deep = 11,
+    /// A task could go on only once the world answered, while native
+    /// code it had called was on the stack.
+    Pinned = 12,
 }
 
 impl Fault {
@@ -160,6 +163,7 @@ impl Fault {
         Self::DivideByZero,
         Self::Tail,
         Self::Deep,
+        Self::Pinned,
     ];
 
     #[must_use]
@@ -176,6 +180,7 @@ impl Fault {
             9 => Self::DivideByZero,
             10 => Self::Tail,
             11 => Self::Deep,
+            12 => Self::Pinned,
             _ => Self::None,
         }
     }

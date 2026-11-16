@@ -77,6 +77,7 @@ impl fmt::Display for Error {
             | Self::NotTarget(_)
             | Self::NotHandler { .. }
             | Self::TargetCycle(_)
+            | Self::NativeRow(_)
             | Self::TargetConflict { .. }
             | Self::GenericEntry(_) => self.fmt_world(f),
             Self::NotBundle { .. }
@@ -218,6 +219,11 @@ impl Error {
             Self::NotHandler { symbol, handler } => {
                 write!(f, "{symbol}: `{handler}` cannot be bound as a handler")
             }
+            Self::NativeRow(symbol) => write!(
+                f,
+                "{symbol}: an extern takes a function whose type has a row, and native code hands \
+                 what it calls no bindings"
+            ),
             Self::TargetCycle(symbol) => {
                 write!(f, "{symbol}: a target or one of its handlers needs itself")
             }

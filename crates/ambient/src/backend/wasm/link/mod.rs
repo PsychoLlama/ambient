@@ -60,7 +60,7 @@ pub struct Space {
 pub enum For<'a> {
     /// A program: besides its roots it has each of these functions, if
     /// its roots reach the function it is paired with.
-    Program(&'a [(&'static str, &'a str)]),
+    Program(&'a [(&'static str, &'a [&'a str])]),
     /// A unit, for a target that has the functions of these hashes.
     Unit(&'a BTreeSet<Hash>),
 }
@@ -245,7 +245,10 @@ pub fn link(roots: &BTreeSet<&str>, target: &For, space: &Space) -> Result<Linke
     let mut reached = reach(library, named.iter().map(|(_, piece)| *piece), &had);
     if let For::Program(offered) = target {
         for (name, needs) in *offered {
-            if reached.contains(&piece(needs)?) {
+            let mut needed = needs.iter().map(|name| piece(name));
+            if needed.try_fold(true, |all, piece| {
+                Ok::<_, String>(all && reached.contains(&piece?))
+            })? {
                 named.push((*name, piece(name)?));
             }
         }

@@ -39,7 +39,7 @@ pub(super) struct Waits {
     /// Whether the host said no answer is coming.
     stranded: bool,
     /// Whether the native code running now may answer later.
-    open: bool,
+    pub(super) open: bool,
 }
 
 impl super::Scheduler {

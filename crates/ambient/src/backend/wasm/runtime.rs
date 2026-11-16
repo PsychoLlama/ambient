@@ -64,6 +64,8 @@ pub const HOST: &[&str] = &[
     "amb_answer",
     "amb_refuse",
     "amb_strand",
+    "amb_call_back",
+    "amb_call_among",
 ];
 
 /// What a host calls only of a program that reaches a function: what
@@ -71,13 +73,17 @@ pub const HOST: &[&str] = &[
 /// One that cannot is linked without it. A program code is loaded into
 /// has it regardless, since what is loaded may suspend. Likewise what
 /// answers native code that answers later, of a program that reaches
-/// such native code.
-const OFFERED: &[(&str, &str)] = &[
-    ("amb_schedule", "amb_suspend"),
-    ("amb_await", "amb_native_wait"),
-    ("amb_answer", "amb_native_wait"),
-    ("amb_refuse", "amb_native_wait"),
-    ("amb_strand", "amb_native_wait"),
+/// such native code; and what native code calls back through, of a
+/// program that reaches native code at all, which gives other tasks
+/// their turns only in a program that can suspend.
+const OFFERED: &[(&str, &[&str])] = &[
+    ("amb_schedule", &["amb_suspend"]),
+    ("amb_await", &["amb_native_wait"]),
+    ("amb_answer", &["amb_native_wait"]),
+    ("amb_refuse", &["amb_native_wait"]),
+    ("amb_strand", &["amb_native_wait"]),
+    ("amb_call_back", &["amb_native"]),
+    ("amb_call_among", &["amb_native", "amb_suspend"]),
 ];
 
 /// What a host that loads units calls besides.

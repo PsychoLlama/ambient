@@ -29,6 +29,7 @@ impl Fault {
             ),
             Self::Native => ("native", "native code failed"),
             Self::Deep => ("too_deep", "calls were nested too deeply"),
+            Self::Pinned => ("pinned", "a task waited on the world beneath native code"),
             Self::CleanupAbort => ("cleanup_abort", "a cleanup aborted to a provide outside it"),
         })
     }

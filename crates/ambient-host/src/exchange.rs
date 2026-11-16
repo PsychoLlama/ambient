@@ -271,6 +271,7 @@ impl Open {
                 let function = Function {
                     definition: Some(definition),
                     captures,
+                    live: None,
                 };
                 if method {
                     Value::Method(function)

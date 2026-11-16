@@ -119,6 +119,20 @@ pub unsafe extern "C" fn amb_start(
     args: Word,
     metered: u64,
 ) -> Word {
+    // Nothing compiled is running under it: a host is, or the
+    // scheduler a host called.
+    unsafe { start(context, callee, args, metered, NOWHERE) }
+}
+
+/// What [`amb_start`] does, from `depth`: how deep whatever makes the
+/// call is.
+pub(super) unsafe fn start(
+    context: *mut Context,
+    callee: Word,
+    args: Word,
+    metered: u64,
+    depth: Word,
+) -> Word {
     unsafe {
         // A call that is kept is made again from where it is kept.
         if !bounced(context) {
@@ -127,9 +141,7 @@ pub unsafe extern "C" fn amb_start(
                 amb_tail_arg(context, *arg);
             }
         }
-        // Nothing compiled is running under it: a host is, or the
-        // scheduler a host called.
-        amb_bounce(context, NOWHERE)
+        amb_bounce(context, depth)
     }
 }
 
