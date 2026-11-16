@@ -101,6 +101,16 @@ fn a_call_gives_tags() {
 }
 
 #[test]
+fn a_call_gives_as_many_definitions_as_it_likes() {
+    let all = "@range(0, 300)
+        .map(fn(at: int): tree.Definition => code.named(\"scale_${at}\", scaled(at)))
+        .to_list()";
+    let main = "import pkg.made; fn main(): int => made.scale_299(2);";
+
+    assert_eq!(support::run_in(&program(all, main)), Ok(Value::Int(598)));
+}
+
+#[test]
 fn a_module_has_nothing_its_call_did_not_give() {
     let main = "import pkg.made; fn main(): int => made.halve(4);";
 

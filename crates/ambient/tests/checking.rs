@@ -194,6 +194,16 @@ fn a_recursive_type_describes_values_of_any_depth() {
 }
 
 #[test]
+fn a_recursive_type_describes_values_of_any_size() {
+    let nest = b::type_("Nest", ty::union([ty::int(), ty::list(ty::named("Nest"))]));
+    // Each member is another judgement about the type; none is made
+    // inside another, so their number is no depth.
+    let wide = b::list((0..300).map(|member| b::list([b::int(member)])));
+
+    assert!(check([nest, returning(ty::named("Nest"), wide)]).is_ok());
+}
+
+#[test]
 fn recursive_types_are_compared_by_structure() {
     let convert = taking(ty::named("A"), ty::named("B"), x());
 

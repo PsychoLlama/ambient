@@ -4,26 +4,62 @@
 use super::{Env, Ty, Variance, booleans, entry, instantiate, primitive_of};
 use crate::surface::Reference;
 
-/// The longest chain of assumptions a subtyping proof may build. Regular
-/// types never come near it; it is what makes an irregular one fail rather
-/// than run forever.
+/// The longest chain of assumptions a subtyping proof may build, each
+/// made while proving the one before. Regular types never come near
+/// it; it is what makes an irregular one fail rather than run forever.
+/// How many judgements a proof makes in all is no part of it: a large
+/// literal makes one for each of its parts.
 const DEPTH: usize = 256;
 
-/// The same, where a type being unfolded has no end of unfoldings and
-/// each may be larger than the last: it is then being compared with
-/// something other than itself, which a few unfoldings settle or none
-/// will.
+/// The most judgements a proof may hold where a type being unfolded
+/// has no end of unfoldings and each may be larger than the last: it
+/// is then being compared with something other than itself, which a
+/// few unfoldings settle or none will.
 const SHALLOW: usize = 16;
 
 /// A subtyping proof under way.
 #[derive(Default)]
 struct Proof {
-    /// The judgements this one is being proved under.
-    assumed: Vec<(Ty, Ty)>,
+    /// The judgements this one is being proved under, and those proved
+    /// under them so far, which need no proving again.
+    assumed: Assumed,
+    /// How many of them are being proved now, each inside the last.
+    depth: usize,
     /// The bound of each parameter of the generic function types the
     /// proof is inside, outermost first. Inside one its parameters are
     /// type parameters like a definition's, numbered after those.
     opened: Vec<Ty>,
+}
+
+/// Judgements in the order they were made, found without looking
+/// through them all: a proof about a large type asks of each of its
+/// parts whether it was met before.
+#[derive(Default)]
+struct Assumed {
+    made: Vec<(Ty, Ty)>,
+    held: std::collections::BTreeSet<(Ty, Ty)>,
+}
+
+impl Assumed {
+    fn len(&self) -> usize {
+        self.made.len()
+    }
+
+    fn contains(&self, judgement: &(Ty, Ty)) -> bool {
+        self.held.contains(judgement)
+    }
+
+    fn push(&mut self, judgement: (Ty, Ty)) {
+        self.held.insert(judgement.clone());
+        self.made.push(judgement);
+    }
+
+    /// Forgets every judgement made after the first `len`.
+    fn truncate(&mut self, len: usize) {
+        for judgement in self.made.drain(len.min(self.made.len())..) {
+            self.held.remove(&judgement);
+        }
+    }
 }
 
 impl Env {
@@ -119,19 +155,26 @@ impl Env {
                     return true;
                 }
                 let ends = self.unfolds(sub) && self.unfolds(sup);
-                if proof.assumed.len() >= if ends { DEPTH } else { SHALLOW } {
+                let far = if ends {
+                    proof.depth >= DEPTH
+                } else {
+                    proof.assumed.len() >= SHALLOW
+                };
+                if far {
                     return false;
                 }
                 let (below, above) = (self.unfold(sub), self.unfold(sup));
                 if below == *sub && above == *sup {
                     return false;
                 }
-                let depth = proof.assumed.len();
+                let made = proof.assumed.len();
                 proof.assumed.push(judgement);
+                proof.depth += 1;
                 let holds = self.sub(&below, &above, proof);
+                proof.depth -= 1;
                 if !holds {
                     // A judgement that failed must not stay assumed.
-                    proof.assumed.truncate(depth);
+                    proof.assumed.truncate(made);
                 }
                 holds
             }
