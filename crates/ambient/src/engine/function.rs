@@ -144,6 +144,10 @@ impl Engine<'_> {
         if let Some(at) = checked.noted.at {
             self.blamed.borrow_mut().insert(symbol.clone(), at);
         }
+        if let Some(given) = &checked.noted.given {
+            let given = given.clone();
+            self.spliced.borrow_mut().insert(symbol.clone(), given);
+        }
         let mut origins = self.origins.borrow_mut();
         if !origins.contains_key(symbol) {
             origins.insert(symbol.clone(), checked.noted.origins.clone());

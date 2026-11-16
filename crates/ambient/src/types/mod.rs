@@ -22,6 +22,7 @@ use crate::surface::{Key, Reference, Shape, Type};
 use crate::symbol::Symbol;
 
 pub use generic::{generalize, instantiate};
+pub use show::shown;
 pub use variance::Variance;
 
 pub type Ty = Type<Reference>;
@@ -261,9 +262,7 @@ impl Env {
     /// The type as an error message shows it. This is not a syntax.
     #[must_use]
     pub fn show(&self, ty: &Ty) -> String {
-        let mut out = String::new();
-        show::show(ty, &mut out);
-        out
+        shown(ty)
     }
 }
 

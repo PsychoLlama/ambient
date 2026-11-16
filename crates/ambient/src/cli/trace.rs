@@ -11,13 +11,23 @@ use ambient_host::launch::{Frames, Function};
 
 use crate::engine::Engine;
 use crate::project::Project;
+use crate::surface::GENERATOR;
 use crate::symbol::Symbol;
 
 /// A function as a frame names it: its name, and where it was written.
+/// One a comptime call gave was written nowhere: every place in it is
+/// where the call is.
 fn written(project: &Project, engine: &Engine, symbol: &Symbol) -> Function {
-    let located = project.locate(symbol);
+    let call = symbol.module.value(GENERATOR);
+    let located = project.locate(symbol).or_else(|| project.locate(&call));
+    let given = engine.is_given(symbol);
     let place = |node: Option<usize>| {
-        let at = located?.1.nodes.get(node?)?;
+        let placed = located?.1;
+        let at = if given {
+            &placed.at
+        } else {
+            placed.nodes.get(node?)?
+        };
         Some((at.line, at.column))
     };
     Function {

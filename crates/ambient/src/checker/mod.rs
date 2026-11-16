@@ -81,6 +81,7 @@ pub fn check_function(
     let body = checker.check(&function.body, &header.ret);
     noted.at = checker.blamed_in(&function.body);
     noted.reached = std::mem::take(&mut checker.reached);
+    noted.given = checker.given.take();
     let mut body = body?;
     checker.origins.insert(Vec::new(), body.origins(0));
     noted.origins = std::mem::take(&mut checker.origins);
@@ -178,6 +179,8 @@ struct Checker<'a> {
     nesting: usize,
     /// The innermost expression the first error was at.
     blamed: Option<*const Expr<Reference>>,
+    /// See [`Noted::given`].
+    given: Option<String>,
     /// The number of each node of the body being checked.
     places: HashMap<*const Expr<Reference>, u32>,
     /// What each definition finished so far was checked from: see
@@ -200,6 +203,7 @@ impl<'a> Checker<'a> {
             next: 0,
             nesting: 0,
             blamed: None,
+            given: None,
             places: HashMap::new(),
             origins: BTreeMap::new(),
         }

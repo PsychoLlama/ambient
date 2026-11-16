@@ -122,6 +122,12 @@ pub struct Engine<'a> {
     /// The node of its body each function that does not check is wrong
     /// at.
     blamed: RefCell<HashMap<Symbol, usize>>,
+    /// The node of the function its call gave that each generated
+    /// function that does not check is wrong at.
+    given_at: RefCell<HashMap<Symbol, usize>>,
+    /// The code a comptime call gave that each function that does not
+    /// check is wrong in: see [`crate::checker::Noted::given`].
+    spliced: RefCell<HashMap<Symbol, String>>,
     /// What each function checked so far was checked from: see
     /// [`crate::checker::Noted::origins`].
     origins: RefCell<HashMap<Symbol, crate::checker::Origins>>,
@@ -164,6 +170,8 @@ impl<'a> Engine<'a> {
             deriving: RefCell::default(),
             check: RefCell::default(),
             blamed: RefCell::default(),
+            given_at: RefCell::default(),
+            spliced: RefCell::default(),
             origins: RefCell::default(),
             received: RefCell::default(),
             hash: RefCell::default(),

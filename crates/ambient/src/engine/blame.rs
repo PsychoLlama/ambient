@@ -5,6 +5,7 @@
 
 use super::Engine;
 use crate::error::Error;
+use crate::surface::{DefinitionKind, GENERATOR, shown};
 use crate::symbol::Symbol;
 
 impl Engine<'_> {
@@ -13,8 +14,53 @@ impl Engine<'_> {
     #[must_use]
     pub fn blame(&self, error: &Error) -> Option<usize> {
         let symbol = error.symbol()?;
+        // What a generated module has is nowhere in the text.
+        if self.made_in_module(symbol) {
+            return None;
+        }
         let checked = self.blamed.borrow().get(symbol).copied();
         checked.or_else(|| self.unresolved_at(symbol))
+    }
+
+    /// Whether a definition is one a generated module's call gave.
+    fn made_in_module(&self, symbol: &Symbol) -> bool {
+        symbol.name != GENERATOR
+            && self
+                .generates(&symbol.module)
+                .is_ok_and(|generates| generates)
+    }
+
+    /// Whether a function is whatever a comptime call gave: a generated
+    /// function, or one of a generated module. No node of one is in
+    /// the text, so a frame of a trace in one is at the call.
+    #[must_use]
+    pub fn is_given(&self, symbol: &Symbol) -> bool {
+        let named = symbol.lambda(&[]);
+        let generated = self
+            .resolve(&named)
+            .is_ok_and(|resolved| matches!(resolved.definition.kind, DefinitionKind::Generated(_)));
+        generated || self.made_in_module(&named)
+    }
+
+    /// The code a comptime call gave that `error` is in, written out
+    /// around the node it is at: a function that was generated, or an
+    /// expression that was spliced. Nothing, for an error in what was
+    /// written.
+    #[must_use]
+    pub fn shown(&self, error: &Error) -> Option<String> {
+        let symbol = error.symbol()?;
+        if let Some(spliced) = self.spliced.borrow().get(symbol) {
+            return Some(spliced.clone());
+        }
+        let node = match self.given_at.borrow().get(symbol) {
+            Some(node) => Some(*node),
+            None if self.made_in_module(symbol) => self.blamed.borrow().get(symbol).copied(),
+            None => return None,
+        };
+        let resolved = self.resolve(symbol).ok()?;
+        let function = self.function_of(symbol, &resolved.definition).ok()??;
+        let shown = shown::function(&symbol.name, &symbol.module, &function, node);
+        Some(shown.excerpt())
     }
 
     /// The node of its definition's surface body that the expression

@@ -9,6 +9,7 @@
 
 mod operator;
 mod shape;
+pub mod shown;
 mod visit;
 
 use std::fmt;
@@ -17,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 pub use operator::Operator;
 pub use shape::Shape;
+pub use shown::Shown;
 
 use crate::literal::{Brand, Literal};
 use crate::symbol::Symbol;

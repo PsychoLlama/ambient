@@ -31,6 +31,10 @@ pub struct Noted {
     /// The definitions that code a comptime call gave names: what the
     /// check read that the body does not say.
     pub reached: Vec<Symbol>,
+    /// The code a comptime call gave that the first error is in,
+    /// written out with the node it is at marked. The error is then at
+    /// the call, which is all of that code the text has.
+    pub given: Option<String>,
 }
 
 impl Checker<'_> {

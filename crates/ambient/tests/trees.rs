@@ -342,6 +342,26 @@ fn spliced_code_names_what_the_body_does_not() {
 }
 
 #[test]
+fn an_error_in_spliced_code_is_at_the_call_and_shown_in_the_code() {
+    let main = "
+        import ambient.tree;
+        fn wrong(): tree.Expr => { operation: \"add\", on: [{ literal: 1 }, { literal: \"two\" }] };
+        fn main(): int => 2 * comptime wrong();
+    ";
+    let workspace = workspace(main);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let error = engine.check(&value("main", "main")).unwrap_err();
+
+    // The product, and then the call, which is its second operand.
+    assert_eq!(engine.blame(&error), Some(2));
+    assert_eq!(
+        engine.shown(&error).unwrap(),
+        "    1 + \"two\"\n    ^^^^^^^^^\n"
+    );
+}
+
+#[test]
 fn spliced_code_names_only_what_could_be_named_there() {
     let main = "
         fn hidden(): tree.Expr => {

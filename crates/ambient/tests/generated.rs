@@ -218,3 +218,55 @@ fn a_generated_function_follows_what_made_it() {
     assert!(twice.is_ok() && thrice.is_ok());
     assert_ne!(twice, thrice);
 }
+
+/// The code the function `made` of a program is wrong in, as a report
+/// shows it.
+fn shown(source: &str) -> String {
+    let workspace = workspace(source);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let error = engine.check(&value("main", "made")).unwrap_err();
+    assert_eq!(engine.blame(&error), None, "no node of it is in the text");
+    engine.shown(&error).unwrap()
+}
+
+#[test]
+fn an_error_in_a_generated_function_is_shown_in_its_code() {
+    let sum = "code.operate(\"add\", [x, code.literal(\"two\")])";
+    let expected = "    fn made(_0: int): int => _0 + \"two\"
+                             ^^^^^^^^^^
+";
+
+    assert_eq!(shown(&of_seven("integer", sum)), expected);
+}
+
+#[test]
+fn generated_code_is_shown_around_the_node_an_error_is_at() {
+    // Bindings are named in the order they are made, a block is its
+    // lines, and what is too wide for a line is broken over several.
+    let long = "a string long enough to push this call past the width of a page";
+    let body = format!(
+        "code.matching(code.tuple([x, code.literal(2)]), [
+            code.arm({{ tuple: [{{ bound: {{ is: tree.integer }} }}, {{ bound: {{ is: tree.any }} }}] }},
+                fn(bound: List<code.Code>): code.Code =>
+                    code.bind(code.operate(\"add\", [at(bound, 0), at(bound, 1)]), fn(sum: code.Code): code.Code =>
+                        code.list([sum, code.field(sum, \"missing\"), code.literal(\"{long}\"), sum, sum]))),
+        ])"
+    );
+    let expected = format!(
+        "    fn made(_0: int): int => match (_0, 2) {{
+    …
+            let _3 = _1 + _2;
+            [
+                _3,
+                _3.missing,
+                ^^^^^^^^^^
+                \"{long}\",
+                _3,
+                _3,
+    …
+"
+    );
+
+    assert_eq!(shown(&of_seven("integer", &body)), expected);
+}

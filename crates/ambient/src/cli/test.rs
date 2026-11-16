@@ -38,7 +38,7 @@ impl Session<'_> {
         let (mut passed, mut failed, mut kept) = (0, 0, 0);
         let chosen = |test: &Symbol| only.is_none_or(|only| test.identity().contains(only));
         let tests = tests(&project, &engine)
-            .map_err(|error| vec![project.report(&error, engine.blame(&error))])?;
+            .map_err(|error| vec![super::report(&project, &engine, &error)])?;
         for test in tests.into_iter().filter(chosen) {
             // A test reaches no world, so one that passed passes for as
             // long as its program is the same, and is not run again. One

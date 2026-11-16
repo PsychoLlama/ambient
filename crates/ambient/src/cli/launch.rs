@@ -34,8 +34,7 @@ impl Launch<'_> {
     /// wrong with it.
     pub(super) fn link(&self, entry: &Symbol, target: &Symbol) -> Result<Linked, Vec<String>> {
         let Self { project, engine } = self;
-        let refused =
-            |error: crate::error::Error| vec![project.report(&error, engine.blame(&error))];
+        let refused = |error: crate::error::Error| vec![super::report(project, engine, &error)];
         let root = engine.program(entry, target).map_err(refused)?;
         let backend = Native::new().map_err(|message| vec![message])?;
         let host::Linked { parts, trees } =

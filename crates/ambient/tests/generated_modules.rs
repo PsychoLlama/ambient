@@ -62,6 +62,22 @@ fn what_a_call_gives_is_imported_by_name() {
 }
 
 #[test]
+fn an_error_in_a_generated_definition_is_shown_in_its_code() {
+    let all = "[code.named(\"wrong\", code.define([], tree.integer, [], fn(given: List<code.Code>): code.Code =>
+        code.call(code.definition(comptime tree.reference(times)), [code.literal(2)])))]";
+    let workspace = program(all, "fn main(): int => 1;");
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let error = engine.check(&value("made", "wrong")).unwrap_err();
+
+    assert_eq!(engine.blame(&error), None);
+    assert_eq!(
+        engine.shown(&error).unwrap(),
+        "    fn wrong(): int => app:make.times(2)\n                       ^^^^^^^^^^^^^^^^^\n"
+    );
+}
+
+#[test]
 fn a_definition_has_a_name_a_program_could_write() {
     // A dot would make an ability or a tag one of another module.
     for name in ["", "__made", "sub.double", "two words", "9lives"] {

@@ -350,6 +350,23 @@ impl<N> Expr<N> {
         children!(self, visit, iter_mut, mut);
     }
 
+    /// The node numbered `index` of this tree, counted as
+    /// [`Self::index_of`] counts them, if there are that many.
+    #[must_use]
+    pub fn nth(&self, index: usize) -> Option<&Self> {
+        fn seek<'a, N>(at: &'a Expr<N>, left: &mut usize) -> Option<&'a Expr<N>> {
+            if *left == 0 {
+                return Some(at);
+            }
+            *left -= 1;
+            let mut found = None;
+            at.children(&mut |child| found = found.or_else(|| seek(child, left)));
+            found
+        }
+        let mut left = index;
+        seek(self, &mut left)
+    }
+
     /// Where `node` is among the nodes of this tree, counted from this
     /// one in the order a walk meets them, if it is one of them.
     pub fn index_of(&self, node: *const Self) -> Option<usize> {

@@ -195,6 +195,47 @@ fn a_frame_in_a_lambda_is_where_the_lambda_is_written() {
     );
 }
 
+/// A module with a function `made` of one integer, generated with the
+/// body `body`, and what follows it.
+fn generating(body: &str, rest: &str) -> String {
+    format!(
+        "import ambient.code;
+import ambient.tree;
+fn make(): tree.Function =>
+    code.define([tree.integer], tree.integer, [], fn(given: List<code.Code>): code.Code =>
+        {body});
+fn made = comptime make();
+{rest}"
+    )
+}
+
+#[test]
+fn an_error_in_generated_code_is_at_the_call_with_the_code() {
+    let sum = "code.operate(\"add\", [code.literal(1), code.literal(\"two\")])";
+
+    let (code, world) = check(&app(&generating(sum, "")));
+    assert_eq!(code, 1);
+    assert_eq!(
+        world.err,
+        "error: app/src/main.ab:6:1: app:main.made: `+` is not defined for `1, \"two\"`
+in the code the call gave:
+    fn made(_0: int): int => 1 + \"two\"
+                             ^^^^^^^^^
+"
+    );
+}
+
+#[test]
+fn a_frame_in_generated_code_is_where_the_call_is() {
+    let quotient = "code.operate(\"divide\", [code.literal(10), given.first() as code.Code else code.literal(1)])";
+
+    let (_, world) = run(&app(&generating(quotient, "fn main(): int => made(0);")));
+    assert_eq!(
+        world.err,
+        "error: divide_by_zero: an integer was divided by zero\n  in app:main.made at app/src/main.ab:6:1\n"
+    );
+}
+
 #[test]
 fn an_error_nothing_catches_ends_the_program_and_is_reported() {
     let source = r#"

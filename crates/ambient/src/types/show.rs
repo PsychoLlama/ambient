@@ -21,7 +21,15 @@ fn show_all(types: &[Ty], separator: &str, out: &mut String) {
     }
 }
 
-pub(super) fn show(ty: &Ty, out: &mut String) {
+/// A type as an error message shows it.
+#[must_use]
+pub fn shown(ty: &Ty) -> String {
+    let mut out = String::new();
+    show(ty, &mut out);
+    out
+}
+
+fn show(ty: &Ty, out: &mut String) {
     match ty {
         Ty::Never => out.push_str("never"),
         Ty::Unknown => out.push_str("unknown"),

@@ -7,7 +7,7 @@ use super::reify::{Read, definition, each, field, fields, need, text, written};
 use super::{Checker, core};
 use crate::error::Error;
 use crate::literal::Literal;
-use crate::surface::{Arm, Expr, Key, Operator, Pattern, Reference};
+use crate::surface::{Arm, Expr, Key, Operator, Pattern, Reference, shown};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::Ty;
 
@@ -54,6 +54,13 @@ impl Checker<'_> {
         self.reached.extend(named);
         let next = std::mem::replace(&mut self.next, base);
         let inferred = self.infer(&code);
+        if inferred.is_err() && self.given.is_none() {
+            // No node of the code is in the text: the error is at the
+            // call, and the code is kept as text to show with it.
+            let home = &self.symbol.module;
+            let shown = shown::expression(home, base, &code, self.blamed.take());
+            self.given = Some(shown.excerpt());
+        }
         self.spliced += self.next - base;
         self.next = next;
         inferred

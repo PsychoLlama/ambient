@@ -393,10 +393,11 @@ impl Engine<'_> {
                 key.bytes(&encode(&*function));
                 let used = definitions(|visit| whole(&function, visit));
                 let checked = self.check_function(symbol, &function, used, key, false);
-                // No node of it is anywhere in the text.
-                self.blamed.borrow_mut().remove(symbol);
-                let nowhere = crate::checker::Origins::default();
-                self.origins.borrow_mut().insert(symbol.clone(), nowhere);
+                // A node of it is nowhere in the text: one an error is
+                // at is kept apart from a node of the call.
+                if let Some(at) = self.blamed.borrow_mut().remove(symbol) {
+                    self.given_at.borrow_mut().insert(symbol.clone(), at);
+                }
                 checked
             }
         }
