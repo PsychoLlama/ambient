@@ -1,0 +1,118 @@
+import ambient.code;
+import ambient.errors.{catch, fail, throw};
+import ambient.test.{check};
+import ambient.tree;
+import ambient.Error;
+
+/// What a recording reports of one perform: the ability, what it was
+/// given, and what came back.
+pub type Event = { ability: string, arguments: List<unknown>, outcome: unknown };
+
+/// A recording, and how much of it has been played back.
+pub type Tape = { events: Cell<List<Event>>, played: Cell<int> };
+
+/// The kind of the error a replay throws when the program does not do
+/// what was recorded.
+pub tag diverged;
+
+/// A tape with nothing on it.
+pub fn blank(): Tape => { events: cell<List<Event>>([]), played: cell<int>(0) };
+
+/// The observer that puts each event on a tape: what `observe` is
+/// given to record a body.
+pub fn recorder(onto: Tape): fn(Event): null =>
+    fn(event: Event): null {
+        onto.events.update(fn(events: List<Event>): List<Event> => events.push(event));
+        return null;
+    };
+
+/// What the tape says came back next, if what is asked is what was
+/// recorded next: the same ability, given the same.
+pub fn next(tape: Tape, ability: string, arguments: List<unknown>): unknown with throw {
+    let at = tape.played.read();
+    match tape.events.read().get(at) {
+        null => { return fail(diverged, "nothing more was recorded"); }
+        let event => {
+            if event.ability != ability {
+                return fail(diverged, "another ability was recorded next");
+            }
+            if event.arguments != arguments {
+                return fail(diverged, "the ability was recorded with other arguments");
+            }
+            tape.played.update(fn(played: int): int => played + 1);
+            return event.outcome;
+        }
+    }
+}
+
+/// What a handler gives when the tape holds what its ability never
+/// gives.
+pub fn mistyped(): never with throw => fail(diverged, "what was recorded is not what the ability gives");
+
+/// Code for a function from a tape to handlers that answer from it: one
+/// for each ability the function named to the call takes. A program
+/// provided these performs nothing of its own.
+///
+/// `provide only (comptime replay.replays(work))(tape) => work()`
+pub fn replays(of: tree.Type): tree.Expr {
+    match of {
+        let work: { function: List<tree.Type>, returns: tree.Type, takes: List<tree.Ability> } => {
+            let next = code.definition(comptime tree.reference(next));
+            let mistyped = code.call(code.definition(comptime tree.reference(mistyped)), []);
+            let answering = fn(tape: code.Code): code.Code =>
+                code.handlers(work.takes.map(fn(taken: tree.Ability): (tree.Reference, code.Code) {
+                    let handler = code.function(taken.function, fn(given: List<code.Code>): code.Code {
+                        let asked = [tape, code.identity(taken.ability), code.list(given)];
+                        return code.cast(code.call(next, asked), taken.returns, mistyped);
+                    });
+                    return (taken.ability, handler);
+                }));
+            return code.build(code.lambda(comptime tree.type_of(Tape), answering));
+        }
+        _ => { return code.build(code.literal(null)); }
+    }
+}
+
+/// A die, and somewhere to say what it showed.
+ability roll(sides: int): int;
+ability say(text: string): null;
+
+fn game(): int with roll, say {
+    let total = roll!(6) + roll!(20);
+    say!("rolled ${total}");
+    return total;
+}
+
+/// Plays the game for real, with a die that is not random, onto a tape.
+fn recorded(): (int, Tape) {
+    let tape = blank();
+    let world = { [roll](sides) => sides - 1, [say](text) => null };
+    let total = provide world => observe recorder(tape) => game();
+    return (total, tape);
+}
+
+fn test_a_recording_is_played_back_with_no_world(): null with check, throw {
+    let (total, tape) = recorded();
+    let replaying = comptime replays(game);
+    let again = provide only replaying(tape) => game();
+
+    check!(total == 24, "the game was played");
+    check!(again == total, "the replay gives what the game gave");
+    check!(tape.played.read() == 3, "every event was played back");
+}
+
+fn test_a_program_that_does_otherwise_has_diverged(): null with check, throw {
+    let (total, tape) = recorded();
+    let other = fn(): int with roll, say => roll!(4);
+    // The handlers throw to whatever is bound where they are written,
+    // so they are written inside what catches.
+    let outcome = catch(fn() {
+        let replaying = comptime replays(game);
+        return provide only replaying(tape) => other();
+    });
+
+    match outcome {
+        let error: Error => { check!(error.kind == diverged, "the replay says it diverged"); }
+        _ => { check!(false, "a game that rolls another die is not the one recorded"); }
+    }
+}

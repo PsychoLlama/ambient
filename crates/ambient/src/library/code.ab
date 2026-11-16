@@ -77,3 +77,7 @@ pub fn function(params: List<Type>, body: fn(List<Code>): Code): Code =>
         let locals = @range(0, count).map(fn(at: int): Code => local(depth + at)).to_list();
         return { function: params, body: body(locals)(depth + count) };
     };
+
+/// A function of one parameter: [`function`], for the common case.
+pub fn lambda(param: Type, body: fn(Code): Code): Code =>
+    fn(depth: int): Expr => { function: [param], body: body(local(depth))(depth + 1) };

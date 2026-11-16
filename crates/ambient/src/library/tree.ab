@@ -41,6 +41,10 @@ pub fn reference(of: Reference): Reference => of;
 /// what it takes and gives.
 pub type Ability = { ability: Reference, function: List<Type>, returns: Type };
 
+/// The tree of the type a call names: `comptime tree.type_of(Name)`
+/// is how a function comes by one for a type its own module can name.
+pub fn type_of(of: Type): Type => of;
+
 /// A field of a record type: its name, and the type of what it holds.
 pub type Field = { name: string, holds: Type };
 
