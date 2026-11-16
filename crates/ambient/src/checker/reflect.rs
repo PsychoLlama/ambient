@@ -184,6 +184,9 @@ fn type_tree(env: &Env, ty: &Ty) -> Option<Value> {
         Ty::Named(Reference::Definition(symbol), args) if args.is_empty() => {
             record([("named", reference(symbol))])
         }
+        Ty::Named(Reference::Definition(symbol), args) => {
+            record([("applied", reference(symbol)), ("to", all(env, args)?)])
+        }
         Ty::Branded(under, brands) => {
             let brands = brands.iter().map(brand).collect::<Option<_>>()?;
             record([

@@ -62,6 +62,20 @@ fn what_a_call_gives_is_imported_by_name() {
 }
 
 #[test]
+fn a_generated_type_has_the_type_parameters_its_tree_says() {
+    let all = "[code.named_generic(\"Pair\", 1, fn(types: List<tree.Type>): tree.Type =>
+        { tuple: types ++ types })]";
+    let main = "import pkg.made.{Pair};
+        fn main(): int {
+            let pair: Pair<int> = (40, 2);
+            let (left, right) = pair;
+            return left + right;
+        }";
+
+    assert_eq!(support::run_in(&program(all, main)), Ok(Value::Int(42)));
+}
+
+#[test]
 fn an_error_in_a_generated_definition_is_shown_in_its_code() {
     let all = "[code.named(\"wrong\", code.define([], tree.integer, [], fn(given: List<code.Code>): code.Code =>
         code.call(code.definition(comptime tree.reference(times)), [code.literal(2)])))]";

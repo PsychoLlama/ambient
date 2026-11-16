@@ -225,6 +225,41 @@ fn a_derived_type_refers_to_itself_by_a_reference() {
 }
 
 #[test]
+fn a_type_that_refers_to_itself_with_arguments_has_a_tree() {
+    let source = "
+        import ambient.tree;
+        type Chain<T> = null | { value: T, next: Chain<T> };
+        type Ints = Chain<int>;
+        fn same(of: tree.Type): tree.Type => of;
+        type Same = comptime same(Ints);
+        fn total(of: Same): int {
+            match of {
+                null => { return 0; }
+                let link => { return link.value + total(link.next); }
+            }
+        }
+        fn main(): int => total({ value: 40, next: { value: 2, next: null } });
+    ";
+
+    assert_eq!(int(source), 42);
+}
+
+#[test]
+fn a_derived_type_names_no_type_parameter() {
+    let main = "
+        import ambient.tree;
+        fn open(): tree.Type => { list: { parameter: 0 } };
+        type Open = comptime open();
+        fn main(of: Open): int => 1;
+    ";
+    let workspace = workspace(main);
+    let store = MemoryStore::new();
+    let refused = Engine::new(&workspace, &store).check(&value("main", "main"));
+
+    assert!(matches!(refused, Err(Error::NotType { .. })), "{refused:?}");
+}
+
+#[test]
 fn a_derived_type_follows_the_type_it_was_derived_from() {
     let main = "fn main(): Draft => { name: null, age: null };";
     let wider = PARTIAL.replace("age: int", "age: int, email: string");

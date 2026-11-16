@@ -6,12 +6,15 @@
 //! so the engine checks it as it would that.
 
 use super::code::Reader;
-use super::reify::{Read, definition, each, field, fields, need, text, written};
+use super::reify::{
+    Read, closed, definition, each, field, fields, need, parameter_within, text, written,
+};
 use crate::core;
 use crate::literal::Literal;
 use crate::surface::{
-    Ability, Definition, DefinitionKind, Function, Param, Reference, TypeDefinition,
+    Ability, Definition, DefinitionKind, Function, Param, Reference, TypeDefinition, TypeParam,
 };
+use crate::types::Ty;
 
 /// The function a `tree.Function` a call gave stands for. Its
 /// parameters are numbered as resolution numbers those of a function
@@ -27,15 +30,47 @@ pub fn defined(tree: &core::Expr) -> Read<Function<Reference>> {
     for _ in &params {
         reader.bind();
     }
-    Ok(Function {
-        type_params: Vec::new(),
+    let function = Function {
+        type_params: type_params(need(fields, "generic")?)?,
         params,
         ret: written(need(fields, "returns")?)?,
         row: each(need(fields, "takes")?, |taken| {
             definition(taken, &["ability"])
         })?,
         body: reader.expression(need(fields, "body")?)?,
-    })
+    };
+    let count = function.type_params.len();
+    let mut within = Ok(());
+    let mut held = |name: &Reference| within = within.clone().and(parameter_within(count, name));
+    function.header_names(&mut held);
+    function.body.names(&mut held);
+    within.map(|()| function)
+}
+
+/// Type parameters with the bounds a list of `tree.Type` or null
+/// stands for, named as nothing a program writes is.
+fn type_params(bounds: &core::Expr) -> Read<Vec<TypeParam<Reference>>> {
+    let bound = |bound: &core::Expr| match bound {
+        core::Expr::Null => Ok(None),
+        bound => written(bound).map(Some),
+    };
+    let named = |(at, bound)| TypeParam {
+        name: format!("__T{at}"),
+        bound,
+    };
+    Ok(each(bounds, bound)?
+        .into_iter()
+        .enumerate()
+        .map(named)
+        .collect())
+}
+
+/// A type that names only the first `count` type parameters.
+fn within(count: usize, tree: &core::Expr) -> Read<Ty> {
+    let ty = written(tree)?;
+    let mut within = Ok(());
+    ty.names(&mut |name| within = within.clone().and(parameter_within(count, name)));
+    within.map(|()| ty)
 }
 
 /// Parameters of the types a list of `tree.Type` stands for, named as
@@ -99,14 +134,19 @@ fn kind(fields: &[(core::Key, core::Expr)]) -> Read<DefinitionKind<Reference>> {
         DefinitionKind::Ability(Ability {
             type_params: Vec::new(),
             params: params(takes)?,
-            ret: written(need(fields, "returns")?)?,
+            ret: closed(need(fields, "returns")?)?,
         })
     } else if has("tag").is_some() {
         DefinitionKind::Tag
     } else {
+        let core::Expr::Literal(Literal::Int(count)) = need(fields, "parameters")? else {
+            return Err("a type does not say how many parameters it has".to_owned());
+        };
+        let count =
+            usize::try_from(*count).map_err(|_| format!("a type has {count} parameters"))?;
         DefinitionKind::Type(TypeDefinition {
-            params: Vec::new(),
-            ty: written(need(fields, "means")?)?,
+            params: (0..count).map(|at| format!("__T{at}")).collect(),
+            ty: within(count, need(fields, "means")?)?,
         })
     })
 }

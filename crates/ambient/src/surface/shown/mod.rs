@@ -27,7 +27,21 @@ pub fn function(
     let mut writer = Writer::new(home, 0, marked);
     let params = function.params.iter().map(|param| writer.param(&param.ty));
     let params = params.collect();
-    let mut header = vec![text(format!("fn {name}")), list("(", params, ")")];
+    let generic = |(at, param): (usize, &super::TypeParam<Reference>)| match &param.bound {
+        Some(bound) => format!("T{at}: {}", type_shown(bound)),
+        None => format!("T{at}"),
+    };
+    let generic: Vec<String> = function
+        .type_params
+        .iter()
+        .enumerate()
+        .map(generic)
+        .collect();
+    let generic = match generic.as_slice() {
+        [] => String::new(),
+        generic => format!("<{}>", generic.join(", ")),
+    };
+    let mut header = vec![text(format!("fn {name}{generic}")), list("(", params, ")")];
     header.push(text(format!(": {}", type_shown(&function.ret))));
     if !function.row.is_empty() {
         let row: Vec<String> = function.row.iter().map(|name| writer.name(name)).collect();

@@ -102,12 +102,34 @@ pub(super) fn each<T>(list: &Expr, read: impl FnMut(&Expr) -> Read<T>) -> Read<V
     }
 }
 
-/// The type a spliced `tree.Type` stands for.
+/// The type a spliced `tree.Type` stands for, which is inside no
+/// definition: one that names no type parameter.
 ///
 /// # Errors
 ///
 /// Fails, saying why, if it stands for none.
-pub fn written(tree: &Expr) -> Read<Ty> {
+pub fn closed(tree: &Expr) -> Read<Ty> {
+    let ty = written(tree)?;
+    let mut within = Ok(());
+    ty.names(&mut |name| within = within.clone().and(parameter_within(0, name)));
+    within.map(|()| ty)
+}
+
+/// Fails if `name` is a type parameter and not one of the first
+/// `count`, which are all the definition it is in has.
+pub(super) fn parameter_within(count: usize, name: &Reference) -> Read<()> {
+    match name {
+        Reference::Parameter(at) if *at >= count => Err(format!(
+            "type parameter {at} is named where there are {count}"
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// The type a spliced `tree.Type` stands for, which may name type
+/// parameters: whatever reads the definition it is in says how many
+/// there are.
+pub(super) fn written(tree: &Expr) -> Read<Ty> {
     match tree {
         Expr::Literal(Literal::Tag { package, tag }) if package == FAULT_PACKAGE => {
             let name = tag
@@ -193,9 +215,17 @@ fn record(fields: &[(Key, Expr)]) -> Read<Ty> {
             ("tuple", members) => Ty::Tuple(each(members, written)?),
             ("union", members) => Ty::Union(each(members, written)?),
             ("named", named) => Ty::Named(definition(named, &["type"])?, Vec::new()),
+            ("parameter", Expr::Literal(Literal::Int(at))) => {
+                let at = usize::try_from(*at).map_err(|_| format!("{at} is no type parameter"))?;
+                Ty::Named(Reference::Parameter(at), Vec::new())
+            }
             ("record", members) => Ty::Record(each(members, member)?),
             _ => return shapeless("a type"),
         },
+        _ if field(fields, "applied").is_some() => {
+            let applied = definition(need("applied")?, &["type"])?;
+            Ty::Named(applied, each(need("to")?, written)?)
+        }
         _ if field(fields, "brands").is_some() => {
             let brands = each(need("brands")?, brand)?;
             match (need("under")?, brands.as_slice()) {

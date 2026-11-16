@@ -142,7 +142,7 @@ impl Engine<'_> {
             return Err(Error::UnknownSymbol(symbol.clone()));
         };
         let tree = self.given(symbol, &resolved.digest, call, checker::tree())?;
-        let ty = checker::written(&tree);
+        let ty = checker::closed(&tree);
         let symbol = symbol.clone();
         ty.map(Arc::new)
             .map_err(|why| Error::NotType { symbol, why })

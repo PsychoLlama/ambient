@@ -83,9 +83,11 @@ A comptime call runs an ordinary function during compilation and splices what it
 - TODO: an expression's tree has no merge, provide, cell, or task, so code that does one calls a function that does. An expression is not yet handed to a function as a tree.
 - TODO: an ability with type parameters has no tree, so neither has the type of a function that takes one.
 - An argument of a comptime call may name an ability, for a function that takes a reference to one.
-- TODO: no definition's tree has type parameters, and a generated module defines no key, brand, extern, or target.
+- A function's tree says how many type parameters it has, each by its bound or by nothing; a type definition's says how many. A type's tree names one by its position, as an expression's names a local.
+- A type parameter is named only inside the definition that has it: a derived type's tree names none.
+- TODO: an ability a generated module defines has no type parameters, and a generated module defines no key, brand, extern, or target.
 - A derived type refers to itself as any tree refers to a definition: by a reference its call makes. Its call cannot name it, since naming it asks for the type the call has yet to give; nor can a generated function's call name that function, though its body may call it.
-- TODO: a type with arguments that refers to itself has no tree.
+- A type that refers to itself with arguments has a tree: the reference, and the tree of each argument.
 - A generated node has no [span](trees.md). An error in code a call gave is reported at the call, with that code written out around the node the error is at, which is marked.
 - A frame of a [trace](errors.md) in generated code is at the call that gave it.
 - Code written out for a report names each local by the order it was bound in, since a tree binds no name.

@@ -56,6 +56,55 @@ fn a_generated_function_has_the_hash_of_the_function_written_out() {
     assert_eq!(hash("double"), hash("written"));
 }
 
+/// A function of two of one type that gives the first, generated, and
+/// the same written out.
+const FIRST: &str = "
+    import ambient.code;
+    import ambient.tree;
+    fn at(of: List<tree.Type>): tree.Type => of.get(0) as tree.Type else tree.none;
+    fn chooser(): tree.Function =>
+        code.generic([null], fn(types: List<tree.Type>): tree.Function =>
+            code.define([at(types), at(types)], at(types), [], fn(given: List<code.Code>): code.Code =>
+                given.get(0) as code.Code else code.literal(null)));
+    fn former = comptime chooser();
+    fn written<T>(left: T, right: T): T => left;
+";
+
+#[test]
+fn a_generated_function_has_the_type_parameters_its_tree_says() {
+    let main = "fn main(): string => former(\"a\", \"b\").join(former(7, 9).to_text());";
+
+    let ran = support::text::run(&format!("{FIRST} {main}"));
+    assert_eq!(ran, Ok(Value::String("a7".to_owned())));
+}
+
+#[test]
+fn a_generated_generic_function_has_the_hash_of_one_written_out() {
+    let workspace = workspace(FIRST);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let hash = |name: &str| engine.hash(&value("main", name)).unwrap();
+
+    assert_eq!(hash("former"), hash("written"));
+}
+
+#[test]
+fn a_tree_names_only_the_type_parameters_its_definition_has() {
+    let main = "
+        fn loose(): tree.Function =>
+            code.define([{ parameter: 0 }], tree.nil, [], fn(given: List<code.Code>): code.Code =>
+                code.literal(null));
+        fn made = comptime loose();
+        fn main(): null => made(1);
+    ";
+
+    let refused = refused(main).to_string();
+    assert!(
+        refused.ends_with("type parameter 0 is named where there are 0"),
+        "{refused}"
+    );
+}
+
 #[test]
 fn a_generated_body_is_checked_against_what_the_tree_says_it_gives() {
     let main = "
@@ -155,7 +204,7 @@ fn a_tree_that_stands_for_no_code_says_why() {
     for (body, reason) in reasons {
         let main = format!(
             "fn wrong(): tree.Function =>
-                {{ params: [tree.integer], returns: tree.integer, takes: [], body: {body} }};
+                {{ generic: [], params: [tree.integer], returns: tree.integer, takes: [], body: {body} }};
             fn made = comptime wrong();
             fn main(): int => made(1);"
         );

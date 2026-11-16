@@ -3,7 +3,7 @@
 //! be. See "Splice
 //! positions" and "Trees as values" in `spec/comptime.md`.
 
-use super::reify::{Read, definition, each, field, fields, need, text, written};
+use super::reify::{Read, definition, each, field, fields, need, parameter_within, text, written};
 use super::{Checker, core};
 use crate::error::Error;
 use crate::literal::Literal;
@@ -30,11 +30,20 @@ impl Checker<'_> {
             why,
         })?;
         let mut named = Vec::new();
+        // A type parameter it names is one of the definition it is
+        // spliced in.
+        let mut within = Ok(());
+        let count = self.env.bounds.len();
         code.names(&mut |name| {
+            within = within.clone().and(parameter_within(count, name));
             if let Reference::Definition(symbol) = name {
                 named.push(symbol.clone());
             }
         });
+        within.map_err(|why| Error::NotCode {
+            symbol: self.symbol.clone(),
+            why,
+        })?;
         let from = &self.symbol.module.package;
         let hidden = |named: &&Symbol| !self.evaluator.is_some_and(|by| by.nameable(from, named));
         if let Some(hidden) = named.iter().find(hidden) {
