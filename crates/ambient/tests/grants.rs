@@ -102,6 +102,24 @@ fn a_build_reads_nothing_outside_its_package() {
 }
 
 #[test]
+fn a_granted_call_lists_a_directory_of_its_package() {
+    let lists = READS
+        .replace("fs.read!(path)", "fs.list!(path)")
+        .replace("fs.read", "fs.list")
+        .replace(
+            "let text: string => { return text; }",
+            "let names: List<string> => { return names.join_with(\" \"); }",
+        );
+    let mut files = package("grants = [\"system.fs.list\"]", "milk", ".");
+    files.insert(PathBuf::from("app/src/main.ab"), lists.replace("PATH", "."));
+
+    assert_eq!(
+        run(&files, &MemoryStore::new()).0,
+        "ambient.toml notes.txt src\n"
+    );
+}
+
+#[test]
 fn a_grant_names_an_ability() {
     let files = package("grants = [\"system.fs.peek\"]", "milk", "notes.txt");
     let (out, err) = run(&files, &MemoryStore::new());

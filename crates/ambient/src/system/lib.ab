@@ -103,4 +103,5 @@ pub target cli {
 /// is from the directory of the package the call is written in.
 pub target build {
     fs.read: fs_read,
+    fs.list: fs_list,
 }

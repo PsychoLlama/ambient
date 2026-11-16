@@ -22,6 +22,13 @@ pub trait Files {
     /// The directory is missing or cannot be read.
     fn sources(&self, directory: &Path) -> io::Result<Vec<PathBuf>>;
 
+    /// The names of what a directory holds, in order.
+    ///
+    /// # Errors
+    ///
+    /// The directory is missing or cannot be read.
+    fn names(&self, directory: &Path) -> io::Result<Vec<String>>;
+
     /// These files, for something that outlives a borrow of them: a
     /// build reads them whenever a comptime call asks.
     fn shared(&self) -> Rc<dyn Files>;
@@ -57,6 +64,15 @@ impl Files for Disk {
         Ok(found)
     }
 
+    fn names(&self, directory: &Path) -> io::Result<Vec<String>> {
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(directory)? {
+            names.push(entry?.file_name().to_string_lossy().into_owned());
+        }
+        names.sort();
+        Ok(names)
+    }
+
     fn shared(&self) -> Rc<dyn Files> {
         Rc::new(Self)
     }
@@ -72,6 +88,20 @@ impl Files for BTreeMap<PathBuf, String> {
     fn sources(&self, directory: &Path) -> io::Result<Vec<PathBuf>> {
         let under = |path: &PathBuf| path.strip_prefix(directory).ok().map(Path::to_owned);
         Ok(self.keys().filter_map(under).collect())
+    }
+
+    fn names(&self, directory: &Path) -> io::Result<Vec<String>> {
+        let first = |path: PathBuf| Some(path.iter().next()?.to_string_lossy().into_owned());
+        let mut names: Vec<String> = self
+            .sources(directory)?
+            .into_iter()
+            .filter_map(first)
+            .collect();
+        names.dedup();
+        if names.is_empty() {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "no such directory"));
+        }
+        Ok(names)
     }
 
     fn shared(&self) -> Rc<dyn Files> {
