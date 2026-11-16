@@ -28,10 +28,12 @@ pub struct Interface {
 
 /// The definitions a tree names, in order of first use.
 pub(super) fn definitions<'a>(names: impl FnOnce(&mut dyn FnMut(&'a Reference))) -> Vec<Symbol> {
+    // In the order they are met, each once.
     let mut symbols: Vec<Symbol> = Vec::new();
+    let mut seen = BTreeSet::new();
     names(&mut |reference| {
         if let Reference::Definition(symbol) = reference
-            && !symbols.contains(symbol)
+            && seen.insert(symbol)
         {
             symbols.push(symbol.clone());
         }
@@ -51,26 +53,11 @@ impl Engine<'_> {
     /// A type definition as written, and whether it can reach itself.
     fn type_info(&self, symbol: &Symbol) -> Query<TypeInfo> {
         memo(&self.type_info, symbol, || {
-            let resolved = self.resolve(symbol)?;
-            let definition = match &resolved.definition.kind {
-                DefinitionKind::Type(definition) => definition,
-                // What a call gave names no definition, so it is the
-                // whole of what there is to know.
-                DefinitionKind::Derived(_) => {
-                    return Ok(Arc::new(TypeInfo {
-                        params: 0,
-                        ty: (*self.derived(symbol)?).clone(),
-                        recursive: false,
-                        variance: Vec::new(),
-                        finite: true,
-                    }));
-                }
-                _ => return Err(Error::UnknownSymbol(symbol.clone())),
-            };
-            let ty = &definition.ty;
+            let unknown = || Error::UnknownSymbol(symbol.clone());
+            let (params, ty) = self.type_of(symbol)?.ok_or_else(unknown)?;
 
             let mut seen = BTreeSet::new();
-            let mut pending = type_definitions(ty);
+            let mut pending = type_definitions(&ty);
             let mut recursive = false;
             while let Some(next) = pending.pop() {
                 if next == *symbol {
@@ -80,17 +67,31 @@ impl Engine<'_> {
                 if !seen.insert(next.clone()) {
                     continue;
                 }
-                if let DefinitionKind::Type(definition) = &self.resolve(&next)?.definition.kind {
-                    pending.extend(type_definitions(&definition.ty));
+                if let Some((_, ty)) = self.type_of(&next)? {
+                    pending.extend(type_definitions(&ty));
                 }
             }
             Ok(Arc::new(TypeInfo {
-                params: definition.params.len(),
-                ty: ty.clone(),
+                params,
+                ty,
                 recursive,
                 variance: Vec::new(),
                 finite: true,
             }))
+        })
+    }
+
+    /// What a type definition says its name means, and how many
+    /// parameters it has: the type as written, or the one its call
+    /// gave, which may name definitions as a written one does. Nothing,
+    /// for a definition that is no type.
+    fn type_of(&self, symbol: &Symbol) -> Result<Option<(usize, Ty)>, Error> {
+        Ok(match &self.resolve(symbol)?.definition.kind {
+            DefinitionKind::Type(definition) => {
+                Some((definition.params.len(), definition.ty.clone()))
+            }
+            DefinitionKind::Derived(_) => Some((0, (*self.derived(symbol)?).clone())),
+            _ => None,
         })
     }
 

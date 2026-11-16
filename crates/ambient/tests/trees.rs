@@ -197,6 +197,32 @@ fn a_type_cannot_be_derived_from_itself() {
 }
 
 #[test]
+fn a_derived_type_refers_to_itself_by_a_reference() {
+    // The call does not name the type, so it is no cycle: the tree
+    // does, as that of a type written to refer to itself would.
+    let source = "
+        import ambient.tree;
+        fn chain(): tree.Type => { union: [
+            tree.nil,
+            { record: [{ name: \"next\", holds: {
+                named: { package: \"app\", module: [\"main\"], name: \"Chain\", kind: \"type\" },
+            } }] },
+        ] };
+        type Chain = comptime chain();
+        type Written = null | { next: Written };
+        fn length(of: Chain): int {
+            match of {
+                null => { return 0; }
+                let link => { return 1 + length(link.next); }
+            }
+        }
+        fn main(): int => length({ next: { next: null } });
+    ";
+
+    assert_eq!(int(source), 2);
+}
+
+#[test]
 fn a_derived_type_follows_the_type_it_was_derived_from() {
     let main = "fn main(): Draft => { name: null, age: null };";
     let wider = PARTIAL.replace("age: int", "age: int, email: string");

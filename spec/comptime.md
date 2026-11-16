@@ -80,7 +80,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 - TODO: an ability with type parameters has no tree, so neither has the type of a function that takes one.
 - An argument of a comptime call may name an ability, for a function that takes a reference to one.
 - TODO: no definition's tree has type parameters, and a generated module defines no key, brand, extern, or target.
-- TODO: a derived type cannot refer to itself: naming it to the call asks for the type the call has yet to give. A generated function's body may call it, but its call cannot name it.
+- A derived type refers to itself as any tree refers to a definition: by a reference its call makes. Its call cannot name it, since naming it asks for the type the call has yet to give; nor can a generated function's call name that function, though its body may call it.
 - TODO: a type with arguments that refers to itself has no tree.
 - TODO: a generated node has no [span](trees.md). An error in one is reported at the call, and how the tree is shown is undecided.
 - TODO: a result gathered from many calls, such as one stylesheet from every call that declares a style, has no design. It would be asked of the build, never accumulated by the calls.
