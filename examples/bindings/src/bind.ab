@@ -7,11 +7,12 @@ import ambient.tree;
 import ambient.Error;
 import system.fs;
 
-/// Asks the host for what it offers under a name. This is the one way
-/// out of the program every generated function shares.
+/// Asks the host for what it offers under a name: the one way out of
+/// the program, which says nothing of what is asked or what comes
+/// back. Only the generated `hosted` performs it.
 pub ability invoke(name: string, arguments: List<unknown>): unknown;
 
-/// The kind of the error a generated function throws when the host
+/// The kind of the error a generated handler throws when the host
 /// gives what the manifest says it does not.
 pub tag mistyped;
 
@@ -44,34 +45,68 @@ fn parsed(text: string): Json {
     }
 }
 
-/// The function the manifest describes in `entry`, under `name`: it
-/// takes what the manifest says, asks the host, and gives what came
-/// back as the type the manifest says, or throws if it is not that.
-fn bound(name: string, entry: Json): tree.Function {
-    let takes = match json.get(entry, "takes") {
-        let types: List<Json> => types.map(named),
-        _ => [],
-    };
-    let gives = named(json.get(entry, "gives"));
-    let invoke = comptime tree.reference(invoke);
-    let wrong = code.definition(comptime tree.reference(wrong));
-    return code.define(takes, gives, [invoke, comptime tree.reference(throw)], fn(given: List<code.Code>): code.Code {
-        let asked = code.perform(invoke, [code.literal(name), code.list(given)]);
-        return code.cast(asked, gives, code.call(wrong, [code.literal(name)]));
-    });
+/// The types of what the host takes for an entry of the manifest.
+fn takes(entry: Json): List<tree.Type> {
+    match json.get(entry, "takes") {
+        let types: List<Json> => { return types.map(named); }
+        _ => { return []; }
+    }
 }
 
-/// A function for everything the manifest describes, by its name
-/// there: the whole of a module.
+/// The type of what the host gives for an entry of the manifest.
+fn gives(entry: Json): tree.Type => named(json.get(entry, "gives"));
+
+/// An ability for an entry of the manifest, by its name there: what
+/// a program performs to reach that one thing of the host's, so its
+/// row says which it reaches.
+fn offered(entry: (string, Json)): tree.Definition {
+    let (name, described) = entry;
+    return code.named_ability(name, takes(described), gives(described));
+}
+
+/// The handler for an entry's ability: it asks the host by name, and
+/// gives what came back as the type the manifest says, or throws if
+/// it is not that.
+fn asking(entry: (string, Json)): (tree.Reference, code.Code) {
+    let (name, described) = entry;
+    let wrong = code.definition(comptime tree.reference(wrong));
+    let handler = code.function(takes(described), fn(given: List<code.Code>): code.Code {
+        let asked = code.perform(comptime tree.reference(invoke), [code.literal(name), code.list(given)]);
+        return code.cast(asked, gives(described), code.call(wrong, [code.literal(name)]));
+    });
+    return (code.beside(name, "ability"), handler);
+}
+
+/// An entry's ability as a function type's row has it.
+fn reached(entry: (string, Json)): tree.Ability {
+    let (name, described) = entry;
+    return { ability: code.beside(name, "ability"), function: takes(described), returns: gives(described) };
+}
+
+/// `hosted`: what runs a body with every ability of the manifest bound
+/// to the host. It is the one place the untyped `invoke` is turned
+/// into what the manifest says.
+fn hosting(entries: List<(string, Json)>): tree.Function =>
+    code.generic([null], fn(types: List<tree.Type>): tree.Function {
+        let result = types.get(0) as tree.Type else tree.none;
+        let body: tree.Type = { function: [], returns: result, takes: entries.map(reached) };
+        let needs = [comptime tree.reference(invoke), comptime tree.reference(throw)];
+        return code.define([body], result, needs, fn(given: List<code.Code>): code.Code =>
+            code.providing(
+                code.handlers(entries.map(asking)),
+                code.call(given.get(0) as code.Code else code.literal(null), []),
+            ));
+    });
+
+/// An ability for everything the manifest describes, by its name
+/// there, and `hosted`: the whole of a module.
 ///
 /// `comptime bind.all();`
 pub fn all(): tree.Module with fs.read {
     match read() {
         let entries: Map<Json> => {
-            return entries.entries().map(fn(entry: (string, Json)): tree.Definition {
-                let (name, described) = entry;
-                return code.named(name, bound(name, described));
-            });
+            let listed = entries.entries();
+            return listed.map(offered).push(code.named("hosted", hosting(listed)));
         }
         _ => { return []; }
     }

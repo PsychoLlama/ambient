@@ -3,11 +3,12 @@ import ambient.test.{check};
 import ambient.Error;
 import pkg.bind;
 import pkg.bind.{invoke};
-import pkg.web.{add, confirm, now, title};
+import pkg.web;
+import pkg.web.{hosted};
 
 /// A host for a test: it answers each name with something of the type
 /// the manifest gives it, but for `title`.
-fn hosted<T>(body: fn(): T with invoke, throw): T with throw =>
+fn answering<T>(body: fn(): T with invoke, throw): T with throw =>
     provide {
         [invoke](name, arguments) =>
             match name {
@@ -19,15 +20,23 @@ fn hosted<T>(body: fn(): T with invoke, throw): T with throw =>
             },
     } => body();
 
-fn test_a_generated_function_asks_the_host_by_name(): null with check, throw {
-    check!(hosted(fn() => now()) == 1700, "what the host gives is what the function gives");
-    check!(hosted(fn() => add(2, 3)) == 5, "the arguments reach the host in order");
-    check!(hosted(fn() => confirm("sure?")), "each function has the type the manifest gives it");
+/// What a program does with the host: each thing it asks for is in
+/// its row.
+fn later(by: int): int with web.now, web.add => web.add!(web.now!(), by);
+
+fn test_each_thing_the_host_offers_is_an_ability_of_its_own(): null with check {
+    let at = provide { [web.now]() => 1700, [web.add](left, right) => left + right } => later(5);
+    check!(at == 1705, "a handler for each is all a program needs");
+}
+
+fn test_the_host_is_asked_by_name(): null with check, throw {
+    check!(answering(fn() => hosted(fn() => later(5))) == 1705, "the arguments reach the host in order");
+    check!(answering(fn() => hosted(fn() => web.confirm!("sure?"))), "each has the type the manifest gives it");
 }
 
 fn test_a_host_that_gives_another_type_is_caught(): null with check {
-    match catch(fn() => hosted(fn() => title())) {
-        let error: Error => { check!(error.kind == bind.mistyped, "the function says what was wrong"); }
+    match catch(fn() => answering(fn() => hosted(fn() => web.title!()))) {
+        let error: Error => { check!(error.kind == bind.mistyped, "the handler says what was wrong"); }
         _ => { check!(false, "a title that is a number is no title"); }
     }
 }
