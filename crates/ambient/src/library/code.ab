@@ -1,0 +1,79 @@
+import pkg.tree.{Entry, Expr, Reference, Type};
+
+/// Code that is not yet anywhere: the tree it is, once it is told how
+/// many locals are bound around it. Putting code together from these
+/// never counts a local by hand, and a piece of code means the same
+/// wherever it is put inside what binds its locals.
+pub type Code = fn(int): Expr;
+
+/// The tree of code that is not inside any other: what a function
+/// gives for a comptime call of it to be spliced.
+pub fn build(code: Code): Expr => code(0);
+
+/// Each piece of code as the tree it is under `depth` locals.
+fn placed(codes: List<Code>, depth: int): List<Expr> => codes.map(fn(code: Code): Expr => code(depth));
+
+/// A value written out.
+pub fn literal(value: null | bool | int | float | string | bytes | Tag): Code =>
+    fn(depth: int): Expr => { literal: value };
+
+/// A function or a tag, by reference.
+pub fn definition(of: Reference): Code => fn(depth: int): Expr => { definition: of };
+
+/// The text an observer is told an ability is.
+pub fn identity(ability: Reference): Code => fn(depth: int): Expr => { identity: ability };
+
+/// A call of `function` with `given`.
+pub fn call(function: Code, given: List<Code>): Code =>
+    fn(depth: int): Expr => { call: function(depth), given: placed(given, depth) };
+
+/// A call of the handler bound to `ability`.
+pub fn perform(ability: Reference, given: List<Code>): Code =>
+    fn(depth: int): Expr => { perform: ability, given: placed(given, depth) };
+
+/// A list of what each of `items` gives.
+pub fn list(items: List<Code>): Code => fn(depth: int): Expr => { items: placed(items, depth) };
+
+/// A record with a field for each name.
+pub fn record(fields: List<(string, Code)>): Code =>
+    fn(depth: int): Expr => {
+        fields: fields.map(fn(named: (string, Code)): Entry {
+            let (name, value) = named;
+            return { name: name, value: value(depth) };
+        }),
+    };
+
+/// A record that holds a handler for each ability: what a provide
+/// binds.
+pub fn handlers(of: List<(Reference, Code)>): Code =>
+    fn(depth: int): Expr => {
+        fields: of.map(fn(bound: (Reference, Code)): Entry {
+            let (ability, handler) = bound;
+            return { ability: ability, value: handler(depth) };
+        }),
+    };
+
+/// The field `name` of a record.
+pub fn field(of: Code, name: string): Code => fn(depth: int): Expr => { field: name, of: of(depth) };
+
+/// `value` at the type `to` if the type describes it, and `otherwise`
+/// if not.
+pub fn cast(value: Code, to: Type, otherwise: Code): Code =>
+    fn(depth: int): Expr => { cast: value(depth), to: to, otherwise: otherwise(depth) };
+
+/// The local bound after `depth` others.
+fn local(depth: int): Code => fn(inner: int): Expr => { local: depth };
+
+/// What `body` makes of `value`, which is evaluated once and held: the
+/// code `body` is handed is the value.
+pub fn bind(value: Code, body: fn(Code): Code): Code =>
+    fn(depth: int): Expr => { bind: value(depth), body: body(local(depth))(depth + 1) };
+
+/// A function that takes a parameter of each type, and gives what
+/// `body` makes of them: the code `body` is handed is the parameters.
+pub fn function(params: List<Type>, body: fn(List<Code>): Code): Code =>
+    fn(depth: int): Expr {
+        let count = params.length();
+        let locals = @range(0, count).map(fn(at: int): Code => local(depth + at)).to_list();
+        return { function: params, body: body(locals)(depth + count) };
+    };

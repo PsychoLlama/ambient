@@ -429,3 +429,26 @@ fn a_tree_binds_handlers_and_performs() {
 
     assert_eq!(int(&format!("{ASKS} {main}")), 4);
 }
+
+#[test]
+fn builders_put_code_together_without_counting_locals() {
+    // A function of two that holds their sum and calls `double` on it,
+    // inside a function that ignores its own parameter.
+    let main = "
+        import ambient.code;
+        fn add(a: int, b: int): int => a + b;
+        fn summed(add: tree.Reference, double: tree.Reference): tree.Expr {
+            let inner = code.function([tree.integer, tree.integer], fn(pair) {
+                let sum = code.call(code.definition(add), pair);
+                return code.bind(sum, fn(held) => code.call(code.definition(double), [held]));
+            });
+            return code.build(code.function([tree.text], fn(ignored) => inner));
+        }
+        fn main(): int {
+            let make = comptime summed(add, double);
+            return make(\"x\")(3, 4);
+        }
+    ";
+
+    assert_eq!(int(&format!("{TWICE} {main}")), 14);
+}

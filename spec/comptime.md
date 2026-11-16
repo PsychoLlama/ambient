@@ -46,6 +46,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 - A function can make a reference up, so this is what keeps spliced code from reaching an [extern](externs.md) past the ability that guards it. It also means generated code cannot use what is private to the package that generates it.
 - A function named as an argument for a parameter that takes a type's tree is handed the type it has.
 - An [ability](abilities.md) in a function type's tree comes with the types it takes and gives, so a function that is handed a row can make a [handler](handlers.md) for each ability in it.
+- The standard library puts trees of code together from functions, so that no code counts a local by hand: a piece of code is a function of how many locals are bound around it, and what binds one hands its body the code that names it.
 - A function in a tree binds its parameters by position: a tree names a parameter by its number among those of the functions it is inside, so no tree binds a name.
 - What spliced code names is read when the call is checked, and is no part of what was known before: a definition whose content came from such code is checked again when any definition that code names changes.
 - A tree value carries no [metadata](trees.md); a comptime function reads names and doc comments by performing a verifiable build ability, so the read is in its [trace](memoization.md).
