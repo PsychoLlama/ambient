@@ -68,6 +68,7 @@ impl fmt::Display for Error {
             | Self::NotType(_)
             | Self::NotCode(_)
             | Self::Unnameable { .. }
+            | Self::GeneratedTwice { .. }
             | Self::Reaches { .. }
             | Self::ComptimeCycle(_) => self.fmt_comptime(f),
             Self::NotValue { .. }
@@ -314,6 +315,9 @@ impl Error {
                 f,
                 "{symbol}: the code the call gave names what cannot be used as a value"
             ),
+            Self::GeneratedTwice { symbol, name } => {
+                write!(f, "{symbol}: the call gave two definitions named `{name}`")
+            }
             Self::NotType(symbol) => {
                 write!(f, "{symbol}: the tree the call gave stands for no type")
             }

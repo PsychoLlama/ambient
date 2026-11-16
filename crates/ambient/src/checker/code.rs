@@ -6,7 +6,9 @@ use super::reify::{definition, each, field, text, written};
 use super::{Checker, core};
 use crate::error::Error;
 use crate::literal::Literal;
-use crate::surface::{Expr, Function, Key, Param, Reference};
+use crate::surface::{
+    Definition, DefinitionKind, Expr, Function, Key, Param, Reference, TypeDefinition,
+};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::Ty;
 
@@ -99,6 +101,36 @@ pub fn defined(tree: &core::Expr) -> Option<Function<Reference>> {
             definition(taken, &["ability"])
         })?,
         body: reader.expression(field(fields, "body")?)?,
+    })
+}
+
+/// The definitions a `tree.Module` a call gave stands for, if it
+/// stands for any: each as resolution would leave one that was
+/// written. A name a program could not write is none.
+#[must_use]
+pub fn definitions(tree: &core::Expr) -> Option<Vec<Definition<Reference>>> {
+    each(tree, |entry| {
+        let core::Expr::Record(fields) = entry else {
+            return None;
+        };
+        let name = text(field(fields, "name")?)?;
+        let core::Expr::Literal(Literal::Bool(public)) = field(fields, "public")? else {
+            return None;
+        };
+        let kind = match field(fields, "function") {
+            Some(function) => DefinitionKind::Function(defined(function)?),
+            None => DefinitionKind::Type(TypeDefinition {
+                params: Vec::new(),
+                ty: written(field(fields, "means")?)?,
+            }),
+        };
+        let writable = !name.is_empty() && !name.starts_with("__");
+        writable.then(|| Definition {
+            name: name.to_owned(),
+            public: *public,
+            doc: None,
+            kind,
+        })
     })
 }
 

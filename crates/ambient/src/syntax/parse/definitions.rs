@@ -4,8 +4,8 @@ use super::super::lex::Token;
 use super::{Parsed, Parser};
 use crate::builder::{self as b, ModuleBuilder};
 use crate::surface::{
-    Ability, Definition, DefinitionKind, Extern, ExternKind, Function, KeyDefinition, Param, Path,
-    Target, Type, TypeDefinition,
+    Ability, Definition, DefinitionKind, Extern, ExternKind, Function, GENERATOR, KeyDefinition,
+    Param, Path, Target, Type, TypeDefinition,
 };
 use crate::syntax::{Placed, SyntaxError, place};
 
@@ -54,7 +54,9 @@ impl Parser {
         // The marks come out here, before anything else sees the tree.
         let body = match &mut kind {
             DefinitionKind::Function(function) => Some(&mut function.body),
-            DefinitionKind::Derived(call) | DefinitionKind::Generated(call) => Some(call),
+            DefinitionKind::Derived(call)
+            | DefinitionKind::Generated(call)
+            | DefinitionKind::Module(call) => Some(call),
             _ => None,
         };
         if let (Some(body), Some(placed)) = (body, self.defined.last_mut()) {
@@ -110,6 +112,12 @@ impl Parser {
     }
 
     fn definition(&mut self) -> Parsed<(String, DefinitionKind)> {
+        // The call a generated module is written as.
+        if self.at_word("comptime") {
+            let call = self.expr()?;
+            self.expect(";")?;
+            return Ok((GENERATOR.to_owned(), DefinitionKind::Module(call)));
+        }
         if self.eat_word("fn") {
             return self.function();
         }

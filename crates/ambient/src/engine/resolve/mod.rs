@@ -32,11 +32,9 @@ impl Engine<'_> {
     pub fn resolve(&self, symbol: &Symbol) -> Query<Resolved> {
         memo(&self.resolve, symbol, || {
             let module = self.read(&symbol.module)?;
-            let entry = module
-                .table
-                .0
-                .get(&(symbol.namespace, symbol.name.clone()))
-                .ok_or_else(|| Error::UnknownSymbol(symbol.clone()))?;
+            let Some(entry) = module.table.0.get(&(symbol.namespace, symbol.name.clone())) else {
+                return self.resolve_made(symbol);
+            };
             let definition = &module.definitions[entry.index];
             let scoped = self.scope(&symbol.module)?;
             let package = self.sources.identity(&symbol.module.package);
@@ -61,6 +59,21 @@ impl Engine<'_> {
 }
 
 impl Engine<'_> {
+    /// A definition no module was written with: one a generated
+    /// module's call gave, which names what it refers to already.
+    fn resolve_made(&self, symbol: &Symbol) -> Query<Resolved> {
+        let made = self.made(&symbol.module)?;
+        let named = |made: &&Definition<Reference>| {
+            made.name == symbol.name && made.kind.namespace() == symbol.namespace
+        };
+        let definition = made.iter().find(named);
+        let definition = definition.ok_or_else(|| Error::UnknownSymbol(symbol.clone()))?;
+        Ok(std::sync::Arc::new(Resolved {
+            definition: definition.clone(),
+            digest: digest("resolved", definition),
+        }))
+    }
+
     /// The node of a function's body that keeps it from resolving, if
     /// one does: its place in the order [`Expr::children`] walks them.
     /// Resolving is done again to find it, since only an error is kept.
@@ -120,6 +133,7 @@ impl<'a> Resolver<'a> {
             }
             DefinitionKind::Derived(call) => DefinitionKind::Derived(self.expr(call)?),
             DefinitionKind::Generated(call) => DefinitionKind::Generated(self.expr(call)?),
+            DefinitionKind::Module(call) => DefinitionKind::Module(self.expr(call)?),
             DefinitionKind::Function(function) => {
                 DefinitionKind::Function(self.function(function)?)
             }

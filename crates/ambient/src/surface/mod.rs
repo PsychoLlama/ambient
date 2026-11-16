@@ -98,6 +98,9 @@ pub struct Definition<N = Path> {
     pub kind: DefinitionKind<N>,
 }
 
+/// The name of the one definition a generated module is written with.
+pub const GENERATOR: &str = "__module";
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DefinitionKind<N = Path> {
     Type(TypeDefinition<N>),
@@ -107,6 +110,10 @@ pub enum DefinitionKind<N = Path> {
     /// A function that is whatever tree a comptime call gives: the
     /// call.
     Generated(Expr<N>),
+    /// The comptime call that gives everything a generated module
+    /// defines. It is the one definition such a module is written with,
+    /// under the name [`GENERATOR`].
+    Module(Expr<N>),
     Function(Function<N>),
     Ability(Ability<N>),
     Key(KeyDefinition<N>),
@@ -129,9 +136,11 @@ impl<N> DefinitionKind<N> {
         use crate::symbol::Namespace;
         match self {
             Self::Type(_) | Self::Derived(_) | Self::Tag | Self::Brand => Namespace::Type,
-            Self::Function(_) | Self::Generated(_) | Self::Extern(_) | Self::Target(_) => {
-                Namespace::Value
-            }
+            Self::Function(_)
+            | Self::Generated(_)
+            | Self::Module(_)
+            | Self::Extern(_)
+            | Self::Target(_) => Namespace::Value,
             Self::Ability(_) => Namespace::Ability,
             Self::Key(_) => Namespace::Key,
         }

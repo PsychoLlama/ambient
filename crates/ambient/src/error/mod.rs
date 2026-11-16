@@ -115,6 +115,9 @@ pub enum Error {
     NotType(Symbol),
     /// The tree a comptime call gave as code stands for no expression.
     NotCode(Symbol),
+    /// The definitions a generated module's call gave include two of
+    /// one name.
+    GeneratedTwice { symbol: Symbol, name: String },
     /// Code a comptime call gave names what could not be named where
     /// the call is written.
     Unnameable { symbol: Symbol, named: Symbol },
@@ -210,6 +213,7 @@ impl Error {
             | Self::NotType(symbol)
             | Self::NotCode(symbol)
             | Self::Unnameable { symbol, .. }
+            | Self::GeneratedTwice { symbol, .. }
             | Self::Reaches { symbol, .. }
             | Self::NotTarget(symbol)
             | Self::TargetCycle(symbol)

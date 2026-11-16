@@ -39,11 +39,11 @@ use crate::types::{Env, Ty};
 use crate::value::Value;
 use abilities::Layer;
 pub use blame::{Noted, Origins};
-pub use code::defined;
+pub use code::{defined, definitions};
 pub(crate) use generics::{function_type, generic_type};
 use header::header;
 pub use header::{check_ability, check_key, check_type, encode_header};
-pub use reify::{function, tree, written};
+pub use reify::{function, module, tree, written};
 pub use world::{check_extern, check_target};
 
 /// Checks a function against its own header.

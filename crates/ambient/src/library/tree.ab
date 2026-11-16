@@ -109,3 +109,12 @@ pub type Expr =
 /// parameters are the locals bound first. A function definition whose
 /// whole content is a comptime call is the one such a tree stands for.
 pub type Function = { params: List<Type>, returns: Type, takes: List<Reference>, body: Expr };
+
+/// A definition a generated module has: its name, whether other
+/// modules may use it, and the function it is or the type it means.
+pub type Definition =
+    { name: string, public: bool, function: Function }
+    | { name: string, public: bool, means: Type };
+
+/// What a call gives for a module whose whole content it is.
+pub type Module = List<Definition>;

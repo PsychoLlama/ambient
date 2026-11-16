@@ -121,6 +121,18 @@ pub fn type_(name: &str, ty: crate::surface::Type) -> Definition {
     }
 }
 
+/// The definition a generated module is written as: the call that
+/// gives everything it defines.
+#[must_use]
+pub fn generates(call: crate::surface::Expr) -> Definition {
+    Definition {
+        name: crate::surface::GENERATOR.to_owned(),
+        public: false,
+        doc: None,
+        kind: DefinitionKind::Module(crate::surface::Expr::Comptime(Box::new(call))),
+    }
+}
+
 /// A private function that is whatever tree a comptime call gives.
 #[must_use]
 pub fn generated(name: &str, call: crate::surface::Expr) -> Definition {
@@ -379,6 +391,13 @@ impl ModuleBuilder {
                     Namespace::Type
                 }
                 DefinitionKind::Generated(call) => {
+                    check_expr(call)?;
+                    Namespace::Value
+                }
+                DefinitionKind::Module(call) => {
+                    if self.definitions.len() > 1 {
+                        return Err(BuildError::GeneratedWithMore);
+                    }
                     check_expr(call)?;
                     Namespace::Value
                 }

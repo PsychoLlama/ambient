@@ -87,6 +87,12 @@ impl Engine<'_> {
     /// definitions it re-exports, which keep their own symbols.
     pub(super) fn members(&self, id: &ModuleId) -> Query<Members> {
         memo(&self.members, id, || {
+            // What a generated module has is not known while its call
+            // is being run: the call cannot depend on it.
+            let call = id.value(crate::surface::GENERATOR);
+            if self.deriving.borrow().contains(&call) {
+                return Err(Error::ComptimeCycle(call));
+            }
             if self.exporting.borrow().contains(id) {
                 return Err(Error::ExportCycle(id.clone()));
             }
@@ -106,6 +112,13 @@ impl Engine<'_> {
             members
                 .0
                 .insert((*namespace, name.clone()), Member { symbol, public });
+        }
+        // A generated module also has what its call gave.
+        for made in self.made(id)?.iter() {
+            let key = (made.kind.namespace(), made.name.clone());
+            let symbol = id.symbol(key.0, &made.name);
+            let public = made.public;
+            members.0.insert(key, Member { symbol, public });
         }
         for import in own.imports.iter().filter(|import| import.public) {
             let mut found = Scope::default();

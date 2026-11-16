@@ -69,6 +69,22 @@ fn a_function_that_is_a_comptime_call_is_generated() {
 }
 
 #[test]
+fn a_module_that_is_a_comptime_call_is_generated() {
+    let source = "import pkg.bind; comptime bind.all();";
+    let call = b::call(b::name("bind.all"), []);
+    let module = b::module().import("pkg.bind").define(b::generates(call));
+
+    assert_eq!(parse(source).unwrap(), module.build().unwrap());
+}
+
+#[test]
+fn a_generated_module_is_written_with_nothing_else() {
+    let source = "comptime all(); fn more(): int => 1;";
+
+    assert!(parse(source).is_err());
+}
+
+#[test]
 fn a_block_is_its_statements_nested_in_order() {
     let source = "fn main(): int { let a = 1; side(); let (b, _) = (a, 2); return b; }";
     let pair = pat::tuple([pat::bind("b"), pat::any()]);

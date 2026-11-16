@@ -19,7 +19,7 @@ pub use files::{Disk, Files};
 
 use crate::builder::OWN_PACKAGE;
 use crate::error::Error;
-use crate::surface::Definition;
+use crate::surface::{Definition, GENERATOR};
 use crate::symbol::{ModuleId, Symbol};
 use crate::syntax::{Placed, Position, SyntaxError};
 use crate::workspace::{Sources, Workspace, WorkspaceError};
@@ -178,7 +178,14 @@ impl Project {
     /// the definition begins.
     #[must_use]
     pub fn report(&self, error: &Error, node: Option<usize>) -> String {
-        let Some((file, placed)) = error.symbol().and_then(|symbol| self.locate(symbol)) else {
+        let located = error.symbol().and_then(|symbol| {
+            // What a generated module's call gave is nowhere in the
+            // text: an error in it is at the call.
+            let call = symbol.module.value(GENERATOR);
+            let written = self.locate(symbol).map(|found| (found, node));
+            written.or_else(|| self.locate(&call).map(|found| (found, None)))
+        });
+        let Some(((file, placed), node)) = located else {
             return error.to_string();
         };
         let written = node.and_then(|node| placed.nodes.get(node));

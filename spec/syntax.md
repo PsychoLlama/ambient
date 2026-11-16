@@ -54,6 +54,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - A [comptime](comptime.md) call is `comptime` before the call.
 - A derived type is a type definition with a comptime call where its type would be.
 - A generated function is `fn`, its name, `=`, and a comptime call.
+- A generated module is a file of imports and one comptime call, and nothing else.
 - Type arguments are written out after `::` in angle brackets.
 - An [operation](operations.md) with no operator is `@`, its name, and its operands; the standard library wraps each in a function, and other code calls that.
 - Operators are those of [operations](operations.md) and, built from them, the other comparisons, `&&`, `||`, and `!`; the last three evaluate only the operands they need.

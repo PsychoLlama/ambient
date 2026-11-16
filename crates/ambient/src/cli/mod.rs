@@ -22,6 +22,7 @@ pub use build::{LAUNCHER, start};
 use launch::Launch;
 
 use crate::engine::Engine;
+use crate::error::Error;
 use crate::host::{self, World};
 use crate::project::{self, Files, Project};
 use crate::store::Store;
@@ -148,6 +149,8 @@ impl Session<'_> {
             let Some(module) = project.workspace.module(&read.module) else {
                 continue;
             };
+            let mut report =
+                |error: Error| problems.insert(project.report(&error, engine.blame(&error)));
             for definition in module.definitions() {
                 let namespace = definition.kind.namespace();
                 let symbol = read.module.symbol(namespace, &definition.name);
@@ -155,11 +158,16 @@ impl Session<'_> {
                     DefinitionKind::Function(_) | DefinitionKind::Generated(_) => {
                         engine.check(&symbol).map(|_| ())
                     }
+                    // A generated module is checked as what its call
+                    // gave, below.
+                    DefinitionKind::Module(_) => Ok(()),
                     _ => engine.interface(&symbol).map(|_| ()),
                 };
-                if let Err(error) = checked {
-                    problems.insert(project.report(&error, engine.blame(&error)));
-                }
+                checked.map_err(&mut report).ok();
+            }
+            let made = engine.generated_in(&read.module).map_err(&mut report);
+            for symbol in made.unwrap_or_default() {
+                engine.check(&symbol).map_err(&mut report).ok();
             }
         }
         if problems.is_empty() {

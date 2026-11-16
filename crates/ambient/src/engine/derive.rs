@@ -14,8 +14,8 @@ use crate::checker;
 use crate::core::{self, Tree};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher};
-use crate::surface::{DefinitionKind, Expr, Function, Reference};
-use crate::symbol::Symbol;
+use crate::surface::{Definition, DefinitionKind, Expr, Function, GENERATOR, Reference};
+use crate::symbol::{ModuleId, Namespace, Symbol};
 use crate::types::Ty;
 
 impl Engine<'_> {
@@ -30,6 +30,66 @@ impl Engine<'_> {
         memo(&self.generated, symbol, || {
             self.once(symbol, Self::generate)
         })
+    }
+
+    /// The definitions the call of a generated module gives, each
+    /// resolved as one written there would be; none, for a module that
+    /// was written. See "Splice positions" in `spec/comptime.md`.
+    pub(super) fn made(&self, module: &ModuleId) -> Query<Vec<Definition<Reference>>> {
+        memo(&self.made, module, || {
+            let generator = (Namespace::Value, GENERATOR.to_owned());
+            if !self.read(module)?.table.0.contains_key(&generator) {
+                return Ok(Arc::default());
+            }
+            self.once(&module.value(GENERATOR), Self::make)
+        })
+    }
+
+    /// The definitions of a generated module, by symbol: what there is
+    /// to check of one. A module that was written has none.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the module's call does, or gives no definitions.
+    pub fn generated_in(&self, module: &ModuleId) -> Result<Vec<Symbol>, Error> {
+        let symbol =
+            |made: &Definition<Reference>| module.symbol(made.kind.namespace(), &made.name);
+        Ok(self.made(module)?.iter().map(symbol).collect())
+    }
+
+    fn make(&self, symbol: &Symbol) -> Query<Vec<Definition<Reference>>> {
+        let resolved = self.resolve(symbol)?;
+        let DefinitionKind::Module(call) = &resolved.definition.kind else {
+            return Err(Error::UnknownSymbol(symbol.clone()));
+        };
+        let tree = self.given(symbol, &resolved.digest, call, checker::module())?;
+        let made = checker::definitions(&tree).ok_or_else(|| Error::NotCode(symbol.clone()))?;
+        let mut seen = std::collections::BTreeSet::new();
+        for definition in &made {
+            if !seen.insert((definition.kind.namespace(), &definition.name)) {
+                return Err(Error::GeneratedTwice {
+                    symbol: symbol.clone(),
+                    name: definition.name.clone(),
+                });
+            }
+        }
+        // A tree is data, and could name what nothing written here may.
+        let package = &symbol.module.package;
+        let named = definitions(|visit| {
+            for definition in &made {
+                definition.names(&mut |name| visit(name));
+            }
+        });
+        match named
+            .into_iter()
+            .find(|named| !self.nameable(package, named))
+        {
+            Some(named) => Err(Error::Unnameable {
+                symbol: symbol.clone(),
+                named,
+            }),
+            None => Ok(Arc::new(made)),
+        }
     }
 
     /// What `run` gives for `symbol`, unless making it came back here:

@@ -13,6 +13,9 @@ pub enum BuildError {
     /// A module defines a name twice in one namespace, or imports two
     /// things under one alias.
     DuplicateDefinition(String),
+    /// A module whose content is a comptime call defines something
+    /// besides.
+    GeneratedWithMore,
     DuplicateTypeParameter(String),
     DuplicateParameter {
         function: String,
@@ -45,6 +48,10 @@ impl fmt::Display for BuildError {
         match self {
             Self::InvalidName(name) => write!(f, "`{name}` is not a name"),
             Self::DuplicateDefinition(name) => write!(f, "`{name}` is defined twice"),
+            Self::GeneratedWithMore => write!(
+                f,
+                "a module that is a comptime call defines nothing else: only its imports are written"
+            ),
             Self::DuplicateParameter { function, name } => {
                 write!(f, "`{function}` has two parameters named `{name}`")
             }

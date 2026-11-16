@@ -211,6 +211,8 @@ impl Engine<'_> {
                 | DefinitionKind::Key(_)
                 | DefinitionKind::Extern(_)
                 | DefinitionKind::Target(_) => self.hash(symbol)?,
+                // The call of a generated module is no definition of it.
+                DefinitionKind::Module(_) => return Err(unknown()),
                 DefinitionKind::Function(_) | DefinitionKind::Generated(_) => {
                     let generated = match &resolved.definition.kind {
                         DefinitionKind::Generated(_) => Some(self.generated(symbol)?),
@@ -370,7 +372,8 @@ impl Engine<'_> {
                 })
             }
             // Resolution leaves no tag or brand: one is a type by then.
-            DefinitionKind::Tag | DefinitionKind::Brand => {
+            // And the call of a generated module is no definition of it.
+            DefinitionKind::Tag | DefinitionKind::Brand | DefinitionKind::Module(_) => {
                 Err(Error::UnknownSymbol(symbol.clone()))
             }
             DefinitionKind::Target(_) => {
