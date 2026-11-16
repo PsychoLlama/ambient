@@ -9,6 +9,8 @@ use ambient_runtime::FAULT_PACKAGE;
 
 use super::{Launch, Session};
 use crate::backend::native::Natives;
+use crate::engine::Engine;
+use crate::error::Error;
 use crate::project::Project;
 use crate::surface::DefinitionKind;
 use crate::symbol::{ModuleId, Symbol};
@@ -35,7 +37,9 @@ impl Session<'_> {
         let target = ModuleId::new(FAULT_PACKAGE, "test").value("tests");
         let (mut passed, mut failed, mut kept) = (0, 0, 0);
         let chosen = |test: &Symbol| only.is_none_or(|only| test.identity().contains(only));
-        for test in tests(&project).into_iter().filter(chosen) {
+        let tests = tests(&project, &engine)
+            .map_err(|error| vec![project.report(&error, engine.blame(&error))])?;
+        for test in tests.into_iter().filter(chosen) {
             // A test reaches no world, so one that passed passes for as
             // long as its program is the same, and is not run again. One
             // that failed is: what it says names places, which no hash
@@ -76,10 +80,18 @@ impl Session<'_> {
     }
 }
 
+/// Whether a definition of this name and kind is a test.
+fn test<N>(name: &str, kind: &DefinitionKind<N>) -> bool {
+    let takes_nothing =
+        matches!(kind, DefinitionKind::Function(function) if function.params.is_empty());
+    takes_nothing && name.starts_with(PREFIX)
+}
+
 /// The tests of the package a project was opened at, in the order of
 /// their modules and of their definitions there: each function that
-/// takes nothing and is named as a test.
-fn tests(project: &Project) -> Vec<Symbol> {
+/// takes nothing and is named as a test. Those a generated module was
+/// given follow what the module was written with.
+fn tests(project: &Project, engine: &Engine) -> Result<Vec<Symbol>, Error> {
     let root = ModuleId::new(&project.root, "").package;
     let mut tests = Vec::new();
     for read in project
@@ -90,16 +102,17 @@ fn tests(project: &Project) -> Vec<Symbol> {
         let Some(module) = project.workspace.module(&read.module) else {
             continue;
         };
-        for definition in module.definitions() {
-            if let DefinitionKind::Function(function) = &definition.kind
-                && function.params.is_empty()
-                && definition.name.starts_with(PREFIX)
-            {
-                tests.push(read.module.value(&definition.name));
+        let written = module.definitions().iter();
+        let written = written.filter(|definition| test(&definition.name, &definition.kind));
+        tests.extend(written.map(|definition| read.module.value(&definition.name)));
+        for made in engine.generated_in(&read.module)? {
+            let resolved = engine.resolve(&made)?;
+            if test(&made.name, &resolved.definition.kind) {
+                tests.push(made);
             }
         }
     }
-    tests
+    Ok(tests)
 }
 
 /// The native code a test's target binds: a check that does not hold

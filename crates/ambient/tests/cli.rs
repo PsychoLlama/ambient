@@ -274,6 +274,30 @@ FAIL  app:main.test_faults
 }
 
 #[test]
+fn a_test_a_generated_module_was_given_is_run() {
+    let file = |(path, text): (&str, &str)| (PathBuf::from(path), text.to_owned());
+    let files = [
+        ("app/ambient.toml", "name = \"app\"\nid = \"app\""),
+        (
+            "app/src/make.ab",
+            "import ambient.code; import ambient.tree; import ambient.test.{check};
+            pub fn all(): tree.Module => [code.named(\"test_made\", code.define(
+                [], tree.nil, [comptime tree.reference(check)], fn(given: List<code.Code>): code.Code =>
+                    code.perform(comptime tree.reference(check), [code.literal(false), code.literal(\"made\")])))];",
+        ),
+        ("app/src/made.ab", "import pkg.make; comptime make.all();"),
+    ];
+    let (code, world) = test(&files.into_iter().map(file).collect());
+
+    assert_eq!(code, 1);
+    assert!(
+        world.out.contains("FAIL  app:made.test_made"),
+        "{}",
+        world.out
+    );
+}
+
+#[test]
 fn a_test_that_throws_fails_with_what_it_threw() {
     let source = r#"
         import ambient.{fail, throw};
