@@ -12,4 +12,4 @@ includes = ["*.nix"]
 [formatter.prettier]
 command = "prettier"
 options = ["--write"]
-includes = ["*.md"]
+includes = ["*.md", "*.js"]

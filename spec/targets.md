@@ -93,6 +93,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - A suspending extern's function gives a promise, and what the promise settles to is the answer.
 - A handle minted there stands for a JavaScript object. The host keeps the object by the handle and lets it go when the handle is reclaimed.
 - An event of a page is a [call from the world](#calls-from-the-world), so a handler that cancels one does so before it next waits.
+- TODO: no package is such a target yet. A host is loaded by hand and given its functions, and a build emits no JavaScript.
 - TODO: how JavaScript sees a value is undecided. Converting each at the call copies it, so a value is more likely held as it is and read through the program, with converting asked for.
 
 ## Network

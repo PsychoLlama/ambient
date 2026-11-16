@@ -1,0 +1,33 @@
+import ambient.iterator;
+
+/// Writes a line where a page can show it.
+pub ability say(text: string): null;
+
+/// Waits a number of milliseconds.
+pub ability sleep(milliseconds: int): null;
+
+extern handler said for say;
+extern suspending handler slept for sleep;
+
+/// What a page offers this program. Its native side is JavaScript.
+pub target page { say: said, sleep: slept }
+
+/// Counts aloud, slowly, beside a task that says it is waiting.
+pub fn main(): int with say, sleep {
+    let (counted, waited) = all(fn() => count(3), fn() => linger());
+    return counted + waited;
+}
+
+fn count(to: int): int with say, sleep {
+    for number in iterator.range(1, to + 1) {
+        say!("counted ${number}");
+        sleep!(10);
+    }
+    return to;
+}
+
+fn linger(): int with say, sleep {
+    sleep!(25);
+    say!("still here");
+    return 1;
+}

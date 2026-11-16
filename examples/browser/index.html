@@ -1,0 +1,28 @@
+<!doctype html>
+<!--
+  The program of this package, in a page. Build the module beside this
+  file and serve the repository over HTTP:
+
+    ambient build examples/browser --module main.page -o examples/browser/page.wasm
+    python3 -m http.server
+
+  then open /examples/browser/.
+-->
+<meta charset="utf-8" />
+<title>Ambient in a page</title>
+<pre id="said"></pre>
+<script type="module">
+  import { load } from "../../web/host.js";
+
+  // The package's ID, as its manifest says it.
+  const PACKAGE = "dc397fcddc58e66b5137bae3178633f0";
+  const said = document.getElementById("said");
+  const page = {
+    "main.said": (line) => void said.append(`${line}\n`),
+    "main.slept": (ms) => new Promise((wake) => setTimeout(wake, ms, null)),
+  };
+
+  const bytes = await (await fetch("page.wasm")).arrayBuffer();
+  const program = await load(bytes, { [PACKAGE]: page });
+  said.append(`gave ${await program.run()}\n`);
+</script>
