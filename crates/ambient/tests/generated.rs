@@ -8,6 +8,7 @@ mod support;
 use ambient::engine::Engine;
 use ambient::error::Error;
 use ambient::store::MemoryStore;
+use ambient::value::Value;
 use support::text::{int, workspace};
 use support::value;
 
@@ -79,6 +80,55 @@ fn a_generated_body_nests_as_deep_as_a_written_one_may() {
     ";
 
     assert_eq!(int(&format!("{SCALED} {main}")), 7);
+}
+
+/// A function of one integer whose body is `body`, made of the
+/// parameter `x`; and `main`, which calls it with seven.
+fn of_seven(returns: &str, body: &str) -> String {
+    format!(
+        "import ambient.code;
+        import ambient.tree;
+        fn at(codes: List<code.Code>, place: int): code.Code =>
+            codes.get(place) as code.Code else code.literal(null);
+        fn make(): tree.Function =>
+            code.define([tree.integer], tree.{returns}, [], fn(given: List<code.Code>): code.Code {{
+                let x = at(given, 0);
+                return {body};
+            }});
+        fn made = comptime make();
+        fn main(): unknown => made(7);"
+    )
+}
+
+#[test]
+fn generated_code_does_operations_and_chooses() {
+    let sign = "code.choose(
+        code.operate(\"less\", [x, code.literal(0)]),
+        code.literal(\"below\"),
+        code.operate(\"to_text\", [code.operate(\"multiply\", [x, code.literal(6)])]))";
+
+    let ran = support::text::run(&of_seven("text", sign));
+    assert_eq!(ran, Ok(Value::String("42".to_owned())));
+}
+
+#[test]
+fn a_generated_match_binds_what_its_patterns_do_in_order() {
+    // A tuple's bindings in turn, and a binding before what is inside
+    // it: subtraction and the field tell which is which.
+    let whole =
+        "{ bound: { shape: [{ name: \"less\", matches: { bound: { is: tree.integer } } }] } }";
+    let matched = format!(
+        "code.matching(code.tuple([x, code.record([(\"less\", code.literal(2))])]), [
+            code.arm({{ tuple: [{{ bound: {{ is: tree.integer }} }}, {whole}] }},
+                fn(bound: List<code.Code>): code.Code => code.operate(\"subtract\", [
+                    code.operate(\"multiply\", [at(bound, 0), code.field(at(bound, 1), \"less\")]),
+                    at(bound, 2),
+                ])),
+        ])"
+    );
+
+    let ran = support::text::run(&of_seven("integer", &matched));
+    assert_eq!(ran, Ok(Value::Int(12)));
 }
 
 #[test]

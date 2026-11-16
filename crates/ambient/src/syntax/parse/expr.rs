@@ -269,24 +269,10 @@ impl Parser {
             "read" => return Ok(cell(CellOp::Read)),
             "replace" => return Ok(cell(CellOp::Replace)),
             "wait" => return Ok(cell(CellOp::Wait)),
-            "length" => Operator::Length,
-            "get" => Operator::Get,
-            "push" => Operator::Push,
-            "join" => Operator::Join,
-            "slice" => Operator::Slice,
-            "to_int" => Operator::ToInt,
-            "to_float" => Operator::ToFloat,
-            "to_text" => Operator::ToText,
-            "to_bytes" => Operator::ToBytes,
-            "code" => Operator::Code,
-            "character" => Operator::Character,
-            "iterator" => Operator::Iterator,
-            "iterate" => Operator::Iterate,
-            "range" => Operator::Range,
-            "step" => Operator::Step,
-            "gather" => Operator::Gather,
-            "race" => Operator::Race,
-            _ => return self.fail_at(at, format!("`@{word}` is not an operation")),
+            word => match Operator::named(word) {
+                Some(operator) => operator,
+                None => return self.fail_at(at, format!("`@{word}` is not an operation")),
+            },
         };
         Ok(operation(operator, operands))
     }

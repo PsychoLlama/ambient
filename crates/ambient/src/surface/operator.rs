@@ -49,6 +49,74 @@ pub enum Operator {
 }
 
 impl Operator {
+    /// Every operator.
+    pub const ALL: [Self; 24] = [
+        Self::Add,
+        Self::Subtract,
+        Self::Multiply,
+        Self::Divide,
+        Self::Remainder,
+        Self::Less,
+        Self::Equal,
+        Self::Length,
+        Self::Get,
+        Self::Push,
+        Self::Join,
+        Self::Slice,
+        Self::ToInt,
+        Self::ToFloat,
+        Self::ToText,
+        Self::ToBytes,
+        Self::Code,
+        Self::Character,
+        Self::Iterator,
+        Self::Iterate,
+        Self::Range,
+        Self::Step,
+        Self::Gather,
+        Self::Race,
+    ];
+
+    /// The word for the operator: what `@word(...)` writes it by, and
+    /// what a tree of code names it by.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Add => "add",
+            Self::Subtract => "subtract",
+            Self::Multiply => "multiply",
+            Self::Divide => "divide",
+            Self::Remainder => "remainder",
+            Self::Less => "less",
+            Self::Equal => "equal",
+            Self::Length => "length",
+            Self::Get => "get",
+            Self::Push => "push",
+            Self::Join => "join",
+            Self::Slice => "slice",
+            Self::ToInt => "to_int",
+            Self::ToFloat => "to_float",
+            Self::ToText => "to_text",
+            Self::ToBytes => "to_bytes",
+            Self::Code => "code",
+            Self::Character => "character",
+            Self::Iterator => "iterator",
+            Self::Iterate => "iterate",
+            Self::Range => "range",
+            Self::Step => "step",
+            Self::Gather => "gather",
+            Self::Race => "race",
+        }
+    }
+
+    /// The operator a word is for, if it is for one.
+    #[must_use]
+    pub fn named(word: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|operator| operator.name() == word)
+    }
+
     /// The operator as source text writes it.
     #[must_use]
     pub fn written(self) -> &'static str {

@@ -77,6 +77,38 @@ pub type Type =
 /// holds.
 pub type Entry = { name: string, value: Expr } | { ability: Reference, value: Expr };
 
+/// An operation, by the word for it: `@length(list)` is `length`, and
+/// `left + right` is `add`.
+pub type Operation =
+    "add" | "subtract" | "multiply" | "divide" | "remainder" | "less" | "equal"
+    | "length" | "get" | "push" | "join" | "slice"
+    | "to_int" | "to_float" | "to_text" | "to_bytes" | "code" | "character"
+    | "iterator" | "iterate" | "range" | "step" | "gather" | "race";
+
+/// A field of a record pattern: its name, and what the field must
+/// match.
+pub type Shaped = { name: string, matches: Pattern };
+
+/// A pattern, as data: what an arm of a match tests its subject by.
+///
+/// - `is` matches a value the type describes: `tree.any`, anything.
+/// - `equals` matches one value.
+/// - `bound` matches what the pattern inside it does, and binds it:
+///   the local after those bound around the match and those the
+///   pattern bound before it.
+/// - `tuple` matches a tuple of as many members, each matching, and
+///   `shape` a record with at least these fields.
+pub type Pattern =
+    { is: Type }
+    | { equals: bool | int | float | string | bytes | Tag }
+    | { bound: Pattern }
+    | { tuple: List<Pattern> }
+    | { shape: List<Shaped> };
+
+/// An arm of a match: what it tests the subject by, and what the
+/// match gives if that is the first to match.
+pub type Arm = { pattern: Pattern, gives: Expr };
+
 /// An expression, as data: what a function gives for a comptime call
 /// of it to be spliced as code. It names nothing where it is spliced.
 ///
@@ -90,6 +122,8 @@ pub type Entry = { name: string, value: Expr } | { ability: Reference, value: Ex
 ///   is the text an observer is told the ability is.
 /// - `cast` is the value at the type `to` if the type describes it,
 ///   and `otherwise` if not.
+/// - `subject` is matched against each of `arms` in turn, and
+///   `operation` is done `on` its operands.
 pub type Expr =
     { literal: null | bool | int | float | string | bytes | Tag }
     | { definition: Reference }
@@ -98,10 +132,13 @@ pub type Expr =
     | { call: Expr, given: List<Expr> }
     | { perform: Reference, given: List<Expr> }
     | { items: List<Expr> }
+    | { members: List<Expr> }
     | { fields: List<Entry> }
     | { field: string, of: Expr }
     | { cast: Expr, to: Type, otherwise: Expr }
     | { bind: Expr, body: Expr }
+    | { subject: Expr, arms: List<Arm> }
+    | { operation: Operation, on: List<Expr> }
     | { function: List<Type>, body: Expr };
 
 /// A function as a definition: what it takes, what it gives, the

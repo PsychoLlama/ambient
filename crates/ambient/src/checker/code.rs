@@ -7,7 +7,7 @@ use super::reify::{Read, definition, each, field, fields, need, text, written};
 use super::{Checker, core};
 use crate::error::Error;
 use crate::literal::Literal;
-use crate::surface::{Expr, Key, Reference};
+use crate::surface::{Arm, Expr, Key, Operator, Pattern, Reference};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::Ty;
 
@@ -127,6 +127,18 @@ impl Reader {
                 ty: written(need("to")?)?,
                 otherwise: self.boxed(need("otherwise")?)?,
             },
+            _ if has("subject") => Expr::Match {
+                subject: self.boxed(need("subject")?)?,
+                arms: each(need("arms")?, |arm| self.arm(arm))?,
+            },
+            _ if has("operation") => {
+                let word = text(need("operation")?)?;
+                let operator = Operator::named(word);
+                Expr::Operation {
+                    operator: operator.ok_or_else(|| format!("`{word}` is no operation"))?,
+                    operands: self.all(need("on")?)?,
+                }
+            }
             _ if has("bind") => {
                 let value = self.boxed(need("bind")?)?;
                 let scope = self.bound.len();
@@ -160,8 +172,49 @@ impl Reader {
                 })?))
             }
             ("items", items) => Expr::List(self.all(items)?),
+            ("members", members) => Expr::Tuple(self.all(members)?),
             ("fields", entries) => Expr::Record(each(entries, |entry| self.entry(entry))?),
             _ => return Err(format!("an expression is no `{name}`")),
+        })
+    }
+
+    /// An arm of a match: what its pattern binds is bound in what it
+    /// gives, and nowhere after.
+    fn arm(&mut self, arm: &core::Expr) -> Read<Arm<Reference>> {
+        let arm = fields(arm, "an arm")?;
+        let scope = self.bound.len();
+        let pattern = self.pattern(need(arm, "pattern")?);
+        let body = pattern.and_then(|pattern| {
+            let body = self.expression(need(arm, "gives")?)?;
+            Ok(Arm { pattern, body })
+        });
+        self.bound.truncate(scope);
+        body
+    }
+
+    /// The pattern a spliced `tree.Pattern` stands for. Each binding is
+    /// numbered as it is met: one before what is inside it, which is
+    /// the order resolution numbers those of a pattern that was
+    /// written.
+    fn pattern(&mut self, tree: &core::Expr) -> Read<Pattern<Reference>> {
+        let [(core::Key::Field(name), holds)] = fields(tree, "a pattern")? else {
+            return Err("a pattern is one field".to_owned());
+        };
+        Ok(match (name.as_str(), holds) {
+            ("is", ty) => Pattern::Is(written(ty)?),
+            ("equals", core::Expr::Literal(literal)) => Pattern::Literal(literal.clone()),
+            ("bound", inner) => {
+                let name = format!("__{}", self.bound.len());
+                self.bind();
+                Pattern::Bind(name, Box::new(self.pattern(inner)?))
+            }
+            ("tuple", members) => Pattern::Tuple(each(members, |member| self.pattern(member))?),
+            ("shape", shaped) => Pattern::Record(each(shaped, |shaped| {
+                let shaped = fields(shaped, "a field of a pattern")?;
+                let name = text(need(shaped, "name")?)?.to_owned();
+                Ok((name, self.pattern(need(shaped, "matches")?)?))
+            })?),
+            _ => return Err(format!("a pattern is no `{name}`")),
         })
     }
 
