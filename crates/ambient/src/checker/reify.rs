@@ -114,6 +114,14 @@ fn text_of(expr: &Expr) -> Option<String> {
     text(expr).map(str::to_owned)
 }
 
+/// The ability a spliced `tree.Ability` is.
+fn taken(ability: &Expr) -> Option<Reference> {
+    let Expr::Record(fields) = ability else {
+        return None;
+    };
+    definition(field(fields, "ability")?, &["ability"])
+}
+
 /// The brand a spliced `tree.Brand` is.
 fn brand(brand: &Expr) -> Option<Ty> {
     let Expr::Record(fields) = brand else {
@@ -161,7 +169,7 @@ fn record(fields: &[(Key, Expr)]) -> Option<Ty> {
         _ => Ty::Function {
             params: all(field("function")?)?,
             ret: boxed("returns")?,
-            row: each(field("takes")?, |ability| definition(ability, &["ability"]))?,
+            row: each(field("takes")?, taken)?,
         },
     })
 }

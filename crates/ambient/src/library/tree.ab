@@ -37,6 +37,10 @@ pub type Brand = { package: string, identity: string };
 /// own module can name.
 pub fn reference(of: Reference): Reference => of;
 
+/// An ability of a function type's row: which it is, and the types of
+/// what it takes and gives.
+pub type Ability = { ability: Reference, function: List<Type>, returns: Type };
+
 /// A field of a record type: its name, and the type of what it holds.
 pub type Field = { name: string, holds: Type };
 
@@ -47,7 +51,8 @@ pub type Field = { name: string, holds: Type };
 /// - `named` is a type that refers to itself, where it does: the tree
 ///   of such a type is its definition, with the type named inside it.
 /// - `function` is the types of the parameters; `takes` is the
-///   abilities of its row.
+///   abilities of its row. A function named to a call is handed as the
+///   type it has.
 /// - `brands` are the brands on the type `under` them; a handle is
 ///   brands on nothing.
 pub type Type =
@@ -60,26 +65,37 @@ pub type Type =
     | { record: List<Field> }
     | { union: List<Type> }
     | { named: Reference }
-    | { function: List<Type>, returns: Type, takes: List<Reference> }
+    | { function: List<Type>, returns: Type, takes: List<Ability> }
     | { brands: List<Brand>, under: Type | null };
 
-/// A field of a record that an expression makes: its name, and the
-/// expression of what it holds.
-pub type Entry = { name: string, value: Expr };
+/// A field of a record that an expression makes: its name, or the
+/// ability it holds the handler of, and the expression of what it
+/// holds.
+pub type Entry = { name: string, value: Expr } | { ability: Reference, value: Expr };
 
 /// An expression, as data: what a function gives for a comptime call
 /// of it to be spliced as code. It names nothing where it is spliced.
 ///
 /// - `definition` is a function or a tag, by reference.
 /// - `function` is a function written in place, by the types of its
-///   parameters; `local` is a parameter of a function the expression
-///   is inside, counted from the outermost one's first.
+///   parameters, and `bind` holds a value for the extent of `body`.
+/// - `local` is what one of those bound, counted from the outermost
+///   the expression is inside: a function's first parameter is as many
+///   as were bound around the function.
+/// - `perform` calls the handler bound to an ability, and `identity`
+///   is the text an observer is told the ability is.
+/// - `cast` is the value at the type `to` if the type describes it,
+///   and `otherwise` if not.
 pub type Expr =
     { literal: null | bool | int | float | string | bytes | Tag }
     | { definition: Reference }
     | { local: int }
+    | { identity: Reference }
     | { call: Expr, given: List<Expr> }
+    | { perform: Reference, given: List<Expr> }
     | { items: List<Expr> }
     | { fields: List<Entry> }
     | { field: string, of: Expr }
+    | { cast: Expr, to: Type, otherwise: Expr }
+    | { bind: Expr, body: Expr }
     | { function: List<Type>, body: Expr };

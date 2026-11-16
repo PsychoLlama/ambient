@@ -347,3 +347,85 @@ fn spliced_code_follows_what_it_names() {
     assert_eq!(check(TWICE), Ok(()));
     assert!(matches!(check(&texts), Err(Error::Mismatch { .. })));
 }
+
+#[test]
+fn sibling_functions_in_a_tree_keep_their_own_parameters() {
+    let main = "
+        fn pair(of: tree.Reference): tree.Expr {
+            let apply: tree.Expr = {
+                function: [tree.integer],
+                body: { call: { definition: of }, given: [{ local: 0 }] },
+            };
+            return { items: [apply, apply] };
+        }
+        fn main(): int {
+            let both = comptime pair(double);
+            match (both.get(0), both.get(1)) {
+                (let first: fn(int): int, let second: fn(int): int) => { return first(1) + second(2); }
+                _ => { return 0; }
+            }
+        }
+    ";
+
+    assert_eq!(int(&format!("{TWICE} {main}")), 6);
+}
+
+/// Abilities, and a function that takes them.
+const ASKS: &str = "
+    import ambient.tree;
+    pub ability ask(question: string): int;
+    pub ability tell(answer: int): null;
+    fn work(): int with ask, tell {
+        tell!(ask!(\"one\") + ask!(\"two\"));
+        return 0;
+    }
+";
+
+#[test]
+fn a_function_named_to_a_call_is_handed_as_its_type() {
+    let main = "
+        fn row(of: tree.Type): string {
+            match of {
+                let it: { function: List<tree.Type>, returns: tree.Type, takes: List<tree.Ability> } => {
+                    return it.takes.map(fn(taken) => \"${taken.ability.name}/${taken.function.length()}\").join_with(\" \");
+                }
+                _ => { return \"not a function\"; }
+            }
+        }
+        fn main(): string => comptime row(work);
+    ";
+
+    assert_eq!(text(&format!("{ASKS} {main}")), "ask/1 tell/1");
+}
+
+#[test]
+fn a_tree_binds_handlers_and_performs() {
+    // A provider for `ask` that answers with the length of the
+    // question, and tells it: every node a handler is made of.
+    let main = "
+        fn count(text: string): int => text.length();
+        fn answers(of: tree.Type, count: tree.Reference): tree.Expr {
+            match of {
+                let it: { function: List<tree.Type>, returns: tree.Type, takes: List<tree.Ability> } => {
+                    match (it.takes.get(0), it.takes.get(1)) {
+                        (let ask: tree.Ability, let tell: tree.Ability) => {
+                            let counted: tree.Expr = { call: { definition: count }, given: [{ local: 0 }] };
+                            let told: tree.Expr = { perform: tell.ability, given: [{ local: 1 }] };
+                            let answer: tree.Expr = { bind: counted, body: { bind: told, body: { local: 1 } } };
+                            return { fields: [{ ability: ask.ability, value: { function: ask.function, body: answer } }] };
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+            return { literal: null };
+        }
+        fn main(): int {
+            let quiet = { [tell](answer) => null };
+            return provide quiet => provide comptime answers(work, count) => ask!(\"four\");
+        }
+    ";
+
+    assert_eq!(int(&format!("{ASKS} {main}")), 4);
+}

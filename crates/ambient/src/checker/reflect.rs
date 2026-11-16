@@ -13,7 +13,7 @@ use crate::error::Error;
 use crate::literal::Literal;
 use crate::surface::{Expr, Key, Reference};
 use crate::symbol::{Namespace, Symbol};
-use crate::types::Ty;
+use crate::types::{Env, Ty};
 use crate::value::Value;
 
 impl Checker<'_> {
@@ -23,24 +23,29 @@ impl Checker<'_> {
             symbol: self.symbol.clone(),
             found,
         };
-        let named = match arg {
-            Expr::Name(name @ Reference::Definition(symbol)) => {
-                let closed = |info: &crate::types::TypeInfo| info.params == 0;
-                self.env
-                    .types
-                    .get(symbol)
-                    .filter(|info| closed(info))
-                    .map(|_| name)
-            }
-            _ => None,
-        };
-        let Some(name) = named else {
+        let Expr::Name(name @ Reference::Definition(symbol)) = arg else {
             return Err(no_tree("what is not the name of a type".to_owned()));
         };
-        // A type that refers to itself is its definition, which names
-        // it where it does.
-        let ty = self.env.normalize(&Ty::Named(name.clone(), Vec::new()));
-        type_tree(&self.env.unfold(&ty)).ok_or_else(|| no_tree(self.env.show(&ty)))
+        // A function is handed as the type it has, and a type that
+        // refers to itself as its definition, which names it where it
+        // does.
+        let ty = match (self.env.functions.get(symbol), self.env.types.get(symbol)) {
+            (Some(function), _) if function.type_params.is_empty() => Ty::Function {
+                params: function.params.clone(),
+                ret: Box::new(function.ret.clone()),
+                row: function
+                    .row
+                    .iter()
+                    .cloned()
+                    .map(Reference::Definition)
+                    .collect(),
+            },
+            (_, Some(info)) if info.params == 0 => {
+                self.env.normalize(&Ty::Named(name.clone(), Vec::new()))
+            }
+            _ => return Err(no_tree(format!("`{symbol}`"))),
+        };
+        type_tree(self.env, &self.env.unfold(&ty)).ok_or_else(|| no_tree(self.env.show(&ty)))
     }
 
     /// The reference of the definition a comptime argument names.
@@ -100,17 +105,36 @@ fn record<const N: usize>(fields: [(&str, Value); N]) -> Value {
     Value::Record(named.collect::<BTreeMap<_, _>>())
 }
 
-fn all(types: &[Ty]) -> Option<Value> {
+fn all(env: &Env, types: &[Ty]) -> Option<Value> {
     Some(Value::List(
-        types.iter().map(type_tree).collect::<Option<_>>()?,
+        types
+            .iter()
+            .map(|ty| type_tree(env, ty))
+            .collect::<Option<_>>()?,
     ))
 }
 
-/// The abilities of a row, each as a `tree.Reference`.
-fn abilities(row: &[Reference]) -> Option<Value> {
-    let ability = |ability: &Reference| match ability {
-        Reference::Definition(symbol) => Some(reference(symbol)),
-        Reference::Local(_) | Reference::Parameter(_) => None,
+/// The abilities of a row, each as a `tree.Ability`: which it is, and
+/// what it takes and gives. One with type parameters has no tree yet.
+fn abilities(env: &Env, row: &[Reference]) -> Option<Value> {
+    let ability = |ability: &Reference| {
+        let Reference::Definition(symbol) = ability else {
+            return None;
+        };
+        let info = env
+            .abilities
+            .get(symbol)
+            .filter(|info| info.type_params.is_empty())?;
+        let params: Vec<Ty> = info
+            .params
+            .iter()
+            .map(|param| env.normalize(param))
+            .collect();
+        Some(record([
+            ("ability", reference(symbol)),
+            ("function", all(env, &params)?),
+            ("returns", type_tree(env, &env.normalize(&info.ret))?),
+        ]))
     };
     Some(Value::List(row.iter().map(ability).collect::<Option<_>>()?))
 }
@@ -118,7 +142,7 @@ fn abilities(row: &[Reference]) -> Option<Value> {
 /// A normalized type as a `tree.Type`, if it has a tree: a type with
 /// arguments that refers to itself, a method, and what is held under a
 /// key that is not a field have none yet.
-fn type_tree(ty: &Ty) -> Option<Value> {
+fn type_tree(env: &Env, ty: &Ty) -> Option<Value> {
     Some(match ty {
         Ty::Never => tag("none"),
         Ty::Unknown => tag("any"),
@@ -130,16 +154,16 @@ fn type_tree(ty: &Ty) -> Option<Value> {
         Ty::Bytes => tag("binary"),
         Ty::Tag => tag("tagged"),
         Ty::Literal(literal) => record([("literal", literal_value(literal))]),
-        Ty::List(member) => record([("list", type_tree(member)?)]),
-        Ty::Cell(member) => record([("mutable", type_tree(member)?)]),
-        Ty::Iterator(member) => record([("iterator", type_tree(member)?)]),
-        Ty::Tuple(members) => record([("tuple", all(members)?)]),
-        Ty::Union(members) => record([("union", all(members)?)]),
+        Ty::List(member) => record([("list", type_tree(env, member)?)]),
+        Ty::Cell(member) => record([("mutable", type_tree(env, member)?)]),
+        Ty::Iterator(member) => record([("iterator", type_tree(env, member)?)]),
+        Ty::Tuple(members) => record([("tuple", all(env, members)?)]),
+        Ty::Union(members) => record([("union", all(env, members)?)]),
         Ty::Record(fields) => {
             let field = |(key, ty): &(Key<Reference>, Ty)| match key {
                 Key::Field(name) => {
                     let name = Value::String(name.clone());
-                    Some(record([("name", name), ("holds", type_tree(ty)?)]))
+                    Some(record([("name", name), ("holds", type_tree(env, ty)?)]))
                 }
                 Key::Ability(_) => None,
             };
@@ -147,9 +171,9 @@ fn type_tree(ty: &Ty) -> Option<Value> {
             record([("record", Value::List(fields))])
         }
         Ty::Function { params, ret, row } => record([
-            ("function", all(params)?),
-            ("returns", type_tree(ret)?),
-            ("takes", abilities(row)?),
+            ("function", all(env, params)?),
+            ("returns", type_tree(env, ret)?),
+            ("takes", abilities(env, row)?),
         ]),
         Ty::Brand(_) => record([
             ("brands", Value::List(vec![brand(ty)?])),
@@ -164,7 +188,7 @@ fn type_tree(ty: &Ty) -> Option<Value> {
             let brands = brands.iter().map(brand).collect::<Option<_>>()?;
             record([
                 ("brands", Value::List(brands)),
-                ("under", type_tree(under)?),
+                ("under", type_tree(env, under)?),
             ])
         }
         Ty::Named(..) | Ty::Bound(_) | Ty::Generic { .. } | Ty::Method { .. } => return None,
