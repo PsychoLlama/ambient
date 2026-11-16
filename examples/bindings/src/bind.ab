@@ -2,6 +2,7 @@ import ambient.code;
 import ambient.errors.{catch, fail, throw};
 import ambient.json;
 import ambient.json.{Json};
+import ambient.map.{Map};
 import ambient.tree;
 import ambient.Error;
 import pkg.manifest;
@@ -26,21 +27,18 @@ fn named(name: Json): tree.Type {
     }
 }
 
-/// What the manifest says of one name, or null if it says nothing.
-fn described(name: string): Json {
+/// The manifest, or null if it is not JSON.
+fn read(): Json {
     match catch(fn() => json.parse(manifest.text())) {
         let error: Error => { return null; }
-        let all => { return json.get(all, name); }
+        let all => { return all; }
     }
 }
 
-/// The function the manifest describes under `name`: it takes what
-/// the manifest says, asks the host, and gives what came back as the
-/// type the manifest says, or throws if it is not that.
-///
-/// `pub fn now = comptime bind.bound("now");`
-pub fn bound(name: string): tree.Function {
-    let entry = described(name);
+/// The function the manifest describes in `entry`, under `name`: it
+/// takes what the manifest says, asks the host, and gives what came
+/// back as the type the manifest says, or throws if it is not that.
+fn bound(name: string, entry: Json): tree.Function {
     let takes = match json.get(entry, "takes") {
         let types: List<Json> => types.map(named),
         _ => [],
@@ -52,4 +50,20 @@ pub fn bound(name: string): tree.Function {
         let asked = code.perform(invoke, [code.literal(name), code.list(given)]);
         return code.cast(asked, gives, code.call(wrong, [code.literal(name)]));
     });
+}
+
+/// A function for everything the manifest describes, by its name
+/// there: the whole of a module.
+///
+/// `comptime bind.all();`
+pub fn all(): tree.Module {
+    match read() {
+        let entries: Map<Json> => {
+            return entries.entries().map(fn(entry: (string, Json)): tree.Definition {
+                let (name, described) = entry;
+                return code.named(name, bound(name, described));
+            });
+        }
+        _ => { return []; }
+    }
 }

@@ -1,38 +1,3 @@
-import ambient.errors.{catch, throw};
-import ambient.test.{check};
-import ambient.Error;
 import pkg.bind;
-import pkg.bind.{invoke};
 
-pub fn now = comptime bind.bound("now");
-pub fn title = comptime bind.bound("title");
-pub fn alert = comptime bind.bound("alert");
-pub fn confirm = comptime bind.bound("confirm");
-pub fn add = comptime bind.bound("add");
-
-/// A host for a test: it answers each name with something of the type
-/// the manifest gives it, but for `title`.
-fn hosted<T>(body: fn(): T with invoke, throw): T with throw =>
-    provide {
-        [invoke](name, arguments) =>
-            match name {
-                "now" => 1700,
-                "add" => (arguments.get(0) as int else 0) + (arguments.get(1) as int else 0),
-                "confirm" => true,
-                "title" => 404,
-                _ => null,
-            },
-    } => body();
-
-fn test_a_generated_function_asks_the_host_by_name(): null with check, throw {
-    check!(hosted(fn() => now()) == 1700, "what the host gives is what the function gives");
-    check!(hosted(fn() => add(2, 3)) == 5, "the arguments reach the host in order");
-    check!(hosted(fn() => confirm("sure?")), "each function has the type the manifest gives it");
-}
-
-fn test_a_host_that_gives_another_type_is_caught(): null with check {
-    match catch(fn() => hosted(fn() => title())) {
-        let error: Error => { check!(error.kind == bind.mistyped, "the function says what was wrong"); }
-        _ => { check!(false, "a title that is a number is no title"); }
-    }
-}
+comptime bind.all();
