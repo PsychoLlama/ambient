@@ -1,0 +1,3 @@
+import pkg.load;
+
+comptime load.all();

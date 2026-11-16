@@ -1,0 +1,47 @@
+import ambient.code;
+import ambient.tree;
+import ambient.Error;
+import system.fs;
+
+/// A page: the name its file has, and what the file holds.
+pub type Page = { name: string, text: string };
+
+/// The text of the page among `pages` that has a name.
+pub fn find(name: string, pages: List<Page>): string | null {
+    match pages.find(fn(page: Page): bool => page.name == name) {
+        null => { return null; }
+        let page => { return page.text; }
+    }
+}
+
+/// The files of `pages` that are pages.
+fn pages(): List<Page> with fs.list, fs.read {
+    let files = fs.list!("pages") as List<string> else [];
+    return files
+        .filter(fn(file: string): bool => file.ends_with(".md"))
+        .map(fn(file: string): Page =>
+            { name: file.replace(".md", ""), text: fs.read!("pages/${file}") as string else "" });
+}
+
+/// A function that gives `value`, and takes nothing.
+fn constant(gives: tree.Type, value: code.Code): tree.Function =>
+    code.define([], gives, [], fn(given: List<code.Code>): code.Code => value);
+
+/// A module of the pages: a function for each that gives its text,
+/// `names` for what there is, and `page` for one by name.
+///
+/// `comptime load.all();`
+pub fn all(): tree.Module with fs.list, fs.read {
+    let found = pages();
+    let name = fn(page: Page): code.Code => code.literal(page.name);
+    let text = fn(page: Page): code.Code => code.literal(page.text);
+    let whole = fn(page: Page): code.Code => code.record([("name", name(page)), ("text", text(page))]);
+    let find = code.definition(comptime tree.reference(find));
+    let page = code.define([tree.text], { union: [tree.text, tree.nil] }, [], fn(given: List<code.Code>): code.Code =>
+        code.call(find, given.push(code.list(found.map(whole)))));
+    let each = found.map(fn(page: Page): tree.Definition =>
+        code.named(page.name, constant(tree.text, text(page))));
+    return each
+        .push(code.named("names", constant({ list: tree.text }, code.list(found.map(name)))))
+        .push(code.named("page", page));
+}

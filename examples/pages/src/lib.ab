@@ -1,0 +1,5 @@
+/// A site whose pages are files. `site` is made from the directory
+/// `pages` as the package is compiled: a function for each file that
+/// gives its text, so the program that is built reads no file.
+pub module load;
+pub module site;

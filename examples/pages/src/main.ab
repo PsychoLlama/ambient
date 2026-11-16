@@ -1,0 +1,33 @@
+import ambient.test.{check};
+import pkg.site;
+import system.console;
+import system.env;
+
+/// Prints the page an argument names, or the names of them all.
+pub fn main(): int with console.print, console.warn, env.args {
+    match env.args!().first() {
+        null => {
+            console.print!(site.names().join_with("\n"));
+            return 0;
+        }
+        let name => {
+            match site.page(name) {
+                null => {
+                    console.warn!("there is no page `${name}`");
+                    return 1;
+                }
+                let text => {
+                    console.print!(text);
+                    return 0;
+                }
+            }
+        }
+    }
+}
+
+fn test_every_file_is_a_page(): null with check {
+    check!(site.names() == ["about", "home"], "the pages are the files, in order");
+    check!(site.about().starts_with("# About"), "a page is a function that gives its text");
+    check!(site.page("home") == site.home(), "a page is found by its name");
+    check!(site.page("away") == null, "and only if there is one");
+}
