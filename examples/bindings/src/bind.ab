@@ -1,0 +1,55 @@
+import ambient.code;
+import ambient.errors.{catch, fail, throw};
+import ambient.json;
+import ambient.json.{Json};
+import ambient.tree;
+import ambient.Error;
+import pkg.manifest;
+
+/// Asks the host for what it offers under a name. This is the one way
+/// out of the program every generated function shares.
+pub ability invoke(name: string, arguments: List<unknown>): unknown;
+
+/// The kind of the error a generated function throws when the host
+/// gives what the manifest says it does not.
+pub tag mistyped;
+
+pub fn wrong(name: string): never with throw => fail(mistyped, "the host gave `${name}` what the manifest says it does not");
+
+/// The type the manifest names.
+fn named(name: Json): tree.Type {
+    match name {
+        "int" => { return tree.integer; }
+        "string" => { return tree.text; }
+        "bool" => { return tree.boolean; }
+        _ => { return tree.nil; }
+    }
+}
+
+/// What the manifest says of one name, or null if it says nothing.
+fn described(name: string): Json {
+    match catch(fn() => json.parse(manifest.text())) {
+        let error: Error => { return null; }
+        let all => { return json.get(all, name); }
+    }
+}
+
+/// The function the manifest describes under `name`: it takes what
+/// the manifest says, asks the host, and gives what came back as the
+/// type the manifest says, or throws if it is not that.
+///
+/// `pub fn now = comptime bind.bound("now");`
+pub fn bound(name: string): tree.Function {
+    let entry = described(name);
+    let takes = match json.get(entry, "takes") {
+        let types: List<Json> => types.map(named),
+        _ => [],
+    };
+    let gives = named(json.get(entry, "gives"));
+    let invoke = comptime tree.reference(invoke);
+    let wrong = code.definition(comptime tree.reference(wrong));
+    return code.define(takes, gives, [invoke, comptime tree.reference(throw)], fn(given: List<code.Code>): code.Code {
+        let asked = code.perform(invoke, [code.literal(name), code.list(given)]);
+        return code.cast(asked, gives, code.call(wrong, [code.literal(name)]));
+    });
+}
