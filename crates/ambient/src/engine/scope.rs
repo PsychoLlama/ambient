@@ -37,6 +37,10 @@ pub struct Scope {
     /// What its package's preludes bring into scope. Anything above
     /// shadows these.
     pub preludes: BTreeMap<(Namespace, String), Symbol>,
+    /// The names it imports from a generated module whose call is
+    /// being run, each with the module: what they mean is not known
+    /// until the call has given it, so the call cannot use one.
+    pub pending: BTreeMap<String, ModuleId>,
 }
 
 impl Scope {
@@ -58,7 +62,21 @@ pub(super) struct Scoped {
 
 impl Engine<'_> {
     pub(super) fn scope(&self, id: &ModuleId) -> Query<Scoped> {
-        memo(&self.scope, id, || {
+        if let Some(answer) = self.scope.borrow().get(id) {
+            return answer.clone();
+        }
+        let scoped = self.scope_of(id);
+        // A scope with names still pending is that of this moment: it
+        // is worked out again once the call that gives them is over.
+        let whole = |scoped: &std::sync::Arc<Scoped>| scoped.scope.pending.is_empty();
+        if scoped.as_ref().map_or(true, whole) {
+            self.scope.borrow_mut().insert(id.clone(), scoped.clone());
+        }
+        scoped
+    }
+
+    fn scope_of(&self, id: &ModuleId) -> Query<Scoped> {
+        {
             let own = self.read(id)?;
             let mut scope = Scope::default();
             // A later prelude wins where two bring in one name.
@@ -80,19 +98,31 @@ impl Engine<'_> {
             }
             let digest = digest("scope", &scope);
             Ok(std::sync::Arc::new(Scoped { scope, digest }))
-        })
+        }
+    }
+
+    /// A module's members, or nothing if they are what a call that is
+    /// being run has yet to give.
+    fn members_yet(&self, id: &ModuleId) -> Result<Option<std::sync::Arc<Members>>, Error> {
+        match self.members(id) {
+            Err(Error::ComptimeCycle(call)) if call == id.value(crate::surface::GENERATOR) => {
+                Ok(None)
+            }
+            members => members.map(Some),
+        }
     }
 
     /// What can be named through a module: its definitions, and the
     /// definitions it re-exports, which keep their own symbols.
     pub(super) fn members(&self, id: &ModuleId) -> Query<Members> {
+        // What a generated module has is not known while its call is
+        // being run: the call cannot depend on it. That is an answer
+        // for now only, so it is not remembered.
+        let call = id.value(crate::surface::GENERATOR);
+        if self.deriving.borrow().contains(&call) {
+            return Err(Error::ComptimeCycle(call));
+        }
         memo(&self.members, id, || {
-            // What a generated module has is not known while its call
-            // is being run: the call cannot depend on it.
-            let call = id.value(crate::surface::GENERATOR);
-            if self.deriving.borrow().contains(&call) {
-                return Err(Error::ComptimeCycle(call));
-            }
             if self.exporting.borrow().contains(id) {
                 return Err(Error::ExportCycle(id.clone()));
             }
@@ -123,6 +153,12 @@ impl Engine<'_> {
         for import in own.imports.iter().filter(|import| import.public) {
             let mut found = Scope::default();
             self.import(id, import, &mut found)?;
+            // What is re-exported must be known for this to be.
+            if let Some(module) = found.pending.into_values().next() {
+                return Err(Error::ComptimeCycle(
+                    module.value(crate::surface::GENERATOR),
+                ));
+            }
             if !found.modules.is_empty() {
                 return Err(Error::ExportsModule {
                     module: id.clone(),
@@ -232,7 +268,11 @@ impl Engine<'_> {
             if taken {
                 return Err(duplicate());
             }
-            let members = (*self.members(&whole)?).clone();
+            let Some(members) = self.members_yet(&whole)? else {
+                scope.pending.insert(import.alias.clone(), whole);
+                return Ok(());
+            };
+            let members = (*members).clone();
             scope.modules.insert(import.alias.clone(), (whole, members));
             return Ok(());
         }
@@ -246,7 +286,13 @@ impl Engine<'_> {
             return Err(unknown());
         }
         reach(&parent)?;
-        let members = self.members(&parent)?;
+        let Some(members) = self.members_yet(&parent)? else {
+            if taken {
+                return Err(duplicate());
+            }
+            scope.pending.insert(import.alias.clone(), parent);
+            return Ok(());
+        };
         let mut found = false;
         for namespace in Namespace::ALL {
             let Some(member) = members.0.get(&(namespace, name.clone())) else {

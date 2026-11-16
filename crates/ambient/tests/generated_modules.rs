@@ -123,6 +123,23 @@ fn a_call_cannot_depend_on_what_it_gives() {
 }
 
 #[test]
+fn the_module_of_a_call_imports_what_the_call_gives() {
+    let maker = format!(
+        "import pkg.made; import pkg.made.{{triple}};
+        pub fn six(): int => made.double(triple(1)); {}",
+        make(BOTH)
+    );
+    let call = "import pkg.make; comptime make.all();";
+    // The generated module is asked for first, and then by the module
+    // its call is in.
+    let main = "import pkg.made; import pkg.make;
+        fn main(): int => made.double(1) + make.six();";
+    let workspace = modules(&[("make", &maker), ("made", call), ("main", main)]);
+
+    assert_eq!(support::run_in(&workspace), Ok(Value::Int(8)));
+}
+
+#[test]
 fn a_generated_module_is_made_once_for_a_store() {
     let main = "import pkg.made; fn main(): int => made.double(21);";
     let workspace = program(BOTH, main);

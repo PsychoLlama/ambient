@@ -401,9 +401,18 @@ impl<'a> Resolver<'a> {
 
     /// A definition named directly, or through one imported module.
     fn lookup(&self, namespace: Namespace, path: &Path) -> Result<Symbol, Error> {
-        let unknown = || Error::UnknownName {
-            symbol: self.symbol.clone(),
-            path: path.clone(),
+        // A name a generated module has yet to give is one its call
+        // depends on, if this is reached from the call.
+        let pending = path
+            .0
+            .first()
+            .and_then(|first| self.scope.pending.get(first));
+        let unknown = || match pending {
+            Some(module) => Error::ComptimeCycle(module.value(crate::surface::GENERATOR)),
+            None => Error::UnknownName {
+                symbol: self.symbol.clone(),
+                path: path.clone(),
+            },
         };
         match path.0.as_slice() {
             [name] => self
