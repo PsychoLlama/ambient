@@ -171,8 +171,12 @@ pub enum Op {
         overlay: Value,
         methods: Value,
     },
-    /// A new token: what a provide binds an abort handler to.
-    Token,
+    /// A new token: what a provide binds an abort handler to. An abort
+    /// to one that is `traced` gathers a trace as it unwinds.
+    Token { traced: bool },
+    /// The trace of the abort that was just caught, as the list its
+    /// handler takes.
+    Traced,
     /// Expires a token, and is null.
     Expire(Value),
     /// Unwinds to the provide that holds `token`, with `args`, a tuple.

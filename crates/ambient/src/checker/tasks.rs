@@ -7,7 +7,7 @@ use crate::core::{self, Primitive};
 use crate::error::Error;
 use crate::surface::{CellOp, Expr, Key, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Ty, error, trace};
+use crate::types::{Ty, error};
 
 impl Checker<'_> {
     /// A budget gives what its body does, or the limit that ran out, as
@@ -27,15 +27,6 @@ impl Checker<'_> {
             body: Box::new(body),
         };
         Ok((node, self.env.union(vec![ty, Ty::Tag])))
-    }
-
-    /// The trace of where this is evaluated.
-    pub(super) fn capture(&self) -> (core::Expr, Ty) {
-        let capture = core::Expr::Primitive {
-            operation: Primitive::Capture,
-            args: Vec::new(),
-        };
-        (capture, self.env.normalize(&trace()))
     }
 
     pub(super) fn boundary(&mut self, body: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {

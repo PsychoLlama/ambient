@@ -93,7 +93,7 @@ entries! {
     Is = amb_is, plain, 3, word;
     Trace = amb_trace, context, 2, word;
     RecordMerge = amb_record_merge, plain, 3, word;
-    TokenNew = amb_token_new, plain, 0, word;
+    TokenNew = amb_token_new, plain, 1, word;
     TokenExpire = amb_token_expire, plain, 1, word;
     Abort = amb_abort, context, 2, word;
     Caught = amb_caught, context, 1, word;
@@ -129,7 +129,7 @@ entries! {
     CellRead = amb_cell_read, plain, 1, word;
     CellReplace = amb_cell_replace, context, 3, word;
     CellWait = amb_cell_wait, context, 2, word;
-    Capture = amb_capture, context, 0, word;
+    Traced = amb_traced, context, 0, word;
     ScopeNew = amb_scope_new, plain, 1, word;
     ScopeSet = amb_scope_set, plain, 4, nothing;
     IntDivide = amb_int_divide, context, 2, word;

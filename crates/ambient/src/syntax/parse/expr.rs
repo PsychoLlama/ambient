@@ -265,7 +265,6 @@ impl Parser {
             args: operands.clone(),
         };
         let operator = match word.as_str() {
-            "trace" if operands.is_empty() => return Ok(Expr::Trace),
             "read" => return Ok(cell(CellOp::Read)),
             "replace" => return Ok(cell(CellOp::Replace)),
             "wait" => return Ok(cell(CellOp::Wait)),

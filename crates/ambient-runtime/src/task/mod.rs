@@ -18,7 +18,6 @@ use alloc::vec::Vec;
 
 mod back;
 mod budget;
-mod capture;
 mod depth;
 mod frame;
 mod group;
@@ -34,7 +33,6 @@ pub use budget::{
     amb_budget_leave, amb_budget_switch, amb_charge, amb_charge_read, amb_charge_size,
     amb_charge_tasks,
 };
-pub use capture::amb_capture;
 pub use depth::{DEPTH, FRAME, NATIVE, amb_depth, amb_enter};
 pub use frame::{amb_frame_drop, amb_frame_load, amb_frame_point, amb_frame_push, amb_frame_save};
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
@@ -62,10 +60,7 @@ const ROOT: usize = 0;
 struct Frame {
     /// Which of its calls it was in.
     point: u64,
-    /// The hash of its definition, a string, and the position of the
-    /// call in it: what a trace says of the frame. Null and zero for a
-    /// call that has no place in the definition's core tree.
-    definition: Word,
+    /// For a call [`tail::amb_bounce`] was making, its code.
     position: u64,
     locals: Vec<Word>,
 }
@@ -94,8 +89,6 @@ struct Task {
     cell: Option<Word>,
     /// The innermost budget it runs inside.
     budget: Option<usize>,
-    /// The trace it asked for, if it suspended to have one captured.
-    capture: Capture,
     /// Its wait on the host, if native code said it would answer later.
     wait: wait::Wait,
     /// Where it is with native code it called.
@@ -114,17 +107,6 @@ enum Beneath {
     /// It is to unwind to that native code, since nothing that can run
     /// while the native code stands will let it go on.
     Stuck,
-}
-
-/// Where a task is in having its trace captured.
-#[derive(Default)]
-enum Capture {
-    #[default]
-    None,
-    /// It suspended for one.
-    Asked,
-    /// One is ready for when it comes back.
-    Ready(Word),
 }
 
 /// What the starter of tasks gets of them.
@@ -250,7 +232,6 @@ impl Scheduler {
     /// back it suspended beneath.
     unsafe fn resumes(&mut self, context: *mut Context, id: usize) {
         self.current = id;
-        unsafe { self.capture(id) };
         self.task(id).queued = false;
         unsafe { (*context).mode = RESUMING };
     }
@@ -398,7 +379,6 @@ unsafe fn turn(context: *mut Context, id: usize, depth: Word) {
     unsafe {
         let scheduler = scheduler(context);
         scheduler.current = id;
-        scheduler.capture(id);
         let task = scheduler.task(id);
         task.queued = false;
         if task.cancelled && !task.started {

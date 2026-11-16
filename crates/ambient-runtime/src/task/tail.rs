@@ -177,7 +177,6 @@ pub unsafe extern "C" fn amb_bounce(context: *mut Context, depth: Word) -> Word 
                 }
                 scheduler(context).current().frames.push(Frame {
                     point: BOUNCE,
-                    definition: NULL,
                     position: code,
                     locals,
                 });

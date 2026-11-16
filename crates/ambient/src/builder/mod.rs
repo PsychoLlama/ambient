@@ -32,13 +32,6 @@ pub fn null() -> Expr {
     Expr::Null
 }
 
-/// The trace of where this is evaluated: a frame for it and for each
-/// call it is inside, nearest first.
-#[must_use]
-pub fn trace() -> Expr {
-    Expr::Trace
-}
-
 #[must_use]
 pub fn boolean(value: bool) -> Expr {
     Expr::Literal(Literal::Bool(value))

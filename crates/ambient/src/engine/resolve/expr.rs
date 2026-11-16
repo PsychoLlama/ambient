@@ -50,7 +50,6 @@ impl Resolver<'_> {
     fn node(&mut self, expr: &Expr) -> Result<Expr<Reference>, Error> {
         Ok(match expr {
             Expr::Null => Expr::Null,
-            Expr::Trace => Expr::Trace,
             Expr::Literal(literal) => Expr::Literal(literal.clone()),
             Expr::Name(path) => Expr::Name(self.name(path)?),
             Expr::Instantiate { function, args } => Expr::Instantiate {

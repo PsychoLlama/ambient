@@ -30,7 +30,7 @@ An error is a structured value of one standard shape, and it is the only thing t
 - A function that left for a [tail call](backends.md) is in no trace.
 - A trace contains no names; a tool with the [index](symbols.md) turns frames into symbols and source positions.
 - A trace is data: it serialises with its error and can be resolved on another machine.
-- Reading the trace of the abort a handler is answering is a language operation, not an ability. Anywhere else it gives no frames.
+- An abort's [handler](handlers.md) is handed its trace if it takes one. Only then is one gathered, so an abort that is control flow costs what it did.
 - An error is made with no trace. Catching gives it the trace of the throw that brought it, after any it had, so one thrown again says both ways it came.
 - An error that is only ever a value has no trace, and costs none.
 - Nothing keeps a record of calls as they are made, so code that never unwinds pays nothing for traces. A target may bound how many frames one keeps.

@@ -157,13 +157,7 @@ impl Body<'_, '_> {
                 let Ty::Function { params, ret, row } = env.unfold(&found) else {
                     return Err(verifier.mismatch(&expected, &found));
                 };
-                let fits = params.len() == info.params.len()
-                    && info
-                        .params
-                        .iter()
-                        .zip(&params)
-                        .all(|(given, taken)| env.subtype(given, taken));
-                if !fits {
+                if env.abort_handler(&info.params, &params) != Some(handler.traced) {
                     return Err(verifier.mismatch(&expected, &found));
                 }
                 self.require_all(&row)?;

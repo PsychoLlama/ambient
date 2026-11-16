@@ -372,7 +372,13 @@ impl Verifier<'_> {
         self.row(row)?;
         if let Some(ability) = handles {
             let (_, info) = self.ability(ability)?;
-            if info.params != params || info.ret != ret {
+            // One for an ability that does not return is handed the
+            // trace of the abort it ends.
+            let mut takes = info.params.clone();
+            if info.ret == Ty::Never {
+                takes.push(self.env.normalize(&crate::types::trace()));
+            }
+            if takes != params || info.ret != ret {
                 return shape("a native handler does not take what its ability takes");
             }
         }

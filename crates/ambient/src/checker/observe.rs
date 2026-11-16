@@ -69,6 +69,7 @@ impl Checker<'_> {
                 ability: self.slot(&ability),
                 handler: self.derive(&ability, &info, held.clone(), &expected)?,
                 abort: (info.ret == Ty::Never).then_some(info.params.len()),
+                traced: false,
             });
         }
         let provide = core::Expr::Provide {

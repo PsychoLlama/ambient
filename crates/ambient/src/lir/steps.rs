@@ -70,15 +70,13 @@ impl Op {
                     | Primitive::IntDivide
                     | Primitive::IntRemainder
                     | Primitive::CellWait
-                    | Primitive::Capture
             ),
             _ => false,
         }
     }
 
     /// Whether a fault can leave the operation: it can fault itself, or
-    /// calls something that can. These are what a trace has frames for,
-    /// with the operation that captures one, whose frame is its first.
+    /// calls something that can. These are what a trace has frames for.
     #[must_use]
     pub fn faults(&self) -> bool {
         match self {
@@ -95,7 +93,6 @@ impl Op {
                     | Primitive::IntMultiply
                     | Primitive::IntDivide
                     | Primitive::IntRemainder
-                    | Primitive::Capture
             ),
             _ => false,
         }
@@ -113,9 +110,7 @@ impl Op {
             | Self::All(_)
             | Self::First(_)
             | Self::GroupClose { .. } => true,
-            Self::Primitive { operation, .. } => {
-                matches!(operation, Primitive::CellWait | Primitive::Capture)
-            }
+            Self::Primitive { operation, .. } => matches!(operation, Primitive::CellWait),
             _ => false,
         }
     }
@@ -175,7 +170,8 @@ impl Op {
             | Self::Held { .. }
             | Self::Unbound { .. }
             | Self::Merge { .. } => self.record_steps(),
-            Self::Token => vec![step(Entry::TokenNew, [])],
+            Self::Token { traced } => vec![step(Entry::TokenNew, [Raw(u64::from(*traced))])],
+            Self::Traced => vec![step(Entry::Traced, [])],
             Self::Expire(token) => vec![step(Entry::TokenExpire, [value(token)])],
             Self::Abort { token, args } => {
                 vec![step(Entry::Abort, [value(token), value(args)])]
@@ -401,7 +397,6 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::CellRead => Entry::CellRead,
         Primitive::CellReplace => Entry::CellReplace,
         Primitive::CellWait => Entry::CellWait,
-        Primitive::Capture => Entry::Capture,
         Primitive::IntDivide => Entry::IntDivide,
         Primitive::IntRemainder => Entry::IntRemainder,
         Primitive::FloatDivide => Entry::FloatDivide,

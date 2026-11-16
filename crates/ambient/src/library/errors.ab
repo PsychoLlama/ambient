@@ -1,13 +1,22 @@
 import pkg.Error;
 
+/// Where an error went: the calls its throw left, nearest first.
+pub type Trace = List<{ definition: string, position: int }>;
+
 /// Leaves with an error, for whatever provides this to deal with. A
 /// program's world reports one nothing dealt with, and ends.
 pub ability throw(error: Error): never;
 
-/// Throws an error of a kind, made where this is called.
+/// Throws an error of a kind, made where this is called. Whatever
+/// catches it says where that was.
 pub fn fail(kind: Tag, message: string): never with throw =>
-    throw!({ kind, message, cause: null, trace: @trace() });
+    throw!({ kind, message, cause: null, trace: [] });
 
-/// What `body` gives, or the error it threw.
+/// What `body` gives, or the error it threw, with the trace of the
+/// throw after any the error had.
 pub fn catch<T>(body: fn(): T with throw): T | Error =>
-    provide { [throw](error: Error) => error } => body();
+    provide { [throw](error: Error, trace: Trace) => traced(error, trace) } => body();
+
+/// An error with the trace of a throw of it after any it had.
+pub fn traced(error: Error, trace: Trace): Error =>
+    { ...error, trace: @join(error.trace, trace) };

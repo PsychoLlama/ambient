@@ -233,7 +233,6 @@ macro_rules! children {
     ($self:expr, $visit:ident, $iter:ident $(, $mutable:tt)?) => {
         match $self {
             Self::Null
-            | Self::Trace
             | Self::Literal(_)
             | Self::Name(_)
             | Self::Instantiate { .. }

@@ -102,10 +102,7 @@ impl Expr {
             Self::Group(_) | Self::Spawn(_) | Self::All(_) | Self::First(_) => true,
             Self::Primitive { operation, .. } => matches!(
                 operation,
-                Primitive::CellWait
-                    | Primitive::Capture
-                    | Primitive::ListAll
-                    | Primitive::ListFirst
+                Primitive::CellWait | Primitive::ListAll | Primitive::ListFirst
             ),
             _ => false,
         };

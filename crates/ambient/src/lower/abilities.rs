@@ -302,7 +302,8 @@ impl Lowering {
         let mut scope = Scope::default();
         let outer = self.bindings;
         let mut fields = Vec::new();
-        // The token, handler, and arity of each handler that aborts.
+        // The token, handler, arity, and whether it takes the trace, of
+        // each handler that aborts.
         let mut aborts = Vec::new();
         for handler in handlers {
             let value = self.operand(&handler.handler, &mut scope)?;
@@ -314,9 +315,10 @@ impl Lowering {
             match handler.abort {
                 None => fields.push((key, value)),
                 Some(arity) => {
-                    let token = self.bound(Op::Token, &mut scope);
+                    let traced = handler.traced;
+                    let token = self.bound(Op::Token { traced }, &mut scope);
                     fields.push((key, token));
-                    aborts.push((token, value, arity));
+                    aborts.push((token, value, arity, traced));
                 }
             }
         }
@@ -339,10 +341,16 @@ impl Lowering {
         self.bindings = outer;
 
         let mut result = body?;
-        for (token, handler, arity) in &aborts {
+        for (token, handler, arity, traced) in &aborts {
+            let caught = Caught {
+                token: *token,
+                handler: *handler,
+                arity: *arity,
+                traced: *traced,
+            };
             result = Expr::Try {
                 body: Box::new(result),
-                recover: Box::new(self.recover(*token, *handler, *arity, outer)),
+                recover: Box::new(self.recover(&caught, outer)),
                 // Filled in once the function's points are numbered.
                 recovering: (0, 0),
             };
@@ -370,15 +378,30 @@ impl Lowering {
 
     /// What a provide does when its body unwinds: if the unwinding is an
     /// abort to `token`, the handler's result; if not, more unwinding.
-    fn recover(&mut self, token: Value, handler: Value, arity: usize, outer: Value) -> Expr {
+    fn recover(&mut self, abort: &Caught, outer: Value) -> Expr {
+        let Caught {
+            token,
+            handler,
+            arity,
+            traced,
+        } = *abort;
         let caught = self.temporary();
         let members: Vec<usize> = (0..arity).map(|_| self.temporary()).collect();
         // The handler runs where the provide is written, with what is
         // bound there.
         let mut args = vec![outer];
         args.extend(members.iter().map(|member| Value::Local(*member)));
+        let trace = traced.then(|| self.temporary());
+        args.extend(trace.map(Value::Local));
         let callee = handler;
         let mut call = Expr::Op(self.call_value(callee, args));
+        if let Some(trace) = trace {
+            call = Expr::Let {
+                local: trace,
+                value: Box::new(Expr::Op(Op::Traced)),
+                body: Box::new(call),
+            };
+        }
         for (index, member) in members.iter().enumerate().rev() {
             let tuple = Value::Local(caught);
             call = Expr::Let {
@@ -393,4 +416,14 @@ impl Lowering {
             body: Box::new(call),
         }
     }
+}
+
+/// A handler that aborts, as its provide holds it.
+struct Caught {
+    token: Value,
+    handler: Value,
+    /// How many arguments its ability takes.
+    arity: usize,
+    /// Whether it takes the trace of the abort after them.
+    traced: bool,
 }

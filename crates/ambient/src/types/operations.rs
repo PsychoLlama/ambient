@@ -86,8 +86,8 @@ impl Env {
     /// The type of what an operation gives for operands of these types,
     /// all normalized, or nothing if it does not take them.
     ///
-    /// Operations on cells and the one that captures a trace are not
-    /// here: they are typed where they are checked.
+    /// Operations on cells are not here: they are typed where they are
+    /// checked.
     #[must_use]
     pub fn operation(&self, operation: Primitive, operands: &[Ty]) -> Option<Ty> {
         use Primitive as P;

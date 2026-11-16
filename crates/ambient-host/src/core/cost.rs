@@ -5,7 +5,7 @@
 //! other, so what a run costs does not change with how a node is
 //! compiled.
 
-use ambient_runtime::{SMALL_MAX, SMALL_MIN, TRACE_LIMIT};
+use ambient_runtime::{SMALL_MAX, SMALL_MIN};
 
 use super::{Expr, Primitive};
 use crate::literal::Literal;
@@ -167,11 +167,6 @@ impl Expr {
             }
             // The error it gives if its body faults.
             Self::Boundary(_) => Cost::object(9),
-            // As many frames as a trace keeps, each a record in a list.
-            Self::Primitive {
-                operation: Primitive::Capture,
-                ..
-            } => Cost::object(TRACE_LIMIT * 7),
             _ => Cost::default(),
         }
     }

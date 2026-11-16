@@ -1,9 +1,9 @@
 //! Traces: where a fault was, and the calls it unwound through. See
 //! `spec/errors.md`.
 //!
-//! A trace is gathered as a fault unwinds. Compiled code that a fault
-//! leaves calls [`amb_trace`] on the way out, so the cost is paid only by
-//! faults. The frames gathered so far are kept in the context as a chain,
+//! A trace is gathered as a fault unwinds, or an abort whose handler
+//! takes one. Compiled code that either leaves calls [`amb_trace`] on
+//! the way out, so the cost is paid only by those. The frames gathered so far are kept in the context as a chain,
 //! outermost first: each is a tuple of a definition, a position, the
 //! frame inside it, and how long the chain is.
 
@@ -18,11 +18,13 @@ use crate::{Context, Fault, NULL, UNWIND, Word};
 pub const TRACE_LIMIT: usize = 64;
 
 /// Notes that the unwinding under way left `position` of `definition`, a
-/// string, if it is a fault. Always returns [`UNWIND`]: it goes on.
+/// string, if it is one that gathers a trace. Always returns [`UNWIND`]:
+/// it goes on.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_trace(context: *mut Context, definition: Word, position: u64) -> Word {
     unsafe {
-        if Fault::from_code((*context).fault).describe().is_none() {
+        let fault = Fault::from_code((*context).fault).describe().is_some();
+        if !fault && !crate::abort::traced(context) {
             return UNWIND;
         }
         let inner = (*context).trace;
@@ -78,23 +80,6 @@ unsafe fn put(list: Word, index: u64, definition: Word, position: Word) {
         set(record, "position", position);
         amb_sequence_set(list, index, record);
         amb_release(record);
-    }
-}
-
-/// A trace of these frames, each a definition and a position in it, as
-/// the list an error holds.
-pub(crate) unsafe fn frames(frames: &[(Word, u64)]) -> Word {
-    unsafe {
-        let list = amb_sequence_new(1, frames.len() as u64);
-        for (index, (definition, position)) in (0..).zip(frames) {
-            put(
-                list,
-                index,
-                *definition,
-                amb_int_new((*position).cast_signed()),
-            );
-        }
-        list
     }
 }
 

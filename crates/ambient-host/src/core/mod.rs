@@ -117,9 +117,6 @@ pub enum Primitive {
     /// Suspends the task until a cell holds something other than the
     /// value given.
     CellWait,
-    /// The trace of where the task is: a frame for this node and for
-    /// each call it is inside, nearest first.
-    Capture,
     IntDivide,
     IntRemainder,
     FloatDivide,
@@ -363,6 +360,8 @@ pub struct Handler {
     /// For an ability that does not return: how many arguments it takes.
     /// Its handler runs at the provide, and its result is the provide's.
     pub abort: Option<usize>,
+    /// Whether it takes the trace of the abort after those arguments.
+    pub traced: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

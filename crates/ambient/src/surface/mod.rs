@@ -344,8 +344,6 @@ pub enum Expr<N = Path> {
     /// what it found there. Only the reader makes one, and it takes
     /// them all out before a module leaves it (`syntax/place.rs`).
     At(usize, Box<Expr<N>>),
-    /// The trace of where this is evaluated: see `spec/errors.md`.
-    Trace,
     Literal(Literal),
     Name(N),
     /// A generic function with its type arguments written out.

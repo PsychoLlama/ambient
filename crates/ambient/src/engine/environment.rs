@@ -161,11 +161,17 @@ impl Engine<'_> {
                         return Ok(None);
                     };
                     let bounds = ability.type_params.iter();
+                    let mut params: Vec<Ty> = types(&ability.params);
+                    // One that does not return is handed the trace of
+                    // the abort it ends: see `checker::world`.
+                    if ability.ret == Ty::Never {
+                        params.push(crate::types::trace());
+                    }
                     Signature {
                         type_params: bounds
                             .map(|p| p.bound.clone().unwrap_or(Ty::Unknown))
                             .collect(),
-                        params: types(&ability.params),
+                        params,
                         ret: ability.ret.clone(),
                         row: row(takes),
                         native: true,

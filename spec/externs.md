@@ -13,7 +13,7 @@ An extern is a definition implemented in native code. Ambient declares the inter
 ## Declaration
 
 - An extern is declared in Ambient with a full signature, and is checked like any other header.
-- A native handler names the ability it implements and takes that ability's signature.
+- A native handler names the ability it implements and takes that ability's signature. One for an ability that does not return is handed the [trace](errors.md) of the abort after it.
 - An extern may declare a row of abilities it performs, and whatever calls or binds it must cover that row as it does any function's.
 - Native code is handed bindings for its declared row alone. One whose row says too little finds nothing bound for the rest, so a wrong row fails and grants nothing.
 - A native handler that may suspend is declared `suspending`; one that is not never does.

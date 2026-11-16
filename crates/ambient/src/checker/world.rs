@@ -8,7 +8,7 @@ use crate::core::{Open, Tree};
 use crate::error::Error;
 use crate::surface::{Extern, ExternKind, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Env, Ty, abilities, layers};
+use crate::types::{Env, Ty, abilities, layers, trace};
 
 /// Checks an extern: a tag and a signature.
 ///
@@ -32,7 +32,8 @@ pub fn check_extern(
             checker.well_formed(ret)?;
             (types, env.normalize(ret), None, abilities(row))
         }
-        // A native handler takes what its ability takes.
+        // A native handler takes what its ability takes, and the trace
+        // of the abort if its ability does not return.
         ExternKind::Handler { ability, row } => {
             let ability = abilities(std::slice::from_ref(ability)).pop();
             let info = ability
@@ -41,12 +42,13 @@ pub fn check_extern(
             let (Some(ability), Some(info)) = (ability.clone(), info) else {
                 return Err(Error::UnknownSymbol(symbol.clone()));
             };
-            (
-                info.params.clone(),
-                info.ret.clone(),
-                Some(ability),
-                abilities(row),
-            )
+            let mut params = info.params.clone();
+            // One that does not return is where an abort ends, and is
+            // handed its trace.
+            if info.ret == Ty::Never {
+                params.push(env.normalize(&trace()));
+            }
+            (params, info.ret.clone(), Some(ability), abilities(row))
         }
     };
     if params.iter().any(takes_bindings) {

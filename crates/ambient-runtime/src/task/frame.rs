@@ -7,18 +7,18 @@ use alloc::vec::Vec;
 use super::{Frame, scheduler};
 use crate::{Context, Word};
 
-/// Starts a frame for the function that is suspending, at `point`:
-/// `position` of `definition`, a string, or null.
+/// Starts a frame for the function that is suspending, at `point`.
+/// Where that is in its definition is no longer kept: nothing reads a
+/// trace off a suspended task.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_frame_push(
     context: *mut Context,
     point: u64,
-    definition: Word,
+    _definition: Word,
     position: u64,
 ) {
     unsafe { scheduler(context) }.current().frames.push(Frame {
         point,
-        definition,
         position,
         locals: Vec::new(),
     });

@@ -257,6 +257,23 @@ impl Env {
         self.subtype(&self.normalize(&held.read()), &info.ty)
     }
 
+    /// Whether a function that takes `takes` can handle an ability that
+    /// does not return and takes `params`, and if so whether it takes
+    /// the trace of the abort as well: one parameter more, after the
+    /// ability's own. See "Abort" in `spec/handlers.md`.
+    #[must_use]
+    pub fn abort_handler(&self, params: &[Ty], takes: &[Ty]) -> Option<bool> {
+        let (own, trace) = match takes.len().checked_sub(params.len())? {
+            0 => (takes, None),
+            1 => takes.split_last().map(|(last, own)| (own, Some(last)))?,
+            _ => return None,
+        };
+        let fits = |(given, taken): (&Ty, &Ty)| self.subtype(given, taken);
+        let traced =
+            trace.is_none_or(|taken| self.subtype(&self.normalize(&super::trace()), taken));
+        (params.iter().zip(own).all(fits) && traced).then_some(trace.is_some())
+    }
+
     /// The built-in shape every value of type `ty` has, if they share
     /// one that has methods: a record has fields, and a type parameter
     /// or `unknown` says nothing of shape.

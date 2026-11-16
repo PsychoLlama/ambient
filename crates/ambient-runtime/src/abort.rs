@@ -9,12 +9,18 @@
 use crate::object::{KIND_TOKEN, amb_release, amb_retain, fault, object, payload};
 use crate::{Context, Fault, NULL, UNWIND, Word};
 
-/// A token that has not expired.
+/// What a token holds: whether its provide is still there, and whether
+/// an abort to it gathers a trace for its handler.
+const LIVE: u64 = 1;
+const TRACED: u64 = 2;
+
+/// A token that has not expired. With `traced` not zero, an abort to it
+/// gathers a trace as it unwinds: its handler takes one.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_token_new() -> Word {
+pub unsafe extern "C" fn amb_token_new(traced: u64) -> Word {
     unsafe {
         let word = object(KIND_TOKEN, 8);
-        payload(word).write(1);
+        payload(word).write(if traced == 0 { LIVE } else { LIVE | TRACED });
         word
     }
 }
@@ -23,9 +29,25 @@ pub unsafe extern "C" fn amb_token_new() -> Word {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_token_expire(token: Word) -> Word {
     unsafe {
-        payload(token).write(0);
+        payload(token).write(payload(token).read() & !LIVE);
     }
     NULL
+}
+
+/// Whether the unwinding under way is an abort whose handler takes its
+/// trace.
+pub(crate) unsafe fn traced(context: *mut Context) -> bool {
+    unsafe {
+        (*context).fault == Fault::Abort as u64
+            && payload((*context).abort_token).read() & TRACED != 0
+    }
+}
+
+/// The trace of the abort that was just caught, as the list its handler
+/// takes. The caller owns it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_traced(context: *mut Context) -> Word {
+    unsafe { crate::trace::take(context) }
 }
 
 /// Starts unwinding to the provide that holds `token`, with `args`, a
@@ -33,7 +55,7 @@ pub unsafe extern "C" fn amb_token_expire(token: Word) -> Word {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_abort(context: *mut Context, token: Word, args: Word) -> Word {
     unsafe {
-        if payload(token).read() == 0 {
+        if payload(token).read() & LIVE == 0 {
             return fault(context, Fault::Expired);
         }
         amb_retain(args);
@@ -49,7 +71,7 @@ pub unsafe extern "C" fn amb_abort(context: *mut Context, token: Word, args: Wor
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_caught(context: *mut Context, token: Word) -> Word {
     unsafe {
-        payload(token).write(0);
+        amb_token_expire(token);
         let aborting = (*context).fault == Fault::Abort as u64;
         if !aborting || (*context).abort_token != token {
             return UNWIND;

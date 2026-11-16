@@ -31,6 +31,19 @@ pub fn code(gave: &Value) -> i32 {
     }
 }
 
+/// An error with the trace of the throw that brought it to the root
+/// after any it had: what catching one gives (`library/errors.ab`).
+fn traced(error: &Value, trace: Option<&Value>) -> Value {
+    let (Value::Record(fields), Some(Value::List(left))) = (error, trace) else {
+        return error.clone();
+    };
+    let mut fields = fields.clone();
+    if let Some(Value::List(frames)) = fields.get_mut("trace") {
+        frames.extend(left.iter().cloned());
+    }
+    Value::Record(fields)
+}
+
 /// Loads a compiled program and runs it, with `natives` for what its
 /// target binds. Gives what it gave, or the fault that ended it and
 /// the functions the fault left, which `frames` names if it comes to
@@ -59,7 +72,7 @@ pub fn started(
         .fold(natives.clone(), |natives, (package, path)| {
             let kept = Rc::clone(&thrown);
             natives.with(package, path, move |args| {
-                *kept.borrow_mut() = args.first().cloned();
+                *kept.borrow_mut() = args.first().map(|error| traced(error, args.get(1)));
                 Ok(Value::Null)
             })
         });

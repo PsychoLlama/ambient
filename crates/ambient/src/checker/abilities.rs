@@ -169,8 +169,11 @@ impl Checker<'_> {
                 target: Box::new(held.clone()),
                 key: self.key(&key),
             };
+            let mut traced = false;
             let (handler, abort) = if info.ret == Ty::Never {
-                results.push(self.abort_handler(&found, &info.params)?);
+                let (gives, takes_trace) = self.abort_handler(&found, &info.params)?;
+                results.push(gives);
+                traced = takes_trace;
                 (read, Some(info.params.len()))
             } else {
                 // Bound in place: whatever the handler takes from its
@@ -186,6 +189,7 @@ impl Checker<'_> {
                 ability: self.slot(ability),
                 handler,
                 abort,
+                traced,
             });
             bound.push(ability.clone());
         }
@@ -213,8 +217,10 @@ impl Checker<'_> {
 
     /// What a handler of type `found`, for an ability that does not
     /// return, makes its provide evaluate to. It runs at the provide, so
-    /// it may take any ability bound there and return anything.
-    fn abort_handler(&mut self, found: &Ty, params: &[Ty]) -> Result<Ty, Error> {
+    /// it may take any ability bound there and return anything. Also
+    /// whether it takes the trace of the abort: see
+    /// [`Env::abort_handler`].
+    fn abort_handler(&mut self, found: &Ty, params: &[Ty]) -> Result<(Ty, bool), Error> {
         let expected = Ty::Function {
             params: params.to_vec(),
             ret: Box::new(Ty::Unknown),
@@ -228,16 +234,11 @@ impl Checker<'_> {
         else {
             return Err(self.mismatch(&expected, found));
         };
-        let fits = takes.len() == params.len()
-            && params
-                .iter()
-                .zip(&takes)
-                .all(|(given, taken)| self.env.subtype(given, taken));
-        if !fits {
+        let Some(traced) = self.env.abort_handler(params, &takes) else {
             return Err(self.mismatch(&expected, found));
-        }
+        };
         self.require_all(&row)?;
-        Ok(*ret)
+        Ok((*ret, traced))
     }
 
     /// A function value at the row expected of it. Abilities it takes
