@@ -11,4 +11,6 @@ The standard library reads and writes URLs. It is written in the language, over 
 - A `+` in a query is read as a space, as a form sends one; a space is always written as `%20`.
 - A URL that is read and written is the same URL, though not always the same text.
 - TODO: a name and password before the host are left in the host, and a path is not decoded, since `/` inside a part would be lost.
-- TODO: one URL is not resolved against another.
+- One URL is resolved against another as a link is against the page it is on: a URL with a scheme stands as it is, and any other takes the scheme and host of the base, and its path from the base's unless its own begins at the root.
+- Resolving takes the `.` and `..` out of a path, and never above the root.
+- TODO: text that begins `//` names a host with no scheme, and is read as a path.

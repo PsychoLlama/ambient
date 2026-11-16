@@ -82,3 +82,43 @@ fn text_is_encoded_and_read_back() {
     assert_eq!(url("url.encode(\"a b/c?d=é\")"), "a%20b%2Fc%3Fd%3D%C3%A9");
     assert_eq!(url(round), "a b/c?d=é&🙂");
 }
+
+/// Where `reference` leads from `http://a/b/c/d?q=1`, as text.
+fn from_base(reference: &str) -> String {
+    text(&format!(
+        r#"import ambient.url;
+        fn main(): string {{
+            match (url.parse("http://a/b/c/d?q=1"), url.parse("{reference}")) {{
+                (let base: url.Url, let reference: url.Url) => {{
+                    return url.write(url.resolve(base, reference));
+                }}
+                _ => {{ return "not a URL"; }}
+            }}
+        }}"#
+    ))
+}
+
+#[test]
+fn a_url_is_resolved_against_another_as_a_link_is() {
+    // The examples of RFC 3986, section 5.4.
+    let led = [
+        ("g", "http://a/b/c/g"),
+        ("./g", "http://a/b/c/g"),
+        ("g/", "http://a/b/c/g/"),
+        ("/g", "http://a/g"),
+        ("?y=2", "http://a/b/c/d?y=2"),
+        ("g?y=2", "http://a/b/c/g?y=2"),
+        ("#s", "http://a/b/c/d?q=1#s"),
+        ("", "http://a/b/c/d?q=1"),
+        (".", "http://a/b/c/"),
+        ("..", "http://a/b/"),
+        ("../g", "http://a/b/g"),
+        ("../..", "http://a/"),
+        ("../../../g", "http://a/g"),
+        ("g/../h", "http://a/b/c/h"),
+        ("https://b/x/../y", "https://b/y"),
+    ];
+    for (reference, expected) in led {
+        assert_eq!(from_base(reference), expected, "{reference:?}");
+    }
+}

@@ -207,3 +207,45 @@ pub fn write(url: Url): string {
     };
     return origin ++ url.path ++ query ++ fragment;
 }
+
+/// A path with no `.` or `..` in it: each `..` takes away the part
+/// before it, and none goes above the root.
+fn undotted(path: string): string {
+    let parts = path.split("/");
+    let kept = parts.fold([], fn(kept: List<string>, part: string): List<string> {
+        if part == "." {
+            return kept;
+        }
+        if part == ".." {
+            return kept.length() > 1 ? kept.take(kept.length() - 1) : kept;
+        }
+        return kept.push(part);
+    });
+    // A path that ends in one names a directory, as one that ends in
+    // `/` does.
+    let last = parts.last() as string else "";
+    return (last == "." || last == ".." ? kept.push("") : kept).join_with("/");
+}
+
+/// A path that does not begin at the root, from where `base` is: in
+/// place of whatever follows its last `/`.
+fn beside(base: string, path: string): string {
+    let parts = base.split("/");
+    return parts.take(parts.length() - 1).push(path).join_with("/");
+}
+
+/// Where a URL leads from another, as a link does from the page it is
+/// on. One with a scheme leads where it says. Any other is on the
+/// host of `base`: at its own path if that begins at the root, beside
+/// the path of `base` if not, and at that of `base` if it has none.
+pub fn resolve(base: Url, reference: Url): Url {
+    let { scheme, host, port } = reference.scheme.is_empty() ? base : reference;
+    let fragment = reference.fragment;
+    if reference.path.is_empty() && reference.scheme.is_empty() {
+        let query = reference.query.is_empty() ? base.query : reference.query;
+        return { scheme, host, port, path: base.path, query, fragment };
+    }
+    let rooted = reference.path.starts_with("/") || !reference.scheme.is_empty();
+    let path = rooted ? reference.path : beside(base.path.is_empty() ? "/" : base.path, reference.path);
+    return { scheme, host, port, path: undotted(path), query: reference.query, fragment };
+}
