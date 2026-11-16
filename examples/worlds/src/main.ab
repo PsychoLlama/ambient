@@ -1,0 +1,50 @@
+import ambient.errors.{fail, throw};
+import ambient.Error;
+import pkg.replay;
+import system.console;
+import system.env;
+import system.exchange;
+import system.fs;
+import system.random;
+
+/// The file is not a recording of the game.
+tag unreadable;
+
+/// Two dice, said aloud.
+fn game(): int with random.bits, console.print {
+    let first = random.between(1, 7);
+    let second = random.between(1, 7);
+    console.print!("rolled ${first} and ${second}");
+    return first + second;
+}
+
+/// The events a file holds, if it holds a recording.
+fn kept(path: string): List<replay.Event> with fs.read_bytes, throw {
+    let encoded = fs.read_bytes!(path) as bytes else fail(unreadable, "${path} cannot be read");
+    return exchange.decode(encoded) as List<replay.Event> else fail(unreadable, "${path} is no recording");
+}
+
+/// Plays the game and keeps what the world said in a file; or, if the
+/// file is there, plays it again from the file with no world at all.
+pub fn main(): int with console.print, console.warn, env.args, fs.exists, fs.read_bytes, fs.write_bytes, random.bits, throw {
+    match env.args!().first() {
+        null => {
+            console.warn!("usage: worlds <recording>");
+            return 2;
+        }
+        let path => {
+            if fs.exists!(path) {
+                let replaying = comptime replay.replays(game);
+                let total = provide only replaying(replay.holding(kept(path))) => game();
+                console.print!("played back a game of ${total}");
+                return 0;
+            }
+            let tape = replay.blank();
+            let total = observe replay.recorder(tape) => game();
+            let encoded = exchange.encode(tape.events.read()) as bytes else fail(unreadable, "the game cannot be kept");
+            fs.write_bytes!(path, encoded);
+            console.print!("recorded a game of ${total}");
+            return 0;
+        }
+    }
+}

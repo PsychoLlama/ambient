@@ -232,3 +232,40 @@ fn a_function_that_was_posted_is_called_by_its_hash() {
     assert_eq!(after.files[&format!(".cache/{greets}.pack")], hello);
     assert!(after.files.contains_key(&format!(".cache/{greets}.code")));
 }
+
+#[test]
+fn the_worlds_play_a_game_back_from_what_was_recorded() {
+    let play = |world: Scripted| {
+        let command = Command::Run {
+            path: example("worlds"),
+            entry: "main.main".to_owned(),
+            args: Vec::new(),
+        };
+        let world = Scripted {
+            args: vec!["game.tape".to_owned()],
+            ..world
+        };
+        let (code, after) = world.execute(&Disk, &command);
+        assert_eq!((code, after.err.as_str()), (0, ""));
+        after
+    };
+
+    let recorded = play(Scripted::default());
+    let total = recorded
+        .out
+        .lines()
+        .last()
+        .unwrap()
+        .replace("recorded", "played back");
+    assert_eq!(recorded.rolled, 2);
+
+    // The game is played again from the file alone: no die is rolled,
+    // and what the game said is not said again.
+    let files = recorded.files;
+    let replayed = play(Scripted {
+        files,
+        ..Scripted::default()
+    });
+    assert_eq!(replayed.out, format!("{total}\n"));
+    assert_eq!(replayed.rolled, 0);
+}

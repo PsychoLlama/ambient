@@ -1,0 +1,79 @@
+import ambient.code;
+import ambient.test.{check};
+import ambient.tree;
+
+/// A value as a line of a trace shows it. What has no short form is
+/// an ellipsis.
+pub fn shown(value: unknown): string {
+    match value {
+        null => { return "null"; }
+        true => { return "true"; }
+        false => { return "false"; }
+        let number: int => { return number.to_text(); }
+        let text: string => { return "\"${text}\""; }
+        let items: List<unknown> => { return "[${items.map(shown).join_with(", ")}]"; }
+        _ => { return "…"; }
+    }
+}
+
+/// Tells of one perform: the ability by name, what it was given, and
+/// what came back.
+pub fn told(tell: fn(string): null, name: string, given: List<unknown>, outcome: unknown): null =>
+    tell("${name}(${given.map(shown).join_with(", ")}) = ${shown(outcome)}");
+
+/// Code for a function from somewhere to tell to handlers that pass
+/// each ability on to whatever is bound outside them, and tell of it:
+/// one for each ability the function named to the call takes.
+///
+/// An observer is told an ability by a hash. This is told its name,
+/// which only something that reads the definition knows.
+pub fn traces(of: tree.Type): tree.Expr {
+    match of {
+        let work: { function: List<tree.Type>, returns: tree.Type, takes: List<tree.Ability> } => {
+            let told = code.definition(comptime tree.reference(told));
+            let telling: tree.Type = { function: [tree.text], returns: tree.nil, takes: [] };
+            let passing = fn(tell: code.Code): code.Code =>
+                code.handlers(work.takes.map(fn(taken: tree.Ability): (tree.Reference, code.Code) {
+                    let name = code.literal(taken.ability.name);
+                    let handler = code.function(taken.function, fn(given: List<code.Code>): code.Code =>
+                        code.bind(code.perform(taken.ability, given), fn(outcome: code.Code): code.Code {
+                            let line = code.call(told, [tell, name, code.list(given), outcome]);
+                            return code.bind(line, fn(done: code.Code): code.Code => outcome);
+                        }));
+                    return (taken.ability, handler);
+                }));
+            return code.build(code.lambda(telling, passing));
+        }
+        _ => { return code.build(code.literal(null)); }
+    }
+}
+
+ability roll(sides: int): int;
+ability say(text: string): null;
+
+fn game(): int with roll, say {
+    let total = roll!(6) + roll!(20);
+    say!("rolled ${total}");
+    return total;
+}
+
+fn test_each_perform_is_told_by_name(): null with check {
+    let lines = cell<List<string>>([]);
+    let tell = fn(line: string): null {
+        lines.update(fn(told: List<string>): List<string> => told.push(line));
+        return null;
+    };
+    let world = { [roll](sides) => sides - 1, [say](text) => null };
+    // The handlers pass on to what is bound where they are written,
+    // so they are written inside the world they trace.
+    let total = provide world {
+        let tracing = comptime traces(game);
+        return provide tracing(tell) => game();
+    };
+
+    check!(total == 24, "the game is played in the world outside the trace");
+    check!(
+        lines.read() == ["roll(6) = 5", "roll(20) = 19", "say(\"rolled 24\") = null"],
+        "each perform is told as it was written",
+    );
+}

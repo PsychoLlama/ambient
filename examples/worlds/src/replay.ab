@@ -16,7 +16,10 @@ pub type Tape = { events: Cell<List<Event>>, played: Cell<int> };
 pub tag diverged;
 
 /// A tape with nothing on it.
-pub fn blank(): Tape => { events: cell<List<Event>>([]), played: cell<int>(0) };
+pub fn blank(): Tape => holding([]);
+
+/// A tape that holds what was recorded before, none of it played.
+pub fn holding(events: List<Event>): Tape => { events: cell<List<Event>>(events), played: cell<int>(0) };
 
 /// The observer that puts each event on a tape: what `observe` is
 /// given to record a body.

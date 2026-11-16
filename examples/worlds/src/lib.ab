@@ -1,0 +1,6 @@
+/// Worlds for a program that a comptime call makes from the abilities
+/// the program takes: one that answers from a recording, one that
+/// tells what the real one was asked, and one made up from a seed.
+pub module replay;
+pub module trace;
+pub module simulate;

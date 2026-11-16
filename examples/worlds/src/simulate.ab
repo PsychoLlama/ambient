@@ -1,0 +1,122 @@
+import ambient.code;
+import ambient.errors.{fail, throw};
+import ambient.iterator;
+import ambient.test.{check};
+import ambient.tree;
+
+/// Where a made-up world draws from: a number that each draw moves on,
+/// so a world is everything that follows from where it began.
+pub type Source = Cell<int>;
+
+/// The kind of the error a made-up world throws when it is asked for
+/// a value of a type it cannot make up.
+pub tag unsupported;
+
+/// A source that begins at `seed`.
+pub fn seeded(seed: int): Source => cell<int>((seed * 48271 + 1) % 2147483648);
+
+/// The next number of a source, which is none in particular.
+pub fn draw(source: Source): int {
+    let next = source.update(fn(state: int): int => (state * 1103515245 + 12345) % 2147483648);
+    return next / 65536;
+}
+
+/// A small integer, of either sign.
+pub fn integer(source: Source): int => draw(source) % 41 - 20;
+
+pub fn boolean(source: Source): bool => draw(source) % 2 == 0;
+
+pub fn text(source: Source): string => "text ${draw(source) % 100}";
+
+/// What one of `among` gives, whichever the source falls on.
+pub fn either(source: Source, among: List<fn(): unknown>): unknown {
+    match among.get(draw(source) % among.length()) {
+        null => { return null; }
+        let one => { return one(); }
+    }
+}
+
+pub fn cannot(): never with throw => fail(unsupported, "a made-up world has no value of this type");
+
+/// Code for a value of a type, drawn from a source: the type decides
+/// what is drawn, and a union is any of its members.
+fn arbitrary(of: tree.Type, source: code.Code): code.Code {
+    let drawn = fn(by: tree.Reference): code.Code => code.call(code.definition(by), [source]);
+    match of {
+        tree.nil => { return code.literal(null); }
+        tree.integer => { return drawn(comptime tree.reference(integer)); }
+        tree.boolean => { return drawn(comptime tree.reference(boolean)); }
+        tree.text => { return drawn(comptime tree.reference(text)); }
+        let exact: { literal: bool | int | float | string | bytes | Tag } => { return code.literal(exact.literal); }
+        let record: { record: List<tree.Field> } => {
+            return code.record(record.record.map(fn(field: tree.Field): (string, code.Code) =>
+                (field.name, arbitrary(field.holds, source))));
+        }
+        let any: { union: List<tree.Type> } => {
+            let members = any.union.map(fn(member: tree.Type): code.Code =>
+                code.function([], fn(none: List<code.Code>): code.Code => arbitrary(member, source)));
+            let either = code.definition(comptime tree.reference(either));
+            let cannot = code.call(code.definition(comptime tree.reference(cannot)), []);
+            return code.cast(code.call(either, [source, code.list(members)]), of, cannot);
+        }
+        _ => { return code.call(code.definition(comptime tree.reference(cannot)), []); }
+    }
+}
+
+/// Code for a function from a source to handlers that make up what
+/// each ability gives: one for each ability the function named to the
+/// call takes. The same source gives the same world, every time.
+pub fn simulates(of: tree.Type): tree.Expr {
+    match of {
+        let work: { function: List<tree.Type>, returns: tree.Type, takes: List<tree.Ability> } => {
+            let making = fn(source: code.Code): code.Code =>
+                code.handlers(work.takes.map(fn(taken: tree.Ability): (tree.Reference, code.Code) {
+                    let handler = code.function(taken.function, fn(given: List<code.Code>): code.Code =>
+                        arbitrary(taken.returns, source));
+                    return (taken.ability, handler);
+                }));
+            return code.build(code.lambda(comptime tree.type_of(Source), making));
+        }
+        _ => { return code.build(code.literal(null)); }
+    }
+}
+
+/// An account: what it holds, or null while it cannot be reached.
+ability balance(): int | null;
+
+/// Takes ten from the account if it holds that much, and gives what is
+/// left. It asks twice, and the world may answer otherwise the second
+/// time: what is left can be less than nothing.
+fn withdraw(): int with balance {
+    match balance!() {
+        null => { return 0; }
+        let held => {
+            if held < 10 {
+                return held;
+            }
+            match balance!() {
+                null => { return 0; }
+                let now => { return now - 10; }
+            }
+        }
+    }
+}
+
+/// What `withdraw` leaves in the world a seed makes up.
+fn left(seed: int): int with throw {
+    let simulating = comptime simulates(withdraw);
+    return provide only simulating(seeded(seed)) => withdraw();
+}
+
+fn test_a_seed_makes_the_same_world_every_time(): null with check, throw {
+    check!(left(7) == left(7), "one seed is one world");
+}
+
+fn test_many_worlds_find_what_one_would_not(): null with check, throw {
+    let overdrawn = iterator.range(0, 200).find(fn(seed: int): bool => left(seed) < 0 - 10);
+
+    match overdrawn {
+        null => { check!(false, "no world of two hundred overdrew the account"); }
+        let seed => { check!(left(seed) < 0 - 10, "the world that overdrew it does so again"); }
+    }
+}
