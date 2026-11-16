@@ -192,4 +192,8 @@ impl Evaluate for Engine<'_> {
     fn granted(&self, package: &PackageId, ability: &Symbol) -> bool {
         self.sources.grants(package).contains(ability)
     }
+
+    fn nameable(&self, package: &PackageId, symbol: &Symbol) -> bool {
+        Engine::nameable(self, package, symbol)
+    }
 }

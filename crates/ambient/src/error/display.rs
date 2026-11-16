@@ -66,6 +66,9 @@ impl fmt::Display for Error {
             | Self::NotSpliceable { .. }
             | Self::ComptimeFault { .. }
             | Self::NotType(_)
+            | Self::NotCode(_)
+            | Self::Unnameable { .. }
+            | Self::Reaches { .. }
             | Self::ComptimeCycle(_) => self.fmt_comptime(f),
             Self::NotValue { .. }
             | Self::Branding { .. }
@@ -300,6 +303,20 @@ impl Error {
             Self::ComptimeFault { function, fault } => {
                 write!(f, "`{function}` faulted during compilation: {fault}")
             }
+            Self::NotCode(symbol) => {
+                write!(
+                    f,
+                    "{symbol}: the tree the call gave stands for no expression"
+                )
+            }
+            Self::Unnameable { symbol, named } => write!(
+                f,
+                "{symbol}: the code the call gave names `{named}`, which nothing written here could"
+            ),
+            Self::Reaches { symbol, .. } => write!(
+                f,
+                "{symbol}: the code the call gave names what cannot be used as a value"
+            ),
             Self::NotType(symbol) => {
                 write!(f, "{symbol}: the tree the call gave stands for no type")
             }

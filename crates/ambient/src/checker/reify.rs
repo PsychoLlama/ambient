@@ -64,21 +64,28 @@ fn all(trees: &Expr) -> Option<Vec<Ty>> {
 }
 
 /// The field `name` of a record that was spliced.
-fn field<'a>(fields: &'a [(Key, Expr)], name: &str) -> Option<&'a Expr> {
+pub(super) fn field<'a>(fields: &'a [(Key, Expr)], name: &str) -> Option<&'a Expr> {
     let named = |(key, _): &&(Key, Expr)| matches!(key, Key::Field(field) if field == name);
     fields.iter().find(named).map(|(_, value)| value)
 }
 
-fn text(expr: &Expr) -> Option<&str> {
+pub(super) fn text(expr: &Expr) -> Option<&str> {
     match expr {
         Expr::Literal(Literal::String(text)) => Some(text),
         _ => None,
     }
 }
 
-/// The definition of the namespace `kind` names that a spliced
-/// `tree.Reference` refers to.
-fn definition(reference: &Expr, kind: &str) -> Option<Reference> {
+/// The type of an expression's tree: what a function gives for its
+/// result to be spliced as code.
+#[must_use]
+pub fn code() -> Symbol {
+    ModuleId::new(FAULT_PACKAGE, MODULE).ty("Expr")
+}
+
+/// The definition a spliced `tree.Reference` refers to, if it is of
+/// one of the namespaces `kinds` name.
+pub(super) fn definition(reference: &Expr, kinds: &[&str]) -> Option<Reference> {
     let Expr::Record(fields) = reference else {
         return None;
     };
@@ -94,7 +101,7 @@ fn definition(reference: &Expr, kind: &str) -> Option<Reference> {
         "key" => Namespace::Key,
         _ => return None,
     };
-    if text("kind")? != kind {
+    if !kinds.contains(&text("kind")?) {
         return None;
     }
     let module = ModuleId::new(text("package")?, &path.join("."));
@@ -119,7 +126,7 @@ fn brand(brand: &Expr) -> Option<Ty> {
     }))
 }
 
-fn each<T>(list: &Expr, read: impl Fn(&Expr) -> Option<T>) -> Option<Vec<T>> {
+pub(super) fn each<T>(list: &Expr, read: impl Fn(&Expr) -> Option<T>) -> Option<Vec<T>> {
     let Expr::List(members) = list else {
         return None;
     };
@@ -137,7 +144,7 @@ fn record(fields: &[(Key, Expr)]) -> Option<Ty> {
             ("iterator", _) => Ty::Iterator(boxed("iterator")?),
             ("tuple", members) => Ty::Tuple(all(members)?),
             ("union", members) => Ty::Union(all(members)?),
-            ("named", named) => Ty::Named(definition(named, "type")?, Vec::new()),
+            ("named", named) => Ty::Named(definition(named, &["type"])?, Vec::new()),
             ("record", Expr::List(members)) => {
                 Ty::Record(members.iter().map(member).collect::<Option<_>>()?)
             }
@@ -154,7 +161,7 @@ fn record(fields: &[(Key, Expr)]) -> Option<Ty> {
         _ => Ty::Function {
             params: all(field("function")?)?,
             ret: boxed("returns")?,
-            row: each(field("takes")?, |ability| definition(ability, "ability"))?,
+            row: each(field("takes")?, |ability| definition(ability, &["ability"]))?,
         },
     })
 }

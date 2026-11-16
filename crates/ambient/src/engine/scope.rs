@@ -10,7 +10,7 @@ use crate::builder::OWN_PACKAGE;
 use crate::error::Error;
 use crate::hash::{Hash, digest};
 use crate::surface::Import;
-use crate::symbol::{ModuleId, ModulePath, Namespace, Symbol};
+use crate::symbol::{ModuleId, ModulePath, Namespace, PackageId, Symbol};
 
 /// Something a module lets be named through it: a definition of its own,
 /// or one it re-exports.
@@ -122,6 +122,21 @@ impl Engine<'_> {
             }
         }
         Ok(members)
+    }
+
+    /// Whether code written in `package` could name `symbol`: see
+    /// [`crate::checker::Evaluate::nameable`].
+    pub(super) fn nameable(&self, package: &PackageId, symbol: &Symbol) -> bool {
+        if symbol.module.package == *package {
+            return true;
+        }
+        let key = (symbol.namespace, symbol.name.clone());
+        let public = self.members(&symbol.module).is_ok_and(|members| {
+            let member = members.0.get(&key);
+            member.is_some_and(|member| member.public && member.symbol == *symbol)
+        });
+        let from = ModuleId::library(package);
+        public && self.exposed(&from, &symbol.module).is_ok()
     }
 
     /// Fails unless a module of `from` may reach `module`: it is of the

@@ -11,6 +11,7 @@ use super::Checker;
 use crate::core;
 use crate::error::Error;
 use crate::surface::{Expr, Reference};
+use crate::symbol::Symbol;
 use crate::types::Ty;
 
 /// For a function, and for each lambda in it by its path: the node of
@@ -27,6 +28,9 @@ pub struct Noted {
     pub at: Option<usize>,
     /// What each expression that was made came from.
     pub origins: Origins,
+    /// The definitions that code a comptime call gave names: what the
+    /// check read that the body does not say.
+    pub reached: Vec<Symbol>,
 }
 
 impl Checker<'_> {

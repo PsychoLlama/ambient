@@ -41,6 +41,11 @@ A comptime call runs an ordinary function during compilation and splices what it
 - A comptime call operates on closed types only; a type parameter is never an argument.
 - Type-level computation therefore never runs inside generic checking.
 - A spliced tree is checked exactly as a written one; comptime cannot bypass the checker.
+- A function's result is spliced as code when the type it is declared to give is an expression's tree, and as a value otherwise.
+- A reference in spliced code must be one that code written at the call could make: to a definition of the call's own [package](packages.md), or a public one in a module its package lets others reach.
+- A function can make a reference up, so this is what keeps spliced code from reaching an [extern](externs.md) past the ability that guards it. It also means generated code cannot use what is private to the package that generates it.
+- A function in a tree binds its parameters by position: a tree names a parameter by its number among those of the functions it is inside, so no tree binds a name.
+- What spliced code names is read when the call is checked, and is no part of what was known before: a definition whose content came from such code is checked again when any definition that code names changes.
 - A tree value carries no [metadata](trees.md); a comptime function reads names and doc comments by performing a verifiable build ability, so the read is in its [trace](memoization.md).
 
 ## Authority
@@ -59,8 +64,8 @@ A comptime call runs an ordinary function during compilation and splices what it
 
 ## Unsettled
 
-- TODO: the only tree that is a value is a type's: one named as an argument, and one a call gives as the whole of a type definition. No expression or definition is a tree yet, and nothing is spliced in module position.
-- TODO: a function can make up a reference, to a definition no name where its tree lands could reach. A type names nothing that grants anything, so nothing checks this yet; a tree spliced as code must name only what could be named where it lands, or it reaches an [extern](externs.md) past the ability that guards it.
+- TODO: an expression's tree has literals, definitions, calls, lists, records, fields, and functions: it has no match, no operation, and no ability, so code that decides anything is a function the tree calls. An expression is not yet handed to a function as a tree.
+- TODO: no definition is a tree yet, and nothing is spliced in module position.
 - TODO: a derived type cannot refer to itself: naming it to the call asks for the type the call has yet to give.
 - TODO: a type with arguments that refers to itself has no tree.
 - TODO: how a generated module is written, named, and imported is undecided.

@@ -8,9 +8,6 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
-
-use super::run::Dependency;
 use super::{Engine, Query, Stage, memo};
 use crate::checker;
 use crate::core::{self, Open, Tree};
@@ -20,15 +17,6 @@ use crate::lower::deep;
 use crate::surface::{DefinitionKind, Function, Reference, TypeDefinition};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::{AbilityInfo, Env, KeyInfo, Ty, TypeInfo};
-
-/// A checked function, kept with the runs its content came from.
-#[derive(Serialize, Deserialize)]
-struct Checked {
-    result: Result<Open, Error>,
-    runs: Vec<Dependency>,
-    /// Where things are in the body: of the key's making, as the tree is.
-    noted: checker::Noted,
-}
 
 /// What dependents check against.
 #[derive(Debug)]
@@ -391,71 +379,5 @@ impl Engine<'_> {
                 self.check_function(symbol, function, used, key, false)
             }
         }
-    }
-
-    /// Checks a function: one that was written, or a program's root.
-    pub(super) fn check_function(
-        &self,
-        symbol: &Symbol,
-        function: &Function<Reference>,
-        used: Vec<Symbol>,
-        mut key: Hasher,
-        root: bool,
-    ) -> Query<Open> {
-        let mut sends = Vec::new();
-        function.body.sends(&mut |name| {
-            if !sends.iter().any(|sent| sent == name) {
-                sends.push(name.to_owned());
-            }
-        });
-        // A using reads a key its tree does not name.
-        let mut used = used;
-        if function.body.releases() {
-            used.push(crate::library::dispose());
-        }
-        let env = self.environment(used, &sends, &mut key)?;
-        // What a comptime call returns is content of this definition, and
-        // depends on everything its callee is.
-        let mut callees = Vec::new();
-        function.body.comptime_callees(&mut |name| {
-            if let Reference::Definition(callee) = name {
-                callees.push(callee.clone());
-            }
-        });
-        for callee in &callees {
-            key.hash(&self.hash(callee)?);
-        }
-        // What a comptime call may take is the package's grants.
-        if !callees.is_empty() {
-            key.bytes(&encode(&self.sources.grants(&symbol.module.package)));
-        }
-        // A comptime call that takes abilities observed the world. Its
-        // result is kept with the definition and looked at again before
-        // the definition is reused.
-        let still = |stored: &Result<Checked, Error>| {
-            stored
-                .as_ref()
-                .is_ok_and(|checked| self.still_gives(&checked.runs))
-        };
-        let checked = self.stage_if(Stage::Check, symbol, key.finish(), still, || {
-            self.begin_runs();
-            let mut noted = checker::Noted::default();
-            let result = checker::check_function(symbol, function, env, self, root, &mut noted);
-            let runs = self.end_runs();
-            Ok(Checked {
-                result,
-                runs,
-                noted,
-            })
-        })?;
-        if let Some(at) = checked.noted.at {
-            self.blamed.borrow_mut().insert(symbol.clone(), at);
-        }
-        let mut origins = self.origins.borrow_mut();
-        if !origins.contains_key(symbol) {
-            origins.insert(symbol.clone(), checked.noted.origins.clone());
-        }
-        drop(origins);
-        checked.result.clone().map(Arc::new)
     }
 }

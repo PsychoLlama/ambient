@@ -113,6 +113,18 @@ pub enum Error {
     NoTree { symbol: Symbol, found: String },
     /// The tree a derived type's call gave stands for no type.
     NotType(Symbol),
+    /// The tree a comptime call gave as code stands for no expression.
+    NotCode(Symbol),
+    /// Code a comptime call gave names what could not be named where
+    /// the call is written.
+    Unnameable { symbol: Symbol, named: Symbol },
+    /// Code a comptime call gave names definitions the check did not
+    /// know of when it began. The engine begins it again with them;
+    /// nothing else sees this.
+    Reaches {
+        symbol: Symbol,
+        reached: Vec<Symbol>,
+    },
     /// A comptime call's result has no literal form.
     NotSpliceable { symbol: Symbol },
     /// A comptime call faulted.
@@ -196,6 +208,9 @@ impl Error {
             | Self::GenericAbort(symbol)
             | Self::ComptimeCycle(symbol)
             | Self::NotType(symbol)
+            | Self::NotCode(symbol)
+            | Self::Unnameable { symbol, .. }
+            | Self::Reaches { symbol, .. }
             | Self::NotTarget(symbol)
             | Self::TargetCycle(symbol)
             | Self::GenericEntry(symbol)

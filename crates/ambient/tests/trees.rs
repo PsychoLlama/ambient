@@ -251,3 +251,99 @@ fn a_function_comes_by_a_reference_to_what_its_module_names() {
 
     assert_eq!(text(source), "parse");
 }
+
+/// A function that gives code: a function that calls another twice.
+const TWICE: &str = "
+    import ambient.tree;
+    fn double(n: int): int => n * 2;
+    fn twice(of: tree.Reference): tree.Expr {
+        let once: tree.Expr = { call: { definition: of }, given: [{ local: 0 }] };
+        return {
+            function: [tree.integer],
+            body: { call: { definition: of }, given: [once] },
+        };
+    }
+";
+
+/// What is wrong with `main` of a program written after [`TWICE`].
+fn unspliced(main: &str) -> Error {
+    let workspace = workspace(&format!("{TWICE} {main}"));
+    let store = MemoryStore::new();
+    let checked = Engine::new(&workspace, &store).check(&value("main", "main"));
+    checked.unwrap_err()
+}
+
+#[test]
+fn a_tree_of_code_is_spliced_as_the_code_it_is() {
+    let main = "
+        fn main(): int {
+            let quadruple = comptime twice(double);
+            return quadruple(5);
+        }
+    ";
+
+    assert_eq!(int(&format!("{TWICE} {main}")), 20);
+}
+
+#[test]
+fn spliced_code_is_checked_as_code_written_there() {
+    let main = "
+        fn shout(text: string): string => text ++ \"!\";
+        fn main(): string {
+            let wrong = comptime twice(shout);
+            return wrong(\"hey\");
+        }
+    ";
+
+    // The tree says the function takes an integer, and `shout` does not.
+    assert!(matches!(unspliced(main), Error::Mismatch { .. }));
+}
+
+#[test]
+fn spliced_code_names_what_the_body_does_not() {
+    let main = "
+        import ambient.json;
+        fn parser(): tree.Expr => { definition: comptime tree.reference(json.write) };
+        fn main(): string {
+            let write = comptime parser();
+            return write(3);
+        }
+    ";
+
+    assert_eq!(text(&format!("{TWICE} {main}")), "3");
+}
+
+#[test]
+fn spliced_code_names_only_what_could_be_named_there() {
+    let main = "
+        fn hidden(): tree.Expr => {
+            definition: { package: \"ambient\", module: [\"map\"], name: \"locate\", kind: \"value\" },
+        };
+        fn main(): unknown => comptime hidden();
+    ";
+
+    assert!(matches!(unspliced(main), Error::Unnameable { .. }));
+}
+
+#[test]
+fn spliced_code_follows_what_it_names() {
+    let main = "
+        fn main(): int {
+            let quadruple = comptime twice(double);
+            return quadruple(5);
+        }
+    ";
+    let texts = TWICE.replace(
+        "fn double(n: int): int => n * 2;",
+        "fn double(n: int): string => \"no\";",
+    );
+    let store = MemoryStore::new();
+    let check = |functions: &str| {
+        let workspace = workspace(&format!("{functions} {main}"));
+        let checked = Engine::new(&workspace, &store).check(&value("main", "main"));
+        checked.map(|_| ())
+    };
+
+    assert_eq!(check(TWICE), Ok(()));
+    assert!(matches!(check(&texts), Err(Error::Mismatch { .. })));
+}

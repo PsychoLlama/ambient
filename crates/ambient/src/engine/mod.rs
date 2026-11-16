@@ -25,6 +25,7 @@ mod check;
 mod compile;
 mod derive;
 mod environment;
+mod function;
 mod group;
 mod handed;
 mod link;

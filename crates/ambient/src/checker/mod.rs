@@ -11,6 +11,7 @@
 mod abilities;
 mod blame;
 mod calls;
+mod code;
 mod comptime;
 mod formed;
 mod generics;
@@ -77,6 +78,7 @@ pub fn check_function(
     }
     let body = checker.check(&function.body, &header.ret);
     noted.at = checker.blamed_in(&function.body);
+    noted.reached = std::mem::take(&mut checker.reached);
     let mut body = body?;
     checker.origins.insert(Vec::new(), body.origins(0));
     noted.origins = std::mem::take(&mut checker.origins);
@@ -138,6 +140,11 @@ pub trait Evaluate {
     /// Whether the comptime calls of `package` may take `ability` from
     /// the build target.
     fn granted(&self, package: &PackageId, ability: &Symbol) -> bool;
+
+    /// Whether code written in `package` could name `symbol`: it is of
+    /// that package, or public in a module its own package lets others
+    /// reach.
+    fn nameable(&self, package: &PackageId, symbol: &Symbol) -> bool;
 }
 
 struct Checker<'a> {
@@ -151,6 +158,10 @@ struct Checker<'a> {
     /// Whether whatever is being checked has every ability bound for it:
     /// true inside a comptime call, which the build target provides for.
     providing: bool,
+    /// How many locals spliced code has bound so far.
+    spliced: usize,
+    /// The definitions spliced code named.
+    reached: Vec<Symbol>,
     /// The definition being checked, then each lambda being checked inside
     /// it, innermost last.
     frames: Vec<Frame>,
@@ -179,6 +190,8 @@ impl<'a> Checker<'a> {
             evaluator: None,
             root: false,
             providing: false,
+            spliced: 0,
+            reached: Vec::new(),
             frames: vec![Frame::default()],
             types: BTreeMap::new(),
             next: 0,

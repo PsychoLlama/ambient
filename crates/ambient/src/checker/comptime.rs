@@ -79,9 +79,17 @@ impl Checker<'_> {
             });
         }
         let result = evaluator.evaluate(function, &values)?;
-        splice(&result).ok_or_else(|| Error::NotSpliceable {
+        let spliced = splice(&result).ok_or_else(|| Error::NotSpliceable {
             symbol: self.symbol.clone(),
-        })
+        })?;
+        // What a function gives as a tree of code is that code, and
+        // anything else the value it is.
+        let code = Ty::Named(Reference::Definition(reify::code()), Vec::new());
+        let ret = self.env.functions.get(function).map(|taken| &taken.ret);
+        if ret == Some(&self.env.normalize(&code)) {
+            return self.code(&spliced.0);
+        }
+        Ok(spliced)
     }
 }
 
