@@ -8,6 +8,7 @@
 mod code;
 mod commands;
 mod crypto;
+mod exchange;
 mod files;
 mod http;
 mod network;
@@ -301,7 +302,7 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
     ];
     let outcomes = Rc::new(RefCell::new(waits::Outcomes(Rc::clone(world))));
     let natives = crypto::offer(Natives::new().answered_by(outcomes));
-    let natives = code::offer(natives);
+    let natives = exchange::offer(code::offer(natives));
     let handlers = handlers
         .into_iter()
         .chain(files::HANDLERS)

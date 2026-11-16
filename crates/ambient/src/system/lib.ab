@@ -2,6 +2,7 @@ pub module clock;
 pub module code;
 pub module console;
 pub module crypto;
+pub module exchange;
 pub module env;
 pub module fs;
 pub module http;

@@ -13,13 +13,14 @@ use crate::workspace::{Workspace, WorkspaceError};
 pub use ambient_host::host::PACKAGE;
 
 /// Each module's path and text; the library module's path is empty.
-const SOURCES: [(&str, &str); 11] = [
+const SOURCES: [(&str, &str); 12] = [
     ("", include_str!("lib.ab")),
     ("clock", include_str!("clock.ab")),
     ("code", include_str!("code.ab")),
     ("console", include_str!("console.ab")),
     ("crypto", include_str!("crypto.ab")),
     ("env", include_str!("env.ab")),
+    ("exchange", include_str!("exchange.ab")),
     ("fs", include_str!("fs.ab")),
     ("http", include_str!("http.ab")),
     ("path", include_str!("path.ab")),
