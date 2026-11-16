@@ -15,6 +15,7 @@ use ambient_host::launch::Built;
 
 use super::launch::Launch;
 use super::{Session, entry_of};
+use crate::backend::wasm::{self, Wasm};
 use crate::engine::Backend;
 use crate::host::{self, World};
 use crate::pack::Pack;
@@ -74,6 +75,38 @@ impl Session<'_> {
         };
         written.map_err(|failure| vec![format!("{output}: {}", failure.message)])?;
         world.write(&format!("built {output}\n"));
+        Ok(0)
+    }
+
+    /// Makes a WebAssembly module of `entry` of the package at `path`,
+    /// under `target` of the same package: at `output`, or else in the
+    /// directory the command was run in, named for the package. See
+    /// "WebAssembly hosts" in `spec/targets.md`.
+    ///
+    /// The module is the program alone. Whatever loads it supplies the
+    /// native code its target binds, which the module names in what it
+    /// exports (`backend::wasm::module`).
+    pub(super) fn module(
+        &self,
+        path: &Path,
+        entry: &str,
+        target: &str,
+        output: Option<&Path>,
+    ) -> Result<i32, Vec<String>> {
+        let project = self.open(path)?;
+        let engine = self.engine(&project);
+        let refused = |error| vec![super::report(&project, &engine, &error)];
+        let (entry, target) = (entry_of(&project, entry), entry_of(&project, target));
+        let root = engine.program(&entry, &target).map_err(refused)?;
+        let parts = engine.link(&root, &Wasm).map_err(refused)?;
+        let module = wasm::module(&parts).map_err(|message| vec![message])?;
+
+        let named = || format!("{}.wasm", project.root);
+        let output = output.map_or_else(named, |path| path.display().to_string());
+        let stored = self.world.borrow_mut().store(&output, &module);
+        stored.map_err(|failure| vec![format!("{output}: {}", failure.message)])?;
+        let built = format!("built {output}, {} bytes\n", module.len());
+        self.world.borrow_mut().write(&built);
         Ok(0)
     }
 }

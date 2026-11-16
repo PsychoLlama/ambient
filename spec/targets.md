@@ -82,7 +82,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - Linked native code shares the program's memory and is carried only if reached, so it runs under every host and reads a value where it lies.
 - Making a program into what a host loads is library code. A build hands a function of the target's package the module and the externs it imports, and what the function gives is the files.
 - A target with no such function is built as the module alone, for a host that loads it by hand.
-- TODO: none of this is built. A WebAssembly program runs only under the compiler's own tests, and nothing links native code into one.
+- TODO: a build gives only the module alone: no target says how its program is made into what a host loads, and nothing links native code into one.
 
 ## JavaScript hosts
 

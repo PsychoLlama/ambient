@@ -26,6 +26,7 @@ fn build(source: &str, launcher: &[u8]) -> Vec<u8> {
         path: PathBuf::from("app"),
         entry: "main.main".to_owned(),
         output: None,
+        module: None,
     };
     let (code, after) = world.execute(&app(source), &command);
     assert_eq!(
@@ -143,6 +144,7 @@ fn a_program_that_is_wrong_builds_nothing() {
         path: PathBuf::from("app"),
         entry: "main.main".to_owned(),
         output: Some(PathBuf::from("out")),
+        module: None,
     };
 
     let (code, after) = world.execute(&app("fn main(): int => \"one\";"), &command);
@@ -190,4 +192,46 @@ fn the_command_builds_a_file_that_runs_on_its_own() {
         String::from_utf8_lossy(&ran.stdout),
         "hello, build and you\n"
     );
+}
+
+/// A package with a target of its own: one ability, which native code
+/// its host supplies handles.
+const PAGE: &str = r#"
+    ability say(text: string): null;
+    extern handler said for say;
+    target page { say: said }
+
+    fn main(): int with say {
+        say!("hello");
+        return 3;
+    }
+"#;
+
+#[test]
+fn a_program_is_built_as_a_module_for_a_host_that_supplies_its_native_code() {
+    use ambient::backend::native::Natives;
+    use ambient::backend::wasm::Program;
+    use ambient::value::{Value, decode};
+
+    let command = Command::Build {
+        path: PathBuf::from("app"),
+        entry: "main.main".to_owned(),
+        output: None,
+        module: Some("main.page".to_owned()),
+    };
+    let (code, after) = Scripted::default().execute(&app(PAGE), &command);
+    assert_eq!(code, 0, "{}", after.err);
+    assert!(after.out.starts_with("built app.wasm, "), "{}", after.out);
+
+    let said = Rc::new(RefCell::new(Vec::new()));
+    let heard = Rc::clone(&said);
+    let natives = Natives::new().with("app", "main.said", move |args| {
+        heard.borrow_mut().extend(args.iter().cloned());
+        Ok(Value::Null)
+    });
+    let mut program = Program::load(&after.files["app.wasm"], &natives).unwrap();
+    let gave = program.call(&[]).unwrap();
+
+    assert_eq!(decode(gave, program.guest()), Value::Int(3));
+    assert_eq!(*said.borrow(), [Value::String("hello".to_owned())]);
 }

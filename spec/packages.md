@@ -62,6 +62,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - It runs as the command line runs the function: under the same [target](targets.md), started with every argument it is given, exiting with what the function gives.
 - A [fault](values.md) is reported as it is when run from the package: the executable carries the name of each definition it holds and the place of each expression that can fault, as they were when it was built.
 - An executable never reads a [store](build.md) and never writes one.
+- A build may instead be of a function under a target of the package, as a WebAssembly module for a [host](targets.md#webassembly-hosts) that supplies what the target binds.
 - What loads the program holds no compiler: an executable carries only what running needs, and can [load](exchange.md) compiled code as a program run from its package can.
 - A program that packs or compiles code needs the compiler as it runs, so what loads that one is the compiler's own executable.
 - An executable whose program [packs](targets.md#code) code carries the trees of what it could pack; one that does not carries none.

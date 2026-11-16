@@ -66,6 +66,11 @@ pub enum Command {
         /// The file to make; one named for the package, if not said.
         #[arg(long, short)]
         output: Option<PathBuf>,
+        /// Makes a WebAssembly module of the program under this target
+        /// of the package, a module path and a name, for a host that
+        /// supplies the native code the target binds.
+        #[arg(long)]
+        module: Option<String>,
     },
     /// Checks every definition of a package and of those it depends on.
     Check {
@@ -112,7 +117,14 @@ impl Session<'_> {
                 path,
                 entry,
                 output,
+                module: None,
             } => self.build(path, entry, output.as_deref()),
+            Command::Build {
+                path,
+                entry,
+                output,
+                module: Some(target),
+            } => self.module(path, entry, target, output.as_deref()),
             Command::Check { path } => self.check(path).map(|()| 0),
             Command::Init { path } => self.init(path),
             Command::Test { path, only } => self.test(path, only.as_deref()),
