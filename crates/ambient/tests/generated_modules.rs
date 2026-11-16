@@ -160,21 +160,54 @@ fn a_call_cannot_depend_on_what_it_gives() {
     assert!(matches!(checked, Err(Error::ComptimeCycle(_))));
 }
 
-#[test]
-fn the_module_of_a_call_imports_what_the_call_gives() {
+/// A program whose generator's module imports what it generates, and
+/// uses it in `six`.
+fn circling() -> Workspace {
     let maker = format!(
         "import pkg.made; import pkg.made.{{triple}};
         pub fn six(): int => made.double(triple(1)); {}",
         make(BOTH)
     );
     let call = "import pkg.make; comptime make.all();";
-    // The generated module is asked for first, and then by the module
-    // its call is in.
-    let main = "import pkg.made; import pkg.make;
-        fn main(): int => made.double(1) + make.six();";
-    let workspace = modules(&[("make", &maker), ("made", call), ("main", main)]);
+    let main = "import pkg.make; fn main(): int => make.six();";
+    modules(&[("make", &maker), ("made", call), ("main", main)])
+}
 
-    assert_eq!(support::run_in(&workspace), Ok(Value::Int(8)));
+#[test]
+fn the_module_of_a_call_imports_what_the_call_gives() {
+    assert_eq!(support::run_in(&circling()), Ok(Value::Int(6)));
+}
+
+#[test]
+fn whatever_is_asked_for_first_a_module_is_made_the_same() {
+    // Each of these was once a cycle, when asked for before the rest:
+    // what the call reaches, the call's own function, and what uses
+    // what the call gives.
+    for first in [
+        ("make", "times"),
+        ("make", "all"),
+        ("make", "six"),
+        ("made", "double"),
+    ] {
+        let workspace = circling();
+        let store = MemoryStore::new();
+        let engine = Engine::new(&workspace, &store);
+        let checked = |(module, name): (&str, &str)| engine.check(&value(module, name)).map(|_| ());
+
+        assert_eq!(checked(first), Ok(()), "{first:?}");
+        assert_eq!(checked(("main", "main")), Ok(()), "after {first:?}");
+    }
+}
+
+#[test]
+fn an_import_from_a_generated_module_names_what_it_has() {
+    let main = "import pkg.made.{halve}; fn main(): int => 1;";
+    let workspace = program(BOTH, main);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let imports = engine.imports(&value("main", "main").module);
+
+    assert!(matches!(imports, Err(Error::UnknownImport { .. })));
 }
 
 #[test]

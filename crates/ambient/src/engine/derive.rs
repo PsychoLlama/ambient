@@ -37,8 +37,7 @@ impl Engine<'_> {
     /// was written. See "Splice positions" in `spec/comptime.md`.
     pub(super) fn made(&self, module: &ModuleId) -> Query<Vec<Definition<Reference>>> {
         memo(&self.made, module, || {
-            let generator = (Namespace::Value, GENERATOR.to_owned());
-            if !self.read(module)?.table.0.contains_key(&generator) {
+            if !self.generates(module)? {
                 return Ok(Arc::default());
             }
             self.once(&module.value(GENERATOR), Self::make)

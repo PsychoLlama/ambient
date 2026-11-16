@@ -37,10 +37,18 @@ pub struct Scope {
     /// What its package's preludes bring into scope. Anything above
     /// shadows these.
     pub preludes: BTreeMap<(Namespace, String), Symbol>,
-    /// The names it imports from a generated module whose call is
-    /// being run, each with the module: what they mean is not known
-    /// until the call has given it, so the call cannot use one.
-    pub pending: BTreeMap<String, ModuleId>,
+    /// What it imports from generated modules, by the name each has
+    /// here. What such a module has is asked for only by a definition
+    /// that uses one of these, so a module's scope runs no call.
+    pub generated: BTreeMap<String, Lazy>,
+}
+
+/// An import from a generated module: the module itself, or a member
+/// of it by the name it has there.
+#[derive(Clone, Debug, Serialize)]
+pub enum Lazy {
+    Module(ModuleId),
+    Member(ModuleId, String),
 }
 
 impl Scope {
@@ -62,21 +70,7 @@ pub(super) struct Scoped {
 
 impl Engine<'_> {
     pub(super) fn scope(&self, id: &ModuleId) -> Query<Scoped> {
-        if let Some(answer) = self.scope.borrow().get(id) {
-            return answer.clone();
-        }
-        let scoped = self.scope_of(id);
-        // A scope with names still pending is that of this moment: it
-        // is worked out again once the call that gives them is over.
-        let whole = |scoped: &std::sync::Arc<Scoped>| scoped.scope.pending.is_empty();
-        if scoped.as_ref().map_or(true, whole) {
-            self.scope.borrow_mut().insert(id.clone(), scoped.clone());
-        }
-        scoped
-    }
-
-    fn scope_of(&self, id: &ModuleId) -> Query<Scoped> {
-        {
+        memo(&self.scope, id, || {
             let own = self.read(id)?;
             let mut scope = Scope::default();
             // A later prelude wins where two bring in one name.
@@ -94,22 +88,50 @@ impl Engine<'_> {
                     .insert((*namespace, name.clone()), id.symbol(*namespace, name));
             }
             for import in &own.imports {
-                self.import(id, import, &mut scope)?;
+                self.import(id, import, &mut scope, true)?;
             }
             let digest = digest("scope", &scope);
             Ok(std::sync::Arc::new(Scoped { scope, digest }))
-        }
+        })
     }
 
-    /// A module's members, or nothing if they are what a call that is
-    /// being run has yet to give.
-    fn members_yet(&self, id: &ModuleId) -> Result<Option<std::sync::Arc<Members>>, Error> {
-        match self.members(id) {
-            Err(Error::ComptimeCycle(call)) if call == id.value(crate::surface::GENERATOR) => {
-                Ok(None)
+    /// Whether a module's whole content is a comptime call.
+    pub(super) fn generates(&self, id: &ModuleId) -> Result<bool, Error> {
+        let generator = (Namespace::Value, crate::surface::GENERATOR.to_owned());
+        Ok(self.read(id)?.table.0.contains_key(&generator))
+    }
+
+    /// Fails unless everything a module imports by name from a
+    /// generated module is there and public. A module's scope does not
+    /// say, since it runs no call: this is asked when a package is
+    /// checked, and of each name by the definition that uses it.
+    ///
+    /// # Errors
+    ///
+    /// Fails with the first import that names nothing, or what is
+    /// private.
+    pub fn imports(&self, id: &ModuleId) -> Result<(), Error> {
+        let scoped = self.scope(id)?;
+        for lazy in scoped.scope.generated.values() {
+            let Lazy::Member(module, name) = lazy else {
+                continue;
+            };
+            let members = self.members(module)?;
+            let named = |namespace| members.0.get(&(namespace, name.clone()));
+            let found: Vec<&Member> = Namespace::ALL.into_iter().filter_map(named).collect();
+            let mut path = vec![OWN_PACKAGE.to_owned()];
+            path.extend(module.path.0.iter().cloned());
+            path.push(name.clone());
+            let path = crate::surface::Path(path);
+            let module = id.clone();
+            if found.is_empty() {
+                return Err(Error::UnknownImport { module, path });
             }
-            members => members.map(Some),
+            if found.iter().any(|member| !member.public) {
+                return Err(Error::PrivateImport { module, path });
+            }
         }
+        Ok(())
     }
 
     /// What can be named through a module: its definitions, and the
@@ -152,13 +174,8 @@ impl Engine<'_> {
         }
         for import in own.imports.iter().filter(|import| import.public) {
             let mut found = Scope::default();
-            self.import(id, import, &mut found)?;
             // What is re-exported must be known for this to be.
-            if let Some(module) = found.pending.into_values().next() {
-                return Err(Error::ComptimeCycle(
-                    module.value(crate::surface::GENERATOR),
-                ));
-            }
+            self.import(id, import, &mut found, false)?;
             if !found.modules.is_empty() {
                 return Err(Error::ExportsModule {
                     module: id.clone(),
@@ -207,7 +224,15 @@ impl Engine<'_> {
         })
     }
 
-    fn import(&self, id: &ModuleId, import: &Import, scope: &mut Scope) -> Result<(), Error> {
+    /// Adds what `import` brings to `scope`. With `lazy`, an import
+    /// from a generated module is noted and not looked into.
+    fn import(
+        &self,
+        id: &ModuleId,
+        import: &Import,
+        scope: &mut Scope,
+        lazy: bool,
+    ) -> Result<(), Error> {
         let unknown = || Error::UnknownImport {
             module: id.clone(),
             path: import.path.clone(),
@@ -241,6 +266,7 @@ impl Engine<'_> {
         let library = ModuleId::library(&package);
 
         let taken = scope.modules.contains_key(&import.alias)
+            || scope.generated.contains_key(&import.alias)
             || scope
                 .definitions
                 .keys()
@@ -268,11 +294,12 @@ impl Engine<'_> {
             if taken {
                 return Err(duplicate());
             }
-            let Some(members) = self.members_yet(&whole)? else {
-                scope.pending.insert(import.alias.clone(), whole);
+            if lazy && self.generates(&whole)? {
+                let whole = Lazy::Module(whole);
+                scope.generated.insert(import.alias.clone(), whole);
                 return Ok(());
-            };
-            let members = (*members).clone();
+            }
+            let members = (*self.members(&whole)?).clone();
             scope.modules.insert(import.alias.clone(), (whole, members));
             return Ok(());
         }
@@ -286,13 +313,15 @@ impl Engine<'_> {
             return Err(unknown());
         }
         reach(&parent)?;
-        let Some(members) = self.members_yet(&parent)? else {
+        if lazy && self.generates(&parent)? {
             if taken {
                 return Err(duplicate());
             }
-            scope.pending.insert(import.alias.clone(), parent);
+            let member = Lazy::Member(parent, name.clone());
+            scope.generated.insert(import.alias.clone(), member);
             return Ok(());
-        };
+        }
+        let members = self.members(&parent)?;
         let mut found = false;
         for namespace in Namespace::ALL {
             let Some(member) = members.0.get(&(namespace, name.clone())) else {

@@ -166,6 +166,7 @@ impl Session<'_> {
                 };
                 checked.map_err(&mut report).ok();
             }
+            engine.imports(&read.module).map_err(&mut report).ok();
             let made = engine.generated_in(&read.module).map_err(&mut report);
             for symbol in made.unwrap_or_default() {
                 engine.check(&symbol).map_err(&mut report).ok();

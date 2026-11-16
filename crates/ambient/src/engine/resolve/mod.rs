@@ -5,7 +5,11 @@ mod expr;
 
 use serde::{Deserialize, Serialize};
 
-use super::scope::Scope;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use super::scope::{Lazy, Member, Members, Scope};
 use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest};
@@ -13,7 +17,7 @@ use crate::surface::{
     Ability, Definition, DefinitionKind, Expr, Extern, ExternKind, Function, KeyDefinition, Param,
     Path, Reference, Target, Type, TypeDefinition, TypeParam,
 };
-use crate::symbol::{Namespace, Symbol};
+use crate::symbol::{ModuleId, Namespace, Symbol};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Resolved {
@@ -38,23 +42,63 @@ impl Engine<'_> {
             let definition = &module.definitions[entry.index];
             let scoped = self.scope(&symbol.module)?;
             let package = self.sources.identity(&symbol.module.package);
+            let given = self.given_to(&scoped.scope, symbol, &package, definition)?;
 
             let mut key = Hasher::new("resolve");
             key.hash(&module.digests[entry.index])
                 .hash(&scoped.digest)
                 .bytes(package.as_bytes());
+            // What a generated module has is no part of the scope.
+            for (module, members) in &given {
+                key.hash(&digest("module", module))
+                    .hash(&digest("members", &**members));
+            }
             // What a tag resolves to holds where it is declared.
             if matches!(definition.kind, DefinitionKind::Tag | DefinitionKind::Brand) {
                 key.bytes(symbol.identity().as_bytes());
             }
             let key = key.finish();
             self.stage(Stage::Resolve, symbol, key, || {
-                let definition =
-                    Resolver::new(&scoped.scope, symbol, &package).definition(definition)?;
+                let mut resolver = Resolver::new(&scoped.scope, symbol, &package);
+                resolver.given = given;
+                let definition = resolver.definition(definition)?;
                 let digest = digest("resolved", &definition);
                 Ok(Resolved { definition, digest })
             })
         })
+    }
+
+    /// The members of each generated module a definition names
+    /// something through: what resolving it reads beside its scope.
+    ///
+    /// Only resolving says which those are, since a local may have the
+    /// name of an import. So the definition is resolved with what is
+    /// known so far, and again with whatever that asked for, until it
+    /// asks for no more.
+    fn given_to(
+        &self,
+        scope: &Scope,
+        symbol: &Symbol,
+        package: &str,
+        definition: &Definition,
+    ) -> Result<Given, Error> {
+        let mut given = Given::new();
+        while !scope.generated.is_empty() {
+            let mut resolver = Resolver::new(scope, symbol, package);
+            resolver.given = given.clone();
+            // What is wrong with it is said when it is resolved for
+            // good.
+            let _ = resolver.definition(definition);
+            let wanted = resolver.wanted.take();
+            if wanted.is_empty() {
+                break;
+            }
+            for module in wanted {
+                let members = self.members(&module)?;
+                given.insert(module, members);
+            }
+        }
+        Ok(given)
     }
 }
 
@@ -89,7 +133,9 @@ impl Engine<'_> {
         };
         let scoped = self.scope(&symbol.module).ok()?;
         let package = self.sources.identity(&symbol.module.package);
+        let given = self.given_to(&scoped.scope, symbol, &package, definition);
         let mut resolver = Resolver::new(&scoped.scope, symbol, &package);
+        resolver.given = given.ok()?;
         resolver.definition(definition).err()?;
         function.body.index_of(resolver.blamed?)
     }
@@ -120,7 +166,16 @@ struct Resolver<'a> {
     next: usize,
     /// The innermost expression the first error was at.
     blamed: Option<*const Expr>,
+    /// The members of the generated modules the definition names
+    /// something through, as far as they have been asked for.
+    given: Given,
+    /// The generated modules whose members it needed and was not
+    /// given.
+    wanted: RefCell<Vec<ModuleId>>,
 }
+
+/// The members of generated modules, by module.
+type Given = BTreeMap<ModuleId, Arc<Members>>;
 
 impl<'a> Resolver<'a> {
     fn new(scope: &'a Scope, symbol: &'a Symbol, package: &'a str) -> Self {
@@ -132,6 +187,8 @@ impl<'a> Resolver<'a> {
             locals: Vec::new(),
             next: 0,
             blamed: None,
+            given: Given::new(),
+            wanted: RefCell::default(),
         }
     }
 
@@ -284,7 +341,7 @@ impl<'a> Resolver<'a> {
     /// Every public ability of the module imported as `alias`, if one
     /// is.
     fn abilities_of(&self, alias: &str) -> Option<Vec<Reference>> {
-        let (_, members) = self.scope.modules.get(alias)?;
+        let members = self.module(alias)?;
         let public = members
             .0
             .iter()
@@ -407,40 +464,59 @@ impl<'a> Resolver<'a> {
     }
 
     /// A definition named directly, or through one imported module.
+    /// The members of a generated module, if they were given. One
+    /// whose were not is wanted, and whatever asked finds nothing.
+    fn made(&self, module: &ModuleId) -> Option<&Members> {
+        let given = self.given.get(module);
+        if given.is_none() && !self.wanted.borrow().contains(module) {
+            self.wanted.borrow_mut().push(module.clone());
+        }
+        given.map(|members| &**members)
+    }
+
+    /// The members of the module imported as `alias`, if one is.
+    fn module(&self, alias: &str) -> Option<&Members> {
+        match self.scope.generated.get(alias) {
+            Some(Lazy::Module(module)) => self.made(module),
+            _ => self.scope.modules.get(alias).map(|(_, members)| members),
+        }
+    }
+
     fn lookup(&self, namespace: Namespace, path: &Path) -> Result<Symbol, Error> {
-        // A name a generated module has yet to give is one its call
-        // depends on, if this is reached from the call.
-        let pending = path
-            .0
-            .first()
-            .and_then(|first| self.scope.pending.get(first));
-        let unknown = || match pending {
-            Some(module) => Error::ComptimeCycle(module.value(crate::surface::GENERATOR)),
-            None => Error::UnknownName {
-                symbol: self.symbol.clone(),
-                path: path.clone(),
-            },
+        let unknown = || Error::UnknownName {
+            symbol: self.symbol.clone(),
+            path: path.clone(),
+        };
+        let public = |member: &Member| {
+            if member.public {
+                Ok(member.symbol.clone())
+            } else {
+                Err(Error::PrivateName {
+                    symbol: self.symbol.clone(),
+                    path: path.clone(),
+                })
+            }
         };
         match path.0.as_slice() {
-            [name] => self
-                .scope
-                .find(namespace, name)
-                .cloned()
-                .ok_or_else(unknown),
-            [module, name] => {
-                let (_, members) = self.scope.modules.get(module).ok_or_else(unknown)?;
-                let member = members
-                    .0
-                    .get(&(namespace, name.clone()))
-                    .ok_or_else(unknown)?;
-                if member.public {
-                    Ok(member.symbol.clone())
-                } else {
-                    Err(Error::PrivateName {
-                        symbol: self.symbol.clone(),
-                        path: path.clone(),
-                    })
+            [name] => {
+                let key = (namespace, name.clone());
+                if let Some(symbol) = self.scope.definitions.get(&key) {
+                    return Ok(symbol.clone());
                 }
+                // A name imported from a generated module comes
+                // before a prelude's, as any import does.
+                if let Some(Lazy::Member(module, member)) = self.scope.generated.get(name) {
+                    let members = self.made(module).ok_or_else(unknown)?;
+                    if let Some(member) = members.0.get(&(namespace, member.clone())) {
+                        return public(member);
+                    }
+                }
+                self.scope.preludes.get(&key).cloned().ok_or_else(unknown)
+            }
+            [module, name] => {
+                let members = self.module(module).ok_or_else(unknown)?;
+                let member = members.0.get(&(namespace, name.clone()));
+                public(member.ok_or_else(unknown)?)
             }
             _ => Err(unknown()),
         }

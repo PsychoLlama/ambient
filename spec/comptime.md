@@ -28,7 +28,9 @@ A comptime call runs an ordinary function during compilation and splices what it
 - A generated module is a module like any other in its [package](packages.md): it has a path, and imports of its own, which are all its call can name.
 - The call gives definitions by name, each a function, a type, an ability, or a tag, and public or not; the module has those and no others.
 - What a generated module defines is not in scope for its own call, so a call cannot depend on what it gives.
-- A module the call reaches may import the generated module; only a definition the call reaches cannot name what it gives.
+- Importing a generated module runs no call: what it has is asked for by each definition that uses a name from it. So a module the call reaches may import it, and only a definition the call reaches cannot name what it gives.
+- An import of a name a generated module lacks is therefore an error of the definitions that use it, and of checking the package, not of reading the import.
+- A module cannot re-export what a generated module has while its call needs that module's members.
 - A generated module is the only place a comptime call creates [symbols](symbols.md); they are ordinary symbols.
 - A comptime call never adds a name to the scope it is written in; a generated module's definitions are reached by importing them, like any other module's.
 
