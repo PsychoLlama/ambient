@@ -4,7 +4,7 @@ An extern is a definition implemented in native code. Ambient declares the inter
 
 ## Kinds
 
-- An extern function is a pure native function; callers cannot tell it from an Ambient function.
+- An extern function is a native function, pure but for the abilities of its row; callers cannot tell it from an Ambient function.
 - A native handler is a native implementation of an [ability](abilities.md).
 - A native handler cannot be called; it can only be a root binding in a [target](targets.md).
 - Effectful native code is therefore reachable only by performing an ability, never by knowing a hash.
@@ -14,7 +14,8 @@ An extern is a definition implemented in native code. Ambient declares the inter
 
 - An extern is declared in Ambient with a full signature, and is checked like any other header.
 - A native handler names the ability it implements and takes that ability's signature.
-- A native handler may declare a row of abilities it performs.
+- An extern may declare a row of abilities it performs, and whatever calls or binds it must cover that row as it does any function's.
+- Native code is handed bindings for its declared row alone. One whose row says too little finds nothing bound for the rest, so a wrong row fails and grants nothing.
 - A native handler that may suspend is declared `suspending`; one that is not never does.
 - An extern with no native counterpart for the selected target is a link error only if the entry reaches it.
 
@@ -33,12 +34,14 @@ An extern is a definition implemented in native code. Ambient declares the inter
 
 ## Calling back
 
-- Native code calls a function value only while it is itself called, and is given what the function gives.
-- The call belongs to the [task](tasks.md) that called the native code, so nothing runs that a task of the program did not start.
-- A function type in an extern's signature has an empty row. What is handed over was bound where it was handed, by the [capture](abilities.md) rule, so native code holds no bindings for a function that is not its own.
-- Native code performs an ability of its declared row by calling the handler bound for it, as it calls any function value.
-- A function native code called cannot suspend, since nothing can save the native code beneath it. One that would is a [fault](values.md).
-- Code that waits is therefore written in Ambient, around native code that does not.
+- Native code performs an ability of its declared row by calling the handler bound for it, as it calls any function value it was handed.
+- Native code therefore composes as Ambient code does: one that reads a file performs the ability, and never reaches for its host's own way to.
+- A call back belongs to the [task](tasks.md) that called the native code, so nothing runs that a task of the program did not start.
+- A function type in an extern's signature has an empty row. What is handed over was bound where it was handed, by the [capture](abilities.md) rule, so native code holds bindings only for its own row.
+- A suspending extern calls back by asking: it says what to call and that it will go on later, the task makes the call as its own, and the host is handed what the call gave.
+- Nothing native is on the stack while that call runs, so what is called may suspend.
+- Any other native code calls back while it is itself on the stack, and nothing can save it there. What it calls cannot suspend, and one that would is a [fault](values.md).
+- Native code that performs what may wait is therefore declared `suspending`.
 - A call back that unwinds, by a fault, an [abort](handlers.md), or a cancellation, unwinds the native code that made it: the native code lets go of what it holds and cannot answer.
 - Native code that calls back counts toward the [depth of calls](backends.md#calls) at a fixed size, so calls nested through native code fault at the limit as any others do.
 - TODO: nothing calls back yet: native code computes from its arguments, and besides loading reaches nothing of its program.

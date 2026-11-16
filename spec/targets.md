@@ -75,17 +75,25 @@ A target defines the world a program runs in: a root binding for every ability t
 
 ## WebAssembly hosts
 
-- A WebAssembly program is run by a host that supplies its [native code](externs.md) as imports and owns the thread: tasks run only while it [calls in](tasks.md).
-- The standard host is JavaScript, for a browser and for whatever else runs both.
-- Building for it gives the program and the JavaScript that loads it, with native code for the externs the program reaches and no others. What a page fetches follows from what its entry reaches, as what a program [carries](linking.md) does.
-- A package's native bundle for this host is JavaScript: a function for each extern, found by its identity.
+- A WebAssembly program is a module that imports its [native code](externs.md) and exports what its host calls. It assumes nothing else of where it runs.
+- Any host that supplies those imports runs it, and owns the thread: tasks run only while it [calls in](tasks.md).
+- No host is the standard one, so a program built for one carries nothing of another.
+- Native code reaches such a program two ways. What only a host can do is the host's, in the host's language; what is only computation is itself WebAssembly, [linked](linking.md) into the program as the runtime is.
+- Linked native code shares the program's memory and is carried only if reached, so it runs under every host and reads a value where it lies.
+- Making a program into what a host loads is library code. A build hands a function of the target's package the module and the externs it imports, and what the function gives is the files.
+- A target with no such function is built as the module alone, for a host that loads it by hand.
+- TODO: none of this is built. A WebAssembly program runs only under the compiler's own tests, and nothing links native code into one.
+
+## JavaScript hosts
+
+- A browser's target and Node's are packages: their abilities, the bindings of whichever [`system`](#the-system-package) abilities each can do, and the JavaScript behind both.
+- The compiler comes with neither. What it knows of JavaScript is nothing.
+- Such a package's host code is JavaScript: a function for each extern, found by its identity.
+- Building under one gives the module and the JavaScript that loads it, with a function for each extern the program reaches and no others. What a page fetches follows from what its entry reaches.
 - A suspending extern's function gives a promise, and what the promise settles to is the answer.
 - A handle minted there stands for a JavaScript object. The host keeps the object by the handle and lets it go when the handle is reclaimed.
-- The compiler comes with the host and with nothing of a browser. A browser's target is a package: its abilities, the bindings of whichever [`system`](#the-system-package) abilities a page can do, and the JavaScript behind both.
 - An event of a page is a [call from the world](#calls-from-the-world), so a handler that cancels one does so before it next waits.
-- TODO: how JavaScript sees a value is undecided. Converting one at each call copies it, and an integer is wider than a JavaScript number.
-- TODO: native code compiled to WebAssembly is a module of its own, which shares no memory with the program; nothing says how the two exchange a value.
-- TODO: none of this is built. A WebAssembly program runs only under the compiler's own tests.
+- TODO: how JavaScript sees a value is undecided. Converting each at the call copies it, so a value is more likely held as it is and read through the program, with converting asked for.
 
 ## Network
 
