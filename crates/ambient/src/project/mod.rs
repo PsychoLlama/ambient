@@ -20,7 +20,7 @@ pub use files::{Disk, Files};
 use crate::builder::OWN_PACKAGE;
 use crate::error::Error;
 use crate::surface::{Definition, GENERATOR};
-use crate::symbol::{ModuleId, Symbol};
+use crate::symbol::{ModuleId, Namespace, Symbol};
 use crate::syntax::{Placed, Position, SyntaxError};
 use crate::workspace::{Sources, Workspace, WorkspaceError};
 
@@ -49,6 +49,10 @@ pub struct Manifest {
     /// Other packages, by the name this one uses for each.
     #[serde(default)]
     pub dependencies: BTreeMap<String, Dependency>,
+    /// The abilities the package's comptime calls may take from the
+    /// build target, each a path as a prelude's is, to an ability.
+    #[serde(default)]
+    pub grants: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -91,6 +95,11 @@ pub enum ProjectError {
         package: String,
         prelude: String,
     },
+    /// A build grant names no ability the package can reach.
+    Grant {
+        package: String,
+        grant: String,
+    },
     Workspace(WorkspaceError),
 }
 
@@ -120,6 +129,12 @@ impl fmt::Display for ProjectError {
                     "{package}: the prelude `{prelude}` names no package it can reach"
                 )
             }
+            Self::Grant { package, grant } => {
+                write!(
+                    f,
+                    "{package}: the grant `{grant}` names no ability it can reach"
+                )
+            }
             Self::Workspace(error) => write!(f, "{error}"),
         }
     }
@@ -135,6 +150,8 @@ pub struct Project {
     pub root: String,
     /// Each module read from a file.
     pub modules: Vec<Read>,
+    /// Where each package that was opened is, by its name.
+    pub directories: BTreeMap<String, PathBuf>,
 }
 
 /// A module read from a file.
@@ -214,6 +231,7 @@ pub fn open(files: &dyn Files, directory: &Path) -> Result<Project, ProjectError
         workspace: opening.workspace,
         root,
         modules: opening.modules,
+        directories: opening.opened,
     })
 }
 
@@ -327,6 +345,10 @@ impl Opening<'_> {
             let module = self.prelude(&name, &manifest, prelude)?;
             self.workspace.prelude(&name, module);
         }
+        for grant in &manifest.grants {
+            let ability = self.grant(&name, &manifest, grant)?;
+            self.workspace.grant(&name, ability);
+        }
         Ok(name)
     }
 
@@ -364,6 +386,30 @@ impl Opening<'_> {
     }
 
     /// The module a prelude written in a manifest names.
+    /// The ability a build grant names, which is one some module that
+    /// was opened declares.
+    fn grant(
+        &self,
+        package: &str,
+        manifest: &Manifest,
+        grant: &str,
+    ) -> Result<Symbol, ProjectError> {
+        let unknown = || ProjectError::Grant {
+            package: package.to_owned(),
+            grant: grant.to_owned(),
+        };
+        let (module, name) = grant.rsplit_once('.').ok_or_else(unknown)?;
+        let module = self.prelude(package, manifest, module);
+        let module = module.map_err(|_| unknown())?;
+        let declared = self.workspace.module(&module).is_some_and(|module| {
+            let ability = |definition: &Definition| {
+                definition.name == name && definition.kind.namespace() == Namespace::Ability
+            };
+            module.definitions().iter().any(ability)
+        });
+        declared.then(|| module.ability(name)).ok_or_else(unknown)
+    }
+
     fn prelude(
         &self,
         package: &str,

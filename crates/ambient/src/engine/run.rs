@@ -21,8 +21,10 @@ pub(super) struct Runner(OnceCell<Result<Native, String>>);
 /// The world comptime calls run in: a target, and the native code of the
 /// machine doing the build.
 pub(super) struct Build {
-    pub(super) target: Symbol,
-    pub(super) natives: Natives,
+    target: Symbol,
+    /// The native code for the calls written in a package: what is
+    /// read is read from where that package is.
+    natives: Box<dyn Fn(&PackageId) -> Natives>,
 }
 
 /// A run, kept with everything it observed.
@@ -37,6 +39,8 @@ struct Run {
 /// A run that a checked definition's content came from.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) struct Dependency {
+    /// The package the call was written in.
+    from: PackageId,
     function: Symbol,
     args: Vec<Value>,
     /// A digest of what the run gave.
@@ -58,26 +62,43 @@ impl Engine<'_> {
     /// Runs comptime calls that take abilities under `target`, with the
     /// native code in `natives`.
     #[must_use]
-    pub fn with_build(mut self, target: Symbol, natives: Natives) -> Self {
+    pub fn with_build(self, target: Symbol, natives: Natives) -> Self {
+        self.with_build_for(target, move |_| natives.clone())
+    }
+
+    /// Runs comptime calls that take abilities under `target`, with the
+    /// native code `natives` gives for the package a call is written
+    /// in.
+    #[must_use]
+    pub fn with_build_for(
+        mut self,
+        target: Symbol,
+        natives: impl Fn(&PackageId) -> Natives + 'static,
+    ) -> Self {
+        let natives = Box::new(natives);
         self.build = Some(Build { target, natives });
         self
     }
 
-    /// Calls `function` with `args` during the build. If it takes
-    /// abilities, it runs under the build target.
+    /// Calls `function` with `args` during the build, for a call
+    /// written in the package `from`. If it takes abilities, it runs
+    /// under the build target.
     ///
     /// # Errors
     ///
     /// Fails if the function does not compile for this machine, faults, or
     /// takes abilities when the build has no target.
-    pub fn run(&self, function: &Symbol, args: &[Value]) -> Result<Value, Error> {
+    pub fn run(&self, from: &PackageId, function: &Symbol, args: &[Value]) -> Result<Value, Error> {
         if !self.takes_abilities(function)? {
-            return self.memoized(function, function, args, &Natives::new());
+            return self.memoized(function, function, args, &Natives::new(), "");
         }
         let Some(build) = &self.build else {
             return Err(Error::ComptimeAbilities(function.clone()));
         };
-        self.run_under(function, args, &build.target, &build.natives)
+        let root = self.program(function, &build.target)?;
+        // What a run reads depends on where its package is, so the
+        // runs of two packages are kept apart.
+        self.memoized(function, &root, args, &(build.natives)(from), &from.0)
     }
 
     /// Calls `function` with `args` under `target`, with the native code
@@ -99,7 +120,7 @@ impl Engine<'_> {
         natives: &Natives,
     ) -> Result<Value, Error> {
         let root = self.program(function, target)?;
-        self.memoized(function, &root, args, natives)
+        self.memoized(function, &root, args, natives, "")
     }
 
     fn takes_abilities(&self, function: &Symbol) -> Result<bool, Error> {
@@ -108,17 +129,19 @@ impl Engine<'_> {
     }
 
     /// Runs `entry`, which stands for `function`, or takes the run from
-    /// the store if it still holds.
+    /// the store if it still holds. A run for the package `from` is
+    /// kept apart from one for another.
     fn memoized(
         &self,
         function: &Symbol,
         entry: &Symbol,
         args: &[Value],
         natives: &Natives,
+        from: &str,
     ) -> Result<Value, Error> {
         let mut key = Hasher::new("run");
         key.hash(&self.hash(entry)?);
-        key.bytes(&bytes(&args));
+        key.bytes(&bytes(&args)).bytes(from.as_bytes());
         let failed = |message: String| Error::Backend {
             symbol: function.clone(),
             message,
@@ -155,7 +178,7 @@ impl Engine<'_> {
     /// it gave.
     pub(super) fn still_gives(&self, runs: &[Dependency]) -> bool {
         runs.iter().all(|run| {
-            let outcome = self.run(&run.function, &run.args);
+            let outcome = self.run(&run.from, &run.function, &run.args);
             digest("outcome", &outcome) == run.outcome
         })
     }
@@ -172,8 +195,13 @@ impl Engine<'_> {
 }
 
 impl Evaluate for Engine<'_> {
-    fn evaluate(&self, function: &Symbol, args: &[Value]) -> Result<Value, Error> {
-        let outcome = self.run(function, args);
+    fn evaluate(
+        &self,
+        from: &PackageId,
+        function: &Symbol,
+        args: &[Value],
+    ) -> Result<Value, Error> {
+        let outcome = self.run(from, function, args);
         // A pure function's result follows from its hash, which the key
         // of whatever is being checked already covers. Any other is kept,
         // to be looked at again.
@@ -181,6 +209,7 @@ impl Evaluate for Engine<'_> {
             && let Some(runs) = self.observed.borrow_mut().last_mut()
         {
             runs.push(Dependency {
+                from: from.clone(),
                 function: function.clone(),
                 args: args.to_vec(),
                 outcome: digest("outcome", &outcome),

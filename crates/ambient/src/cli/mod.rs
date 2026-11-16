@@ -4,6 +4,7 @@
 //! test drives the same code a terminal does.
 
 mod build;
+mod building;
 mod init;
 mod launch;
 mod test;
@@ -19,9 +20,9 @@ use clap::{Parser, Subcommand};
 pub use ambient_host::launch::carried;
 use ambient_host::launch::{FAILED, code, started};
 pub use build::{LAUNCHER, start};
+pub use building::engine;
 use launch::Launch;
 
-use crate::engine::Engine;
 use crate::error::Error;
 use crate::host::{self, World};
 use crate::project::{self, Files, Project};
@@ -130,7 +131,7 @@ impl Session<'_> {
 
     fn run(&self, path: &Path, entry: &str) -> Result<i32, Vec<String>> {
         let project = self.open(path)?;
-        let engine = Engine::new(&project.workspace, self.store);
+        let engine = self.engine(&project);
         let launch = Launch {
             project: &project,
             engine: &engine,
@@ -143,7 +144,7 @@ impl Session<'_> {
 
     fn check(&self, path: &Path) -> Result<(), Vec<String>> {
         let project = self.open(path)?;
-        let engine = Engine::new(&project.workspace, self.store);
+        let engine = self.engine(&project);
         let mut problems = BTreeSet::new();
         for read in &project.modules {
             let Some(module) = project.workspace.module(&read.module) else {

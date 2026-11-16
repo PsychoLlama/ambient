@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 /// Files, as a project reads them.
 pub trait Files {
@@ -20,6 +21,10 @@ pub trait Files {
     ///
     /// The directory is missing or cannot be read.
     fn sources(&self, directory: &Path) -> io::Result<Vec<PathBuf>>;
+
+    /// These files, for something that outlives a borrow of them: a
+    /// build reads them whenever a comptime call asks.
+    fn shared(&self) -> Rc<dyn Files>;
 }
 
 /// The files of this machine.
@@ -51,6 +56,10 @@ impl Files for Disk {
         found.sort();
         Ok(found)
     }
+
+    fn shared(&self) -> Rc<dyn Files> {
+        Rc::new(Self)
+    }
 }
 
 /// Files held in memory, by path.
@@ -63,5 +72,9 @@ impl Files for BTreeMap<PathBuf, String> {
     fn sources(&self, directory: &Path) -> io::Result<Vec<PathBuf>> {
         let under = |path: &PathBuf| path.strip_prefix(directory).ok().map(Path::to_owned);
         Ok(self.keys().filter_map(under).collect())
+    }
+
+    fn shared(&self) -> Rc<dyn Files> {
+        Rc::new(self.clone())
     }
 }

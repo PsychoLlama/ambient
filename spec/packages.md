@@ -41,10 +41,10 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 - A package is a directory: a manifest, and its modules as source files under one directory of sources.
 - A source file is the [module](modules.md) its path under the sources names, and the file named `lib` at their top is the library module.
-- The manifest says the package's name and its ID, and lists its dependencies, each by the local name and where the package is, and its preludes.
+- The manifest says the package's name and its ID, and lists its dependencies, each by the local name and where the package is, its preludes, and its [build grants](comptime.md), each the path of an ability.
 - No package's ID is the standard library's, or the [`system`](targets.md) package's.
 - Every package reaches the standard library under the name `ambient`, and the `system` package under its own, without declaring them.
-- TODO: a manifest cannot declare [build grants](comptime.md), so a comptime call in a package on disk takes no ability.
+- TODO: a build grant is taken as soon as it is declared: nothing asks whoever installs a package.
 - TODO: a dependency is only a path to a directory; there are no publishers, versions, locks, or registries yet, and nothing checks that an ID was generated.
 
 ## Running

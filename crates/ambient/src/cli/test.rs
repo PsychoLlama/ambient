@@ -9,7 +9,6 @@ use ambient_runtime::FAULT_PACKAGE;
 
 use super::{Launch, Session};
 use crate::backend::native::Natives;
-use crate::engine::Engine;
 use crate::project::Project;
 use crate::surface::DefinitionKind;
 use crate::symbol::{ModuleId, Symbol};
@@ -28,7 +27,7 @@ impl Session<'_> {
     /// the tests are those whose module path and name hold it.
     pub(super) fn test(&self, path: &Path, only: Option<&str>) -> Result<i32, Vec<String>> {
         let project = self.open(path)?;
-        let engine = Engine::new(&project.workspace, self.store);
+        let engine = self.engine(&project);
         let launch = Launch {
             project: &project,
             engine: &engine,

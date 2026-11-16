@@ -109,7 +109,7 @@ pub fn verify(files: &dyn Files, path: &std::path::Path) {
 
     let project = ambient::project::open(files, path).unwrap();
     let store = MemoryStore::new();
-    let engine = Engine::new(&project.workspace, &store);
+    let engine = ambient::cli::engine(files, &store, &project);
     for read in &project.modules {
         let module = project.workspace.module(&read.module).unwrap();
         let function = |kind: &DefinitionKind| matches!(kind, DefinitionKind::Function(_));

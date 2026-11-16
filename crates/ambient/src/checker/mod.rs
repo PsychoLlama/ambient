@@ -131,12 +131,13 @@ struct Frame {
 /// so that a checked definition is still a function of what it was keyed
 /// by.
 pub trait Evaluate {
-    /// Calls `function` with `args`.
+    /// Calls `function` with `args`, for a call written in `from`.
     ///
     /// # Errors
     ///
     /// Fails if the function does not compile, or faults.
-    fn evaluate(&self, function: &Symbol, args: &[Value]) -> Result<Value, Error>;
+    fn evaluate(&self, from: &PackageId, function: &Symbol, args: &[Value])
+    -> Result<Value, Error>;
 
     /// Whether the comptime calls of `package` may take `ability` from
     /// the build target.

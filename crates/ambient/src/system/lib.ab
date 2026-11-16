@@ -98,3 +98,9 @@ pub target cli {
     code.load: code_load,
     errors.throw: thrown,
 }
+
+/// The world of a comptime call: what a build may be granted. A path
+/// is from the directory of the package the call is written in.
+pub target build {
+    fs.read: fs_read,
+}

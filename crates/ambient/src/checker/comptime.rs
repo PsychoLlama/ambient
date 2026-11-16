@@ -78,7 +78,7 @@ impl Checker<'_> {
                 ability: ability.clone(),
             });
         }
-        let result = evaluator.evaluate(function, &values)?;
+        let result = evaluator.evaluate(package, function, &values)?;
         let spliced = splice(&result).ok_or_else(|| Error::NotSpliceable {
             symbol: self.symbol.clone(),
         })?;

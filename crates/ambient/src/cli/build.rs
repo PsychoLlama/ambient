@@ -15,7 +15,7 @@ use ambient_host::launch::Built;
 
 use super::launch::Launch;
 use super::{Session, entry_of};
-use crate::engine::{Backend, Engine};
+use crate::engine::Backend;
 use crate::host::{self, World};
 use crate::pack::Pack;
 
@@ -45,7 +45,7 @@ impl Session<'_> {
         output: Option<&Path>,
     ) -> Result<i32, Vec<String>> {
         let project = self.open(path)?;
-        let engine = Engine::new(&project.workspace, self.store);
+        let engine = self.engine(&project);
         let launch = Launch {
             project: &project,
             engine: &engine,
