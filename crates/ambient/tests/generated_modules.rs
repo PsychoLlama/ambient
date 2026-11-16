@@ -62,6 +62,20 @@ fn what_a_call_gives_is_imported_by_name() {
 }
 
 #[test]
+fn a_definition_has_a_name_a_program_could_write() {
+    // A dot would make an ability or a tag one of another module.
+    for name in ["", "__made", "sub.double", "two words", "9lives"] {
+        let all = format!("[code.named(\"{name}\", scaled(2))]");
+        let refused = refused(&all, "import pkg.made; fn main(): int => made.double(1);");
+
+        let Error::NotCode { why, .. } = refused else {
+            panic!("{name:?}: {refused}");
+        };
+        assert_eq!(why, format!("`{name}` is no name a definition could have"));
+    }
+}
+
+#[test]
 fn a_generated_definition_has_the_hash_of_one_written_out() {
     let main = "import pkg.make.{times}; fn written(n: int): int => times(n, 2);";
     let workspace = program(BOTH, main);

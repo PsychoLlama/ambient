@@ -65,8 +65,8 @@ impl fmt::Display for Error {
             | Self::NoTree { .. }
             | Self::NotSpliceable { .. }
             | Self::ComptimeFault { .. }
-            | Self::NotType(_)
-            | Self::NotCode(_)
+            | Self::NotType { .. }
+            | Self::NotCode { .. }
             | Self::Unnameable { .. }
             | Self::GeneratedTwice { .. }
             | Self::Reaches { .. }
@@ -304,8 +304,11 @@ impl Error {
             Self::ComptimeFault { function, fault } => {
                 write!(f, "`{function}` faulted during compilation: {fault}")
             }
-            Self::NotCode(symbol) => {
-                write!(f, "{symbol}: the tree the call gave stands for no code")
+            Self::NotCode { symbol, why } => {
+                write!(
+                    f,
+                    "{symbol}: the tree the call gave stands for no code: {why}"
+                )
             }
             Self::Unnameable { symbol, named } => write!(
                 f,
@@ -318,8 +321,11 @@ impl Error {
             Self::GeneratedTwice { symbol, name } => {
                 write!(f, "{symbol}: the call gave two definitions named `{name}`")
             }
-            Self::NotType(symbol) => {
-                write!(f, "{symbol}: the tree the call gave stands for no type")
+            Self::NotType { symbol, why } => {
+                write!(
+                    f,
+                    "{symbol}: the tree the call gave stands for no type: {why}"
+                )
             }
             Self::ComptimeCycle(symbol) => {
                 write!(f, "{symbol}: depends on a comptime call that depends on it")

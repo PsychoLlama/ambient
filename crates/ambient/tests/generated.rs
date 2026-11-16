@@ -82,6 +82,32 @@ fn a_generated_body_nests_as_deep_as_a_written_one_may() {
 }
 
 #[test]
+fn a_tree_that_stands_for_no_code_says_why() {
+    // Each is of the type of a tree, and wrong in a way a type cannot
+    // say: a local nothing binds, and a value named as an ability.
+    let unbound = "{ local: 3 }";
+    let miscast = "{ perform: comptime tree.reference(times), given: [] }";
+    let reasons = [
+        (unbound, "local 3 is named where 1 are bound"),
+        (
+            miscast,
+            "the reference to `times` is of kind `value`, where `ability` is taken",
+        ),
+    ];
+    for (body, reason) in reasons {
+        let main = format!(
+            "fn wrong(): tree.Function =>
+                {{ params: [tree.integer], returns: tree.integer, takes: [], body: {body} }};
+            fn made = comptime wrong();
+            fn main(): int => made(1);"
+        );
+
+        let refused = refused(&main);
+        assert!(refused.to_string().ends_with(reason), "{refused}");
+    }
+}
+
+#[test]
 fn a_generated_function_takes_the_abilities_its_tree_lists() {
     let main = "
         ability ask(): int;

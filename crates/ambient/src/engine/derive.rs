@@ -62,7 +62,7 @@ impl Engine<'_> {
             return Err(Error::UnknownSymbol(symbol.clone()));
         };
         let tree = self.given(symbol, &resolved.digest, call, checker::module())?;
-        let mut made = checker::definitions(&tree).ok_or_else(|| Error::NotCode(symbol.clone()))?;
+        let mut made = checker::definitions(&tree).map_err(|why| not_code(symbol, why))?;
         let mut seen = std::collections::BTreeSet::new();
         let id = self.sources.identity(&symbol.module.package);
         for definition in &mut made {
@@ -121,8 +121,9 @@ impl Engine<'_> {
         };
         let tree = self.given(symbol, &resolved.digest, call, checker::tree())?;
         let ty = checker::written(&tree);
+        let symbol = symbol.clone();
         ty.map(Arc::new)
-            .ok_or_else(|| Error::NotType(symbol.clone()))
+            .map_err(|why| Error::NotType { symbol, why })
     }
 
     fn generate(&self, symbol: &Symbol) -> Query<Function<Reference>> {
@@ -131,7 +132,7 @@ impl Engine<'_> {
             return Err(Error::UnknownSymbol(symbol.clone()));
         };
         let tree = self.given(symbol, &resolved.digest, call, checker::function())?;
-        let function = checker::defined(&tree).ok_or_else(|| Error::NotCode(symbol.clone()))?;
+        let function = checker::defined(&tree).map_err(|why| not_code(symbol, why))?;
         // A tree is data, and could name what nothing written here may.
         let package = &symbol.module.package;
         let named = definitions(|visit| whole(&function, visit));
@@ -185,4 +186,10 @@ impl Engine<'_> {
 pub(super) fn whole<'a>(function: &'a Function<Reference>, visit: &mut dyn FnMut(&'a Reference)) {
     function.header_names(&mut |name| visit(name));
     function.body.names(&mut |name| visit(name));
+}
+
+/// The error of a tree that stands for no code, for the reason `why`.
+fn not_code(symbol: &Symbol, why: String) -> Error {
+    let symbol = symbol.clone();
+    Error::NotCode { symbol, why }
 }

@@ -111,10 +111,12 @@ pub enum Error {
     /// A comptime argument that is to be a type's tree names no type,
     /// or one that has no tree.
     NoTree { symbol: Symbol, found: String },
-    /// The tree a derived type's call gave stands for no type.
-    NotType(Symbol),
-    /// The tree a comptime call gave as code stands for no expression.
-    NotCode(Symbol),
+    /// The tree a derived type's call gave stands for no type, and
+    /// why.
+    NotType { symbol: Symbol, why: String },
+    /// The tree a comptime call gave as code stands for none: no
+    /// expression, function, or definitions. And why.
+    NotCode { symbol: Symbol, why: String },
     /// The definitions a generated module's call gave include two of
     /// one name.
     GeneratedTwice { symbol: Symbol, name: String },
@@ -210,8 +212,8 @@ impl Error {
             Self::UnknownSymbol(symbol)
             | Self::GenericAbort(symbol)
             | Self::ComptimeCycle(symbol)
-            | Self::NotType(symbol)
-            | Self::NotCode(symbol)
+            | Self::NotType { symbol, .. }
+            | Self::NotCode { symbol, .. }
             | Self::Unnameable { symbol, .. }
             | Self::GeneratedTwice { symbol, .. }
             | Self::Reaches { symbol, .. }
