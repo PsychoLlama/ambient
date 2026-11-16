@@ -65,7 +65,8 @@ impl Engine<'_> {
             return Err(Error::UnknownSymbol(symbol.clone()));
         };
         let tree = self.given(symbol, &resolved.digest, call, checker::module())?;
-        let mut made = checker::definitions(&tree).map_err(|why| not_code(symbol, why))?;
+        let mut made =
+            checker::definitions(&tree, &symbol.module).map_err(|why| not_code(symbol, why))?;
         let mut seen = std::collections::BTreeSet::new();
         let id = self.sources.identity(&symbol.module.package);
         for definition in &mut made {

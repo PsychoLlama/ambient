@@ -3,7 +3,9 @@
 //! be. See "Splice
 //! positions" and "Trees as values" in `spec/comptime.md`.
 
-use super::reify::{Read, definition, each, field, fields, need, parameter_within, text, written};
+use super::reify::{
+    Home, Read, definition, each, field, fields, need, parameter_within, text, written,
+};
 use super::{Checker, core};
 use crate::error::Error;
 use crate::literal::Literal;
@@ -24,7 +26,7 @@ impl Checker<'_> {
     /// reach, such as an extern past the ability that guards it.
     pub(super) fn code(&mut self, tree: &core::Expr) -> Result<(core::Expr, Ty), Error> {
         let base = SPLICED + self.spliced;
-        let code = Reader::from(base).expression(tree);
+        let code = Reader::new(None, base).expression(tree);
         let code = code.map_err(|why| Error::NotCode {
             symbol: self.symbol.clone(),
             why,
@@ -90,19 +92,22 @@ impl Checker<'_> {
 /// place among those bound around it; an expression names one by a
 /// number given in the order binders are met, which is the order the
 /// checker binds them in.
-pub(super) struct Reader {
+pub(super) struct Reader<'a> {
+    /// The module the code is a definition of, if a call gave the
+    /// whole of one.
+    home: Home<'a>,
     /// The number the next binder is given.
     next: usize,
     /// The number of each local bound here, outermost first.
     bound: Vec<usize>,
 }
 
-impl Reader {
+impl<'a> Reader<'a> {
     /// A reader of code inside nothing, whose binders are numbered
     /// from `next`.
-    pub(super) fn from(next: usize) -> Self {
+    pub(super) fn new(home: Home<'a>, next: usize) -> Self {
         let bound = Vec::new();
-        Self { next, bound }
+        Self { home, next, bound }
     }
 
     /// Binds a local around whatever is read next.
@@ -131,7 +136,7 @@ impl Reader {
                 args: self.all(need("given")?)?,
             },
             _ if has("perform") => Expr::Perform {
-                ability: definition(need("perform")?, &["ability"])?,
+                ability: definition(self.home, need("perform")?, &["ability"])?,
                 args: self.all(need("given")?)?,
             },
             _ if has("method") => Expr::Send {
@@ -145,7 +150,7 @@ impl Reader {
             },
             _ if has("cast") => Expr::Cast {
                 value: self.boxed(need("cast")?)?,
-                ty: written(need("to")?)?,
+                ty: written(self.home, need("to")?)?,
                 otherwise: self.boxed(need("otherwise")?)?,
             },
             _ if has("subject") => Expr::Match {
@@ -160,6 +165,11 @@ impl Reader {
                     operands: self.all(need("on")?)?,
                 }
             }
+            _ if has("handlers") => Expr::Provide {
+                bundle: self.boxed(need("handlers")?)?,
+                only: false,
+                body: self.boxed(need("body")?)?,
+            },
             _ if has("bind") => {
                 let value = self.boxed(need("bind")?)?;
                 let scope = self.bound.len();
@@ -182,8 +192,8 @@ impl Reader {
         Ok(match (name, holds) {
             ("literal", core::Expr::Null) => Expr::Null,
             ("literal", core::Expr::Literal(literal)) => Expr::Literal(literal.clone()),
-            ("definition", named) => Expr::Name(definition(named, &["value", "type"])?),
-            ("identity", named) => Expr::AbilityId(definition(named, &["ability"])?),
+            ("definition", named) => Expr::Name(definition(self.home, named, &["value", "type"])?),
+            ("identity", named) => Expr::AbilityId(definition(self.home, named, &["ability"])?),
             ("local", core::Expr::Literal(Literal::Int(place))) => {
                 let bound = usize::try_from(*place).ok();
                 let bound = bound.and_then(|place| self.bound.get(place));
@@ -222,7 +232,7 @@ impl Reader {
             return Err("a pattern is one field".to_owned());
         };
         Ok(match (name.as_str(), holds) {
-            ("is", ty) => Pattern::Is(written(ty)?),
+            ("is", ty) => Pattern::Is(written(self.home, ty)?),
             ("equals", core::Expr::Literal(literal)) => Pattern::Literal(literal.clone()),
             ("bound", inner) => {
                 let name = format!("__{}", self.bound.len());
@@ -243,14 +253,14 @@ impl Reader {
     fn entry(&mut self, entry: &core::Expr) -> Read<(Key<Reference>, Expr<Reference>)> {
         let entry = fields(entry, "an entry")?;
         let key = match field(entry, "ability") {
-            Some(ability) => Key::Ability(definition(ability, &["ability"])?),
+            Some(ability) => Key::Ability(definition(self.home, ability, &["ability"])?),
             None => Key::Field(text(need(entry, "name")?)?.to_owned()),
         };
         Ok((key, self.expression(need(entry, "value")?)?))
     }
 
     fn function(&mut self, params: &core::Expr, body: &core::Expr) -> Read<Expr<Reference>> {
-        let params = each(params, written)?;
+        let params = each(params, |ty| written(self.home, ty))?;
         let scope = self.bound.len();
         let mut typed = Vec::new();
         for ty in params {

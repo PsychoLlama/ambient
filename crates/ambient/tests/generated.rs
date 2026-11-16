@@ -169,6 +169,42 @@ fn generated_code_calls_a_method() {
 }
 
 #[test]
+fn generated_code_provides_handlers() {
+    let main = "
+        import ambient.code;
+        import ambient.tree;
+        ability ask(): int;
+        fn asked(): int with ask => ask!() + 1;
+        fn make(): tree.Function =>
+            code.define([], tree.integer, [], fn(given: List<code.Code>): code.Code =>
+                code.providing(
+                    code.handlers([(comptime tree.reference(ask), code.function([], fn(none: List<code.Code>): code.Code => code.literal(41)))]),
+                    code.call(code.definition(comptime tree.reference(asked)), [])));
+        fn made = comptime make();
+        fn main(): int => made();
+    ";
+
+    assert_eq!(support::text::run(main), Ok(Value::Int(42)));
+}
+
+#[test]
+fn only_a_definition_of_a_module_has_one_beside_it() {
+    let main = "
+        fn alone(): tree.Function =>
+            code.define([], tree.any, [], fn(given: List<code.Code>): code.Code =>
+                code.definition(code.beside(\"double\", \"value\")));
+        fn made = comptime alone();
+        fn main(): unknown => made();
+    ";
+
+    let refused = refused(main).to_string();
+    assert!(
+        refused.ends_with("`double` is beside a tree that is no module"),
+        "{refused}"
+    );
+}
+
+#[test]
 fn a_generated_match_binds_what_its_patterns_do_in_order() {
     // A tuple's bindings in turn, and a binding before what is inside
     // it: subtraction and the field tell which is which.

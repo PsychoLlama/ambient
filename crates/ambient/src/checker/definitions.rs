@@ -7,13 +7,14 @@
 
 use super::code::Reader;
 use super::reify::{
-    Read, closed, definition, each, field, fields, need, parameter_within, text, written,
+    Home, Read, definition, each, field, fields, need, parameter_within, text, written,
 };
 use crate::core;
 use crate::literal::Literal;
 use crate::surface::{
     Ability, Definition, DefinitionKind, Function, Param, Reference, TypeDefinition, TypeParam,
 };
+use crate::symbol::ModuleId;
 use crate::types::Ty;
 
 /// The function a `tree.Function` a call gave stands for. Its
@@ -24,18 +25,24 @@ use crate::types::Ty;
 ///
 /// Fails, saying why, if it stands for none.
 pub fn defined(tree: &core::Expr) -> Read<Function<Reference>> {
+    function(None, tree)
+}
+
+/// The function a `tree.Function` stands for, as a definition of
+/// `home` if it is one of a module a call gave.
+fn function(home: Home, tree: &core::Expr) -> Read<Function<Reference>> {
     let fields = fields(tree, "a function")?;
-    let mut reader = Reader::from(0);
-    let params = params(need(fields, "params")?)?;
+    let mut reader = Reader::new(home, 0);
+    let params = params(home, need(fields, "params")?)?;
     for _ in &params {
         reader.bind();
     }
     let function = Function {
-        type_params: type_params(need(fields, "generic")?)?,
+        type_params: type_params(home, need(fields, "generic")?)?,
         params,
-        ret: written(need(fields, "returns")?)?,
+        ret: written(home, need(fields, "returns")?)?,
         row: each(need(fields, "takes")?, |taken| {
-            definition(taken, &["ability"])
+            definition(home, taken, &["ability"])
         })?,
         body: reader.expression(need(fields, "body")?)?,
     };
@@ -49,10 +56,10 @@ pub fn defined(tree: &core::Expr) -> Read<Function<Reference>> {
 
 /// Type parameters with the bounds a list of `tree.Type` or null
 /// stands for, named as nothing a program writes is.
-fn type_params(bounds: &core::Expr) -> Read<Vec<TypeParam<Reference>>> {
+fn type_params(home: Home, bounds: &core::Expr) -> Read<Vec<TypeParam<Reference>>> {
     let bound = |bound: &core::Expr| match bound {
         core::Expr::Null => Ok(None),
-        bound => written(bound).map(Some),
+        bound => written(home, bound).map(Some),
     };
     let named = |(at, bound)| TypeParam {
         name: format!("__T{at}"),
@@ -66,8 +73,8 @@ fn type_params(bounds: &core::Expr) -> Read<Vec<TypeParam<Reference>>> {
 }
 
 /// A type that names only the first `count` type parameters.
-fn within(count: usize, tree: &core::Expr) -> Read<Ty> {
-    let ty = written(tree)?;
+fn within(home: Home, count: usize, tree: &core::Expr) -> Read<Ty> {
+    let ty = written(home, tree)?;
     let mut within = Ok(());
     ty.names(&mut |name| within = within.clone().and(parameter_within(count, name)));
     within.map(|()| ty)
@@ -75,12 +82,12 @@ fn within(count: usize, tree: &core::Expr) -> Read<Ty> {
 
 /// Parameters of the types a list of `tree.Type` stands for, named as
 /// nothing a program writes is.
-fn params(types: &core::Expr) -> Read<Vec<Param<Reference>>> {
+fn params(home: Home, types: &core::Expr) -> Read<Vec<Param<Reference>>> {
     let param = |(at, ty)| Param {
         name: format!("__{at}"),
         ty,
     };
-    Ok(each(types, written)?
+    Ok(each(types, |ty| written(home, ty))?
         .into_iter()
         .enumerate()
         .map(param)
@@ -94,8 +101,10 @@ fn params(types: &core::Expr) -> Read<Vec<Param<Reference>>> {
 /// # Errors
 ///
 /// Fails, saying why, if one stands for nothing or has a name no
-/// definition could.
-pub fn definitions(tree: &core::Expr) -> Read<Vec<Definition<Reference>>> {
+/// definition could. What one names as beside it is a definition of
+/// `home`, the module they are the content of.
+pub fn definitions(tree: &core::Expr, home: &ModuleId) -> Read<Vec<Definition<Reference>>> {
+    let home = Some(home);
     each(tree, |entry| {
         let fields = fields(entry, "a definition")?;
         let name = text(need(fields, "name")?)?;
@@ -112,7 +121,7 @@ pub fn definitions(tree: &core::Expr) -> Read<Vec<Definition<Reference>>> {
             name: name.to_owned(),
             public: *public,
             doc: None,
-            kind: kind(fields).map_err(|why| format!("`{name}`: {why}"))?,
+            kind: kind(home, fields).map_err(|why| format!("`{name}`: {why}"))?,
         })
     })
 }
@@ -126,15 +135,15 @@ fn writable(name: &str) -> bool {
 }
 
 /// What a `tree.Definition` with these fields is.
-fn kind(fields: &[(core::Key, core::Expr)]) -> Read<DefinitionKind<Reference>> {
+fn kind(home: Home, fields: &[(core::Key, core::Expr)]) -> Read<DefinitionKind<Reference>> {
     let has = |name: &str| field(fields, name);
     Ok(if let Some(function) = has("function") {
-        DefinitionKind::Function(defined(function)?)
+        DefinitionKind::Function(self::function(home, function)?)
     } else if let Some(takes) = has("ability") {
         DefinitionKind::Ability(Ability {
             type_params: Vec::new(),
-            params: params(takes)?,
-            ret: closed(need(fields, "returns")?)?,
+            params: params(home, takes)?,
+            ret: within(home, 0, need(fields, "returns")?)?,
         })
     } else if has("tag").is_some() {
         DefinitionKind::Tag
@@ -146,7 +155,7 @@ fn kind(fields: &[(core::Key, core::Expr)]) -> Read<DefinitionKind<Reference>> {
             usize::try_from(*count).map_err(|_| format!("a type has {count} parameters"))?;
         DefinitionKind::Type(TypeDefinition {
             params: (0..count).map(|at| format!("__T{at}")).collect(),
-            ty: within(count, need(fields, "means")?)?,
+            ty: within(home, count, need(fields, "means")?)?,
         })
     })
 }

@@ -38,6 +38,10 @@ pub fn reference() -> Symbol {
     ModuleId::new(FAULT_PACKAGE, MODULE).ty("Reference")
 }
 
+/// The module a tree is the content of, if it is that of one: where a
+/// definition it names as beside it is.
+pub(super) type Home<'a> = Option<&'a ModuleId>;
+
 /// What a tree stands for, or why it stands for nothing.
 pub type Read<T> = Result<T, String>;
 
@@ -109,7 +113,7 @@ pub(super) fn each<T>(list: &Expr, read: impl FnMut(&Expr) -> Read<T>) -> Read<V
 ///
 /// Fails, saying why, if it stands for none.
 pub fn closed(tree: &Expr) -> Read<Ty> {
-    let ty = written(tree)?;
+    let ty = written(None, tree)?;
     let mut within = Ok(());
     ty.names(&mut |name| within = within.clone().and(parameter_within(0, name)));
     within.map(|()| ty)
@@ -129,7 +133,7 @@ pub(super) fn parameter_within(count: usize, name: &Reference) -> Read<()> {
 /// The type a spliced `tree.Type` stands for, which may name type
 /// parameters: whatever reads the definition it is in says how many
 /// there are.
-pub(super) fn written(tree: &Expr) -> Read<Ty> {
+pub(super) fn written(home: Home, tree: &Expr) -> Read<Ty> {
     match tree {
         Expr::Literal(Literal::Tag { package, tag }) if package == FAULT_PACKAGE => {
             let name = tag
@@ -138,7 +142,7 @@ pub(super) fn written(tree: &Expr) -> Read<Ty> {
             name.and_then(primitive)
                 .ok_or_else(|| format!("the tag `{tag}` is no type"))
         }
-        Expr::Record(fields) => record(fields),
+        Expr::Record(fields) => record(home, fields),
         _ => shapeless("a type"),
     }
 }
@@ -161,10 +165,10 @@ fn primitive(name: &str) -> Option<Ty> {
 /// The definition a spliced `tree.Reference` refers to, which must be
 /// of one of the namespaces `kinds` name: a reference says what kind
 /// of definition it is to, and each place in a tree takes only some.
-pub(super) fn definition(reference: &Expr, kinds: &[&str]) -> Read<Reference> {
+/// One to a definition beside the tree is to one of `home`.
+pub(super) fn definition(home: Home, reference: &Expr, kinds: &[&str]) -> Read<Reference> {
     let fields = fields(reference, "a reference")?;
     let text = |name: &str| need(fields, name).and_then(text);
-    let path = each(need(fields, "module")?, text_of)?;
     let (kind, name) = (text("kind")?, text("name")?);
     let namespace = match kind {
         "type" => Namespace::Type,
@@ -179,6 +183,11 @@ pub(super) fn definition(reference: &Expr, kinds: &[&str]) -> Read<Reference> {
             "the reference to `{name}` is of kind `{kind}`, where `{wanted}` is taken"
         ));
     }
+    if field(fields, "beside").is_some() {
+        let home = home.ok_or_else(|| format!("`{name}` is beside a tree that is no module"))?;
+        return Ok(Reference::Definition(home.symbol(namespace, name)));
+    }
+    let path = each(need(fields, "module")?, text_of)?;
     let module = ModuleId::new(text("package")?, &path.join("."));
     Ok(Reference::Definition(module.symbol(namespace, name)))
 }
@@ -188,9 +197,9 @@ fn text_of(expr: &Expr) -> Read<String> {
 }
 
 /// The ability a spliced `tree.Ability` is.
-fn taken(ability: &Expr) -> Read<Reference> {
+fn taken(home: Home, ability: &Expr) -> Read<Reference> {
     let fields = fields(ability, "an ability")?;
-    definition(need(fields, "ability")?, &["ability"])
+    definition(home, need(fields, "ability")?, &["ability"])
 }
 
 /// The brand a spliced `tree.Brand` is.
@@ -203,8 +212,9 @@ fn brand(brand: &Expr) -> Read<Ty> {
     }))
 }
 
-fn record(fields: &[(Key, Expr)]) -> Read<Ty> {
+fn record(home: Home, fields: &[(Key, Expr)]) -> Read<Ty> {
     let need = |name: &str| need(fields, name);
+    let written = |tree: &Expr| written(home, tree);
     let boxed = |tree: &Expr| written(tree).map(Box::new);
     Ok(match fields {
         [(Key::Field(name), holds)] => match (name.as_str(), holds) {
@@ -214,16 +224,16 @@ fn record(fields: &[(Key, Expr)]) -> Read<Ty> {
             ("iterator", member) => Ty::Iterator(boxed(member)?),
             ("tuple", members) => Ty::Tuple(each(members, written)?),
             ("union", members) => Ty::Union(each(members, written)?),
-            ("named", named) => Ty::Named(definition(named, &["type"])?, Vec::new()),
+            ("named", named) => Ty::Named(definition(home, named, &["type"])?, Vec::new()),
             ("parameter", Expr::Literal(Literal::Int(at))) => {
                 let at = usize::try_from(*at).map_err(|_| format!("{at} is no type parameter"))?;
                 Ty::Named(Reference::Parameter(at), Vec::new())
             }
-            ("record", members) => Ty::Record(each(members, member)?),
+            ("record", members) => Ty::Record(each(members, |field| member(home, field))?),
             _ => return shapeless("a type"),
         },
         _ if field(fields, "applied").is_some() => {
-            let applied = definition(need("applied")?, &["type"])?;
+            let applied = definition(home, need("applied")?, &["type"])?;
             Ty::Named(applied, each(need("to")?, written)?)
         }
         _ if field(fields, "brands").is_some() => {
@@ -242,15 +252,15 @@ fn record(fields: &[(Key, Expr)]) -> Read<Ty> {
         _ => Ty::Function {
             params: each(need("function")?, written)?,
             ret: boxed(need("returns")?)?,
-            row: each(need("takes")?, taken)?,
+            row: each(need("takes")?, |ability| taken(home, ability))?,
         },
     })
 }
 
 /// A field of a record type, from its `tree.Field`.
-fn member(field: &Expr) -> Read<(surface::Key<Reference>, Ty)> {
+fn member(home: Home, field: &Expr) -> Read<(surface::Key<Reference>, Ty)> {
     let fields = fields(field, "a field")?;
     let name = text(need(fields, "name")?)?;
-    let holds = written(need(fields, "holds")?)?;
+    let holds = written(home, need(fields, "holds")?)?;
     Ok((surface::Key::Field(name.to_owned()), holds))
 }

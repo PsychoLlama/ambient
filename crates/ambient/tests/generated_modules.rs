@@ -62,6 +62,21 @@ fn what_a_call_gives_is_imported_by_name() {
 }
 
 #[test]
+fn a_generated_definition_refers_to_one_beside_it_by_name() {
+    // The function that gives the module does not know it is `made`.
+    let all = "[
+        code.named(\"double\", scaled(2)),
+        code.named(\"quadruple\", code.define([tree.integer], tree.integer, [], fn(given: List<code.Code>): code.Code {
+            let double = code.definition(code.beside(\"double\", \"value\"));
+            return code.call(double, [code.call(double, given)]);
+        })),
+    ]";
+    let main = "import pkg.made; fn main(): int => made.quadruple(3);";
+
+    assert_eq!(support::run_in(&program(all, main)), Ok(Value::Int(12)));
+}
+
+#[test]
 fn a_generated_type_has_the_type_parameters_its_tree_says() {
     let all = "[code.named_generic(\"Pair\", 1, fn(types: List<tree.Type>): tree.Type =>
         { tuple: types ++ types })]";

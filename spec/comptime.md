@@ -45,6 +45,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 - A function is handed a reference for a parameter whose type is one, when its call names a definition. The name is resolved where it is written, as any name is.
 - A function comes by a reference to what its own module names the same way: by a comptime call of the function that gives back the reference it is handed.
 - A type that refers to itself has the tree of its definition, with a reference where it names itself.
+- A definition of a generated module refers to another of the same module by its name there. The function that gives a module does not know where its call is written, and a tree that said would be a module's in one place only.
 - A reference is plain data, read and matched like the rest of a tree. A mark only the compiler makes would be lost in a tree: a test cannot tell a marked value from one shaped like it, so a tree holding one could not be matched.
 - A comptime call operates on closed types only; a type parameter is never an argument.
 - Type-level computation therefore never runs inside generic checking.
@@ -80,7 +81,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 
 - An expression's tree has a match, whose patterns bind by position as a function's parameters do: a binding is the local after those around the match and those its pattern bound before it.
 - An operation in a tree is named by its word, which is also how source text can write any operation: `@add(left, right)`.
-- TODO: an expression's tree has no merge, provide, cell, or task, so code that does one calls a function that does. An expression is not yet handed to a function as a tree.
+- TODO: an expression's tree has no merge, cell, or task, so code that does one calls a function that does. An expression is not yet handed to a function as a tree.
 - TODO: an ability with type parameters has no tree, so neither has the type of a function that takes one.
 - An argument of a comptime call may name an ability, for a function that takes a reference to one.
 - A function's tree says how many type parameters it has, each by its bound or by nothing; a type definition's says how many. A type's tree names one by its position, as an expression's names a local.

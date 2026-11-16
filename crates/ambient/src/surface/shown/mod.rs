@@ -196,6 +196,10 @@ impl<'a> Writer<'a> {
                 Doc::Row(vec![self.atom(value), to, self.atom(otherwise)])
             }
             Expr::Operation { operator, operands } => self.operation(*operator, operands),
+            Expr::Provide { bundle, body, .. } => {
+                let body = Doc::Body(Box::new(self.expr(body)));
+                Doc::Row(vec![text("provide "), self.atom(bundle), text(" =>"), body])
+            }
             Expr::Let { .. } => self.block(expr),
             Expr::Match { subject, arms } => {
                 let subject = self.atom(subject);

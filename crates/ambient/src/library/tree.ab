@@ -22,12 +22,16 @@ pub type Primitive = none | any | nil | boolean | integer | number | text | bina
 /// handed one for a parameter of this type, when its call names a
 /// definition. It says which definition outright, so nothing in a tree
 /// is looked up by a name where the tree lands.
-pub type Reference = {
-    package: string,
-    module: List<string>,
-    name: string,
-    kind: "type" | "value" | "ability" | "key",
-};
+///
+/// A definition of a generated module refers to another of the same
+/// module as `beside` it, by the name it has there: the function that
+/// gives a module does not know where its call is written.
+pub type Reference =
+    { package: string, module: List<string>, name: string, kind: Kind }
+    | { beside: null, name: string, kind: Kind };
+
+/// What kind of definition a reference is to.
+pub type Kind = "type" | "value" | "ability" | "key";
 
 /// A brand, as a type's tree refers to it: where it is declared.
 pub type Brand = { package: string, identity: string };
@@ -129,6 +133,8 @@ pub type Arm = { pattern: Pattern, gives: Expr };
 /// - `cast` is the value at the type `to` if the type describes it,
 ///   and `otherwise` if not.
 /// - `method` is called on the value `of`, as `value.method(...)` is.
+/// - `handlers` is a record of them, bound for the extent of `body`:
+///   a provide.
 /// - `subject` is matched against each of `arms` in turn, and
 ///   `operation` is done `on` its operands.
 pub type Expr =
@@ -145,6 +151,7 @@ pub type Expr =
     | { method: string, of: Expr, given: List<Expr> }
     | { cast: Expr, to: Type, otherwise: Expr }
     | { bind: Expr, body: Expr }
+    | { handlers: Expr, body: Expr }
     | { subject: Expr, arms: List<Arm> }
     | { operation: Operation, on: List<Expr> }
     | { function: List<Type>, body: Expr };
