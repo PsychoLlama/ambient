@@ -1,6 +1,6 @@
 # The JavaScript host
 
-`host.js` loads a program built with `ambient build --module <target>` and runs it. It is one ES module with no dependencies, and knows of no browser and no Node: a target for either builds on it.
+`host.js` loads a program built with `ambient build --module <target>` and runs it. It is ES modules with no dependencies, and knows of no browser and no Node: a target for either builds on it.
 
 ```js
 import { load } from "./host.js";
@@ -22,6 +22,7 @@ console.log(await program.run());
 
 - `cargo nextest run -p ambient-js` builds a program and runs `test/*.test.js` under Node's own runner (`tests/host.rs`).
 - The tests are thin: that the host runs what the compiler makes. What a program means is tested in `crates/ambient`.
+- `constants.js` is what the runtime defines, written by `build.rs` when the crate is built and never committed. Build the crate before loading `host.js` from here.
 - Nothing here is installed from a registry. Keep it so.
 
 See "WebAssembly hosts" and "JavaScript hosts" in `spec/targets.md`.

@@ -4,7 +4,7 @@
 - `crates/ambient`: the implementation, a library plus an empty binary. Module docs name the spec page each module implements.
 - `crates/ambient-host`: what loads and runs a compiled program, with no compiler in it: trees, values, parts, the native loader, the native side of `system`, and launching. `ambient` gives its modules again at the paths they had (`ambient::core`, `backend::native`, `host`), which is how the bullets below name them.
 - `crates/ambient-launcher`: the binary a built program is put after. It links `ambient-host` and nothing of the compiler; keep it so.
-- `crates/ambient-js`: the JavaScript host of a module built with `ambient build --module` (`host.js`): one ES module with no dependencies, which knows of no browser and no Node. It restates what `backend/wasm`'s host does; where they differ, that one is right.
+- `crates/ambient-js`: the JavaScript host of a module built with `ambient build --module` (`host.js`): ES modules with no dependencies, which know of no browser and no Node. `constants.js` is written from the runtime by the crate's `build.rs` and never committed; restate no constant in JavaScript. It restates what `backend/wasm`'s host does; where they differ, that one is right.
 - `crates/ambient-runtime`: what compiled code calls. Built natively into the compiler, and for wasm32 by `crates/ambient/build.rs` as one relocatable object.
 
 ## Invariants

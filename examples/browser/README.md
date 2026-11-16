@@ -5,6 +5,7 @@ A package with a target of its own: `src/main.ab` declares two abilities and bin
 From the root of the repository:
 
 ```sh
+cargo build -p ambient-js # writes the host's constants.js
 cargo run --release -- build examples/browser --module main.page -o examples/browser/page.wasm
 python3 -m http.server
 ```

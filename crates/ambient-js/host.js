@@ -3,42 +3,22 @@
 // gives its tasks their turns. See "WebAssembly hosts" and "JavaScript
 // hosts" in `spec/targets.md`.
 //
-// It is one module with no dependencies, and knows of no browser and
+// It has no dependencies but `constants.js`, and knows of no browser and
 // no Node: a target for either builds on it. What it does is what the
 // host in `crates/ambient/src/backend/wasm` does; where the two
 // differ, that one is right.
 
-// Words the runtime gives a meaning of their own.
-const UNWIND = 0n;
-const NULL = 0b0010n;
-const FALSE = 0b0110n;
-const TRUE = 0b1010n;
-
-// The modes of a context, as `amb_context_mode` gives them.
-const SUSPENDING = 1n;
-const WAITING = 3n;
-
-// The fault native code that fails is.
-const NATIVE = 5n;
-
-// The index native code is called with to be told a task left a wait.
-const FORSAKEN = -1n;
-
-// What kind of value a word is, as `amb_kind` gives it.
-const Kind = {
-  null: 0n,
-  bool: 1n,
-  int: 2n,
-  float: 3n,
-  string: 4n,
-  tuple: 5n,
-  list: 6n,
-  record: 7n,
-  function: 8n,
-  tag: 10n,
-  bytes: 15n,
-  handle: 16n,
-};
+import {
+  FALSE,
+  FORSAKEN,
+  Kind,
+  NATIVE,
+  NULL,
+  SUSPENDING,
+  TRUE,
+  UNWIND,
+  WAITING,
+} from "./constants.js";
 
 /** A tag: a name that is a value, told apart by the package it is of. */
 export class Tag {

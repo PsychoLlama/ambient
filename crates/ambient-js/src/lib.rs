@@ -7,5 +7,9 @@
 //! offers. This crate holds the text for whatever writes it beside a
 //! module, and the tests that run it.
 
-/// The host: one module, with no dependencies.
+/// The host: a module with no dependencies but [`CONSTANTS`].
 pub const HOST: &str = include_str!("../host.js");
+
+/// `constants.js`: what the runtime defines and the host must agree
+/// with, which `build.rs` writes from the runtime.
+pub const CONSTANTS: &str = include_str!("../constants.js");
