@@ -3,7 +3,7 @@
 //! restated by hand. A word crosses into JavaScript as a signed
 //! `BigInt`.
 //!
-//! The file is in the crate's directory, where a page can load it, and
+//! The file is beside the host (`js/`), where a page can load it, and
 //! is never committed.
 
 use std::fmt::Write;
@@ -12,7 +12,7 @@ use ambient_runtime::{FALSE, FORSAKEN, Fault, Kind, NULL, SUSPENDING, TRUE, UNWI
 
 fn main() -> std::io::Result<()> {
     println!("cargo::rerun-if-changed=build.rs");
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/constants.js");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/js/constants.js");
     // Writing what is there already would make every build a change.
     if std::fs::read_to_string(path).is_ok_and(|kept| kept == constants()) {
         return Ok(());

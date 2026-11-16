@@ -1,7 +1,7 @@
-//! The JavaScript host (`host.js`) runs a program built for it, under
+//! The JavaScript host (`js/host.js`) runs a program built for it, under
 //! Node. See "JavaScript hosts" in `spec/targets.md`.
 //!
-//! The tests themselves are JavaScript (`test/`), since what they test
+//! The tests themselves are JavaScript (`js/*.test.js`), since what they test
 //! is. This builds the program they run and runs them, so that the one
 //! command that runs every test runs these too.
 
@@ -82,7 +82,7 @@ fn the_host_runs_a_program_built_for_it() {
     build(&module);
     let ran = Process::new("node")
         .arg("--test")
-        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("test/host.test.js"))
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("js/host.test.js"))
         .env("AMBIENT_MODULE", &module)
         .env("AMBIENT_PACKAGE", PACKAGE)
         .output();

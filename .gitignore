@@ -2,7 +2,7 @@
 # Modules built from the examples
 *.wasm
 # Written by its crate's build.rs
-/crates/ambient-js/constants.js
+/crates/ambient-js/js/constants.js
 /.direnv
 # Nix build result symlinks
 /result

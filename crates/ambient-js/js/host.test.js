@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-import { Fault, load } from "../host.js";
+import { Fault, load } from "./host.js";
 
 const module = process.env.AMBIENT_MODULE;
 const PACKAGE = process.env.AMBIENT_PACKAGE;
