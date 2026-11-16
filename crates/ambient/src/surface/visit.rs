@@ -384,7 +384,7 @@ impl<N> Definition<N> {
     pub fn names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
         match &self.kind {
             DefinitionKind::Type(definition) => definition.ty.names(visit),
-            DefinitionKind::Derived(call) => call.names(visit),
+            DefinitionKind::Derived(call) | DefinitionKind::Generated(call) => call.names(visit),
             DefinitionKind::Function(function) => {
                 function.header_names(visit);
                 function.body.names(visit);

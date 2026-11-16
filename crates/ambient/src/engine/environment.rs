@@ -110,9 +110,18 @@ impl Engine<'_> {
         symbol: &Symbol,
     ) -> Result<Option<(Signature, Vec<Symbol>)>, Error> {
         let resolved = self.resolve(symbol)?;
-        let named = definitions(|visit| match &resolved.definition.kind {
-            DefinitionKind::Function(header) => header.header_names(&mut |name| visit(name)),
-            _ => resolved.definition.names(&mut |name| visit(name)),
+        // A generated function has the header its call gave.
+        let generated = match &resolved.definition.kind {
+            DefinitionKind::Generated(_) => Some(self.generated(symbol)?),
+            _ => None,
+        };
+        let written = match &resolved.definition.kind {
+            DefinitionKind::Function(header) => Some(header),
+            _ => generated.as_deref(),
+        };
+        let named = definitions(|visit| match written {
+            Some(header) => header.header_names(&mut |name| visit(name)),
+            None => resolved.definition.names(&mut |name| visit(name)),
         });
         let types = |params: &[Param<Reference>]| params.iter().map(|p| p.ty.clone()).collect();
         let row = |row: &[Reference]| {
@@ -121,8 +130,8 @@ impl Engine<'_> {
             row.dedup();
             row
         };
-        let signature = match &resolved.definition.kind {
-            DefinitionKind::Function(header) => Signature {
+        let signature = match (&resolved.definition.kind, written) {
+            (_, Some(header)) => Signature {
                 type_params: header
                     .type_params
                     .iter()
@@ -133,7 +142,7 @@ impl Engine<'_> {
                 row: row(&header.row),
                 native: false,
             },
-            DefinitionKind::Extern(native) => match &native.kind {
+            (DefinitionKind::Extern(native), _) => match &native.kind {
                 ExternKind::Function { params, ret } => Signature {
                     type_params: Vec::new(),
                     params: types(params),

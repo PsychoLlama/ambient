@@ -304,10 +304,7 @@ impl Error {
                 write!(f, "`{function}` faulted during compilation: {fault}")
             }
             Self::NotCode(symbol) => {
-                write!(
-                    f,
-                    "{symbol}: the tree the call gave stands for no expression"
-                )
+                write!(f, "{symbol}: the tree the call gave stands for no code")
             }
             Self::Unnameable { symbol, named } => write!(
                 f,

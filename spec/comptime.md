@@ -22,6 +22,8 @@ A comptime call runs an ordinary function during compilation and splices what it
 - An expression tree a call gives names nothing local to where it is spliced; code that needs what is there is a function, which the site calls.
 - In type position the result is a type tree.
 - A type definition whose whole content is a comptime call is a derived type: it is the type the tree stands for, and has the [hash](definitions.md) of that type written out.
+- A function definition whose whole content is a comptime call is a generated function: it is the function the tree stands for, and has the hash of that function written out.
+- A generated function's tree says what it takes and gives and its row, so what names it is checked against that without its body.
 - In module position the result is a set of definitions, forming the whole content of a generated module.
 - A generated module is the only place a comptime call creates [symbols](symbols.md); they are ordinary symbols.
 - A comptime call never adds a name to the scope it is written in; a generated module's definitions are reached by importing them, like any other module's.
@@ -69,8 +71,9 @@ A comptime call runs an ordinary function during compilation and splices what it
 
 - TODO: an expression's tree has no match and no operation, so code that decides anything is a function the tree calls. An expression is not yet handed to a function as a tree.
 - TODO: an ability with type parameters has no tree, so neither has the type of a function that takes one.
-- TODO: no definition is a tree yet, and nothing is spliced in module position.
-- TODO: a derived type cannot refer to itself: naming it to the call asks for the type the call has yet to give.
+- An argument of a comptime call may name an ability, for a function that takes a reference to one.
+- TODO: only a function is a definition's tree, one with no type parameters, and nothing is spliced in module position.
+- TODO: a derived type cannot refer to itself: naming it to the call asks for the type the call has yet to give. A generated function's body may call it, but its call cannot name it.
 - TODO: a type with arguments that refers to itself has no tree.
 - TODO: how a generated module is written, named, and imported is undecided.
 - TODO: a generated node has no [span](trees.md). An error in one is reported at the call, and how the tree is shown is undecided.

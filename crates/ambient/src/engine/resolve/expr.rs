@@ -135,7 +135,7 @@ impl Resolver<'_> {
                 self.type_params.truncate(outer);
                 lambda?
             }
-            Expr::Comptime(call) => Expr::Comptime(Box::new(self.expr(call)?)),
+            Expr::Comptime(call) => Expr::Comptime(Box::new(self.comptime(call)?)),
             Expr::Cast {
                 value,
                 ty,

@@ -152,7 +152,9 @@ impl Session<'_> {
                 let namespace = definition.kind.namespace();
                 let symbol = read.module.symbol(namespace, &definition.name);
                 let checked = match definition.kind {
-                    DefinitionKind::Function(_) => engine.check(&symbol).map(|_| ()),
+                    DefinitionKind::Function(_) | DefinitionKind::Generated(_) => {
+                        engine.check(&symbol).map(|_| ())
+                    }
                     _ => engine.interface(&symbol).map(|_| ()),
                 };
                 if let Err(error) = checked {

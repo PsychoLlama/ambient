@@ -6,7 +6,7 @@ use super::reify::{definition, each, field, text, written};
 use super::{Checker, core};
 use crate::error::Error;
 use crate::literal::Literal;
-use crate::surface::{Expr, Key, Reference};
+use crate::surface::{Expr, Function, Key, Param, Reference};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::Ty;
 
@@ -69,6 +69,37 @@ impl Checker<'_> {
             Namespace::Key => self.env.keys.contains_key(symbol),
         }
     }
+}
+
+/// The function a `tree.Function` a call gave stands for, if it
+/// stands for one. Its parameters are numbered as resolution numbers
+/// those of a function that was written: first, and from nothing.
+#[must_use]
+pub fn defined(tree: &core::Expr) -> Option<Function<Reference>> {
+    let core::Expr::Record(fields) = tree else {
+        return None;
+    };
+    let mut reader = Reader {
+        next: 0,
+        bound: Vec::new(),
+    };
+    let mut params = Vec::new();
+    for ty in each(field(fields, "params")?, written)? {
+        params.push(Param {
+            name: format!("__{}", params.len()),
+            ty,
+        });
+        reader.bind();
+    }
+    Some(Function {
+        type_params: Vec::new(),
+        params,
+        ret: written(field(fields, "returns")?)?,
+        row: each(field(fields, "takes")?, |taken| {
+            definition(taken, &["ability"])
+        })?,
+        body: reader.expression(field(fields, "body")?)?,
+    })
 }
 
 /// What reads a spliced `tree.Expr`. A tree names a local by its

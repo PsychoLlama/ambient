@@ -14,7 +14,7 @@ mod validate;
 mod world;
 
 pub use definition::{
-    AbilityBuilder, FunctionBuilder, ModuleBuilder, ability, brand, derived, function,
+    AbilityBuilder, FunctionBuilder, ModuleBuilder, ability, brand, derived, function, generated,
     generic_type, key, module, tag, type_,
 };
 pub use error::BuildError;

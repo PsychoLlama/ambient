@@ -119,6 +119,7 @@ impl<'a> Resolver<'a> {
                 })
             }
             DefinitionKind::Derived(call) => DefinitionKind::Derived(self.expr(call)?),
+            DefinitionKind::Generated(call) => DefinitionKind::Generated(self.expr(call)?),
             DefinitionKind::Function(function) => {
                 DefinitionKind::Function(self.function(function)?)
             }
@@ -334,6 +335,33 @@ impl<'a> Resolver<'a> {
                 Type::Named(reference, self.types(args)?)
             }
         })
+    }
+
+    /// The call after `comptime`. An argument of it may name an
+    /// ability, for a function that takes a reference to one.
+    fn comptime(&mut self, call: &Expr) -> Result<Expr<Reference>, Error> {
+        let Expr::Call { callee, args } = call else {
+            return self.expr(call);
+        };
+        Ok(Expr::Call {
+            callee: Box::new(self.expr(callee)?),
+            args: args
+                .iter()
+                .map(|arg| self.named(arg))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+
+    /// An argument of a comptime call: an expression, or the name of
+    /// an ability, which is no expression anywhere else.
+    fn named(&mut self, arg: &Expr) -> Result<Expr<Reference>, Error> {
+        if let Expr::Name(path) = arg
+            && matches!(self.name(path), Err(Error::NotPerformed { .. }))
+        {
+            let ability = self.lookup(Namespace::Ability, path)?;
+            return Ok(Expr::Name(Reference::Definition(ability)));
+        }
+        self.expr(arg)
     }
 
     fn name(&self, path: &Path) -> Result<Reference, Error> {

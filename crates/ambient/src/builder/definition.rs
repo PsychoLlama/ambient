@@ -121,6 +121,17 @@ pub fn type_(name: &str, ty: crate::surface::Type) -> Definition {
     }
 }
 
+/// A private function that is whatever tree a comptime call gives.
+#[must_use]
+pub fn generated(name: &str, call: crate::surface::Expr) -> Definition {
+    Definition {
+        name: name.to_owned(),
+        public: false,
+        doc: None,
+        kind: DefinitionKind::Generated(crate::surface::Expr::Comptime(Box::new(call))),
+    }
+}
+
 /// A private type that is whatever tree a comptime call gives.
 #[must_use]
 pub fn derived(name: &str, call: crate::surface::Expr) -> Definition {
@@ -366,6 +377,10 @@ impl ModuleBuilder {
                 DefinitionKind::Derived(call) => {
                     check_expr(call)?;
                     Namespace::Type
+                }
+                DefinitionKind::Generated(call) => {
+                    check_expr(call)?;
+                    Namespace::Value
                 }
                 DefinitionKind::Function(function) => {
                     check_function(&definition.name, function)?;

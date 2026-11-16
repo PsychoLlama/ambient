@@ -111,6 +111,8 @@ pub struct Engine<'a> {
     type_info: Memo<Symbol, crate::types::TypeInfo>,
     /// The type each derived definition's call gave.
     derived: Memo<Symbol, crate::types::Ty>,
+    /// The function each generated definition's call gave.
+    generated: Memo<Symbol, crate::surface::Function<crate::surface::Reference>>,
     /// The derived definitions whose calls are being run, outermost
     /// first: how one that depends on itself is seen.
     deriving: RefCell<Vec<Symbol>>,
@@ -155,6 +157,7 @@ impl<'a> Engine<'a> {
             interface: RefCell::default(),
             type_info: RefCell::default(),
             derived: RefCell::default(),
+            generated: RefCell::default(),
             deriving: RefCell::default(),
             check: RefCell::default(),
             blamed: RefCell::default(),

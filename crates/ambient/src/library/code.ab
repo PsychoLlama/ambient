@@ -1,4 +1,4 @@
-import pkg.tree.{Entry, Expr, Reference, Type};
+import pkg.tree.{Entry, Expr, Function, Reference, Type};
 
 /// Code that is not yet anywhere: the tree it is, once it is told how
 /// many locals are bound around it. Putting code together from these
@@ -81,3 +81,12 @@ pub fn function(params: List<Type>, body: fn(List<Code>): Code): Code =>
 /// A function of one parameter: [`function`], for the common case.
 pub fn lambda(param: Type, body: fn(Code): Code): Code =>
     fn(depth: int): Expr => { function: [param], body: body(local(depth))(depth + 1) };
+
+/// A function as a definition, which takes a parameter of each type
+/// and `takes` from its caller, and gives what `body` makes of the
+/// parameters: what a function gives for `fn name = comptime ...;`.
+pub fn define(params: List<Type>, returns: Type, takes: List<Reference>, body: fn(List<Code>): Code): Function {
+    let count = params.length();
+    let locals = @range(0, count).map(fn(at: int): Code => local(at)).to_list();
+    return { params, returns, takes, body: body(locals)(count) };
+}

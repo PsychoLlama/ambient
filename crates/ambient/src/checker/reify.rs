@@ -83,6 +83,13 @@ pub fn code() -> Symbol {
     ModuleId::new(FAULT_PACKAGE, MODULE).ty("Expr")
 }
 
+/// The type of a function's tree: what a call gives that a function
+/// is generated from.
+#[must_use]
+pub fn function() -> Symbol {
+    ModuleId::new(FAULT_PACKAGE, MODULE).ty("Function")
+}
+
 /// The definition a spliced `tree.Reference` refers to, if it is of
 /// one of the namespaces `kinds` name.
 pub(super) fn definition(reference: &Expr, kinds: &[&str]) -> Option<Reference> {

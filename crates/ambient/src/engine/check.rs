@@ -8,6 +8,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use super::derive::whole;
 use super::{Engine, Query, Stage, memo};
 use crate::checker;
 use crate::core::{self, Open, Tree};
@@ -196,6 +197,7 @@ impl Engine<'_> {
                 return self.lambda_interface(symbol);
             }
             let resolved = self.resolve(symbol)?;
+            let unknown = || Error::UnknownSymbol(symbol.clone());
             let digest = match &resolved.definition.kind {
                 // A type's interface is the type itself, and an ability's
                 // the ability.
@@ -209,7 +211,15 @@ impl Engine<'_> {
                 | DefinitionKind::Key(_)
                 | DefinitionKind::Extern(_)
                 | DefinitionKind::Target(_) => self.hash(symbol)?,
-                DefinitionKind::Function(function) => {
+                DefinitionKind::Function(_) | DefinitionKind::Generated(_) => {
+                    let generated = match &resolved.definition.kind {
+                        DefinitionKind::Generated(_) => Some(self.generated(symbol)?),
+                        _ => None,
+                    };
+                    let function = match &resolved.definition.kind {
+                        DefinitionKind::Function(function) => function,
+                        _ => generated.as_deref().ok_or_else(unknown)?,
+                    };
                     let mut env = Env::default();
                     self.gather(header_definitions(function), &mut env)?;
                     let (encoding, slots) = checker::encode_header(symbol, function, env)?;
@@ -377,6 +387,19 @@ impl Engine<'_> {
             }
             DefinitionKind::Function(function) => {
                 self.check_function(symbol, function, used, key, false)
+            }
+            // A generated function is checked as the function its call
+            // gave, which is what the key then covers.
+            DefinitionKind::Generated(_) => {
+                let function = self.generated(symbol)?;
+                key.bytes(&encode(&*function));
+                let used = definitions(|visit| whole(&function, visit));
+                let checked = self.check_function(symbol, &function, used, key, false);
+                // No node of it is anywhere in the text.
+                self.blamed.borrow_mut().remove(symbol);
+                let nowhere = crate::checker::Origins::default();
+                self.origins.borrow_mut().insert(symbol.clone(), nowhere);
+                checked
             }
         }
     }

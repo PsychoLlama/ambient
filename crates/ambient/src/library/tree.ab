@@ -103,3 +103,9 @@ pub type Expr =
     | { cast: Expr, to: Type, otherwise: Expr }
     | { bind: Expr, body: Expr }
     | { function: List<Type>, body: Expr };
+
+/// A function as a definition: what it takes, what it gives, the
+/// abilities it takes from its caller, and its body, in which the
+/// parameters are the locals bound first. A function definition whose
+/// whole content is a comptime call is the one such a tree stands for.
+pub type Function = { params: List<Type>, returns: Type, takes: List<Reference>, body: Expr };

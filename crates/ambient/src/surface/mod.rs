@@ -104,6 +104,9 @@ pub enum DefinitionKind<N = Path> {
     /// A type a comptime call gives: the call, which is run for the
     /// type's tree. See "Splice positions" in `spec/comptime.md`.
     Derived(Expr<N>),
+    /// A function that is whatever tree a comptime call gives: the
+    /// call.
+    Generated(Expr<N>),
     Function(Function<N>),
     Ability(Ability<N>),
     Key(KeyDefinition<N>),
@@ -126,7 +129,9 @@ impl<N> DefinitionKind<N> {
         use crate::symbol::Namespace;
         match self {
             Self::Type(_) | Self::Derived(_) | Self::Tag | Self::Brand => Namespace::Type,
-            Self::Function(_) | Self::Extern(_) | Self::Target(_) => Namespace::Value,
+            Self::Function(_) | Self::Generated(_) | Self::Extern(_) | Self::Target(_) => {
+                Namespace::Value
+            }
             Self::Ability(_) => Namespace::Ability,
             Self::Key(_) => Namespace::Key,
         }

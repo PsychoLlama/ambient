@@ -58,6 +58,17 @@ fn a_type_that_is_a_comptime_call_is_derived() {
 }
 
 #[test]
+fn a_function_that_is_a_comptime_call_is_generated() {
+    let source = "fn double = comptime scaled(2);";
+    let call = b::call(b::name("scaled"), [b::int(2)]);
+
+    assert_eq!(
+        parse(source).unwrap(),
+        built([b::generated("double", call)])
+    );
+}
+
+#[test]
 fn a_block_is_its_statements_nested_in_order() {
     let source = "fn main(): int { let a = 1; side(); let (b, _) = (a, 2); return b; }";
     let pair = pat::tuple([pat::bind("b"), pat::any()]);

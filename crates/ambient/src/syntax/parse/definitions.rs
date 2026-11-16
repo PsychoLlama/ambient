@@ -54,7 +54,7 @@ impl Parser {
         // The marks come out here, before anything else sees the tree.
         let body = match &mut kind {
             DefinitionKind::Function(function) => Some(&mut function.body),
-            DefinitionKind::Derived(call) => Some(call),
+            DefinitionKind::Derived(call) | DefinitionKind::Generated(call) => Some(call),
             _ => None,
         };
         if let (Some(body), Some(placed)) = (body, self.defined.last_mut()) {
@@ -175,6 +175,15 @@ impl Parser {
 
     fn function(&mut self) -> Parsed<(String, DefinitionKind)> {
         let name = self.name()?;
+        // A function that is whatever a comptime call gives.
+        if self.eat("=") {
+            if !self.at_word("comptime") {
+                return self.fail("expected a comptime call after `=`");
+            }
+            let call = self.expr()?;
+            self.expect(";")?;
+            return Ok((name, DefinitionKind::Generated(call)));
+        }
         let type_params = self.type_params()?;
         let params = self.params()?;
         let ret = self.returns()?;
