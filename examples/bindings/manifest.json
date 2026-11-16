@@ -1,0 +1,7 @@
+{
+  "now": { "takes": [], "gives": "int" },
+  "title": { "takes": [], "gives": "string" },
+  "alert": { "takes": ["string"], "gives": "null" },
+  "confirm": { "takes": ["string"], "gives": "bool" },
+  "add": { "takes": ["int", "int"], "gives": "int" }
+}

@@ -5,7 +5,7 @@ import ambient.json.{Json};
 import ambient.map.{Map};
 import ambient.tree;
 import ambient.Error;
-import pkg.manifest;
+import system.fs;
 
 /// Asks the host for what it offers under a name. This is the one way
 /// out of the program every generated function shares.
@@ -27,9 +27,18 @@ fn named(name: Json): tree.Type {
     }
 }
 
-/// The manifest, or null if it is not JSON.
-fn read(): Json {
-    match catch(fn() => json.parse(manifest.text())) {
+/// The manifest, a file of the package: for each name the host
+/// offers, the types it takes and the type it gives. It is null if
+/// the file is not there or is not JSON.
+fn read(): Json with fs.read {
+    match fs.read!("manifest.json") {
+        let error: Error => { return null; }
+        let text: string => { return parsed(text); }
+    }
+}
+
+fn parsed(text: string): Json {
+    match catch(fn() => json.parse(text)) {
         let error: Error => { return null; }
         let all => { return all; }
     }
@@ -56,7 +65,7 @@ fn bound(name: string, entry: Json): tree.Function {
 /// there: the whole of a module.
 ///
 /// `comptime bind.all();`
-pub fn all(): tree.Module {
+pub fn all(): tree.Module with fs.read {
     match read() {
         let entries: Map<Json> => {
             return entries.entries().map(fn(entry: (string, Json)): tree.Definition {

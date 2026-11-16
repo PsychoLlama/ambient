@@ -1,8 +1,7 @@
 /// Functions made from a description of what a host offers. Nothing
 /// of `web` is written: its names, their parameters, their results,
-/// and their bodies are read from the manifest as the package is
-/// compiled.
+/// and their bodies are read from `manifest.json` as the package is
+/// compiled, which the package's manifest grants it.
 pub module bind;
 pub module host;
-pub module manifest;
 pub module web;
