@@ -99,11 +99,10 @@ entries! {
     Caught = amb_caught, context, 1, word;
     Native = amb_native, context, 3, word;
     NativeWait = amb_native_wait, context, 3, word;
-    FramePush = amb_frame_push, context, 3, nothing;
-    FrameSave = amb_frame_save, context, 1, nothing;
+    FramePush = amb_frame_push, context, 1, word;
+    FrameSave = amb_frame_save, context, 1, word;
     FramePoint = amb_frame_point, context, 0, word;
-    FrameLoad = amb_frame_load, context, 1, word;
-    FrameDrop = amb_frame_drop, context, 0, nothing;
+    FrameLoad = amb_frame_load, context, 0, word;
     All = amb_all, context, 1, word;
     First = amb_first, context, 1, word;
     GroupNew = amb_group_new, context, 0, word;

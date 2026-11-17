@@ -294,14 +294,9 @@ pub enum Expr {
     /// suspending, the function saves its locals and returns. A function
     /// resuming to this point runs the operation again, which resumes
     /// whatever it called.
-    ///
-    /// `frame` is what a trace says of the function while it is in the
-    /// operation: its definition, a [`Constant::Own`], and a position
-    /// in it.
     Point {
         point: usize,
         op: Op,
-        frame: Option<(usize, usize)>,
     },
     /// `body`, and `body` again each time an [`Op::Again`] in it says
     /// so, with what that gave as the function's parameters.
@@ -319,6 +314,10 @@ pub enum Expr {
     /// resuming. If it is, and the point it is going back to is not among
     /// `points`, the value was computed before the task suspended and
     /// `local` already holds it.
+    ///
+    /// Points are numbered in the order a function reaches them, so one
+    /// that is going back to a point has computed every value whose
+    /// points all come before it, and none whose points come after.
     Resumed {
         points: (usize, usize),
         local: usize,

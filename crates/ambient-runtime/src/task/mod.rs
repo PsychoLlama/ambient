@@ -36,7 +36,7 @@ pub use budget::{
     amb_charge_tasks,
 };
 pub use depth::{DEPTH, FRAME, NATIVE, amb_depth, amb_enter};
-pub use frame::{amb_frame_drop, amb_frame_load, amb_frame_point, amb_frame_push, amb_frame_save};
+pub use frame::{amb_frame_load, amb_frame_point, amb_frame_push, amb_frame_save};
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
 pub use join::{amb_all, amb_first};
 pub(crate) use stack::waiting;

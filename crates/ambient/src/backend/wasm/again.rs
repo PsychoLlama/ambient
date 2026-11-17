@@ -14,21 +14,21 @@ impl Emitter {
         let params = self.params as usize;
         let next = held + params;
         self.held = held;
-        // The loop holds nothing yet, which a frame does not say of
+        // The loop holds nothing yet, which memory does not say of
         // itself: unless the function is resuming, and has its locals
-        // back.
-        if self.resumes {
-            self.emit(&Instruction::LocalGet(self.target));
-            self.emit(&Instruction::I64Const(0));
-            self.emit(&Instruction::I64LtS);
-            self.emit(&Instruction::If(BlockType::Empty));
-        }
-        for local in held..=held + 2 * params {
-            self.emit(&Instruction::I64Const(0));
-            self.set_local(local);
-        }
-        if self.resumes {
-            self.emit(&Instruction::End);
+        // back. A function is at no point until it reaches its loop.
+        if self.stale() {
+            if self.resumes {
+                self.before(0);
+                self.emit(&Instruction::If(BlockType::Empty));
+            }
+            for local in held..=held + 2 * params {
+                self.emit(&Instruction::I64Const(0));
+                self.set_local(local);
+            }
+            if self.resumes {
+                self.emit(&Instruction::End);
+            }
         }
         self.emit(&Instruction::Loop(BlockType::Result(ValType::I64)));
         self.frames.push(false);
@@ -62,6 +62,7 @@ impl Emitter {
             self.set_local(next + param);
             self.emit(&Instruction::End);
         }
+        self.nowhere();
         self.emit(&Instruction::Br(1));
         self.emit(&Instruction::End);
         self.emit(&Instruction::LocalGet(self.scratch));
