@@ -19,6 +19,7 @@ mod guest;
 mod host;
 mod layout;
 mod link;
+mod locals;
 mod module;
 mod resume;
 mod runtime;

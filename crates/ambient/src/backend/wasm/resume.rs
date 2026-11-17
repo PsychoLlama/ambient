@@ -37,7 +37,7 @@ impl Emitter {
         self.constant(RESUMING);
         self.emit(&Instruction::I64Eq);
         self.emit(&Instruction::If(BlockType::Empty));
-        for local in (0..self.locals).rev() {
+        for local in self.saved().rev() {
             self.emit(&Instruction::LocalGet(CONTEXT));
             self.runtime(Entry::FrameLoad);
             self.set_local(local);
@@ -116,7 +116,7 @@ impl Emitter {
         self.emit(&Instruction::LocalGet(CONTEXT));
         self.emit(&Instruction::LocalGet(self.at));
         self.runtime(Entry::FramePush);
-        for local in 0..self.locals {
+        for local in self.saved() {
             self.local(local);
             self.runtime(Entry::FrameSave);
         }

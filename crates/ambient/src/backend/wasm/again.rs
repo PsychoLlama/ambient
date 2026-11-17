@@ -14,6 +14,7 @@ impl Emitter {
         let params = self.params as usize;
         let next = held + params;
         self.held = held;
+        self.seen.turns = true;
         // The loop holds nothing yet, which memory does not say of
         // itself: unless the function is resuming, and has its locals
         // back. A function is at no point until it reaches its loop.

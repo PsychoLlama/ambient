@@ -1,13 +1,14 @@
 //! Emitting the body of one lowered function.
 
 use ambient_runtime::layout::{
-    CLOSURE_CAPTURES, CLOSURE_DEFINITION, DEFINITION_CODE, DEFINITION_METERED, DEFINITION_SLOTS,
+    CLOSURE_CAPTURES, CLOSURE_DEFINITION, DEFINITION_CODE, DEFINITION_METERED,
 };
 use ambient_runtime::{Entry, FALSE, NULL, SMALL_MAX, SMALL_MIN, TRUE, Word};
 use wasm_encoder::{BlockType, Function, Instruction, MemArg, MemArgTarget, ValType};
 
 use super::code;
 use super::function_type;
+use super::locals::{Kept, Seen};
 use crate::backend::MAX_ARITY;
 use crate::core::Open;
 use crate::engine::Backend;
@@ -27,7 +28,7 @@ pub(super) fn memory(offset: i32) -> MemArg {
 }
 
 pub(super) const CONTEXT: u32 = 0;
-const CLOSURE: u32 = 1;
+pub(super) const CLOSURE: u32 = 1;
 /// The first parameter of the lowered function.
 pub(super) const PARAMS: u32 = 2;
 /// The runtime's stack pointer, the one global a module imports: a
@@ -48,27 +49,81 @@ impl Backend for Wasm {
         if function.params > MAX_ARITY {
             return Err(format!("more than {MAX_ARITY} parameters"));
         }
+        // Emitted once to see what it reads and whether it turns, and
+        // again if knowing that makes it smaller.
+        let first = Emitter::emitted(&function, None)?;
+        let emitter = match first.smaller() {
+            Some(seen) => Emitter::emitted(&function, Some(seen))?,
+            None => first,
+        };
+        code::artifact(emitter.body.into_raw_body(), &emitter.calls, emitter.widest)
+    }
+}
+
+pub(super) struct Emitter {
+    pub(super) body: Function,
+    /// How many locals the lowered function has, and how many of them
+    /// are its parameters.
+    pub(super) locals: usize,
+    pub(super) params: u32,
+    pub(super) kept: Kept,
+    /// Where its locals are, if they are in memory: an address.
+    pub(super) frame: u32,
+    /// Where its definition is, if it keeps that: an address.
+    pub(super) definition: u32,
+    /// What this emission has seen of the function, and what one before
+    /// it saw.
+    pub(super) seen: Seen,
+    pub(super) told: Option<Seen>,
+    pub(super) scratch: u32,
+    pub(super) callee: u32,
+    /// Where a function that may suspend is: see [`super::resume`].
+    pub(super) at: u32,
+    /// How many slots the definition has; its constants follow them.
+    pub(super) slots: usize,
+    /// Where the loop the function is keeps its parameters: see
+    /// [`Expr::Loop`].
+    pub(super) held: usize,
+    /// Whether the function may be resuming: it has a point.
+    pub(super) resumes: bool,
+    /// The control constructs open around the current instruction,
+    /// innermost last. `true` marks one that unwinding leaves through: the
+    /// body of a `Let`, or of the function.
+    pub(super) frames: Vec<bool>,
+    /// Where the body calls the runtime: see [`code`].
+    pub(super) calls: Vec<(usize, Entry)>,
+    /// The most arguments the body calls a function value with: a
+    /// module has a type for each number up to the most any body needs.
+    pub(super) widest: usize,
+}
+
+impl Emitter {
+    /// The function's body, emitted knowing what an emission before
+    /// this one saw of it, if one was made.
+    fn emitted(function: &lir::Function, told: Option<Seen>) -> Result<Self, String> {
         let small = |value: usize| u32::try_from(value).map_err(|error| error.to_string());
-        let (locals, params) = (function.locals, small(function.params)?);
-        let kept = Kept::of(&function)?;
+        let kept = Kept::of(function)?;
+        let keeps = told.is_some_and(Seen::keeps);
         // After the lowered function's own locals: a word to hold one
         // while it is tested, a callee while its arguments are pushed,
-        // and where a function that may suspend is. Then, if its locals
-        // are in memory, their address.
-        let own = PARAMS + small(kept.own(&function))?;
-        let mut declared = vec![ValType::I64; kept.own(&function) - function.params + 3];
-        if matches!(kept, Kept::Memory { .. }) {
-            declared.push(ValType::I32);
-        }
-        let mut emitter = Emitter {
+        // and where a function that may suspend is. Then two addresses,
+        // for one that has them: its locals in memory, its definition.
+        let own = PARAMS + small(kept.own(function))?;
+        let memory = u32::from(matches!(kept, Kept::Memory { .. }));
+        let mut declared = vec![ValType::I64; kept.own(function) - function.params + 3];
+        declared.extend(vec![ValType::I32; (memory + u32::from(keeps)) as usize]);
+        let mut emitter = Self {
             body: Function::new_with_locals_types(declared),
-            locals,
-            params,
+            locals: function.locals,
+            params: small(function.params)?,
             kept,
             scratch: own,
             callee: own + 1,
             at: own + 2,
             frame: own + 3,
+            definition: own + 3 + memory,
+            seen: Seen::default(),
+            told,
             slots: function.slots,
             held: 0,
             resumes: function.points > 0,
@@ -97,82 +152,9 @@ impl Backend for Wasm {
             emitter.emit(&Instruction::Unreachable);
         }
         emitter.emit(&Instruction::End);
-        code::artifact(emitter.body.into_raw_body(), &emitter.calls, emitter.widest)
-    }
-}
-
-/// How a function keeps the locals of its lowered form.
-#[derive(Clone, Copy)]
-pub(super) enum Kept {
-    /// As locals of its own, its parameters being the first.
-    Values,
-    /// In memory, in a frame of so many bytes it takes from the
-    /// runtime's stack.
-    ///
-    /// A local is held to the end of its `Let`, so as a value it is
-    /// live across everything after it, and an engine takes time that
-    /// grows with the product of the two to compile the function. One
-    /// with more locals than [`VALUES`] keeps them here, where that
-    /// costs it a few bytes at each use and nothing more.
-    Memory { size: i32 },
-}
-
-/// The most locals a function keeps as values.
-pub(super) const VALUES: usize = 256;
-
-impl Kept {
-    fn of(function: &lir::Function) -> Result<Self, String> {
-        if function.locals <= VALUES {
-            return Ok(Self::Values);
-        }
-        // The frame is kept aligned as the runtime's own are.
-        let size = i32::try_from((function.locals * 8).next_multiple_of(16))
-            .map_err(|error| error.to_string())?;
-        Ok(Self::Memory { size })
+        Ok(emitter)
     }
 
-    /// How many of the lowered function's locals are locals of the
-    /// function emitted: all of them, or only its parameters.
-    fn own(self, function: &lir::Function) -> usize {
-        match self {
-            Self::Values => function.locals,
-            Self::Memory { .. } => function.params,
-        }
-    }
-}
-
-pub(super) struct Emitter {
-    pub(super) body: Function,
-    /// How many locals the lowered function has, and how many of them
-    /// are its parameters.
-    pub(super) locals: usize,
-    pub(super) params: u32,
-    kept: Kept,
-    /// Where its locals are, if they are in memory: an address.
-    frame: u32,
-    pub(super) scratch: u32,
-    pub(super) callee: u32,
-    /// Where a function that may suspend is: see [`super::resume`].
-    pub(super) at: u32,
-    /// How many slots the definition has; its constants follow them.
-    pub(super) slots: usize,
-    /// Where the loop the function is keeps its parameters: see
-    /// [`Expr::Loop`].
-    pub(super) held: usize,
-    /// Whether the function may be resuming: it has a point.
-    pub(super) resumes: bool,
-    /// The control constructs open around the current instruction,
-    /// innermost last. `true` marks one that unwinding leaves through: the
-    /// body of a `Let`, or of the function.
-    pub(super) frames: Vec<bool>,
-    /// Where the body calls the runtime: see [`code`].
-    pub(super) calls: Vec<(usize, Entry)>,
-    /// The most arguments the body calls a function value with: a
-    /// module has a type for each number up to the most any body needs.
-    pub(super) widest: usize,
-}
-
-impl Emitter {
     pub(super) fn emit(&mut self, instruction: &Instruction) {
         self.body.instruction(instruction);
     }
@@ -220,94 +202,12 @@ impl Emitter {
         }
     }
 
-    /// The local of the function emitted that a local of the lowered
-    /// one is, where they are values.
-    fn own(local: usize) -> u32 {
-        PARAMS + u32::try_from(local).unwrap_or(0)
-    }
-
-    /// Pushes a local of the lowered function.
-    pub(super) fn local(&mut self, local: usize) {
-        match self.kept {
-            Kept::Values => self.emit(&Instruction::LocalGet(Self::own(local))),
-            Kept::Memory { .. } => {
-                self.emit(&Instruction::LocalGet(self.frame));
-                self.emit(&Instruction::I64Load(memory(Self::offset(local))));
-            }
-        }
-    }
-
-    /// Puts the word on the stack in a local of the lowered function.
-    pub(super) fn set_local(&mut self, local: usize) {
-        match self.kept {
-            Kept::Values => self.emit(&Instruction::LocalSet(Self::own(local))),
-            Kept::Memory { .. } => {
-                self.emit(&Instruction::LocalSet(self.scratch));
-                self.emit(&Instruction::LocalGet(self.frame));
-                self.emit(&Instruction::LocalGet(self.scratch));
-                self.emit(&Instruction::I64Store(memory(Self::offset(local))));
-            }
-        }
-    }
-
-    fn offset(local: usize) -> i32 {
-        i32::try_from(local * 8).unwrap_or(0)
-    }
-
-    /// What a function does first: one whose locals are in memory makes
-    /// room for them, and one that may be resuming takes them back if
-    /// it is.
-    fn enter(&mut self) {
-        if let Kept::Memory { size } = self.kept {
-            self.emit(&Instruction::GlobalGet(STACK));
-            self.emit(&Instruction::I32Const(size));
-            self.emit(&Instruction::I32Sub);
-            self.emit(&Instruction::LocalTee(self.frame));
-            self.emit(&Instruction::GlobalSet(STACK));
-            // Its parameters are the first of its locals, and what
-            // resuming gives back is the same.
-            for param in 0..self.params {
-                self.emit(&Instruction::LocalGet(PARAMS + param));
-                self.set_local(param as usize);
-            }
-        }
-        if self.resumes {
-            self.restore();
-        }
-    }
-
-    /// Gives the stack back what the function's locals took, if they
-    /// took any. Every way out of the function passes here.
-    fn leave(&mut self) {
-        if let Kept::Memory { size } = self.kept {
-            self.emit(&Instruction::LocalGet(self.frame));
-            self.emit(&Instruction::I32Const(size));
-            self.emit(&Instruction::I32Add);
-            self.emit(&Instruction::GlobalSet(STACK));
-        }
-    }
-
-    /// Whether a loop's locals may hold something when it starts: only
-    /// in memory, which is not made empty.
-    pub(super) fn stale(&self) -> bool {
-        matches!(self.kept, Kept::Memory { .. })
-    }
-
-    /// The value a `Let` binds to `local`, put there.
-    pub(super) fn bound(&mut self, local: usize, value: &Expr) {
-        self.expr(value);
-        if !Self::checked(value) {
-            self.check();
-        }
-        self.set_local(local);
-    }
-
     /// With a word on the stack: leaves for the innermost unwinding target
     /// if the word says a call is unwinding, and otherwise keeps the word.
     ///
     /// The word that says so is what unwinding gives where it lands, so
     /// the branch takes the word with it.
-    fn check(&mut self) {
+    pub(super) fn check(&mut self) {
         self.emit(&Instruction::LocalTee(self.scratch));
         self.emit(&Instruction::LocalGet(self.scratch));
         self.emit(&Instruction::I64Eqz);
@@ -316,7 +216,7 @@ impl Emitter {
 
     /// Whether what `expr` leaves has been checked already, or never
     /// says a call is unwinding: an operation checks itself.
-    fn checked(expr: &Expr) -> bool {
+    pub(super) fn checked(expr: &Expr) -> bool {
         matches!(expr, Expr::Op(_) | Expr::Point { .. })
     }
 
@@ -484,14 +384,6 @@ impl Emitter {
         }
     }
 
-    /// Pushes the word at `position` after the fixed part of this
-    /// definition: a slot, or past the slots a constant.
-    fn in_definition(&mut self, position: usize) {
-        self.emit(&Instruction::LocalGet(CLOSURE));
-        self.load(CLOSURE_DEFINITION);
-        self.load(DEFINITION_SLOTS + i32::try_from(position * 8).unwrap_or(0));
-    }
-
     /// With the context and a closure on the stack: calls the closure with
     /// `args`.
     fn call(&mut self, args: &[lir::Value], metered: bool) {
@@ -516,7 +408,7 @@ impl Emitter {
     }
 
     /// Replaces the address on the stack with the word at `offset` from it.
-    fn load(&mut self, offset: i32) {
+    pub(super) fn load(&mut self, offset: i32) {
         self.emit(&Instruction::I32WrapI64);
         self.emit(&Instruction::I64Load(memory(offset)));
     }
