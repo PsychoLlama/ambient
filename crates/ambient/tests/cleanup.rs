@@ -173,3 +173,14 @@ fn a_cleanup_that_waits_is_not_cancelled() {
 fn until_one() -> Expr {
     b::call(b::name("until"), [b::name("c"), b::int(1)])
 }
+
+#[test]
+fn a_cleanup_that_waits_on_nothing_does_not_keep_a_failed_group_from_ending() {
+    // The task is cancelled inside its cleanup, which holds that off
+    // until nothing else can run.
+    let waits = b::call(b::name("until"), [b::name("c"), b::int(2)]);
+    let stuck = b::spawn(support::cleanup(waits, b::null()));
+    let body = b::group(then(stuck, then(b::spawn(overflows()), b::null())));
+
+    assert_eq!(outcome(body), Err(Fault::Overflow));
+}

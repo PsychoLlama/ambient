@@ -238,6 +238,24 @@ impl Scheduler {
         };
     }
 
+    /// Notes that every task waits on what will never happen, and
+    /// cancels the root. Whether that gave any task a turn: the first
+    /// time, each one a cleanup was holding cancellation off for, since
+    /// nothing does from here on.
+    fn stall(&mut self) -> bool {
+        self.task(ROOT).cancelled = true;
+        if core::mem::replace(&mut self.stalled, true) {
+            return false;
+        }
+        for id in ROOT + 1..self.tasks.len() {
+            let held = |task: &Task| task.masked > 0 && (task.cancelled || task.disturbed > 0);
+            if self.tasks[id].as_ref().is_some_and(held) {
+                self.queue(id);
+            }
+        }
+        !self.ready.is_empty()
+    }
+
     /// Makes `id` the current task, to be resumed by whatever calls
     /// what it suspended in again: the host, for the root, or the call
     /// back it suspended beneath.
@@ -312,11 +330,12 @@ pub unsafe extern "C" fn amb_schedule(context: *mut Context) {
             if scheduler.awaits() {
                 return wait::idle(context);
             }
-            let id = scheduler.ready.pop_front().unwrap_or_else(|| {
-                scheduler.stalled = true;
-                scheduler.task(ROOT).cancelled = true;
-                ROOT
-            });
+            let Some(id) = scheduler.ready.pop_front() else {
+                if scheduler.stall() {
+                    continue;
+                }
+                return scheduler.resumes(context, ROOT);
+            };
             if id == ROOT {
                 return scheduler.resumes(context, id);
             }
