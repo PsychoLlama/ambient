@@ -27,6 +27,7 @@ mod places;
 mod stack;
 mod tail;
 mod wait;
+mod watch;
 
 use alloc::collections::VecDeque;
 
@@ -45,6 +46,7 @@ pub use stack::{Body, Stacks};
 use tail::start;
 pub use tail::{amb_bounce, amb_start, amb_tail, amb_tail_arg};
 pub use wait::{FORSAKEN, amb_answer, amb_await, amb_native_wait, amb_refuse, amb_strand};
+pub(crate) use watch::{wait_on, wake};
 
 use crate::object::amb_release;
 use crate::{Context, Fault, UNWIND, Word};
@@ -90,8 +92,8 @@ struct Task {
     place: Option<(usize, usize)>,
     /// The join it started and is waiting on.
     join: Option<usize>,
-    /// The cell it is waiting on.
-    cell: Option<Word>,
+    /// Its wait on a cell, if it is in one.
+    cell: Option<watch::Watch>,
     /// The innermost budget it runs inside.
     budget: Option<usize>,
     /// Its wait on the host, if native code said it would answer later.
@@ -220,10 +222,9 @@ impl Scheduler {
     }
 
     /// Makes a task unwind from wherever it is waiting, or never start.
-    fn cancel(&mut self, id: usize) {
-        let task = self.task(id);
-        task.cancelled = true;
-        task.cell = None;
+    unsafe fn cancel(&mut self, id: usize) {
+        unsafe { self.unwatch(id) };
+        self.task(id).cancelled = true;
         self.queue(id);
     }
 
@@ -302,25 +303,6 @@ pub(crate) unsafe fn interrupted(context: *mut Context) -> bool {
 /// Notes that the current task has entered a cleanup, or left one.
 pub(crate) unsafe fn mask(context: *mut Context, entering: bool) {
     unsafe { scheduler(context) }.mask(entering);
-}
-
-/// Makes the current task wait on `cell`, or stop waiting.
-pub(crate) unsafe fn wait_on(context: *mut Context, cell: Option<Word>) {
-    unsafe { scheduler(context) }.current().cell = cell;
-}
-
-/// Gives every task waiting on `cell` its turn.
-pub(crate) unsafe fn wake(context: *mut Context, cell: Word) {
-    let scheduler = unsafe { scheduler(context) };
-    for id in 0..scheduler.tasks.len() {
-        let waiting = scheduler.tasks[id]
-            .as_ref()
-            .is_some_and(|task| task.cell == Some(cell));
-        if waiting {
-            scheduler.task(id).cell = None;
-            scheduler.queue(id);
-        }
-    }
 }
 
 /// Runs tasks until the root can go on, then makes it the current task

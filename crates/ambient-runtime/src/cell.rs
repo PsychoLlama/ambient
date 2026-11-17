@@ -22,13 +22,13 @@ pub unsafe extern "C" fn amb_cell_new(
     scope: Word,
 ) -> Word {
     unsafe {
-        let word = object(KIND_CELL, 40);
+        let word = object(KIND_CELL, 48);
         amb_retain(value);
         amb_retain(scope);
         amb_unit_retain(unit::of(ty));
         let fields = words(word);
         (fields[0], fields[1], fields[2]) = (value, scope, ty);
-        (fields[BACK], fields[NEXT]) = (0, 0);
+        (fields[BACK], fields[NEXT], fields[WAITED]) = (0, 0, 0);
         let first = (*context).cells as usize as *mut u64;
         if !first.is_null() {
             link(first, word);
@@ -43,6 +43,16 @@ pub unsafe extern "C" fn amb_cell_new(
 /// zero in a cell that is among none.
 const BACK: usize = 3;
 const NEXT: usize = 4;
+
+/// Where a cell keeps which task has waited longest for it to change:
+/// its number and one, or zero if none waits. The scheduler keeps the
+/// rest of them (`task/watch.rs`).
+const WAITED: usize = 5;
+
+/// The word of a cell that says which task has waited longest on it.
+pub(crate) unsafe fn waited(cell: Word) -> *mut u64 {
+    unsafe { &raw mut words(cell)[WAITED] }
+}
 
 /// Puts a cell first among the cells `first` begins.
 unsafe fn link(first: *mut u64, cell: Word) {
@@ -141,6 +151,7 @@ unsafe fn changed(context: *mut Context, cell: Word, seen: Word) -> Word {
     unsafe {
         // Arriving or not, a cancelled task unwinds from here.
         arriving(context);
+        wait_on(context, None);
         if interrupted(context) {
             return fault(context, Fault::Cancelled);
         }

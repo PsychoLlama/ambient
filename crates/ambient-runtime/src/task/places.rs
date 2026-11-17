@@ -86,7 +86,7 @@ impl Scheduler {
         };
         for loser in losers {
             if self.live(loser) {
-                self.cancel(loser);
+                unsafe { self.cancel(loser) };
             }
         }
         if remaining == 0 {

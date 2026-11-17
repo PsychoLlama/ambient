@@ -13,7 +13,7 @@ use crate::core::{Slot, Type};
 /// What the bytes begin with. Bump it when [`Parts`] changes, or
 /// anything compiled code relies on: a layout, the calling convention,
 /// an entry point of the runtime.
-const FORMAT: u32 = 27;
+const FORMAT: u32 = 28;
 
 /// Why bytes cannot be loaded.
 #[derive(Clone, Debug, PartialEq, Eq)]

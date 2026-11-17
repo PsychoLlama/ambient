@@ -10,7 +10,7 @@ use ambient::surface::{Definition, Expr, Type};
 use ambient::value::Value;
 use ambient_runtime::Fault;
 use support::run;
-use support::tasks::{set, then, until};
+use support::tasks::{note, set, then, until};
 
 /// `fn deep(c: Cell<int>, n: int): int`, which waits for the cell to hold
 /// one under `n` calls of itself, and counts them.
@@ -60,7 +60,7 @@ fn with_cell(body: Expr) -> Expr {
 
 fn outcome(ret: Type, body: Expr) -> Result<Value, Fault> {
     let main = b::function("main").returns(ret).body(body);
-    run([until(), set(), deep(), fail(), ask(), main], &[])
+    run([until(), set(), note(), deep(), fail(), ask(), main], &[])
 }
 
 fn evaluates(body: Expr) -> Value {
@@ -296,4 +296,35 @@ fn a_program_whose_tasks_all_wait_is_cancelled() {
     let body = with_cell(b::all([waits_for(1), waits_for(1)]));
 
     assert_eq!(outcome(ty::unknown(), body), Err(Fault::Cancelled));
+}
+
+// Waiting on a cell
+
+/// A task that waits for `c` to change and then notes `entry` in `log`.
+fn notes_once_changed(entry: i64) -> Expr {
+    let notes = b::call(b::name("note"), [b::name("log"), b::int(entry)]);
+    then(b::wait(b::name("c"), b::int(0)), notes)
+}
+
+#[test]
+fn tasks_waiting_on_a_cell_are_woken_longest_waiting_first() {
+    let waiters = [1, 2, 3].map(notes_once_changed);
+    let tasks = b::all(waiters.into_iter().chain([sets(1)]));
+    let log = b::let_(
+        "log",
+        b::cell(ty::int(), b::int(0)),
+        then(tasks, b::read(b::name("log"))),
+    );
+
+    assert_eq!(evaluates(with_cell(log)), Value::Int(123));
+}
+
+#[test]
+fn a_task_cancelled_while_it_waits_on_a_cell_no_longer_waits_on_it() {
+    let lost = b::first([waits_for(7), b::int(2)]);
+    let body = then(lost, b::all([waits_for(1), sets(1)]));
+
+    let expected = Value::Tuple(vec![Value::Int(1), Value::Null]);
+
+    assert_eq!(evaluates(with_cell(body)), expected);
 }

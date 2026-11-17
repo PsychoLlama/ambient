@@ -8,6 +8,7 @@ A cell is the only mutable thing in the language: a slot that holds one immutabl
 - Reading a cell yields the value it holds.
 - Replacing takes the value the caller read and a new value, succeeds only if the cell still holds the value read, and reports which happened.
 - Waiting takes the value the caller read and suspends the [task](tasks.md) until the cell holds a different one.
+- A change gives the tasks waiting on the cell their turns in the order they began to wait.
 - There are no other operations; updates, locks, queues, and channels are library code over these four.
 - No cell operation can fault.
 
