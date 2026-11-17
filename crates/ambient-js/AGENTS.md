@@ -8,9 +8,11 @@ The JavaScript host of a module built with `ambient build --module`. The root `A
 - `constants.js` is written from the runtime by `build.rs` and never committed; restate no constant in JavaScript.
 - The host restates what `backend/wasm`'s host does; where they differ, that one is right.
 - Native code calls back only through its `Call`, which is closed when it returns or gives a promise; a function it was handed is the same call by another name.
+- `units.js` restates `backend/wasm/units.rs`. Loads go one at a time and nothing is reclaimed while one instantiates, since a unit is told addresses and how many externs the program has.
+- A `Loaded` owns one reference to its function, and gives it up once: by being handed to the program, or by `release`.
 - A run keeps its own waits, by its context (`Waits`), so runs at once never share an answer.
 
 ## Testing
 
 - `ambient-js/tests/host.rs` builds a program as a module and runs `js/*.test.js` under Node's own runner. JavaScript is tested nowhere else, and only what the host itself does.
-- The tests are thin: one fixture program, one build, one Node process. What a program means is tested in `crates/ambient`.
+- The tests are thin: one fixture program, one to load into with a unit, and one Node process. What a program means is tested in `crates/ambient`.

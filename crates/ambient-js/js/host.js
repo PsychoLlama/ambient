@@ -16,7 +16,8 @@ import {
   UNWIND,
   WAITING,
 } from "./constants.js";
-import { Values } from "./values.js";
+import { Units } from "./units.js";
+import { Loaded } from "./values.js";
 
 export { Float, Handle, Tag, Tuple } from "./values.js";
 
@@ -41,7 +42,7 @@ export class Fault extends Error {
  */
 export async function load(source, natives = {}) {
   const program = new Program();
-  const imports = { host: { native: (...call) => program.native(...call) } };
+  const imports = { host: { native: program.calls } };
   const bytes = ArrayBuffer.isView(source) || source instanceof ArrayBuffer;
   const { instance, module } = bytes
     ? await WebAssembly.instantiate(source, imports)
@@ -131,7 +132,11 @@ class Waits {
 
   /** Takes the answer to `ticket`, unless its task has left the wait. */
   answer(ticket, answer) {
-    if (!this.pending.delete(ticket)) return;
+    if (!this.pending.delete(ticket)) {
+      // Nothing is to have what was loaded for it.
+      if (answer.value instanceof Loaded) answer.value.release();
+      return;
+    }
     this.answers.push({ ticket, ...answer });
     this.arrived?.();
     this.arrived = null;
@@ -151,31 +156,22 @@ class Waits {
   }
 }
 
-class Program extends Values {
-  /** The native code for each extern, by its position. */
-  natives = [];
+class Program extends Units {
   /** The waits of each run that is not over, by its context. */
   waits = new Map();
   /** What native code threw, for the fault it became. */
   failure = null;
+  /** What compiled code calls native code through. */
+  calls = (...call) => this.native(...call);
 
   begin(module, instance, natives) {
-    this.exports = instance.exports;
-    for (const { name, kind } of WebAssembly.Module.exports(module)) {
-      if (kind !== "global" || !name.startsWith("native:")) continue;
-      // Its package and path, and then those of each ability of its row.
-      const [pkg, path, ...names] = name.slice("native:".length).split("\t");
-      const run = natives[pkg]?.[path];
-      if (typeof run !== "function") {
-        throw new Error(`no native code for \`${path}\` of package \`${pkg}\``);
-      }
-      const row = [];
-      for (let at = 0; at < names.length; at += 2) {
-        row.push([names[at], names[at + 1]]);
-      }
-      this.natives[Number(this.exports[name].value)] = { run, row };
-    }
-    this.entry = this.exports.init();
+    const x = (this.exports = instance.exports);
+    // Where the runtime lists the units nothing refers to, in a
+    // program that units are loaded into.
+    if (x.amb_unit_take) this.unused = x.amb_words(1n) >>> 0;
+    this.supply(module, instance, natives);
+    const [entry] = this.init(module, instance, false, []);
+    this.entry = new Loaded(this, entry);
   }
 
   /**
@@ -183,13 +179,25 @@ class Program extends Values {
    * promise settles once the entry is over, and throws a `Fault` if a
    * fault ended it.
    */
-  async run(...args) {
+  run(...args) {
+    return this.call(this.entry, ...args);
+  }
+
+  /**
+   * Calls a function the host holds, the entry or what a load gave,
+   * with `args` and nothing bound, as `run` runs the entry.
+   */
+  async call(loaded, ...args) {
     const x = this.exports;
+    const callee = loaded.word;
+    if (x.amb_closure_arity(callee) !== BigInt(args.length + 1)) {
+      throw new TypeError("the function does not take as many arguments");
+    }
     const context = x.amb_context_new();
     // The entry is handed no bindings: its target is bound inside it.
     const handed = this.tuple([null, ...args]);
     this.waits.set(context, new Waits());
-    const start = () => x.amb_start(context, this.entry, handed);
+    const start = () => x.amb_start(context, callee, handed);
     try {
       // Unwinding in this mode is the root task suspending: the others
       // take their turns, and the entry runs again to resume it.
@@ -202,10 +210,12 @@ class Program extends Values {
       throw this.fault(context);
     } finally {
       // An answer that comes after this finds no wait, and is dropped.
+      this.waits.get(context).pending.clear();
       this.waits.delete(context);
       x.amb_release(handed);
       x.amb_context_free(context);
       this.heard();
+      this.reclaim();
     }
   }
 

@@ -25,6 +25,17 @@ console.log(await program.run());
 
 `examples/browser` is a page that does this.
 
+A program built to be loaded into takes more code while it runs. No command builds one yet: `backend::wasm::open_module` and `unit` do.
+
+```js
+// The function a unit holds, which the host holds until it hands it over or lets it go.
+const plugin = await program.add(fetch("plugin.wasm"), natives);
+console.log(await program.call(plugin, 4));
+plugin.release();
+// A suspending extern that answers with one hands it to the program.
+const fetched = () => program.add(fetch("plugin.wasm"));
+```
+
 ## Testing
 
 - `cargo nextest run -p ambient-js` builds a program and runs `js/*.test.js` under Node's own runner (`tests/host.rs`).

@@ -9,6 +9,8 @@ import { Fault, load } from "./host.js";
 
 const module = process.env.AMBIENT_MODULE;
 const PACKAGE = process.env.AMBIENT_PACKAGE;
+/** A program code is loaded into, and code to load into it. */
+const { AMBIENT_OPEN: open, AMBIENT_UNIT: unit } = process.env;
 
 /**
  * A clock that passes only when asked: each wait is over in the order
@@ -162,4 +164,36 @@ test("a module is loaded from the response that carries it", async () => {
   });
 
   assert.equal(await program.run(PATIENT), 4);
+});
+
+/** The program that calls what it fetches, over a page that gives `fetched`. */
+async function loader(fetched) {
+  const program = await load(await readFile(open), {
+    [PACKAGE]: { "main.fetched": () => fetched(program) },
+  });
+  return program;
+}
+
+test("a program calls code its page loads into it while it runs", async () => {
+  const program = await loader(async (program) => program.add(readFile(unit)));
+
+  assert.equal(await program.run(21), 42);
+  // Nothing the run left refers to what was loaded.
+  assert.equal(program.units.size, 0);
+});
+
+test("a host calls a function it loaded until it lets it go", async () => {
+  const program = await loader(() => null);
+  const plugin = await program.add(await readFile(unit));
+
+  assert.equal(await program.call(plugin, 4), 8);
+  assert.equal(program.units.size, 1);
+  plugin.release();
+  assert.equal(program.units.size, 0);
+});
+
+test("nothing is loaded into a program that was not built for it", async () => {
+  const { program } = await page();
+
+  await assert.rejects(program.add(await readFile(unit)), /not built to be/);
 });

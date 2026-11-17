@@ -34,6 +34,36 @@ export class Handle {
   }
 }
 
+/**
+ * A function of the program that its host holds: the program's entry,
+ * or what a load gave. Handing it to the program, as what native code
+ * gives or answers with, gives it up; `release` does when nothing is
+ * to have it.
+ */
+export class Loaded {
+  constructor(program, word) {
+    this.program = program;
+    this.word = word;
+  }
+
+  /** The word, which whatever takes it holds from then on. */
+  take() {
+    if (this.word === null) {
+      throw new TypeError("a loaded function is handed over once");
+    }
+    const word = this.word;
+    this.word = null;
+    return word;
+  }
+
+  /** Lets the function go, and what was loaded with it if that was all. */
+  release() {
+    if (this.word === null) return;
+    this.program.exports.amb_release(this.take());
+    this.program.reclaim();
+  }
+}
+
 const utf8 = new TextDecoder("utf-8", { fatal: false });
 const text = new TextEncoder();
 
@@ -153,6 +183,7 @@ export class Values {
       this.handles.set(number, value.value);
       return x.amb_handle_new(brand, number);
     }
+    if (value instanceof Loaded) return value.take();
     if (typeof value === "function") {
       throw new TypeError("a function is not a value a program is handed");
     }
