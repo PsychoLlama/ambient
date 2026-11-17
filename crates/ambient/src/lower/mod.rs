@@ -53,7 +53,7 @@ pub fn lower(definition: &Open, form: &Form) -> Result<lir::Function, Unsupporte
                 definition.slots.len(),
                 *suspends,
                 row,
-                form.metered,
+                form,
             ));
         }
         _ => return Err(Unsupported("definitions that are not functions")),

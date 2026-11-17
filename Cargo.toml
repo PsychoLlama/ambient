@@ -9,6 +9,7 @@ edition = "2024"
 [workspace.dependencies]
 ambient-host = { path = "crates/ambient-host" }
 ambient-runtime = { path = "crates/ambient-runtime" }
+corosensei = "0.3"
 cranelift-codegen = "0.136"
 cranelift-frontend = "0.136"
 cranelift-native = "0.136"

@@ -83,15 +83,15 @@ pub use object::{amb_release, amb_retain, fixed_closure, layout};
 pub use record::*;
 pub use scope::{amb_scope_new, amb_scope_set, fixed_scope};
 pub use sequence::*;
-pub use task::{DEPTH, FRAME, NATIVE, amb_call_among, amb_call_back, amb_depth, amb_enter};
 pub use task::{
-    FORSAKEN, LIMITS, RESUMING, RUNNING, SUSPENDING, WAITING, amb_all, amb_answer, amb_await,
-    amb_bounce, amb_budget_back, amb_budget_caught, amb_budget_current, amb_budget_enter,
-    amb_budget_leave, amb_budget_switch, amb_charge, amb_charge_read, amb_charge_size,
-    amb_charge_tasks, amb_first, amb_frame_drop, amb_frame_load, amb_frame_point, amb_frame_push,
-    amb_frame_save, amb_group_close, amb_group_end, amb_group_new, amb_native_wait, amb_refuse,
-    amb_schedule, amb_spawn, amb_start, amb_strand, amb_tail, amb_tail_arg,
+    Body, FORSAKEN, LIMITS, RESUMING, RUNNING, SUSPENDING, Stacks, WAITING, amb_all, amb_answer,
+    amb_await, amb_bounce, amb_budget_back, amb_budget_caught, amb_budget_current,
+    amb_budget_enter, amb_budget_leave, amb_budget_switch, amb_charge, amb_charge_read,
+    amb_charge_size, amb_charge_tasks, amb_first, amb_frame_drop, amb_frame_load, amb_frame_point,
+    amb_frame_push, amb_frame_save, amb_group_close, amb_group_end, amb_group_new, amb_native_wait,
+    amb_refuse, amb_schedule, amb_spawn, amb_start, amb_strand, amb_tail, amb_tail_arg,
 };
+pub use task::{DEPTH, FRAME, NATIVE, amb_call_among, amb_call_back, amb_depth, amb_enter};
 pub use text::*;
 pub use trace::{TRACE_LIMIT, amb_trace};
 pub use unit::*;
@@ -263,6 +263,9 @@ pub struct Context {
     /// How deep the function that is making a call is: see
     /// [`amb_enter`].
     pub depth: u64,
+    /// Where a task is a stack, the address of what its platform
+    /// gives for that: see [`Stacks`]. Zero where a task unwinds.
+    pub stacks: u64,
 }
 
 impl Context {

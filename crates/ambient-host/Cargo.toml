@@ -6,6 +6,7 @@ description = "What loads and runs a compiled Ambient program"
 
 [dependencies]
 ambient-runtime.workspace = true
+corosensei.workspace = true
 memmap2.workspace = true
 blake3.workspace = true
 getrandom.workspace = true

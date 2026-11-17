@@ -49,7 +49,9 @@ pub unsafe extern "C" fn amb_call_back(context: *mut Context, callee: Word, args
 
 /// Calls `callee` for native code, as [`amb_call_back`] does, in a
 /// program whose tasks can suspend. If the task suspends in the call,
-/// others take their turns here until it can go on.
+/// others take their turns here until it can go on. Where a task is a
+/// stack the call never comes back suspending: the wait it is in gives
+/// the turns ([`super::waiting`]), from here all the same.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_call_among(context: *mut Context, callee: Word, args: Word) -> Word {
     unsafe {
@@ -69,6 +71,7 @@ pub unsafe extern "C" fn amb_call_among(context: *mut Context, callee: Word, arg
         if before == Beneath::Free {
             scheduler.current().beneath = Beneath::Pinned;
         }
+        let stood = scheduler.current().kept.stands(depth);
         let result = loop {
             let result = start(context, callee, args, metered, depth);
             if result != UNWIND || (*context).mode != SUSPENDING {
@@ -83,6 +86,7 @@ pub unsafe extern "C" fn amb_call_among(context: *mut Context, callee: Word, arg
         // It was made to unwind because it could not go on. That is a
         // fault, unless it was to unwind anyway.
         let after = core::mem::replace(&mut task.beneath, before);
+        task.kept.stands(stood);
         let stuck = after == Beneath::Stuck && before != Beneath::Stuck;
         let cancelled = task.cancelled || task.disturbed > 0;
         if stuck && !cancelled && result == UNWIND && (*context).fault == Fault::Cancelled as u64 {
@@ -102,7 +106,7 @@ pub unsafe extern "C" fn amb_call_among(context: *mut Context, callee: Word, arg
 /// cannot have a turn here, and neither can the root, which only the
 /// host resumes. If nothing else can run, `id` waits on what will not
 /// happen while native code stands: it is made to unwind.
-unsafe fn until(context: *mut Context, id: usize, depth: Word) {
+pub(super) unsafe fn until(context: *mut Context, id: usize, depth: Word) {
     unsafe {
         loop {
             let scheduler = scheduler(context);

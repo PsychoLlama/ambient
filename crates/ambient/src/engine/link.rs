@@ -197,7 +197,7 @@ impl Engine<'_> {
     fn reached(&self, entry: &Symbol, backend: &dyn Backend, shape: Shape) -> Result<Parts, Error> {
         let (indices, symbols) = self.reach(entry)?;
 
-        let still = shape == Shape::Closed && self.still(&symbols)?;
+        let still = backend.stacks() || shape == Shape::Closed && self.still(&symbols)?;
         let metered = if shape == Shape::Loaded {
             let hashes = symbols.iter().map(|symbol| self.hash(symbol));
             hashes.collect::<Result<_, _>>()?

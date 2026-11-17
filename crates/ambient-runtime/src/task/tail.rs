@@ -119,9 +119,14 @@ pub unsafe extern "C" fn amb_start(
     args: Word,
     metered: u64,
 ) -> Word {
-    // Nothing compiled is running under it: a host is, or the
-    // scheduler a host called.
-    unsafe { start(context, callee, args, metered, NOWHERE) }
+    unsafe {
+        if let Some(stacks) = super::stack::of(context) {
+            return super::stack::root(context, stacks, callee, args, metered);
+        }
+        // Nothing compiled is running under it: a host is, or the
+        // scheduler a host called.
+        start(context, callee, args, metered, NOWHERE)
+    }
 }
 
 /// What [`amb_start`] does, from `depth`: how deep whatever makes the

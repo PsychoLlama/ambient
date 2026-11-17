@@ -74,6 +74,11 @@ pub unsafe extern "C" fn amb_group_close(
     group: Word,
     unwinding: u64,
 ) -> Word {
+    unsafe { super::waiting(context, || closing(context, group, unwinding)) }
+}
+
+/// A step of closing a group: asked again until its tasks are over.
+unsafe fn closing(context: *mut Context, group: Word, unwinding: u64) -> Word {
     unsafe {
         arriving(context);
         let stop = unwinding != 0 || interrupted(context);

@@ -3,7 +3,7 @@
 use crate::number::equal;
 use crate::object::{KIND_CELL, amb_release, amb_retain, boolean, fault, object, words};
 use crate::scope::{At, Env};
-use crate::task::{amb_suspend, arriving, interrupted, wait_on, wake};
+use crate::task::{amb_suspend, arriving, interrupted, wait_on, waiting, wake};
 use crate::unit::{self, amb_unit_retain};
 use crate::{Context, Fault, NULL, Word};
 
@@ -133,6 +133,11 @@ pub unsafe extern "C" fn amb_cell_replace(
 /// Suspends the task until a cell holds something other than `seen`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_cell_wait(context: *mut Context, cell: Word, seen: Word) -> Word {
+    unsafe { waiting(context, || changed(context, cell, seen)) }
+}
+
+/// A step of a wait on a cell: asked again each time the cell changes.
+unsafe fn changed(context: *mut Context, cell: Word, seen: Word) -> Word {
     unsafe {
         // Arriving or not, a cancelled task unwinds from here.
         arriving(context);

@@ -13,7 +13,7 @@ use cranelift_codegen::ir::{
 };
 use cranelift_codegen::isa::OwnedTargetIsa;
 use cranelift_codegen::settings::{self, Configurable};
-use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
+use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
 use crate::backend::MAX_ARITY;
 use crate::core::Open;
@@ -23,7 +23,6 @@ use crate::lower::{Form, lower};
 
 mod again;
 mod fast;
-mod resume;
 
 /// Compiles for the machine this process runs on.
 pub struct Native {
@@ -68,11 +67,19 @@ impl Backend for Native {
         super::NAME
     }
 
+    fn stacks(&self) -> bool {
+        true
+    }
+
     fn compile(&self, definition: &Open, form: &Form) -> Result<Vec<u8>, String> {
         let function =
             lower(definition, form).map_err(|error| format!("{} are not compiled yet", error.0))?;
         if function.params > MAX_ARITY {
             return Err(format!("more than {MAX_ARITY} parameters"));
+        }
+        // A task here is a stack: see `Backend::stacks`.
+        if function.points > 0 {
+            return Err("a function compiled to resume".to_owned());
         }
 
         let mut signature = Signature::new(self.isa.default_call_conv());
@@ -92,19 +99,15 @@ impl Backend for Native {
 
         let exit = builder.create_block();
         builder.append_block_param(exit, I64);
-        let target = builder.declare_var(I64);
         let mut emitter = Emitter {
             call_conv: self.isa.default_call_conv(),
             context: params[0],
             closure: params[1],
             frame,
-            locals: function.locals,
             params: function.params,
             held: 0,
-            target,
             slots: function.slots,
             unwind: vec![exit],
-            save: None,
             builder,
         };
         for (local, param) in params[2..].iter().enumerate() {
@@ -115,10 +118,8 @@ impl Backend for Native {
         for local in function.params..function.locals {
             emitter.set_local(local, zero);
         }
-        emitter.enter(function.points > 0);
         let result = emitter.expr(&function.body);
         emitter.builder.ins().jump(exit, &[BlockArg::Value(result)]);
-        emitter.save();
         let mut builder = emitter.builder;
         builder.switch_to_block(exit);
         let result = builder.block_params(exit)[0];
@@ -149,23 +150,16 @@ struct Emitter<'a> {
     /// live nearly everywhere, and a function with many would take the
     /// register allocator time beyond all proportion to its size.
     frame: StackSlot,
-    /// How many locals there are, and how many are parameters.
-    locals: usize,
+    /// How many of the locals are parameters.
     params: usize,
     /// Where the loop the function is keeps its parameters: see
     /// [`Expr::Loop`].
     held: usize,
-    /// The point a function that is resuming is going back to, and `-1`
-    /// in one that is not.
-    target: Variable,
     /// How many slots the definition has; its constants follow them.
     slots: usize,
     /// Where unwinding goes from here: the end of each enclosing `Let`,
     /// innermost last, each taking the result as its parameter.
     unwind: Vec<cranelift_codegen::ir::Block>,
-    /// Where a function whose task is suspending goes to keep its locals,
-    /// once any point has needed it.
-    save: Option<cranelift_codegen::ir::Block>,
 }
 
 impl Emitter<'_> {
@@ -270,32 +264,12 @@ impl Emitter<'_> {
         self.builder.switch_to_block(proceed);
     }
 
-    /// Whether `word` is exactly `expected`.
-    fn is(&mut self, word: Val, expected: u64) -> Val {
-        self.builder
-            .ins()
-            .icmp_imm_s(IntCC::Equal, word, expected.cast_signed())
-    }
-
     /// `body`, or, if it unwinds, `recover`.
-    fn attempt(&mut self, body: &Expr, recover: &Expr, recovering: (usize, usize)) -> Val {
+    fn attempt(&mut self, body: &Expr, recover: &Expr) -> Val {
         let landing = self.builder.create_block();
         self.builder.append_block_param(landing, I64);
         let join = self.builder.create_block();
         self.builder.append_block_param(join, I64);
-
-        // A function going back to a point in `recover` had left
-        // the body already.
-        if recovering.0 < recovering.1 {
-            let recovered = self.resuming_to(recovering);
-            let enter = self.builder.create_block();
-            let zero = self.builder.ins().iconst(I64, 0);
-            let passed = [BlockArg::Value(zero)];
-            self.builder
-                .ins()
-                .brif(recovered, landing, &passed, enter, &[]);
-            self.builder.switch_to_block(enter);
-        }
 
         self.unwind.push(landing);
         let result = self.expr(body);
@@ -314,12 +288,10 @@ impl Emitter<'_> {
 
     fn expr(&mut self, expr: &Expr) -> Val {
         match expr {
-            Expr::Point { point, op, frame } => self.point(*point, op, *frame),
-            Expr::Resumed {
-                points,
-                local,
-                value,
-            } => self.resumed(*points, *local, value),
+            // Neither is made for this backend, whose functions have no
+            // points: a point is its operation, and nothing is skipped.
+            Expr::Point { op, .. } => self.expr(&Expr::Op(op.clone())),
+            Expr::Resumed { value, .. } => self.expr(value),
             Expr::Op(op) => {
                 let word = self.op(op);
                 if op.unwinds() {
@@ -371,11 +343,7 @@ impl Emitter<'_> {
                 self.builder.switch_to_block(join);
                 self.builder.block_params(join)[0]
             }
-            Expr::Try {
-                body,
-                recover,
-                recovering,
-            } => self.attempt(body, recover, *recovering),
+            Expr::Try { body, recover, .. } => self.attempt(body, recover),
             Expr::Loop { body, held } => self.looped(body, *held),
             Expr::Fault(fault) => {
                 let code = self.constant(*fault as u64);

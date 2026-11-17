@@ -33,6 +33,11 @@ pub unsafe extern "C" fn amb_first(context: *mut Context, thunks: Word) -> Word 
 
 /// Starts a task for each of `thunks` and waits for them all.
 unsafe fn join(context: *mut Context, thunks: Word, first: bool) -> Word {
+    unsafe { super::waiting(context, || started(context, thunks, first)) }
+}
+
+/// A step of a join: starting its tasks, or arriving back at it.
+unsafe fn started(context: *mut Context, thunks: Word, first: bool) -> Word {
     unsafe {
         if arriving(context) {
             return joined(context);

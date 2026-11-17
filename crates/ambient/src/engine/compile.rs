@@ -27,6 +27,13 @@ pub trait Backend {
     /// `form` says what the definition's tree does not, as
     /// [`crate::lower::lower`] has it.
     fn compile(&self, definition: &Open, form: &Form) -> Result<Vec<u8>, String>;
+
+    /// Whether a task is a stack where this backend's code runs, so
+    /// that no function is compiled to suspend or to resume. See
+    /// "Suspension" in `spec/backends.md`.
+    fn stacks(&self) -> bool {
+        false
+    }
 }
 
 /// Which of a function's compiled forms: all are code for one hash.
@@ -58,6 +65,9 @@ impl Engine<'_> {
         backend: &dyn Backend,
         mode: Mode,
     ) -> Query<Artifact> {
+        // Where a task is a stack, nothing is ever compiled to resume.
+        let still = mode.still || backend.stacks();
+        let mode = Mode { still, ..mode };
         let memo_key = (symbol.clone(), backend.name().to_owned(), mode);
         deep(|| self.compiled(symbol, backend, mode, &memo_key))
     }

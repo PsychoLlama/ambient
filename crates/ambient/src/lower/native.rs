@@ -18,8 +18,9 @@ pub(super) fn native(
     slots: usize,
     waits: bool,
     row: &[Slot],
-    metered: bool,
+    form: &super::Form,
 ) -> lir::Function {
+    let metered = form.metered;
     let args = arity + 1;
     let handlers = arity + 2;
     let mut constants = vec![Constant::Native, Constant::Own];
@@ -70,7 +71,7 @@ pub(super) fn native(
     let members = (1..=arity).map(Value::Local).collect();
     let list = false;
     let body = bind(args, Op::Sequence { list, members }, body);
-    let (body, points) = resume::resumable(body, false);
+    let (body, points) = resume::resumable(body, form.still);
     lir::Function {
         params: arity + 1,
         locals: handlers + 1 + fields,

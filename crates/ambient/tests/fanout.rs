@@ -13,7 +13,8 @@ use support::text::text;
 /// task sleeps, and how long it took.
 fn timed(body: &str) -> (String, i64) {
     let source = format!(
-        "import ambient.tasks;
+        "import ambient.iterator;
+        import ambient.tasks;
         import ambient.time;
         import system.clock;
 
@@ -94,4 +95,16 @@ fn each_task_started_is_a_step_of_the_budget_it_is_started_in() {
         (spent(100), spent(3)),
         ("afforded".into(), "ran out".into())
     );
+}
+
+#[test]
+fn thousands_of_tasks_wait_at_once() {
+    // Each is its own stack natively, and all of them stand while they
+    // sleep.
+    let body = r"
+        let lengths = iterator.range(0, 4000).to_list();
+        let slept = tasks.map(lengths, fn(length: int): int => nap(length % 7));
+        return slept.length().to_text();
+    ";
+    assert_eq!(timed(body), ("4000".to_owned(), 6));
 }

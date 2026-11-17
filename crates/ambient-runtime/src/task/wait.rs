@@ -88,6 +88,12 @@ pub unsafe extern "C" fn amb_native_wait(
     bindings: Word,
     args: Word,
 ) -> Word {
+    unsafe { super::waiting(context, || asked(context, index, bindings, args)) }
+}
+
+/// A step of a wait on the host: running the native code, or arriving
+/// back with its answer.
+unsafe fn asked(context: *mut Context, index: u64, bindings: Word, args: Word) -> Word {
     unsafe {
         let arriving = arriving(context);
         // Arriving or not, a cancelled task unwinds from here.

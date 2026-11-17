@@ -5,6 +5,7 @@
 mod externs;
 mod host;
 mod load;
+mod stacks;
 mod unit;
 mod values;
 mod waits;

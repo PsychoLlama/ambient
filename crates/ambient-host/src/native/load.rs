@@ -383,6 +383,7 @@ impl Program {
             (*context).native = dispatch as *const () as u64;
             (*context).host = std::ptr::from_ref(self) as u64;
             (*context).cells = self.cells.get() as u64;
+            (*context).stacks = std::ptr::from_ref(&super::stacks::STACKS) as u64;
             let handed = ambient_runtime::amb_sequence_new(0, words.len() as u64);
             for (index, word) in (0..).zip(&words) {
                 ambient_runtime::amb_sequence_set(handed, index, *word);

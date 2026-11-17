@@ -1,7 +1,8 @@
 //! Tasks: suspension, a scheduler, and joining. See `spec/tasks.md` and
 //! `spec/backends.md`.
 //!
-//! A task suspends by unwinding. Something in the runtime sets the
+//! A task suspends by unwinding, unless its platform keeps it as a
+//! stack: see [`stack`]. Something in the runtime sets the
 //! context's mode to [`SUSPENDING`] and returns [`UNWIND`]; each compiled
 //! function on the way out saves its locals in a frame and returns too.
 //! To resume, the task's body is called again with the mode
@@ -22,6 +23,7 @@ mod depth;
 mod frame;
 mod group;
 mod join;
+mod stack;
 mod tail;
 mod wait;
 
@@ -37,6 +39,8 @@ pub use depth::{DEPTH, FRAME, NATIVE, amb_depth, amb_enter};
 pub use frame::{amb_frame_drop, amb_frame_load, amb_frame_point, amb_frame_push, amb_frame_save};
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
 pub use join::{amb_all, amb_first};
+pub(crate) use stack::waiting;
+pub use stack::{Body, Stacks};
 use tail::start;
 pub use tail::{amb_bounce, amb_start, amb_tail, amb_tail_arg};
 pub use wait::{FORSAKEN, amb_answer, amb_await, amb_native_wait, amb_refuse, amb_strand};
@@ -93,6 +97,9 @@ struct Task {
     wait: wait::Wait,
     /// Where it is with native code it called.
     beneath: Beneath,
+    /// What it keeps where a task is a stack, and nowhere else: see
+    /// [`stack`].
+    kept: stack::Kept,
 }
 
 /// Where a task is with native code that called back into it.
@@ -387,7 +394,24 @@ unsafe fn turn(context: *mut Context, id: usize, depth: Word) {
         }
         (*context).mode = if task.started { RESUMING } else { RUNNING };
         task.started = true;
+        let result = match stack::of(context) {
+            Some(stacks) => stack::turn(context, stacks, id, depth),
+            None => run(context, id, depth),
+        };
+        ended(context, id, result);
+    }
+}
+
+/// Calls what the task `id` runs, from `depth`: its thunk, or for the
+/// root what the host called.
+unsafe fn run(context: *mut Context, id: usize, depth: Word) -> Word {
+    unsafe {
+        let task = scheduler(context).task(id);
         let thunk = task.thunk;
+        // The root is run from here only where a task is a stack.
+        if let Some((args, metered)) = task.kept.handed() {
+            return start(context, thunk, args, metered, depth);
+        }
         // A task inside a budget is metered, as what started it was.
         let metered = u64::from(task.budget.is_some());
         // A thunk takes nothing but the bindings every function is
@@ -395,7 +419,7 @@ unsafe fn turn(context: *mut Context, id: usize, depth: Word) {
         let nothing = crate::sequence::amb_sequence_new(0, 1);
         let result = start(context, thunk, nothing, metered, depth);
         amb_release(nothing);
-        ended(context, id, result);
+        result
     }
 }
 

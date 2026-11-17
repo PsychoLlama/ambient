@@ -31,6 +31,7 @@ pub unsafe extern "C" fn amb_context_new() -> *mut Context {
         tail_args: [0; crate::ARGUMENTS],
         tail_count: 0,
         depth: 0,
+        stacks: 0,
     }))
 }
 
@@ -44,6 +45,7 @@ pub unsafe extern "C" fn amb_context_new() -> *mut Context {
 pub unsafe extern "C" fn amb_context_free(context: *mut Context) {
     unsafe {
         crate::abort::abandon(context);
+        (*((*context).scheduler as usize as *mut Scheduler)).abandon(context);
         drop(Box::from_raw(
             (*context).scheduler as usize as *mut Scheduler,
         ));
