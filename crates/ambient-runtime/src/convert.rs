@@ -2,7 +2,6 @@
 //! `spec/operations.md`.
 
 use alloc::format;
-use alloc::string::ToString;
 
 use crate::number::{amb_float_new, amb_int_new};
 use crate::object::{bytes, float, int};
@@ -44,7 +43,37 @@ unsafe fn text(text: &str) -> Word {
 /// An integer in decimal.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_int_text(value: Word) -> Word {
-    unsafe { text(&int(value).to_string()) }
+    let mut digits = [0; DIGITS];
+    let digits = decimal(unsafe { int(value) }, &mut digits);
+    unsafe { amb_string_new(digits.as_ptr(), digits.len() as u64) }
+}
+
+/// The most bytes an integer takes in decimal: its sign and its digits.
+const DIGITS: usize = 20;
+
+/// `value` in decimal, written at the end of `room`.
+///
+/// Written out here because the standard library's formatting, which
+/// would do it, is several thousand bytes of a WebAssembly module that
+/// only turns a number into text.
+fn decimal(value: i64, room: &mut [u8; DIGITS]) -> &[u8] {
+    let mut left = value.unsigned_abs();
+    let mut at = DIGITS;
+    loop {
+        at -= 1;
+        #[allow(clippy::cast_possible_truncation)]
+        let digit = (left % 10) as u8;
+        room[at] = b'0' + digit;
+        left /= 10;
+        if left == 0 {
+            break;
+        }
+    }
+    if value < 0 {
+        at -= 1;
+        room[at] = b'-';
+    }
+    &room[at..]
 }
 
 /// A float as the shortest decimal that reads back as the same float.
@@ -90,4 +119,31 @@ pub unsafe extern "C" fn amb_code_string(value: Word) -> Word {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_string_float(value: Word) -> Word {
     unsafe { read::<f64>(value).map_or(NULL, |value| amb_float_new(value.to_bits())) }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::string::ToString;
+
+    use proptest::prelude::*;
+
+    use super::{DIGITS, decimal};
+
+    fn written(value: i64) -> alloc::string::String {
+        alloc::string::String::from_utf8_lossy(decimal(value, &mut [0; DIGITS])).into_owned()
+    }
+
+    #[test]
+    fn the_longest_integers_fit() {
+        for value in [i64::MIN, i64::MAX, 0] {
+            assert_eq!(written(value), value.to_string());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn an_integer_in_decimal_is_what_the_standard_library_writes(value: i64) {
+            prop_assert_eq!(written(value), value.to_string());
+        }
+    }
 }

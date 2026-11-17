@@ -1,8 +1,6 @@
 //! Boundaries: a fault as an error. See `spec/values.md` and
 //! `spec/errors.md`.
 
-use alloc::format;
-
 use crate::object::amb_release;
 use crate::record::{amb_record_new, amb_record_set};
 use crate::text::{amb_intern, amb_string_new, amb_tag};
@@ -60,6 +58,13 @@ pub unsafe extern "C" fn amb_contain(context: *mut Context) -> Word {
     }
 }
 
+/// The tag `name` of the package faults are named in. Put together by
+/// hand: formatting would be most of what a small program carries.
+pub(crate) unsafe fn tag(name: &str) -> Word {
+    let whole = [FAULT_PACKAGE, "\0", name].concat();
+    unsafe { amb_tag(whole.as_ptr(), whole.len() as u64) }
+}
+
 /// For a host whose program unwound: the error that describes the
 /// fault, which the caller owns, or null if the unwinding is not a
 /// fault. A program's root is a boundary, and this is what it gives.
@@ -70,9 +75,8 @@ pub unsafe extern "C" fn amb_context_error(context: *mut Context) -> Word {
         let Some((kind, message)) = Fault::from_code((*context).fault).describe() else {
             return NULL;
         };
-        let kind = format!("{FAULT_PACKAGE}\0{kind}");
         let error = amb_record_new(4);
-        set(error, "kind", amb_tag(kind.as_ptr(), kind.len() as u64));
+        set(error, "kind", tag(kind));
         let text = amb_string_new(message.as_ptr(), message.len() as u64);
         set(error, "message", text);
         set(error, "cause", NULL);

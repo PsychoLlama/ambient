@@ -5,15 +5,12 @@
 //! the task is inside, and the first to run out unwinds the task to it.
 //! Tasks started inside a budget are inside it too.
 
-use alloc::format;
 use alloc::vec::Vec;
 
 use super::scheduler;
-use crate::boundary::FAULT_PACKAGE;
 use crate::number::amb_int_new;
 use crate::object::{KIND_LIST, KIND_RECORD, fault, header, int, is_object, kind};
 use crate::record;
-use crate::text::amb_tag;
 use crate::{Context, Fault, NULL, UNWIND, Word};
 
 /// The limits of a budget, as the tags that say which ran out: of steps,
@@ -133,8 +130,7 @@ pub unsafe extern "C" fn amb_budget_caught(context: *mut Context, budget: Word) 
             return UNWIND;
         }
         (*context).fault = Fault::None as u64;
-        let tag = format!("{FAULT_PACKAGE}\0{limit}");
-        amb_tag(tag.as_ptr(), tag.len() as u64)
+        crate::boundary::tag(limit)
     }
 }
 
