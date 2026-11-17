@@ -36,17 +36,6 @@ pub trait Backend {
     }
 }
 
-/// Which of a function's compiled forms: all are code for one hash.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub(super) struct Mode {
-    /// Whether it charges for what it does, as code inside a budget
-    /// calls it.
-    pub metered: bool,
-    /// Whether it is part of a program in which nothing suspends, and
-    /// so is compiled without what resuming takes.
-    pub still: bool,
-}
-
 impl Engine<'_> {
     /// A function's compiled form for one backend.
     ///
@@ -55,29 +44,30 @@ impl Engine<'_> {
     /// Fails if the symbol is not a function, does not check, or the backend
     /// refuses it.
     pub fn compile(&self, symbol: &Symbol, backend: &dyn Backend) -> Query<Artifact> {
-        self.compile_as(symbol, backend, Mode::default())
+        self.compile_as(symbol, backend, false)
     }
 
-    /// One of a function's compiled forms for one backend.
+    /// A function's compiled form for one backend: with `still`, as
+    /// part of a program in which nothing suspends, compiled without
+    /// what resuming takes. Both forms are code for one hash.
     pub(super) fn compile_as(
         &self,
         symbol: &Symbol,
         backend: &dyn Backend,
-        mode: Mode,
+        still: bool,
     ) -> Query<Artifact> {
         // Where a task is a stack, nothing is ever compiled to resume.
-        let still = mode.still || backend.stacks();
-        let mode = Mode { still, ..mode };
-        let memo_key = (symbol.clone(), backend.name().to_owned(), mode);
-        deep(|| self.compiled(symbol, backend, mode, &memo_key))
+        let still = still || backend.stacks();
+        let memo_key = (symbol.clone(), backend.name().to_owned(), still);
+        deep(|| self.compiled(symbol, backend, still, &memo_key))
     }
 
     fn compiled(
         &self,
         symbol: &Symbol,
         backend: &dyn Backend,
-        mode: Mode,
-        memo_key: &(Symbol, String, Mode),
+        still: bool,
+        memo_key: &(Symbol, String, bool),
     ) -> Query<Artifact> {
         memo(&self.compile, memo_key, || {
             let open = self.check(symbol)?;
@@ -85,10 +75,10 @@ impl Engine<'_> {
                 return Err(Error::NotCompilable(symbol.clone()));
             }
 
-            let form = self.form(symbol, mode)?;
+            let form = self.form(symbol, still)?;
             let mut key = Hasher::new("compile");
             key.bytes(backend.name().as_bytes());
-            let flags = [mode.metered, mode.still, form.handed];
+            let flags = [still, form.handed];
             key.bytes(&flags.map(u8::from));
             key.bytes(
                 &form

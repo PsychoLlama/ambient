@@ -1,9 +1,8 @@
 //! Link: everything an entry reaches, as the parts of a program. See
 //! `spec/build.md` and `spec/targets.md`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use super::compile::Mode;
 use super::{Backend, Body, Engine, Native, Part, Parts};
 use crate::core::{self, Tree};
 use crate::error::Error;
@@ -48,37 +47,6 @@ fn says(
 }
 
 impl Engine<'_> {
-    /// The definitions among `symbols`, a whole program, that can run
-    /// inside a budget, by hash: those get a metered form.
-    ///
-    /// What runs inside a budget is what its body names, and any
-    /// function value, since one may have been made anywhere and is
-    /// called wherever it arrives; and then whatever those name. If
-    /// nothing enters a budget, nothing does.
-    fn metered(&self, symbols: &[Symbol]) -> Result<HashSet<Hash>, Error> {
-        let mut pending = Vec::new();
-        let mut budgets = false;
-        for symbol in symbols {
-            let open = self.check(symbol)?;
-            let Tree::Function(function) = &open.tree else {
-                continue;
-            };
-            let named = |slot: &core::Slot| open.slots.get(slot.0).cloned();
-            pending.extend(function.body.values().iter().filter_map(named));
-            if let Some(inside) = function.body.budgeted() {
-                budgets = true;
-                pending.extend(inside.iter().filter_map(named));
-            }
-        }
-        let mut found = HashSet::new();
-        while let Some(symbol) = pending.pop().filter(|_| budgets) {
-            if found.insert(self.hash(&symbol)?) {
-                pending.extend(self.check(&symbol)?.slots.iter().cloned());
-            }
-        }
-        Ok(found)
-    }
-
     /// Compiles `entry` and everything it reaches, as a program that
     /// nothing is loaded into.
     ///
@@ -140,9 +108,8 @@ impl Engine<'_> {
     }
 
     /// Compiles `function` and everything it reaches, to be loaded into
-    /// a program that is running. Where it will be called from is not
-    /// known, so every function gets a metered form, and it may take
-    /// abilities: whatever calls it provides them.
+    /// a program that is running. It may take abilities: whatever calls it
+    /// provides them.
     /// A host that calls it itself provides nothing, so it loads the
     /// function under a target, as [`Engine::program`] makes it.
     ///
@@ -198,12 +165,6 @@ impl Engine<'_> {
         let (indices, symbols) = self.reach(entry)?;
 
         let still = backend.stacks() || shape == Shape::Closed && self.still(&symbols)?;
-        let metered = if shape == Shape::Loaded {
-            let hashes = symbols.iter().map(|symbol| self.hash(symbol));
-            hashes.collect::<Result<_, _>>()?
-        } else {
-            self.metered(&symbols)?
-        };
 
         let mut parts = Vec::new();
         let mut natives = Vec::new();
@@ -213,7 +174,6 @@ impl Engine<'_> {
             for slot in &open.slots {
                 slots.push(indices.get(&self.hash(slot)?).copied().unwrap_or(0));
             }
-            let metered = metered.contains(&self.hash(symbol)?);
             // The bindings a function is handed come first.
             let function = |bounds: &[core::Type], params: &[core::Type], ret, row: &[_]| {
                 let handed = self.handed(symbol)?;
@@ -229,32 +189,12 @@ impl Engine<'_> {
                     signature,
                     described,
                     types: if handed { bounds.len() } else { 0 },
-                    code: self.compile_as(
-                        symbol,
-                        backend,
-                        Mode {
-                            metered: false,
-                            still,
-                        },
-                    )?,
-                    metered: if metered {
-                        Some(self.compile_as(
-                            symbol,
-                            backend,
-                            Mode {
-                                metered: true,
-                                still,
-                            },
-                        )?)
-                    } else {
-                        None
-                    },
+                    code: self.compile_as(symbol, backend, still)?,
                     // Lowering is cheap and has just succeeded inside
                     // `compile`, so its constants are read from it again
-                    // rather than kept beside the code. Those of the
-                    // metered form begin with those of the plain one.
+                    // rather than kept beside the code.
                     constants: {
-                        let form = self.form(symbol, Mode { metered, still })?;
+                        let form = self.form(symbol, still)?;
                         let lowered = lower(&open, &form);
                         lowered.map_or_else(|_| Vec::new(), |function| function.constants)
                     },

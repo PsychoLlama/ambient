@@ -21,7 +21,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - A `let` may be followed by `else` and arms: the value is matched, the rest of the block is what happens where it fits the pattern, and each arm is what happens where it does not. Every such arm ends in a `return`.
 - A name bound by a `let` may say what it binds, as `items: List<int>`; a value that may not be that needs an `else`.
 - A `let` of one name that says what it binds, with no `else`, tests nothing: the value is held to that type, takes from it what it leaves out, and is bound as it.
-- The bodies of a boundary, a budget, a provide, a recording, a group, and a task are bodies like a function's: `return` gives that construct its value.
+- The bodies of a boundary, a provide, a recording, a group, and a task are bodies like a function's: `return` gives that construct its value.
 - Nothing returns across one of those, since nothing but an [abort](handlers.md) leaves one early.
 
 ## Definitions
@@ -74,7 +74,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 
 ## Scopes
 
-- A [boundary](values.md) is `try`, a [budget](budgets.md) is `budget` and its limits, a [provide](handlers.md) is `provide` and a bundle, each followed by a body.
+- A [boundary](values.md) is `try` and a [provide](handlers.md) is `provide` and a bundle, each followed by a body.
 - `provide only` is a provide in only-mode, and `observe` and an observer is a [recording](handlers.md).
 - `using` and a binding registers a [cleanup](cleanup.md).
 - A [group](tasks.md) is `group` and a body, in which `spawn` and a body starts a task.

@@ -1,4 +1,4 @@
-//! Tasks, budgets, boundaries, and abilities: the nodes that decide what
+//! Tasks, boundaries, and abilities: the nodes that decide what
 //! runs where, and under which bindings.
 
 use super::expr::{Body, Layer};
@@ -32,16 +32,6 @@ impl Body<'_, '_> {
             Expr::Cleanup { cleanup, body } => {
                 self.thunk(cleanup)?;
                 self.infer(body)?
-            }
-            Expr::Budget {
-                steps,
-                allocation,
-                body,
-            } => {
-                self.check(steps, &Ty::Int)?;
-                self.check(allocation, &Ty::Int)?;
-                let ty = self.infer(body)?;
-                env.union(vec![ty, Ty::Tag])
             }
             Expr::Boundary(body) => {
                 let ty = self.infer(body)?;

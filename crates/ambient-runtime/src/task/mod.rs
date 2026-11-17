@@ -18,7 +18,6 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 mod back;
-mod budget;
 mod depth;
 mod frame;
 mod group;
@@ -32,11 +31,6 @@ mod watch;
 use alloc::collections::VecDeque;
 
 pub use back::{amb_call_among, amb_call_back};
-pub use budget::{
-    LIMITS, amb_budget_back, amb_budget_caught, amb_budget_current, amb_budget_enter,
-    amb_budget_leave, amb_budget_switch, amb_charge, amb_charge_read, amb_charge_size,
-    amb_charge_tasks,
-};
 pub use depth::{DEPTH, FRAME, NATIVE, amb_depth, amb_enter};
 pub use frame::{amb_frame_load, amb_frame_point, amb_frame_push, amb_frame_save};
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
@@ -94,11 +88,6 @@ struct Task {
     join: Option<usize>,
     /// Its wait on a cell, if it is in one.
     cell: Option<watch::Watch>,
-    /// The innermost budget it runs inside, which it holds.
-    budget: Option<Word>,
-    /// The outermost budget that ran out and made it unwind, which it
-    /// holds: what it does inside that one is a cleanup (`budget.rs`).
-    told: Option<Word>,
     /// Its wait on the host, if native code said it would answer later.
     wait: wait::Wait,
     /// Where it is with native code it called.
@@ -369,15 +358,13 @@ unsafe fn run(context: *mut Context, id: usize, depth: Word) -> Word {
         let task = scheduler(context).task(id);
         let thunk = task.thunk;
         // The root is run from here only where a task is a stack.
-        if let Some((args, metered)) = task.kept.handed() {
-            return start(context, thunk, args, metered, depth);
+        if let Some(args) = task.kept.handed() {
+            return start(context, thunk, args, depth);
         }
-        // A task inside a budget is metered, as what started it was.
-        let metered = u64::from(task.budget.is_some());
         // A thunk takes nothing but the bindings every function is
         // handed, and it is handed none: it captured its own.
         let nothing = crate::sequence::amb_sequence_new(0, 1);
-        let result = start(context, thunk, nothing, metered, depth);
+        let result = start(context, thunk, nothing, depth);
         amb_release(nothing);
         result
     }

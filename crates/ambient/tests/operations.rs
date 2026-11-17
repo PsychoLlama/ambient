@@ -11,7 +11,7 @@ use ambient::error::Error;
 use ambient::store::MemoryStore;
 use ambient::surface::{Expr, Type};
 use ambient::value::Value;
-use ambient_runtime::{FAULT_PACKAGE, Fault, SMALL_MAX, SMALL_MIN};
+use ambient_runtime::{Fault, SMALL_MAX, SMALL_MIN};
 use proptest::prelude::*;
 use support::{Outcome, run, value, workspace};
 
@@ -335,25 +335,4 @@ proptest! {
         let difference = outcome(b::subtract(a(), b())).ok();
         prop_assert_eq!(difference, left.checked_sub(right).map(Value::Int));
     }
-}
-
-// Budgets
-
-#[test]
-fn an_operation_that_copies_is_charged_for_what_it_copies() {
-    let long = || int_list([1, 2, 3, 4, 5, 6, 7, 8]);
-    let joined = |allocation| {
-        let body = b::join(long(), long());
-        outcome(b::budget(b::int(100), b::int(allocation), body))
-    };
-    let exhausted = Value::Tag {
-        package: FAULT_PACKAGE.to_owned(),
-        tag: "allocation".to_owned(),
-    };
-
-    // Two lists of eight, each an object of nine words, and a copy of
-    // each.
-    let whole = ints([1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8]);
-    assert_eq!(joined(4 * 9), Ok(whole));
-    assert_eq!(joined(4 * 9 - 1), Ok(exhausted));
 }

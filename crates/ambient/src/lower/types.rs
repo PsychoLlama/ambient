@@ -9,9 +9,6 @@ use crate::lir::{Constant, Expr, Op, Value};
 /// What lowering a function takes besides its tree.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Form {
-    /// Whether the function charges for what it does: see
-    /// `spec/budgets.md`.
-    pub metered: bool,
     /// Whether the function is handed its type arguments, which is to
     /// say whether it needs them as it runs.
     pub handed: bool,
@@ -26,17 +23,6 @@ pub struct Form {
     /// suspends, so that it never has to resume: see "Floor" in
     /// `spec/linking.md`.
     pub still: bool,
-}
-
-impl Form {
-    /// The form of the same function that makes no charge.
-    #[must_use]
-    pub fn plain(&self) -> Self {
-        Self {
-            metered: false,
-            ..self.clone()
-        }
-    }
 }
 
 impl Lowering {
@@ -109,7 +95,6 @@ impl Lowering {
         scope: &mut Scope,
     ) -> Result<Op, Unsupported> {
         let function = self.operand(function, scope)?;
-        self.charge_copies(&[function], scope);
         let types = self.type_arguments(types, scope);
         Ok(Op::Instantiate { function, types })
     }

@@ -46,7 +46,7 @@ Definitions and values move between running programs by hash. A receiver trusts 
 ## Running received code
 
 - A receiver runs a received function under an only-mode [provide](handlers.md); the function reaches that bundle and nothing else.
-- A receiver that runs the function inside a [boundary](values.md) and a [budget](budgets.md) also contains its faults and bounds its cost.
+- A receiver that runs the function inside a [boundary](values.md) also contains its faults. Nothing bounds how long it runs, so a receiver runs only code it trusts to end.
 - Abilities match across programs by identity: two programs mean the same ability exactly when its identity and signature agree.
 - Brands are not trusted across exchange, since received code may contain branding operations.
 - Authority therefore rests on handlers and handles, never on brands.

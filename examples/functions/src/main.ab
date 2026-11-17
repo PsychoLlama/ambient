@@ -120,17 +120,14 @@ fn called(request: Request): Response with fs, code.compile, code.load {
     }
 }
 
-/// What a function makes of a request, within what it may spend. One
-/// that throws, faults, or runs on is answered for.
+/// What a function makes of a request. One that throws or faults is
+/// answered for; nothing ends one that runs on.
 fn run(function: Function, request: Request): Response {
     let outcome = try {
-        return budget(steps: 1000000, allocation: 16000000) {
-            return catch(fn() => function(request));
-        };
+        return catch(fn() => function(request));
     };
     match outcome {
         let response: Response => { return response; }
         let error: Error => { return http.text(500, "the function failed: ${error.message}\n"); }
-        _ => { return http.text(503, "the function took too long\n"); }
     }
 }

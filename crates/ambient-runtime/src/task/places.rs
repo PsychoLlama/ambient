@@ -36,14 +36,11 @@ impl Scheduler {
 
     /// Records that a task is over, with `result` if it gave one.
     pub(super) unsafe fn finish(&mut self, id: usize, result: Option<Word>) {
-        let Some(mut task) = self.tasks[id].take() else {
+        let Some(task) = self.tasks[id].take() else {
             return;
         };
         self.idle.push(id);
-        unsafe {
-            task.leaves();
-            amb_release(task.thunk);
-        }
+        unsafe { amb_release(task.thunk) };
         let Some((join, place)) = task.place else {
             return;
         };

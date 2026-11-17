@@ -153,7 +153,7 @@ class Program {
     // The entry is handed no bindings: its target is bound inside it.
     const handed = this.tuple([null, ...args]);
     this.waits.set(context, new Waits());
-    const start = () => x.amb_start(context, this.entry, handed, 0n);
+    const start = () => x.amb_start(context, this.entry, handed);
     try {
       // Unwinding in this mode is the root task suspending: the others
       // take their turns, and the entry runs again to resume it.

@@ -61,4 +61,4 @@ A task is an independent execution of an expression. Tasks exist only inside the
 - A task is cancelled only because the construct that started it is unwinding or because it lost a first.
 - A cancelled task unwinds from its current or next suspension, running its [cleanups](cleanup.md).
 - A task cannot observe, intercept, or refuse cancellation, and no code can wait on a cancelled task.
-- Outside a [budget](budgets.md), a task that never suspends cannot be cancelled; its starter waits for it.
+- A task that never suspends cannot be cancelled; its starter waits for it.

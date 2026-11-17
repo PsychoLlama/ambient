@@ -64,7 +64,7 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 - Every function is called the same way, whether it is named, a lambda, or a value whose definition is unknown at the call.
 - A call through a [slot](core.md) reads the slot at run time, so replacing what a slot refers to recompiles nothing.
 - A call is in tail position when its value is its function's and the function has nothing left to do: it is the body, the body of a let, or an arm of a match, itself in tail position.
-- A call inside a block that does something on the way out is not in tail position: a [cleanup](cleanup.md), a group, a budget, a boundary, or a provide with an abort handler.
+- A call inside a block that does something on the way out is not in tail position: a [cleanup](cleanup.md), a group, a boundary, or a provide with an abort handler.
 - A tail call is made after its function has left: the function unwinds with the call pending, and whatever called it makes the call.
 - A loop written as tail calls therefore runs in constant stack on any backend, and a backend needs no tail call of its own.
 - A tail call allocates nothing, so a loop written as tail calls costs what its body does.

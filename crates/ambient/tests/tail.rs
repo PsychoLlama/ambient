@@ -9,7 +9,6 @@ mod support;
 use ambient::builder::{self as b, pat, ty};
 use ambient::surface::{Definition, Expr};
 use ambient::value::Value;
-use ambient_runtime::FAULT_PACKAGE;
 use support::run;
 
 /// More calls than any stack has room for.
@@ -84,16 +83,6 @@ fn a_call_that_is_not_last_gets_what_its_callee_left_for() {
     // `total` leaves for itself, and the sum comes back to be added to.
     let more = b::add(from("total", 3), b::int(1));
     assert_eq!(evaluates(more), Value::Int(7));
-}
-
-#[test]
-fn a_tail_call_inside_a_budget_is_charged_for() {
-    let limit = Value::Tag {
-        package: FAULT_PACKAGE.to_owned(),
-        tag: "steps".to_owned(),
-    };
-    let budgeted = b::budget(b::int(1000), b::int(MANY), from("total", MANY));
-    assert_eq!(evaluates(budgeted), limit);
 }
 
 /// `fn walk(held: unknown, n: int): unknown`, which holds a new list

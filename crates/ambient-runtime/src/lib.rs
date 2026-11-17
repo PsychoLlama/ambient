@@ -84,12 +84,10 @@ pub use record::*;
 pub use scope::{amb_scope_new, amb_scope_set, fixed_scope};
 pub use sequence::*;
 pub use task::{
-    Body, FORSAKEN, LIMITS, RESUMING, RUNNING, SUSPENDING, Stacks, WAITING, amb_all, amb_answer,
-    amb_await, amb_bounce, amb_budget_back, amb_budget_caught, amb_budget_current,
-    amb_budget_enter, amb_budget_leave, amb_budget_switch, amb_charge, amb_charge_read,
-    amb_charge_size, amb_charge_tasks, amb_first, amb_frame_load, amb_frame_point, amb_frame_push,
-    amb_frame_save, amb_group_close, amb_group_end, amb_group_new, amb_native_wait, amb_refuse,
-    amb_schedule, amb_spawn, amb_start, amb_strand, amb_tail, amb_tail_arg,
+    Body, FORSAKEN, RESUMING, RUNNING, SUSPENDING, Stacks, WAITING, amb_all, amb_answer, amb_await,
+    amb_bounce, amb_first, amb_frame_load, amb_frame_point, amb_frame_push, amb_frame_save,
+    amb_group_close, amb_group_end, amb_group_new, amb_native_wait, amb_refuse, amb_schedule,
+    amb_spawn, amb_start, amb_strand, amb_tail, amb_tail_arg,
 };
 pub use task::{DEPTH, FRAME, NATIVE, amb_call_among, amb_call_back, amb_depth, amb_enter};
 pub use text::*;
@@ -134,19 +132,16 @@ pub enum Fault {
     Cancelled = 6,
     /// A cleanup aborted to a provide outside it.
     CleanupAbort = 7,
-    /// Not a fault: a budget ran out, and what ran inside it is unwinding
-    /// to it.
-    Exhausted = 8,
     /// An integer was divided by zero.
-    DivideByZero = 9,
+    DivideByZero = 8,
     /// Not a fault: a function is leaving to make the call it ends
     /// with.
-    Tail = 10,
+    Tail = 9,
     /// Calls nested deeper than [`DEPTH`] allows.
-    Deep = 11,
+    Deep = 10,
     /// A task could go on only once the world answered, while native
     /// code it had called was on the stack.
-    Pinned = 12,
+    Pinned = 11,
 }
 
 impl Fault {
@@ -159,7 +154,6 @@ impl Fault {
         Self::Native,
         Self::Cancelled,
         Self::CleanupAbort,
-        Self::Exhausted,
         Self::DivideByZero,
         Self::Tail,
         Self::Deep,
@@ -176,11 +170,10 @@ impl Fault {
             5 => Self::Native,
             6 => Self::Cancelled,
             7 => Self::CleanupAbort,
-            8 => Self::Exhausted,
-            9 => Self::DivideByZero,
-            10 => Self::Tail,
-            11 => Self::Deep,
-            12 => Self::Pinned,
+            8 => Self::DivideByZero,
+            9 => Self::Tail,
+            10 => Self::Deep,
+            11 => Self::Pinned,
             _ => Self::None,
         }
     }

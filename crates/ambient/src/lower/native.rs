@@ -10,9 +10,7 @@ use crate::lir::{self, Constant, Expr, Op, Value};
 ///
 /// The handlers are a tuple in the order of the row, taken from the
 /// bindings the extern was called with: native code is handed nothing
-/// bound for an ability it did not declare. In `metered` code the
-/// budget each was bound inside follows them, in the same order, as a
-/// perform written in the language would read it.
+/// bound for an ability it did not declare.
 pub(super) fn native(
     arity: usize,
     slots: usize,
@@ -20,15 +18,11 @@ pub(super) fn native(
     row: &[Slot],
     form: &super::Form,
 ) -> lir::Function {
-    let metered = form.metered;
     let args = arity + 1;
     let handlers = arity + 2;
     let mut constants = vec![Constant::Native, Constant::Own];
     constants.extend(row.iter().map(|slot| Constant::Ability(slot.0)));
-    if metered {
-        constants.extend(row.iter().map(|slot| Constant::AbilityBudget(slot.0)));
-    }
-    // Each handler, and each budget, is a field of the bindings.
+    // Each handler is a field of the bindings.
     let fields = constants.len() - 2;
     let field = |at: usize| handlers + 1 + at;
     let call = Op::Native {

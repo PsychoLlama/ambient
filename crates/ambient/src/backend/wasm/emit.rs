@@ -1,8 +1,6 @@
 //! Emitting the body of one lowered function.
 
-use ambient_runtime::layout::{
-    CLOSURE_CAPTURES, CLOSURE_DEFINITION, DEFINITION_CODE, DEFINITION_METERED,
-};
+use ambient_runtime::layout::{CLOSURE_CAPTURES, CLOSURE_DEFINITION, DEFINITION_CODE};
 use ambient_runtime::{Entry, FALSE, NULL, SMALL_MAX, SMALL_MIN, TRUE, Word};
 use wasm_encoder::{BlockType, Function, Instruction, MemArg, MemArgTarget, ValType};
 
@@ -334,23 +332,15 @@ impl Emitter {
                 self.runtime(Entry::Retain);
                 self.in_definition(*slot);
             }
-            Op::Call {
-                slot,
-                args,
-                metered,
-            } => {
+            Op::Call { slot, args } => {
                 self.emit(&Instruction::LocalGet(CONTEXT));
                 self.in_definition(*slot);
-                self.call(args, *metered);
+                self.call(args);
             }
-            Op::CallValue {
-                callee,
-                args,
-                metered,
-            } => {
+            Op::CallValue { callee, args } => {
                 self.emit(&Instruction::LocalGet(CONTEXT));
                 self.value(*callee);
-                self.call(args, *metered);
+                self.call(args);
             }
             Op::Again(args) => self.again(args),
             _ => {
@@ -386,7 +376,7 @@ impl Emitter {
 
     /// With the context and a closure on the stack: calls the closure with
     /// `args`.
-    fn call(&mut self, args: &[lir::Value], metered: bool) {
+    fn call(&mut self, args: &[lir::Value]) {
         self.emit(&Instruction::LocalTee(self.callee));
         for arg in args {
             self.value(*arg);
@@ -394,11 +384,7 @@ impl Emitter {
         // Its code: an index into the table.
         self.emit(&Instruction::LocalGet(self.callee));
         self.load(CLOSURE_DEFINITION);
-        self.load(if metered {
-            DEFINITION_METERED
-        } else {
-            DEFINITION_CODE
-        });
+        self.load(DEFINITION_CODE);
         self.emit(&Instruction::I32WrapI64);
         self.widest = self.widest.max(args.len());
         self.emit(&Instruction::CallIndirect {

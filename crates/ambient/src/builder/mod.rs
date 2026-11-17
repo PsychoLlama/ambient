@@ -239,17 +239,6 @@ pub fn with_only(bundle: Expr, body: Expr) -> Expr {
     }
 }
 
-/// Evaluates `body` within `steps` steps and `allocation` words of
-/// allocation, and is what it gave, or the limit that ran out.
-#[must_use]
-pub fn budget(steps: Expr, allocation: Expr, body: Expr) -> Expr {
-    Expr::Budget {
-        steps: Box::new(steps),
-        allocation: Box::new(allocation),
-        body: Box::new(body),
-    }
-}
-
 /// Evaluates `body`, and is what it gave, or the fault that ended it, as
 /// an error.
 #[must_use]

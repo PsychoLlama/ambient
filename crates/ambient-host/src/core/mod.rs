@@ -1,6 +1,5 @@
 //! Core trees: the checked form of a definition. See `spec/core.md`.
 
-mod cost;
 mod depth;
 mod encode;
 mod visit;
@@ -10,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use crate::literal::{Brand, Literal};
 use crate::symbol::Symbol;
 
-pub use cost::Cost;
 pub use depth::DEPTH;
 pub use encode::Resolve;
 pub use encode::encode_signature;
@@ -300,13 +298,6 @@ pub enum Expr {
     /// nothing, however `body` ended. Is what `body` gave.
     Cleanup {
         cleanup: Box<Expr>,
-        body: Box<Expr>,
-    },
-    /// Evaluates `body` within limits, both integers, and is what it
-    /// gave, or the limit that ran out, as a tag.
-    Budget {
-        steps: Box<Expr>,
-        allocation: Box<Expr>,
         body: Box<Expr>,
     },
     /// Evaluates the body, and is what it gave, or the fault that ended

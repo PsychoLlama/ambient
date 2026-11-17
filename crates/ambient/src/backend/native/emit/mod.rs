@@ -1,7 +1,7 @@
 //! Emitting machine code for one lowered function.
 
 use ambient_runtime::layout::{
-    CLOSURE_CAPTURES, CLOSURE_DEFINITION, DEFINITION_CODE, DEFINITION_METERED, DEFINITION_SLOTS,
+    CLOSURE_CAPTURES, CLOSURE_DEFINITION, DEFINITION_CODE, DEFINITION_SLOTS,
 };
 use ambient_runtime::{Context, Entry, FALSE, NULL, TRUE, Word};
 use cranelift_codegen::control::ControlPlane;
@@ -222,14 +222,9 @@ impl Emitter<'_> {
     }
 
     /// Calls the function a closure refers to.
-    fn call(&mut self, callee: Val, args: &[lir::Value], metered: bool) -> Val {
+    fn call(&mut self, callee: Val, args: &[lir::Value]) -> Val {
         let definition = self.load(callee, CLOSURE_DEFINITION);
-        let form = if metered {
-            DEFINITION_METERED
-        } else {
-            DEFINITION_CODE
-        };
-        let code = self.load(definition, form);
+        let code = self.load(definition, DEFINITION_CODE);
         let mut all = vec![self.context, callee];
         all.extend(args.iter().map(|arg| self.value(*arg)));
         let signature = self.signature(all.len(), true);
@@ -385,21 +380,13 @@ impl Emitter<'_> {
                 self.count(Entry::Retain, function);
                 function
             }
-            Op::Call {
-                slot,
-                args,
-                metered,
-            } => {
+            Op::Call { slot, args } => {
                 let callee = self.in_definition(*slot);
-                self.call(callee, args, *metered)
+                self.call(callee, args)
             }
-            Op::CallValue {
-                callee,
-                args,
-                metered,
-            } => {
+            Op::CallValue { callee, args } => {
                 let callee = self.value(*callee);
-                self.call(callee, args, *metered)
+                self.call(callee, args)
             }
             Op::Primitive { operation, args } => self
                 .fast(*operation, args)

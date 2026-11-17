@@ -1,11 +1,10 @@
 //! The standard library: the language's own package, written with
 //! builders or as source like any other. See `spec/modules.md` and `spec/errors.md`.
 //!
-//! The kind of an error a boundary makes, and the limit a budget ran out
-//! of, are tags this package declares in its library module, which a
+//! The kind of an error a boundary makes is a tag this package declares in its library module, which a
 //! workspace has in scope unless it lists preludes of its own.
 
-use ambient_runtime::{FAULT_PACKAGE, Fault, LIMITS};
+use ambient_runtime::{FAULT_PACKAGE, Fault};
 
 use crate::builder::{self as b, ModuleBuilder, ty};
 use crate::symbol::ModuleId;
@@ -41,8 +40,8 @@ pub fn dispose() -> crate::symbol::Symbol {
     ModuleId::new(FAULT_PACKAGE, "cleanup").key("dispose")
 }
 
-/// The library module: `Error`, and a tag for the kind of each fault
-/// and for each limit of a budget, named as the runtime names it. It
+/// The library module: `Error`, and a tag for the kind of each fault,
+/// named as the runtime names it. It
 /// lists the module of each shape.
 #[must_use]
 pub fn module() -> ModuleBuilder {
@@ -54,7 +53,7 @@ pub fn module() -> ModuleBuilder {
         ("trace", ty::list(ty::named("Frame"))),
     ]);
     let kinds = Fault::ALL.iter().filter_map(|fault| fault.describe());
-    let tags = kinds.map(|(kind, _)| kind).chain(LIMITS);
+    let tags = kinds.map(|(kind, _)| kind);
     let paths = SOURCES.map(|(path, _)| path).into_iter();
     let module = paths.fold(b::module(), ModuleBuilder::expose);
     // What is thrown is reached where `Error` is.

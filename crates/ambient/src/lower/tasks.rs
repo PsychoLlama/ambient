@@ -35,44 +35,11 @@ impl Lowering {
         match expr {
             core::Expr::Cleanup { cleanup, body } => self.cleanup(cleanup, body),
             core::Expr::Group(body) => self.group(body),
-            core::Expr::Budget {
-                steps,
-                allocation,
-                body,
-            } => self.budget(steps, allocation, body),
             core::Expr::Boundary(body) => {
                 Ok(Self::attempt(self.expr(body)?, Expr::Op(Op::Contain)))
             }
             other => self.expr(other),
         }
-    }
-
-    /// A budget's body between entering the budget and leaving it.
-    fn budget(
-        &mut self,
-        steps: &core::Expr,
-        allocation: &core::Expr,
-        body: &core::Expr,
-    ) -> Result<Expr, Unsupported> {
-        let mut scope = Scope::default();
-        let steps = self.operand(steps, &mut scope)?;
-        let words = self.operand(allocation, &mut scope)?;
-        let budget = self.temporary();
-        let held = Value::Local(budget);
-        let result = self.temporary();
-        // The body is metered, whatever is around it.
-        let outside = std::mem::replace(&mut self.metered, true);
-        let body = self.expr(body);
-        self.metered = outside;
-        let body = body?;
-        let body = Self::attempt(body, Expr::Op(Op::BudgetCaught(held)));
-        let leave = self.then(
-            Expr::Op(Op::BudgetLeave(held)),
-            Expr::Op(Op::Copy(Value::Local(result))),
-        );
-        let entered = bind(result, body, leave);
-        let enter = Expr::Op(Op::BudgetEnter { steps, words });
-        Ok(scope.wrap(bind(budget, enter, entered)))
     }
 
     /// A group's body, then a wait for the tasks spawned in it. If the
@@ -118,7 +85,7 @@ impl Lowering {
         let callee = self.operand(cleanup, &mut scope)?;
         // It took what it needs where it was made.
         let args = vec![Value::Null];
-        let call = self.call_value(callee, args);
+        let call = Op::CallValue { callee, args };
         let run = || Expr::Op(call.clone());
         let moment = |moment| Expr::Op(Op::Cleanup(moment));
 

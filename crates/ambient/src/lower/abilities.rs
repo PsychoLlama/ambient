@@ -44,60 +44,12 @@ impl Lowering {
         self.constant(Constant::Ability(ability.0))
     }
 
-    /// The keys bindings hold `abilities` under. Metered code keeps
-    /// beside each handler the budget it was bound inside, so those keys
-    /// go wherever the handlers' do.
+    /// The keys bindings hold `abilities` under.
     pub(super) fn ability_keys(&mut self, abilities: &[Slot]) -> Vec<usize> {
-        let mut keys = Vec::new();
-        for ability in abilities {
-            keys.push(self.ability_key(*ability));
-            if self.metered {
-                keys.push(self.constant(Constant::AbilityBudget(ability.0)));
-            }
-        }
-        keys
-    }
-
-    /// Calls `handler`, which answers a perform. In metered code a handler
-    /// runs inside the budget it was bound inside, not the performer's:
-    /// the perform cost the performer a step, whatever the handler does.
-    fn answer(&mut self, ability: Slot, callee: Value, args: Vec<Value>, scope: &mut Scope) -> Op {
-        let call = self.call_value(callee, args.clone());
-        if !self.metered {
-            return call;
-        }
-        let record = self.bindings;
-        let key = self.constant(Constant::AbilityBudget(ability.0));
-        let bound = self.bound(Op::Field { record, key }, scope);
-        let saved = self.bound(Op::BudgetSwitch(bound), scope);
-        let back = |unwinding| Expr::Op(Op::BudgetBack { saved, unwinding });
-        // A handler bound outside every budget is not metered at all:
-        // it runs the code that makes no charge.
-        let free = Op::Primitive {
-            operation: Primitive::Equal,
-            args: vec![bound, Value::Null],
-        };
-        let plain = Op::CallValue {
-            callee,
-            args,
-            metered: false,
-        };
-        let call = self.branch(Expr::Op(free), Expr::Op(plain), Expr::Op(call));
-        let answered = Expr::Try {
-            body: Box::new(call),
-            recover: Box::new(back(true)),
-            recovering: (0, 0),
-        };
-        let result = self.temporary();
-        scope.bindings.push((result, answered));
-        self.bound(
-            Op::BudgetBack {
-                saved,
-                unwinding: false,
-            },
-            scope,
-        );
-        Op::Copy(Value::Local(result))
+        abilities
+            .iter()
+            .map(|ability| self.ability_key(*ability))
+            .collect()
     }
 
     /// A record of exactly `keys`, each a constant, taken from `source`,
@@ -153,13 +105,15 @@ impl Lowering {
         let key = self.key(key);
         let mut function = self.bound(Op::Unbound { record, key }, scope);
         if !types.is_empty() {
-            self.charge_copies(&[function], scope);
             let types = self.type_arguments(types, scope);
             function = self.bound(Op::Instantiate { function, types }, scope);
         }
         let mut all = vec![self.bindings, record];
         all.extend(self.operands(args, scope)?);
-        Ok(self.call_value(function, all))
+        Ok(Op::CallValue {
+            callee: function,
+            args: all,
+        })
     }
 
     /// A step of an iterator: a call of the function that steps it, or,
@@ -176,7 +130,10 @@ impl Lowering {
             operation: Primitive::Equal,
             args: vec![function, Value::Null],
         });
-        let call = self.call_value(function, vec![self.bindings]);
+        let call = Op::CallValue {
+            callee: function,
+            args: vec![self.bindings],
+        };
         let call = self.operation(node, call);
         let step = self.branch(native, Expr::Op(Op::Advance(iterator)), call);
         Ok(scope.wrap(step))
@@ -217,7 +174,6 @@ impl Lowering {
             }
             overlay = self.bound(Op::Record(fields), scope);
         }
-        self.charge_copies(&[base, overlay], scope);
         let methods = if methods.is_empty() {
             Value::Null
         } else {
@@ -274,7 +230,6 @@ impl Lowering {
         let record = self.bindings;
         let mut binding = self.bound(Op::Field { record, key }, scope);
         if !types.is_empty() {
-            self.charge_copies(&[binding], scope);
             let types = self.type_arguments(types, scope);
             let function = binding;
             binding = self.bound(Op::Instantiate { function, types }, scope);
@@ -282,7 +237,8 @@ impl Lowering {
         if returns {
             // A handler took what it needs where it was provided.
             let args = self.arguments(Value::Null, args, scope)?;
-            return Ok(self.answer(ability, binding, args, scope));
+            let callee = binding;
+            return Ok(Op::CallValue { callee, args });
         }
         let members = self.operands(args, scope)?;
         let list = false;
@@ -308,10 +264,6 @@ impl Lowering {
         for handler in handlers {
             let value = self.operand(&handler.handler, &mut scope)?;
             let key = self.ability_key(handler.ability);
-            if self.metered {
-                let stamp = self.constant(Constant::AbilityBudget(handler.ability.0));
-                fields.push((stamp, self.bound(Op::BudgetCurrent, &mut scope)));
-            }
             match handler.abort {
                 None => fields.push((key, value)),
                 Some(arity) => {
@@ -394,7 +346,7 @@ impl Lowering {
         let trace = traced.then(|| self.temporary());
         args.extend(trace.map(Value::Local));
         let callee = handler;
-        let mut call = Expr::Op(self.call_value(callee, args));
+        let mut call = Expr::Op(Op::CallValue { callee, args });
         if let Some(trace) = trace {
             call = Expr::Let {
                 local: trace,

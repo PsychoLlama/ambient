@@ -16,7 +16,7 @@ use ambient::store::MemoryStore;
 use ambient::surface::{Definition, Expr, Type};
 use ambient::symbol::Symbol;
 use ambient::value::{Construct, Value, decode};
-use ambient_runtime::{FAULT_PACKAGE, Fault, amb_int_new, amb_release};
+use ambient_runtime::{Fault, amb_int_new, amb_release};
 use support::value;
 
 /// `fn plugin(n: int): int`, which doubles.
@@ -150,21 +150,6 @@ fn a_loaded_function_of_another_type_does_not_pass_the_cast() {
         Loading::local(double(), fetched(other, 21)).run(),
         Ok(Value::Int(-1))
     );
-}
-
-#[test]
-fn a_loaded_function_is_metered_inside_a_budget() {
-    let limit = |steps| {
-        let body = b::budget(b::int(steps), b::int(1000), fetched(int_to_int(), 10));
-        Loading::local(count(), body).run()
-    };
-    let steps = Value::Tag {
-        package: FAULT_PACKAGE.to_owned(),
-        tag: "steps".to_owned(),
-    };
-
-    assert_eq!(limit(100), Ok(Value::Int(10)));
-    assert_eq!(limit(5), Ok(steps));
 }
 
 #[test]

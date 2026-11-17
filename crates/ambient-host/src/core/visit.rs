@@ -73,15 +73,6 @@ macro_rules! children {
                     $visit(body);
                 }
             }
-            Self::Budget {
-                steps,
-                allocation,
-                body,
-            } => {
-                $visit(steps);
-                $visit(allocation);
-                $visit(body);
-            }
             Self::Provide { handlers, body, .. } => {
                 for handler in handlers {
                     $visit(&$($mutable)? handler.handler);
@@ -153,46 +144,6 @@ impl Expr {
             expr.children(&mut |child| pending.push(child));
             // The first child is to be taken first.
             pending[from..].reverse();
-        }
-        found
-    }
-
-    /// The slots of the functions this makes values of: every function
-    /// it names, apart from where it only calls one.
-    #[must_use]
-    pub fn values(&self) -> Vec<Slot> {
-        let mut called = Vec::new();
-        let mut found = Vec::new();
-        for expr in self.positions() {
-            match expr {
-                Self::Call { callee, .. } => called.push(std::ptr::from_ref(&**callee)),
-                Self::Closure { slot, .. } => found.push(*slot),
-                Self::Reference(slot, _) if !called.contains(&std::ptr::from_ref(expr)) => {
-                    found.push(*slot);
-                }
-                _ => {}
-            }
-        }
-        found
-    }
-
-    /// The slots of the functions named inside the budgets this enters,
-    /// if it enters any.
-    #[must_use]
-    pub fn budgeted(&self) -> Option<Vec<Slot>> {
-        let mut found = None;
-        for expr in self.positions() {
-            let Self::Budget { body, .. } = expr else {
-                continue;
-            };
-            let named = body
-                .positions()
-                .into_iter()
-                .filter_map(|inside| match inside {
-                    Self::Reference(slot, _) | Self::Closure { slot, .. } => Some(*slot),
-                    _ => None,
-                });
-            found.get_or_insert_with(Vec::new).extend(named);
         }
         found
     }

@@ -49,9 +49,6 @@ pub enum Constant {
     /// The generic function in a slot at type arguments that mention no
     /// type parameter, as a value: a closure that holds them.
     Instance(usize, Vec<core::Type>),
-    /// The ability in a slot, as the key bindings hold the budget its
-    /// handler was bound inside under. Only metered code has these.
-    AbilityBudget(usize),
     /// The ability in a slot, as the key bindings are indexed by.
     Ability(usize),
     /// Where the definition, an extern, sits among the externs of the
@@ -90,9 +87,6 @@ pub enum Body {
         /// How many parameters it takes.
         arity: usize,
         code: Arc<Artifact>,
-        /// Its code as what runs inside a budget calls it, if the
-        /// program enters one.
-        metered: Option<Arc<Artifact>>,
         /// What the function needs made when the program is loaded.
         constants: Vec<Constant>,
         /// Its type, which its definition carries the name of, unless
@@ -149,27 +143,14 @@ impl Parts {
         }))
     }
 
-    /// The code of the program: for each part, its code, and then its
-    /// metered code. A part that has neither, or no metered code, has
-    /// `None` there. With each is how many parameters it takes.
+    /// The code of the program: each part's, with how many parameters
+    /// it takes. A part that is no function has `None` there.
     #[must_use]
     pub fn codes(&self) -> Vec<Option<(usize, &Artifact)>> {
-        let mut codes = Vec::new();
-        for part in &self.parts {
-            let (plain, metered) = match &part.body {
-                Body::Function {
-                    arity,
-                    code,
-                    metered,
-                    ..
-                } => (
-                    Some((*arity, &**code)),
-                    metered.as_deref().map(|code| (*arity, code)),
-                ),
-                Body::Type(_) | Body::Inert => (None, None),
-            };
-            codes.extend([plain, metered]);
-        }
-        codes
+        let codes = self.parts.iter().map(|part| match &part.body {
+            Body::Function { arity, code, .. } => Some((*arity, &**code)),
+            Body::Type(_) | Body::Inert => None,
+        });
+        codes.collect()
     }
 }

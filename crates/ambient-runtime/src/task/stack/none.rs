@@ -28,7 +28,7 @@ impl Kept {
         0
     }
 
-    pub(in super::super) fn handed(&self) -> Option<(Word, u64)> {
+    pub(in super::super) fn handed(&self) -> Option<Word> {
         None
     }
 }
@@ -45,13 +45,7 @@ pub(in super::super) unsafe fn turn(_: *mut Context, stacks: &Stacks, _: usize, 
     match *stacks {}
 }
 
-pub(in super::super) unsafe fn root(
-    _: *mut Context,
-    stacks: &Stacks,
-    _: Word,
-    _: Word,
-    _: u64,
-) -> Word {
+pub(in super::super) unsafe fn root(_: *mut Context, stacks: &Stacks, _: Word, _: Word) -> Word {
     match *stacks {}
 }
 

@@ -13,7 +13,7 @@ use crate::core::{Slot, Type};
 /// What the bytes begin with. Bump it when [`Parts`] changes, or
 /// anything compiled code relies on: a layout, the calling convention,
 /// an entry point of the runtime.
-const FORMAT: u32 = 29;
+const FORMAT: u32 = 30;
 
 /// Why bytes cannot be loaded.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -120,7 +120,7 @@ impl Body {
                     Constant::Type(of) => ty(of),
                     Constant::Types(types) => types.iter().all(ty),
                     Constant::Instance(function, types) => slot(function) && types.iter().all(ty),
-                    Constant::Ability(ability) | Constant::AbilityBudget(ability) => slot(ability),
+                    Constant::Ability(ability) => slot(ability),
                     Constant::String(_)
                     | Constant::Bytes(_)
                     | Constant::Tag(_)

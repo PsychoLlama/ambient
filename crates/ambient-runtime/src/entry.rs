@@ -109,15 +109,6 @@ entries! {
     Spawn = amb_spawn, context, 2, word;
     GroupClose = amb_group_close, context, 2, word;
     GroupEnd = amb_group_end, context, 2, word;
-    BudgetEnter = amb_budget_enter, context, 2, word;
-    BudgetLeave = amb_budget_leave, context, 1, word;
-    BudgetCaught = amb_budget_caught, context, 1, word;
-    BudgetCurrent = amb_budget_current, context, 0, word;
-    BudgetSwitch = amb_budget_switch, context, 1, word;
-    BudgetBack = amb_budget_back, context, 2, word;
-    Charge = amb_charge, context, 2, word;
-    ChargeSize = amb_charge_size, context, 1, word;
-    ChargeRead = amb_charge_read, context, 2, word;
     Contain = amb_contain, context, 0, word;
     Hold = amb_hold, context, 0, word;
     Rethrow = amb_rethrow, context, 1, word;
@@ -143,7 +134,7 @@ entries! {
     ListPush = amb_list_push, plain, 2, word;
     ListJoin = amb_list_join, plain, 2, word;
     ListSlice = amb_list_slice, plain, 3, word;
-    Tail = amb_tail, context, 2, word;
+    Tail = amb_tail, context, 1, word;
     TailArg = amb_tail_arg, context, 1, nothing;
     Bounce = amb_bounce, context, 1, word;
     Enter = amb_enter, context, 1, word;
@@ -173,5 +164,4 @@ entries! {
     StringBytes = amb_bytes_of_string, plain, 1, word;
     BytesText = amb_bytes_text, plain, 1, word;
     ListBytes = amb_bytes_of_list, plain, 1, word;
-    ChargeTasks = amb_charge_tasks, context, 1, word;
 }

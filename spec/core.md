@@ -48,7 +48,7 @@ The core tree is the checked form of a definition and the only form that is hash
 - Constructions of records, tuples, lists, sets, and maps; a record construction keeps the order its fields were written in, because that is their evaluation order.
 - Field access, match, cast, and a block of bindings ending in an expression.
 - A record merge holds both records and the keys taken from the second, which are those its type lists.
-- Provide, boundary, budget, cleanup, and the task constructs each have one node.
+- Provide, boundary, cleanup, and the task constructs each have one node.
 - A [recording](handlers.md) has no node: it appears as a provide of the handlers derived for it.
 - A primitive operation holds the operation and its arguments; primitives have no slots.
 - A step holds the [iterator](iteration.md) it steps; it is not a primitive, since it may call.

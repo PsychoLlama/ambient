@@ -15,7 +15,7 @@ impl Fault {
     #[must_use]
     pub fn describe(self) -> Option<(&'static str, &'static str)> {
         Some(match self {
-            Self::None | Self::Abort | Self::Cancelled | Self::Exhausted | Self::Tail => {
+            Self::None | Self::Abort | Self::Cancelled | Self::Tail => {
                 return None;
             }
             Self::Overflow => ("overflow", "integer arithmetic left the range of int"),

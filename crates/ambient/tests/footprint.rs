@@ -59,10 +59,7 @@ fn fold() -> Expr {
 /// starts a call and reads nothing. Lower it when the floor falls;
 /// raising it is a decision, not a fix.
 ///
-/// Raised once, by 30: the scheduler keeps which places its tasks and
-/// joins have left, so that a program that goes on starting tasks does
-/// not go on growing.
-const FLOOR: usize = 7_730;
+const FLOOR: usize = 7_600;
 
 #[test]
 fn a_program_that_does_nothing_is_within_the_floor() {

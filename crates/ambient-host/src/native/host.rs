@@ -78,20 +78,11 @@ pub trait Running {
 pub const UNDECLARED_ABILITY: &str = "the extern does not declare the ability in its row";
 
 /// Where an extern that declared `row` finds the handler of an ability
-/// among the `length` words it was handed for it, and where the budget
-/// the handler was bound inside is, if the code that called is
-/// metered: the budgets follow the handlers, in the same order.
+/// among those it was handed.
 #[must_use]
-pub fn bound(
-    row: &[(String, String)],
-    length: u64,
-    package: &str,
-    path: &str,
-) -> Option<(u64, Option<u64>)> {
+pub fn bound(row: &[(String, String)], package: &str, path: &str) -> Option<u64> {
     let named = |(of, at): &(String, String)| of == package && at == path;
-    let at = row.iter().position(named)? as u64;
-    let count = row.len() as u64;
-    Some((at, (length == 2 * count).then_some(count + at)))
+    Some(row.iter().position(named)? as u64)
 }
 
 /// What a call back that unwound says: a fault, an abort, or a
@@ -219,30 +210,12 @@ impl Running for Call<'_> {
     }
 
     fn perform(&mut self, package: &str, path: &str, args: &[Value]) -> Result<Value, String> {
-        // SAFETY: an extern with a row is handed a tuple, whose length
-        // can be asked; one with none never gets as far as asking.
-        let length = |handlers| unsafe { ambient_runtime::amb_length(handlers) };
-        let length = if self.row.is_empty() {
-            0
-        } else {
-            length(self.handlers)
-        };
-        let (handler, budget) =
-            bound(&self.row, length, package, path).ok_or_else(|| UNDECLARED_ABILITY.to_owned())?;
-        // SAFETY: both places are within the tuple, which the extern's
-        // caller holds for the call, and the context is this call's.
-        // A handler runs inside the budget it was bound inside.
-        unsafe {
-            let at = |index| ambient_runtime::amb_word_at(self.handlers, index);
-            let saved =
-                budget.map(|budget| ambient_runtime::amb_budget_switch(self.context, at(budget)));
-            let answered = self.made(at(handler), args);
-            if let Some(saved) = saved {
-                ambient_runtime::amb_budget_back(self.context, saved, 0);
-                ambient_runtime::amb_release(saved);
-            }
-            answered
-        }
+        let handler =
+            bound(&self.row, package, path).ok_or_else(|| UNDECLARED_ABILITY.to_owned())?;
+        // SAFETY: the place is within the tuple of handlers, which the
+        // extern's caller holds for the call.
+        let handler = unsafe { ambient_runtime::amb_word_at(self.handlers, handler) };
+        self.made(handler, args)
     }
 }
 

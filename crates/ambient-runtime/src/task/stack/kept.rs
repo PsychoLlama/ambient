@@ -36,9 +36,8 @@ pub(in super::super) struct Kept {
     from: Word,
     /// What its stack's body gave, until its turn takes it.
     outcome: Word,
-    /// For the root: what the host called it with, and whether in its
-    /// metered form.
-    handed: Option<(Word, u64)>,
+    /// For the root: what the host called it with.
+    handed: Option<Word>,
     /// How deep the native code it is beneath stands.
     pinned: Word,
 }
@@ -57,7 +56,7 @@ impl Kept {
     }
 
     /// What the host called the root with, if this is the root's.
-    pub(in super::super) fn handed(&self) -> Option<(Word, u64)> {
+    pub(in super::super) fn handed(&self) -> Option<Word> {
         self.handed
     }
 }
@@ -116,7 +115,6 @@ pub(in super::super) unsafe fn root(
     stacks: &Stacks,
     callee: Word,
     args: Word,
-    metered: u64,
 ) -> Word {
     unsafe {
         let task = scheduler(context).task(ROOT);
@@ -124,13 +122,13 @@ pub(in super::super) unsafe fn root(
             amb_retain(callee);
             amb_retain(args);
             task.thunk = callee;
-            task.kept.handed = Some((args, metered));
+            task.kept.handed = Some(args);
         }
         let result = turn(context, stacks, ROOT, NOWHERE);
         let task = scheduler(context).task(ROOT);
         if task.kept.stack == 0 {
             amb_release(core::mem::take(&mut task.thunk));
-            if let Some((args, _)) = task.kept.handed.take() {
+            if let Some(args) = task.kept.handed.take() {
                 amb_release(args);
             }
         }

@@ -211,8 +211,7 @@ pub fn main(): string {
 
 ## Failing
 
-- A fault (dividing by zero, overflow, running out of a budget) unwinds. `try` stops it and gives an `Error` value instead, with `kind`, `message`, and `trace`.
-- `budget(steps: n, allocation: n)` limits what its body may do, and gives the limit that ran out as a tag.
+- A fault (dividing by zero, overflow) unwinds. `try` stops it and gives an `Error` value instead, with `kind`, `message`, and `trace`.
 - `using name = value;` binds a value that carries its own cleanup, which runs when the block ends however it ends.
 
 ```ab
@@ -237,7 +236,7 @@ pub fn main(): string with console.print {
 }
 ```
 
-Inside `try`, `budget`, `provide`, and the other scopes, `return` gives that scope its value; it does not leave the function.
+Inside `try`, `provide`, and the other scopes, `return` gives that scope its value; it does not leave the function.
 
 A failure the caller is not expected to deal with is thrown. `fail` throws an error of a kind, `catch` gives what a function gives or the error it threw, and an error nothing catches ends the program with its trace.
 
@@ -385,7 +384,7 @@ Here the bytes never leave the program. They are as good read from a file or the
 
 Compiled code can be kept, in a file or anywhere bytes go, and loaded later without compiling again. Nothing checks it then, so load only what the program compiled itself; a pack is what to accept from anyone else.
 
-`examples/hot` is a whole one: a server that takes a deploy at `/deploy`, and an entry that packs what the site answers, as it is written now, and sends it. `examples/functions` compiles each function it is posted, keeps it in a file, and calls it at a path named for its hash: loaded for the request, held to a budget, and let go. The type it casts to has `throw` for a row, so what it runs can do nothing else to the machine.
+`examples/hot` is a whole one: a server that takes a deploy at `/deploy`, and an entry that packs what the site answers, as it is written now, and sends it. `examples/functions` compiles each function it is posted, keeps it in a file, and calls it at a path named for its hash: loaded for the request and let go. The type it casts to has `throw` for a row, so what it runs can do nothing else to the machine.
 
 ## Bytes, hashes, and time
 

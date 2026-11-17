@@ -9,8 +9,7 @@
 //! copy that holds the record, so no record holds itself.
 
 use crate::object::{
-    KIND_CLOSURE, KIND_METHOD, KIND_RECORD, amb_retain, boolean, header, is_object, kind, object,
-    words,
+    KIND_CLOSURE, KIND_METHOD, KIND_RECORD, amb_retain, boolean, header, kind, object, words,
 };
 use crate::unit::{self, amb_unit_retain};
 use crate::{NULL, Word};
@@ -90,28 +89,6 @@ pub(crate) unsafe fn read(record: Word, held: Word) -> Word {
         amb_unit_retain(unit::of(bound[0]));
         bound[1..].iter().for_each(|value| amb_retain(*value));
         word
-    }
-}
-
-/// How many words [`read`] allocates for `held`: a function, if it is
-/// a method.
-pub(crate) unsafe fn binding(held: Word) -> u64 {
-    unsafe {
-        if is_object(held) && kind(held) == KIND_METHOD {
-            words(held).len() as u64 + 1
-        } else {
-            0
-        }
-    }
-}
-
-/// How many words a copy of `record` allocates at most: its fields,
-/// and a function for each method it holds, which a merge may bind.
-pub(crate) unsafe fn copying(record: Word) -> u64 {
-    unsafe {
-        let fields = words(record);
-        let bound: u64 = fields.chunks(2).map(|pair| binding(pair[1])).sum();
-        fields.len() as u64 + 1 + bound
     }
 }
 

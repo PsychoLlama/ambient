@@ -166,27 +166,23 @@ pub fn plan(parts: &Parts, base: &Base) -> Statics {
             Body::Function {
                 arity,
                 constants,
-                metered,
                 signature,
                 described,
                 types,
                 ..
             } => {
-                // Without a metered form, the plain one stands in for it.
-                let plain = index * 2;
-                statics.set(at, Field::Code(plain));
-                statics.set(at + 1, Field::Code(plain + usize::from(metered.is_some())));
-                statics.set(at + 2, Field::Word(*arity as u64));
+                statics.set(at, Field::Code(index));
+                statics.set(at + 1, Field::Word(*arity as u64));
                 let hash = statics.text(Make::String, &part.hash.to_string());
-                statics.set(at + 3, hash);
+                statics.set(at + 2, hash);
                 if let Some(signature) = signature {
                     let name = statics.type_name(signature, &slots);
-                    statics.set(at + 4, name);
+                    statics.set(at + 3, name);
                 }
-                statics.set(at + 5, Field::Word(*types as u64));
+                statics.set(at + 4, Field::Word(*types as u64));
                 if let Some(described) = described {
                     let node = statics.constant(described, &slots);
-                    statics.set(at + 6, node.field());
+                    statics.set(at + 5, node.field());
                 }
                 for (position, slot) in slots.iter().enumerate() {
                     statics.set(at + DEFINITION_WORDS + position, slot.address.field());
@@ -205,10 +201,6 @@ pub fn plan(parts: &Parts, base: &Base) -> Statics {
                         }
                         Constant::Ability(slot) => {
                             statics.text(Make::Field, &ability_key(&slots[*slot].hash))
-                        }
-                        Constant::AbilityBudget(slot) => {
-                            let key = format!("{}$", ability_key(&slots[*slot].hash));
-                            statics.text(Make::Field, &key)
                         }
                         Constant::Native => Field::Native(part.native.unwrap_or(0)),
                         Constant::Own => statics.text(Make::String, &part.hash.to_string()),

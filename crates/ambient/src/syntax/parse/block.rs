@@ -132,7 +132,7 @@ impl Parser {
             return self.function_in_block(began);
         }
         // A construct that ends in its own block needs nothing after it.
-        let scope = ["try", "budget", "provide", "observe", "group", "spawn"];
+        let scope = ["try", "provide", "observe", "group", "spawn"];
         let scope = scope.iter().any(|word| self.at_word(word));
         let value = self.expr()?;
         if !(scope && matches!(self.peek_back_one(), Token::Mark("}")) && !self.at(";")) {

@@ -64,28 +64,14 @@ pub enum Op {
     Float(u64),
     /// The function in a slot of the current definition, as a value.
     Slot(usize),
-    /// Calls the function in a slot of the current definition. With
-    /// `metered`, the call is made inside a budget, and reaches the code
-    /// that charges for what it does.
-    Call {
-        slot: usize,
-        args: Vec<Value>,
-        metered: bool,
-    },
+    /// Calls the function in a slot of the current definition.
+    Call { slot: usize, args: Vec<Value> },
     /// Calls a function value, as [`Op::Call`] calls a slot.
-    CallValue {
-        callee: Value,
-        args: Vec<Value>,
-        metered: bool,
-    },
+    CallValue { callee: Value, args: Vec<Value> },
     /// Leaves the function to call a function value with `args`, as
     /// [`Op::CallValue`] would: always unwinds, and whatever called the
     /// function makes the call.
-    Tail {
-        callee: Value,
-        args: Vec<Value>,
-        metered: bool,
-    },
+    Tail { callee: Value, args: Vec<Value> },
     /// For a call that unwound: if what it called left to make a call,
     /// makes that call and is its result; if not, goes on unwinding.
     /// It is handed how deep the function is: see [`Op::Enter`].
@@ -201,32 +187,6 @@ pub enum Op {
     /// ends it and is the error that describes it; if not, goes on
     /// unwinding.
     Contain,
-    /// Enters a budget of so many steps and words, both integers, and
-    /// is the budget.
-    BudgetEnter { steps: Value, words: Value },
-    /// Leaves a budget whose body completed, and is null.
-    BudgetLeave(Value),
-    /// For a budget whose body unwound: leaves it, and is the limit that
-    /// ran out if one did; if not, goes on unwinding.
-    BudgetCaught(Value),
-    /// The budget the task is inside, or null.
-    BudgetCurrent,
-    /// Puts the task inside a budget, as [`Op::BudgetCurrent`] gave it,
-    /// and is the one it was inside.
-    BudgetSwitch(Value),
-    /// Puts the task back inside a budget it was switched out of, and is
-    /// null; or, with `unwinding`, goes on unwinding.
-    BudgetBack { saved: Value, unwinding: bool },
-    /// Charges steps and words of allocation to the budgets the task is
-    /// inside, and is null. Unwinds if one runs out.
-    Charge { steps: u64, words: u64 },
-    /// Charges for an allocation about as large as a value.
-    ChargeSize(Value),
-    /// Charges for the tasks a list of functions is run as.
-    ChargeTasks(Value),
-    /// Charges for what reading a key of a record allocates: a
-    /// function, if a method is held there.
-    ChargeRead { record: Value, key: usize },
     /// A group with no tasks yet.
     Group,
     /// Starts a closure as a task of a group, and is null.

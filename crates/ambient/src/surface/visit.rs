@@ -282,15 +282,6 @@ macro_rules! children {
             Self::All(exprs) | Self::First(exprs) | Self::Cell { args: exprs, .. } => {
                 exprs.$iter().for_each($visit);
             }
-            Self::Budget {
-                steps,
-                allocation,
-                body,
-            } => {
-                $visit(steps);
-                $visit(allocation);
-                $visit(body);
-            }
             Self::Comptime(call) | Self::Group(call) | Self::Spawn(call) | Self::Boundary(call) => {
                 $visit(call);
             }

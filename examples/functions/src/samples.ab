@@ -17,5 +17,3 @@ pub fn sum(request: http.Request): http.Response with throw {
     return http.json(200, numbers.fold(0, add));
 }
 
-/// Never answers: the server's budget ends it.
-pub fn spin(request: http.Request): http.Response with throw => spin(request);

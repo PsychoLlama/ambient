@@ -280,20 +280,6 @@ fn a_step_gives_an_item_and_the_rest() {
     assert_eq!(evaluates(first), Value::Int(5));
 }
 
-#[test]
-fn stepping_inside_a_budget_is_charged() {
-    let steps = |allowed| b::budget(b::int(allowed), b::int(1000), sum(range(0, 10)));
-    let expected = Value::Tuple(vec![Value::Int(45), Value::Bool(false)]);
-    let spent = b::match_(
-        steps(5),
-        [
-            (pat::is(ty::int()), b::boolean(true)),
-            (pat::any(), b::boolean(false)),
-        ],
-    );
-    assert_eq!(evaluates(b::tuple([steps(1000), spent])), expected);
-}
-
 /// What a program gives when it steps the iterator its host hands it:
 /// the item, and the iterator of the rest, as its host reads that.
 fn stepped_once(source: Source, held: &[Value; 2]) -> Value {

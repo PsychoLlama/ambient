@@ -10,25 +10,6 @@ use crate::symbol::Symbol;
 use crate::types::{Ty, error};
 
 impl Checker<'_> {
-    /// A budget gives what its body does, or the limit that ran out, as
-    /// a tag.
-    pub(super) fn budget(
-        &mut self,
-        steps: &Expr<Reference>,
-        allocation: &Expr<Reference>,
-        body: &Expr<Reference>,
-    ) -> Result<(core::Expr, Ty), Error> {
-        let steps = self.check(steps, &Ty::Int)?;
-        let allocation = self.check(allocation, &Ty::Int)?;
-        let (body, ty) = self.infer(body)?;
-        let node = core::Expr::Budget {
-            steps: Box::new(steps),
-            allocation: Box::new(allocation),
-            body: Box::new(body),
-        };
-        Ok((node, self.env.union(vec![ty, Ty::Tag])))
-    }
-
     pub(super) fn boundary(&mut self, body: &Expr<Reference>) -> Result<(core::Expr, Ty), Error> {
         let (body, ty) = self.infer(body)?;
         let ty = self.env.union(vec![ty, self.env.normalize(&error())]);

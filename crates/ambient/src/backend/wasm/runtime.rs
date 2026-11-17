@@ -66,8 +66,6 @@ pub const HOST: &[&str] = &[
     "amb_strand",
     "amb_call_back",
     "amb_call_among",
-    "amb_budget_switch",
-    "amb_budget_back",
 ];
 
 /// What a host calls only of a program that reaches a function: what
@@ -86,8 +84,6 @@ const OFFERED: &[(&str, &[&str])] = &[
     ("amb_strand", &["amb_native_wait"]),
     ("amb_call_back", &["amb_native"]),
     ("amb_call_among", &["amb_native", "amb_suspend"]),
-    ("amb_budget_switch", &["amb_native", "amb_budget_enter"]),
-    ("amb_budget_back", &["amb_native", "amb_budget_enter"]),
 ];
 
 /// What a host that loads units calls besides.

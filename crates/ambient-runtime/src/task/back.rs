@@ -24,12 +24,6 @@ unsafe fn beneath(context: *mut Context) -> Option<Word> {
     small(depth.cast_signed()).filter(|_| depth <= DEPTH)
 }
 
-/// Whether the task that is running is inside a budget, and so calls
-/// the metered form of what it calls.
-unsafe fn metered(context: *mut Context) -> u64 {
-    u64::from(unsafe { scheduler(context) }.current().budget.is_some())
-}
-
 /// Calls `callee` for native code, with the members of `args`: a tuple
 /// of the bindings it is handed and then its arguments. For a program
 /// in which nothing suspends; any other is called through
@@ -41,7 +35,7 @@ pub unsafe extern "C" fn amb_call_back(context: *mut Context, callee: Word, args
         let Some(depth) = beneath(context) else {
             return fault(context, Fault::Deep);
         };
-        let result = start(context, callee, args, metered(context), depth);
+        let result = start(context, callee, args, depth);
         (*context).depth = outer;
         result
     }
@@ -59,7 +53,6 @@ pub unsafe extern "C" fn amb_call_among(context: *mut Context, callee: Word, arg
         let Some(depth) = beneath(context) else {
             return fault(context, Fault::Deep);
         };
-        let metered = metered(context);
         let scheduler = scheduler(context);
         let id = scheduler.current;
         // Native code that may answer later may still do so once what
@@ -73,7 +66,7 @@ pub unsafe extern "C" fn amb_call_among(context: *mut Context, callee: Word, arg
         }
         let stood = scheduler.current().kept.stands(depth);
         let result = loop {
-            let result = start(context, callee, args, metered, depth);
+            let result = start(context, callee, args, depth);
             if result != UNWIND || (*context).mode != SUSPENDING {
                 break result;
             }

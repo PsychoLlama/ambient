@@ -51,14 +51,6 @@ impl Op {
             | Self::Rethrow(_)
             | Self::Trace { .. }
             | Self::Contain
-            | Self::BudgetCaught(_)
-            | Self::BudgetBack {
-                unwinding: true, ..
-            }
-            | Self::Charge { .. }
-            | Self::ChargeSize(_)
-            | Self::ChargeTasks(_)
-            | Self::ChargeRead { .. }
             | Self::GroupClose { .. }
             | Self::GroupEnd { .. }
             | Self::Cleanup(Cleanup::Failed) => true,
@@ -183,16 +175,6 @@ impl Op {
             | Self::Depth(_)
             | Self::Hold
             | Self::Contain
-            | Self::BudgetEnter { .. }
-            | Self::BudgetLeave(_)
-            | Self::BudgetCaught(_)
-            | Self::BudgetCurrent
-            | Self::BudgetSwitch(_)
-            | Self::BudgetBack { .. }
-            | Self::Charge { .. }
-            | Self::ChargeSize(_)
-            | Self::ChargeTasks(_)
-            | Self::ChargeRead { .. }
             | Self::Group
             | Self::Spawn { .. }
             | Self::GroupClose { .. }
@@ -309,15 +291,10 @@ impl Op {
         use Arg::Raw;
         let value = |value: &Value| Arg::Value(*value);
         match self {
-            Self::Tail {
-                callee,
-                args,
-                metered,
-            } => {
+            Self::Tail { callee, args } => {
                 // The call is pending from the first step, which is what
                 // the operation gives; each argument then joins it.
-                let metered = Raw(u64::from(*metered));
-                let mut steps = vec![step(Entry::Tail, [value(callee), metered])];
+                let mut steps = vec![step(Entry::Tail, [value(callee)])];
                 steps.extend(args.iter().map(|arg| step(Entry::TailArg, [value(arg)])));
                 steps
             }
@@ -326,28 +303,6 @@ impl Op {
             Self::Depth(depth) => vec![step(Entry::Depth, [value(depth)])],
             Self::Hold => vec![step(Entry::Hold, [])],
             Self::Contain => vec![step(Entry::Contain, [])],
-            Self::BudgetEnter { steps, words } => {
-                vec![step(Entry::BudgetEnter, [value(steps), value(words)])]
-            }
-            Self::BudgetLeave(budget) => vec![step(Entry::BudgetLeave, [value(budget)])],
-            Self::BudgetCurrent => vec![step(Entry::BudgetCurrent, [])],
-            Self::BudgetSwitch(budget) => vec![step(Entry::BudgetSwitch, [value(budget)])],
-            Self::BudgetBack { saved, unwinding } => {
-                let unwinding = Raw(u64::from(*unwinding));
-                vec![step(Entry::BudgetBack, [value(saved), unwinding])]
-            }
-            Self::BudgetCaught(budget) => vec![step(Entry::BudgetCaught, [value(budget)])],
-            Self::Charge { steps, words } => {
-                vec![step(Entry::Charge, [Raw(*steps), Raw(*words)])]
-            }
-            Self::ChargeSize(sized) => vec![step(Entry::ChargeSize, [value(sized)])],
-            Self::ChargeTasks(thunks) => vec![step(Entry::ChargeTasks, [value(thunks)])],
-            Self::ChargeRead { record, key: field } => {
-                vec![step(
-                    Entry::ChargeRead,
-                    [value(record), Arg::Value(Value::Constant(*field))],
-                )]
-            }
             Self::Group => vec![step(Entry::GroupNew, [])],
             Self::Spawn { group, thunk } => {
                 vec![step(Entry::Spawn, [value(group), value(thunk)])]

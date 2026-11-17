@@ -35,9 +35,6 @@ pub(crate) const KIND_BYTES: u32 = 15;
 /// A handle: see [`crate::handle`].
 pub(crate) const KIND_HANDLE: u32 = 16;
 
-/// Not a value: a budget. See `task/budget.rs`.
-pub(crate) const KIND_BUDGET: u32 = 17;
-
 /// The count of an object that is never reclaimed.
 pub(crate) const PINNED: u32 = u32::MAX;
 /// The count of an object in a block of a unit: a reference to it is a
@@ -54,8 +51,7 @@ pub(crate) fn fixed(loaded: bool) -> u64 {
 /// compiled code. Every field is one word; offsets are in bytes.
 ///
 /// A closure is an object whose payload is its definition and then its
-/// captures. A definition is not an object: it is the code, the code
-/// compiled to run inside a budget, the arity, its hash, the name of its
+/// captures. A definition is not an object: it is the code, the arity, its hash, the name of its
 /// type, how many type arguments it is handed, and then one closure per
 /// slot. The word before it names its
 /// unit: see [`crate::unit`].
@@ -68,30 +64,28 @@ pub mod layout {
     pub const CLOSURE_WORDS: usize = 3;
     /// From a definition to its code.
     pub const DEFINITION_CODE: i32 = 0;
-    /// From a definition to its code as what runs inside a budget calls
-    /// it: code that charges for what it does. In a program that enters
-    /// no budget this is the same code, and nothing calls it.
-    pub const DEFINITION_METERED: i32 = 8;
+    /// From a definition to how many parameters its function takes.
+    pub const DEFINITION_ARITY: i32 = 8;
     /// From a definition to its hash, a string: what a host names the
     /// definition of a function value by.
-    pub const DEFINITION_HASH: i32 = 24;
+    pub const DEFINITION_HASH: i32 = 16;
     /// From a definition to the name of its type, an interned name: one
     /// word that two definitions share exactly when they are functions
     /// of the same type. Zero in a function whose type depends on its
     /// type arguments.
-    pub const DEFINITION_TYPE: i32 = 32;
+    pub const DEFINITION_TYPE: i32 = 24;
     /// From a definition to how many type arguments its function is
     /// handed as it runs: as many as it has type parameters if it needs
     /// them, and none if it does not.
-    pub const DEFINITION_TYPES: i32 = 40;
+    pub const DEFINITION_TYPES: i32 = 32;
     /// From a definition to a descriptor of its type, in a function
     /// that is handed type arguments its type depends on: the type is
     /// that node read in those arguments. Zero in any other.
-    pub const DEFINITION_DESCRIBED: i32 = 48;
+    pub const DEFINITION_DESCRIBED: i32 = 40;
     /// From a definition to its first slot.
-    pub const DEFINITION_SLOTS: i32 = 56;
+    pub const DEFINITION_SLOTS: i32 = 48;
     /// The words in a definition with no slots.
-    pub const DEFINITION_WORDS: usize = 7;
+    pub const DEFINITION_WORDS: usize = 6;
 }
 
 /// Writes a closure for a block into `words`: its header, its
@@ -317,8 +311,6 @@ unsafe fn reclaim(word: Word) {
                     amb_unit_release(unit::of(words(word)[2]));
                     &words(word)[..2]
                 }
-                // Only the budget around it is counted.
-                KIND_BUDGET => &words(word)[..1],
                 // The first word is the definition, which is not a value.
                 KIND_CLOSURE | KIND_METHOD => {
                     amb_unit_release(unit::of(words(word)[0]));

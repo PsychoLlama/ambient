@@ -34,9 +34,8 @@ fn packed(name: string): bytes | Error with code.pack {
         "hello" => { return code.pack!(samples.hello); }
         "echo" => { return code.pack!(samples.echo); }
         "sum" => { return code.pack!(samples.sum); }
-        "spin" => { return code.pack!(samples.spin); }
         _ => {
-            return { kind: code.invalid, message: "no sample is called `${name}`: try hello, echo, sum, or spin", cause: null, trace: [] };
+            return { kind: code.invalid, message: "no sample is called `${name}`: try hello, echo, or sum", cause: null, trace: [] };
         }
     }
 }

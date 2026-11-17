@@ -2,7 +2,7 @@
 //! what they return.
 
 use std::cell::{Cell, RefCell, UnsafeCell};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use ambient_runtime::{Entry, Fault, NULL, Word};
 
@@ -12,7 +12,7 @@ use super::unit::{Unit, map};
 use super::values::Host;
 use super::waits::{Answers, Asked};
 use crate::hash::Hash;
-use crate::parts::{Body, CLOSED, Part, Parts};
+use crate::parts::{CLOSED, Parts};
 use crate::stack;
 use crate::statics::{self, Base, Field, Known, Place};
 use crate::value::{self, Value};
@@ -27,8 +27,6 @@ pub struct Program {
     unused: Box<UnsafeCell<u64>>,
     /// Where each definition it has is, by hash.
     known: RefCell<HashMap<Hash, Known>>,
-    /// The functions among them that have a metered form.
-    metered: RefCell<HashSet<Hash>>,
     entries: Box<[usize]>,
     /// The closure of the function it was first loaded for.
     entry: Cell<Word>,
@@ -84,7 +82,6 @@ impl Program {
             units: RefCell::default(),
             unused: Box::default(),
             known: RefCell::default(),
-            metered: RefCell::default(),
             entries: Entry::ALL.iter().map(|entry| entry.address()).collect(),
             entry: Cell::new(NULL),
             natives: RefCell::default(),
@@ -145,7 +142,6 @@ impl Program {
                 // A later unit may have brought the definition again.
                 if known.get(hash).is_some_and(|known| known.unit == unit) {
                     known.remove(hash);
-                    self.metered.borrow_mut().remove(hash);
                 }
             }
         }
@@ -155,20 +151,7 @@ impl Program {
     /// `loaded`, and for good if not. Returns the entry, owned.
     fn place(&self, parts: &Parts, natives: &Natives, loaded: bool) -> Result<Word, String> {
         let offered = natives.resolve(&parts.natives)?;
-        let wants_metered =
-            |part: &Part| matches!(&part.body, Body::Function { metered, .. } if metered.is_some());
-        // A function that is here without the metered form these parts
-        // call it by is loaded again, with one.
-        let lacking: HashSet<Hash> = parts
-            .parts
-            .iter()
-            .filter(|part| wants_metered(part) && !self.metered.borrow().contains(&part.hash))
-            .map(|part| part.hash)
-            .collect();
-        let known = |hash: &Hash| {
-            let known = self.known.borrow().get(hash).copied();
-            known.filter(|_| !lacking.contains(hash))
-        };
+        let known = |hash: &Hash| self.known.borrow().get(hash).copied();
         let plan = statics::plan(
             parts,
             &Base {
@@ -232,9 +215,6 @@ impl Program {
             };
             self.known.borrow_mut().insert(part.hash, known);
             unit.hashes.push(part.hash);
-            if wants_metered(part) {
-                self.metered.borrow_mut().insert(part.hash);
-            }
         }
         self.units.borrow_mut().insert(address(0), unit);
         let entry = match plan.entry {
@@ -388,7 +368,7 @@ impl Program {
             for (index, word) in (0..).zip(&words) {
                 ambient_runtime::amb_sequence_set(handed, index, *word);
             }
-            let invoke = move || ambient_runtime::amb_start(context, closure, handed, 0);
+            let invoke = move || ambient_runtime::amb_start(context, closure, handed);
             // Unwinding in this mode is the root task suspending: the
             // others take their turns, and the entry runs again to
             // resume it where it was.

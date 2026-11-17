@@ -58,17 +58,6 @@ fn a_program_names_the_kind_of_a_fault() {
 }
 
 #[test]
-fn a_program_names_the_limit_a_budget_ran_out_of() {
-    // A sum may need room for its result, and there is none.
-    let limit = b::budget(b::int(1000), b::int(0), b::add(b::int(1), b::int(1)));
-
-    assert_eq!(
-        evaluates(ty::int(), which(limit, ["steps", "allocation"])),
-        Value::Int(1)
-    );
-}
-
-#[test]
 fn a_tag_a_program_declares_is_not_one_of_the_language() {
     // The program's own `overflow` is the one its names reach.
     let kind = which(kind_of_an_overflow(), ["overflow"]);

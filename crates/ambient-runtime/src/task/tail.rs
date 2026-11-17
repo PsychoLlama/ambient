@@ -15,7 +15,7 @@ use core::mem::transmute;
 
 use super::depth::NOWHERE;
 use super::{Frame, RESUMING, SUSPENDING, scheduler};
-use crate::object::layout::{DEFINITION_CODE, DEFINITION_METERED};
+use crate::object::layout::DEFINITION_CODE;
 use crate::object::{amb_release, amb_retain, fault, words};
 use crate::{ARGUMENTS, Context, Fault, NULL, UNWIND, Word};
 
@@ -23,21 +23,16 @@ use crate::{ARGUMENTS, Context, Fault, NULL, UNWIND, Word};
 /// [`amb_bounce`] was making when its task suspended.
 const BOUNCE: u64 = u64::MAX;
 
-/// Leaves the function that is running to call `callee`, in its
-/// metered form if `metered` is not zero. What it is called with, the
+/// Leaves the function that is running to call `callee`. What it is called with, the
 /// bindings it is handed and then its arguments, follows one at a time
 /// through [`amb_tail_arg`]. Always returns [`UNWIND`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_tail(context: *mut Context, callee: Word, metered: u64) -> Word {
+pub unsafe extern "C" fn amb_tail(context: *mut Context, callee: Word) -> Word {
     unsafe {
         amb_retain(callee);
-        let form = if metered == 0 {
-            DEFINITION_CODE
-        } else {
-            DEFINITION_METERED
-        };
         let definition = words(callee)[0] as usize as *const u8;
-        (*context).tail = definition.add(form as usize).cast::<u64>().read();
+        let code = definition.add(DEFINITION_CODE as usize).cast::<u64>();
+        (*context).tail = code.read();
         (*context).abort_token = callee;
         (*context).tail_count = 0;
         fault(context, Fault::Tail)
@@ -113,35 +108,24 @@ unsafe fn bounced(context: *mut Context) -> bool {
 /// host, or the scheduler. Called again with the same once the task
 /// that suspended in it is to resume.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn amb_start(
-    context: *mut Context,
-    callee: Word,
-    args: Word,
-    metered: u64,
-) -> Word {
+pub unsafe extern "C" fn amb_start(context: *mut Context, callee: Word, args: Word) -> Word {
     unsafe {
         if let Some(stacks) = super::stack::of(context) {
-            return super::stack::root(context, stacks, callee, args, metered);
+            return super::stack::root(context, stacks, callee, args);
         }
         // Nothing compiled is running under it: a host is, or the
         // scheduler a host called.
-        start(context, callee, args, metered, NOWHERE)
+        start(context, callee, args, NOWHERE)
     }
 }
 
 /// What [`amb_start`] does, from `depth`: how deep whatever makes the
 /// call is.
-pub(super) unsafe fn start(
-    context: *mut Context,
-    callee: Word,
-    args: Word,
-    metered: u64,
-    depth: Word,
-) -> Word {
+pub(super) unsafe fn start(context: *mut Context, callee: Word, args: Word, depth: Word) -> Word {
     unsafe {
         // A call that is kept is made again from where it is kept.
         if !bounced(context) {
-            amb_tail(context, callee, metered);
+            amb_tail(context, callee);
             for arg in words(args).iter() {
                 amb_tail_arg(context, *arg);
             }

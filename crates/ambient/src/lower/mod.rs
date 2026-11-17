@@ -5,7 +5,6 @@
 //! local so that it has an owner.
 
 mod abilities;
-mod meter;
 mod native;
 mod patterns;
 mod resume;
@@ -58,13 +57,6 @@ pub fn lower(definition: &Open, form: &Form) -> Result<lir::Function, Unsupporte
         }
         _ => return Err(Unsupported("definitions that are not functions")),
     };
-    // Both forms of a function read one definition, so the constants of
-    // the plain form come first in the metered one's, at the same places.
-    let constants = if form.metered {
-        lower(definition, &form.plain())?.constants
-    } else {
-        Vec::new()
-    };
     let positions = function.body.positions();
     let mut lowering = Lowering {
         positions: (0..)
@@ -73,7 +65,7 @@ pub fn lower(definition: &Open, form: &Form) -> Result<lir::Function, Unsupporte
             .collect(),
         binders: function.params.len(),
         temporaries: 0,
-        constants,
+        constants: Vec::new(),
         bindings: Value::Local(0),
         // They follow what it captured: values, then bindings.
         types: if form.handed {
@@ -85,7 +77,6 @@ pub fn lower(definition: &Open, form: &Form) -> Result<lir::Function, Unsupporte
         type_params: function.type_params.len(),
         handed: form.slots.clone(),
         groups: Vec::new(),
-        metered: form.metered,
     };
     let entry = lowering.enter(function);
     let mut body = entry.wrap(lowering.expr(&function.body)?);
@@ -97,7 +88,6 @@ pub fn lower(definition: &Open, form: &Form) -> Result<lir::Function, Unsupporte
     let params = function.params.len() + 1;
     let own = tail::Own {
         slot: form.own,
-        metered: form.metered,
         params,
     };
     let (body, points) = resume::resumable(tail::tailed(body, &mut locals, &own), form.still);
@@ -176,9 +166,6 @@ struct Lowering {
     type_params: usize,
     /// The groups lowering is inside of, innermost last.
     groups: Vec<Value>,
-    /// Whether what is being lowered runs inside a budget: the whole of
-    /// a function in its metered form, and the body of a budget in any.
-    metered: bool,
 }
 
 impl Lowering {
@@ -226,17 +213,10 @@ impl Lowering {
     }
 
     pub(super) fn expr(&mut self, expr: &core::Expr) -> Result<Expr, Unsupported> {
-        // A node is paid for before any of it happens.
-        let mut scope = Scope::default();
-        self.charge(expr, &mut scope);
-        Ok(scope.wrap(self.node(expr)?))
-    }
-
-    fn node(&mut self, expr: &core::Expr) -> Result<Expr, Unsupported> {
         let mut scope = Scope::default();
         let op = match expr {
             // A mark is no part of a tree: the checker takes each out.
-            core::Expr::At(_, marked) => return self.node(marked),
+            core::Expr::At(_, marked) => return self.expr(marked),
             // Only checking tells a value from the type it is seen as.
             core::Expr::Widen { value, .. } | core::Expr::Brand { value, .. } => {
                 return self.expr(value);
@@ -270,7 +250,16 @@ impl Lowering {
             }
             core::Expr::Primitive { operation, args } => {
                 let args = self.operands(args, &mut scope)?;
-                self.primitive(*operation, args, &mut scope)
+                // Tasks are started the one way, whether the functions
+                // were written out or are the members of a list.
+                match (*operation, &args[..]) {
+                    (core::Primitive::ListAll, [thunks]) => Op::All(*thunks),
+                    (core::Primitive::ListFirst, [thunks]) => Op::First(*thunks),
+                    _ => Op::Primitive {
+                        operation: *operation,
+                        args,
+                    },
+                }
             }
             core::Expr::Closure {
                 slot,
@@ -279,10 +268,9 @@ impl Lowering {
                 bindings,
             } => self.closure(*slot, type_args, captures, bindings, &mut scope)?,
             core::Expr::Perform { .. } => self.perform(expr, &mut scope)?,
-            core::Expr::Cleanup { .. }
-            | core::Expr::Group(_)
-            | core::Expr::Budget { .. }
-            | core::Expr::Boundary(_) => return self.block(expr),
+            core::Expr::Cleanup { .. } | core::Expr::Group(_) | core::Expr::Boundary(_) => {
+                return self.block(expr);
+            }
             core::Expr::Spawn(thunk) => self.spawn(thunk, &mut scope)?,
             core::Expr::All(thunks) => Op::All(self.thunks(thunks, &mut scope)?),
             core::Expr::First(thunks) => Op::First(self.thunks(thunks, &mut scope)?),
@@ -298,7 +286,6 @@ impl Lowering {
             core::Expr::Field { target, key } => {
                 let record = self.operand(target, &mut scope)?;
                 let key = self.key(key);
-                self.charge_read(record, key, &mut scope);
                 Op::Field { record, key }
             }
             core::Expr::Send { .. } => self.send(expr, &mut scope)?,
@@ -429,15 +416,6 @@ impl Lowering {
         })
     }
 
-    /// A call of a function value, metered if it is made inside a budget.
-    pub(super) fn call_value(&self, callee: Value, args: Vec<Value>) -> Op {
-        Op::CallValue {
-            callee,
-            args,
-            metered: self.metered,
-        }
-    }
-
     /// A call. The callee is handed the bindings in scope, whole.
     fn call(
         &mut self,
@@ -451,16 +429,12 @@ impl Lowering {
             && !self.hands(*slot, types)
         {
             let args = self.arguments(self.bindings, args, scope)?;
-            let (slot, metered) = (slot.0, self.metered);
-            return Ok(Op::Call {
-                slot,
-                args,
-                metered,
-            });
+            let slot = slot.0;
+            return Ok(Op::Call { slot, args });
         }
         let callee = self.operand(callee, scope)?;
         let args = self.arguments(self.bindings, args, scope)?;
-        Ok(self.call_value(callee, args))
+        Ok(Op::CallValue { callee, args })
     }
 }
 

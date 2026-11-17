@@ -198,7 +198,7 @@ fn a_server_takes_a_deploy_and_goes_on_serving() {
 fn a_function_that_was_posted_is_called_by_its_hash() {
     let url = "http://127.0.0.1:8080/";
     let pack = |sample: &str| posted("functions", "publish.main", &[sample], url, "/x").body;
-    let (hello, spin) = (pack("hello"), pack("spin"));
+    let (hello, sum) = (pack("hello"), pack("sum"));
     let name = |pack: &[u8]| {
         let hex = |mut hex: String, byte: &u8| {
             let _ = write!(hex, "{byte:02x}");
@@ -206,12 +206,12 @@ fn a_function_that_was_posted_is_called_by_its_hash() {
         };
         Sha256::digest(pack).iter().fold(String::new(), hex)
     };
-    let (greets, spins) = (name(&hello), name(&spin));
+    let (greets, sums) = (name(&hello), name(&sum));
     let requests = [
         request("POST", "/", &hello),
-        request("POST", "/", &spin),
+        request("POST", "/", &sum),
         request("GET", &format!("/{greets}/ada"), b""),
-        request("GET", &format!("/{spins}"), b""),
+        request("POST", &format!("/{sums}"), b"[1, 2, 3]"),
         request("GET", "/../main", b""),
     ];
     let server = Scripted {
@@ -222,9 +222,9 @@ fn a_function_that_was_posted_is_called_by_its_hash() {
     let after = entry("functions", "main.main", server);
     let expected = [
         (201, format!("/{greets}\n")),
-        (201, format!("/{spins}\n")),
+        (201, format!("/{sums}\n")),
         (200, "hello, ada\n".to_owned()),
-        (503, "the function took too long\n".to_owned()),
+        (200, "6".to_owned()),
         (404, "no function is called that\n".to_owned()),
     ];
     assert_eq!(said(&after), expected);

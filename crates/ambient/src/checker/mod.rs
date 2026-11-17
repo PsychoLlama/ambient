@@ -446,11 +446,6 @@ impl<'a> Checker<'a> {
             // was never built.
             Expr::At(..) => return Err(Error::UnknownSymbol(self.symbol.clone())),
             Expr::Group(body) => self.group(body)?,
-            Expr::Budget {
-                steps,
-                allocation,
-                body,
-            } => self.budget(steps, allocation, body)?,
             Expr::Boundary(body) => self.boundary(body)?,
             Expr::Spawn(task) => self.spawn(task)?,
             Expr::All(branches) => self.join(branches, false)?,

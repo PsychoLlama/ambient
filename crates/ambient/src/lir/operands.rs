@@ -11,8 +11,6 @@ impl Op {
             | Self::Slot(_)
             | Self::Token { .. }
             | Self::Traced
-            | Self::BudgetCurrent
-            | Self::Charge { .. }
             | Self::Hold
             | Self::Enter { .. }
             | Self::Trace { .. }
@@ -29,12 +27,6 @@ impl Op {
             | Self::Bounce(operand)
             | Self::Depth(operand)
             | Self::Rethrow(operand)
-            | Self::BudgetLeave(operand)
-            | Self::BudgetSwitch(operand)
-            | Self::BudgetBack { saved: operand, .. }
-            | Self::BudgetCaught(operand)
-            | Self::ChargeSize(operand)
-            | Self::ChargeTasks(operand)
             | Self::All(operand)
             | Self::First(operand) => vec![operand],
             Self::Spawn {
@@ -44,10 +36,6 @@ impl Op {
             | Self::GroupEnd {
                 group: base,
                 held: overlay,
-            }
-            | Self::BudgetEnter {
-                steps: base,
-                words: overlay,
             } => vec![base, overlay],
             Self::Merge {
                 base,
@@ -69,8 +57,7 @@ impl Op {
             Self::Record(fields) => fields.iter_mut().map(|(_, member)| member).collect(),
             Self::Field { record, .. }
             | Self::Held { record, .. }
-            | Self::Unbound { record, .. }
-            | Self::ChargeRead { record, .. } => vec![record],
+            | Self::Unbound { record, .. } => vec![record],
             Self::Member { tuple, .. } => vec![tuple],
             Self::HasField { value: subject, .. } | Self::IsTuple { value: subject, .. } => {
                 vec![subject]

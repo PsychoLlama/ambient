@@ -7,7 +7,6 @@ mod support;
 
 use ambient::value::Value;
 use support::scripted::Scripted;
-use support::text::text;
 
 /// What `main` gives in a world where time passes only while every
 /// task sleeps, and how long it took.
@@ -74,26 +73,6 @@ fn one_task_that_fails_stops_the_rest_and_fails_the_whole() {
     assert_eq!(
         timed(body),
         ("an integer was divided by zero".to_owned(), 0)
-    );
-}
-
-#[test]
-fn each_task_started_is_a_step_of_the_budget_it_is_started_in() {
-    let spent = |steps: i64| {
-        text(&format!(
-            "import ambient.tasks;
-            fn main(): string {{
-                let work = [1, 2, 3, 4].map(fn(n: int): fn(): int => fn(): int => n);
-                let outcome = budget(steps: {steps}, allocation: 1000) {{
-                    return tasks.gather(work).length();
-                }};
-                return outcome == 4 ? \"afforded\" : \"ran out\";
-            }}"
-        ))
-    };
-    assert_eq!(
-        (spent(100), spent(3)),
-        ("afforded".into(), "ran out".into())
     );
 }
 

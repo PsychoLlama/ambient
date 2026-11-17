@@ -80,7 +80,7 @@ impl Drop for Unit {
 pub(super) fn map(parts: &Parts, plan: &Statics) -> Result<(Mmap, Vec<usize>), String> {
     let io = |error: std::io::Error| error.to_string();
     let codes = parts.codes();
-    let code_of = |index: usize| match plan.placed[index / 2] {
+    let code_of = |index: usize| match plan.placed[index] {
         Some(_) => codes[index].map_or(&[][..], |(_, code)| &code.0),
         None => &[][..],
     };

@@ -369,27 +369,10 @@ impl Running for Call<'_, '_> {
     }
 
     fn perform(&mut self, package: &str, path: &str, args: &[Value]) -> Result<Value, String> {
-        let handlers = self.handlers;
-        let length = if self.row.is_empty() {
-            0
-        } else {
-            self.guest.words("amb_length", &[handlers])
-        };
-        let (handler, budget) =
-            bound(&self.row, length, package, path).ok_or_else(|| UNDECLARED_ABILITY.to_owned())?;
-        // A handler runs inside the budget it was bound inside. Only a
-        // program that has budgets has metered code to say so.
-        let saved = budget.map(|budget| {
-            let budget = self.guest.words("amb_word_at", &[handlers, budget]);
-            self.guest.at("amb_budget_switch", self.context, &[budget])
-        });
-        let handler = self.guest.words("amb_word_at", &[handlers, handler]);
-        let answered = self.made(handler, args);
-        if let Some(saved) = saved {
-            self.guest.at("amb_budget_back", self.context, &[saved, 0]);
-            self.guest.words("amb_release", &[saved]);
-        }
-        answered
+        let handler =
+            bound(&self.row, package, path).ok_or_else(|| UNDECLARED_ABILITY.to_owned())?;
+        let handler = self.guest.words("amb_word_at", &[self.handlers, handler]);
+        self.made(handler, args)
     }
 }
 

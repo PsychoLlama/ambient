@@ -86,13 +86,6 @@ fn a_fault_in_what_answers_native_code_goes_on_through_it() {
 }
 
 #[test]
-fn native_code_performs_inside_a_budget() {
-    let budgeted = b::budget(b::int(1000), b::int(1000), relay(21));
-
-    assert_eq!(outcome(doubling(budgeted)), Ok(Value::Int(42)));
-}
-
-#[test]
 fn what_calls_an_extern_covers_its_row() {
     let main = b::function("main").returns(ty::int()).body(relay(1));
     let [ask, relay] = world();

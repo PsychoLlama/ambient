@@ -254,8 +254,7 @@ fn a_backend_is_not_asked_twice() {
     assert_eq!(*backend.compiled.borrow(), 3);
 }
 
-/// `main` uses the generic `id` at a type, inside a budget, so that `id`
-/// has a metered form too.
+/// `main` uses the generic `id` at a type.
 fn generic(result: i64) -> ModuleBuilder {
     let id = b::function("id")
         .type_param("T")
@@ -263,10 +262,7 @@ fn generic(result: i64) -> ModuleBuilder {
         .returns(ty::int())
         .body(b::int(result));
     let used = b::call(b::instantiate("id", [ty::string()]), [b::string("a")]);
-    let main =
-        b::function("main")
-            .returns(ty::unknown())
-            .body(b::budget(b::int(100), b::int(100), used));
+    let main = b::function("main").returns(ty::unknown()).body(used);
     b::module().define(id).define(main)
 }
 
@@ -283,8 +279,8 @@ fn linking_again_compiles_only_what_was_edited() {
     let engine = Engine::new(&after, &store);
     engine.link(&entry, &backend).unwrap();
 
-    // `main` and both forms of `id`; then both forms of `id` alone.
-    assert_eq!((first, *backend.compiled.borrow()), (3, 2));
+    // `main` and `id`; then `id` alone.
+    assert_eq!((first, *backend.compiled.borrow()), (2, 1));
     assert_eq!(engine.ran(Stage::Check), names(&["id"]));
 }
 

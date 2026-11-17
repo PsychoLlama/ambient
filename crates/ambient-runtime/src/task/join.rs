@@ -53,7 +53,6 @@ unsafe fn started(context: *mut Context, thunks: Word, first: bool) -> Word {
             (false, false) => Gives::Tuple,
         };
         let thunks = members(thunks);
-        let budget = scheduler.task(parent).budget;
         let join = scheduler.open(Join {
             parent,
             children: Vec::new(),
@@ -70,7 +69,6 @@ unsafe fn started(context: *mut Context, thunks: Word, first: bool) -> Word {
             let id = scheduler.admit(Task {
                 thunk: *thunk,
                 place: Some((join, place)),
-                budget: super::budget::shared(budget),
                 ..Task::default()
             });
             scheduler.queue(id);

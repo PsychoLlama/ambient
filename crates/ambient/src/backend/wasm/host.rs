@@ -173,7 +173,7 @@ impl Program {
         for (index, arg) in (1..).zip(args) {
             guest.runtime("amb_sequence_set", &[word(handed), word(index), word(*arg)]);
         }
-        let start = [context, word(function), word(handed), word(0)];
+        let start = [context, word(function), word(handed)];
         let run = |guest: &mut Guest<Store<State>>| {
             let result = guest.runtime("amb_start", &start);
             result.map_or(UNWIND, |result| result.unwrap_i64().cast_unsigned())

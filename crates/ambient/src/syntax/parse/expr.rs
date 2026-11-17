@@ -298,9 +298,7 @@ impl Parser {
                 self.advance();
                 self.match_value()
             }
-            "try" | "budget" | "provide" | "observe" | "group" | "spawn" | "cell" => {
-                self.scope(word)
-            }
+            "try" | "provide" | "observe" | "group" | "spawn" | "cell" => self.scope(word),
             // A join, unless the word names something nearer.
             "all" | "first"
                 if !self.is_local(word) && matches!(self.peek_at(1), Token::Mark("(")) =>

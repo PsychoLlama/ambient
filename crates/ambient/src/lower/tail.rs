@@ -55,9 +55,6 @@ pub(super) fn tailed(body: Expr, locals: &mut usize, own: &Own) -> Expr {
 pub(super) struct Own {
     /// The slot that refers to it, if one does.
     pub slot: Option<usize>,
-    /// Whether this is its metered form: a call of the other form is
-    /// not a call of this one.
-    pub metered: bool,
     /// How many parameters it has, its bindings among them.
     pub params: usize,
 }
@@ -81,9 +78,9 @@ impl Calls<'_> {
     }
 
     /// Whether a call through `slot` is one of this very function.
-    fn own(&self, slot: usize, args: &[Value], metered: bool) -> bool {
+    fn own(&self, slot: usize, args: &[Value]) -> bool {
         let own = self.own;
-        own.slot == Some(slot) && own.metered == metered && own.params == args.len()
+        own.slot == Some(slot) && own.params == args.len()
     }
 
     /// `call` as a call that takes stack: made from the function's
@@ -111,11 +108,7 @@ impl Calls<'_> {
     /// nothing left for the function to do once it is known.
     fn rewrite(&mut self, expr: Expr, last: bool) -> Expr {
         match expr {
-            Expr::Op(Op::Call {
-                slot,
-                args,
-                metered,
-            }) if last && self.own(slot, &args, metered) => {
+            Expr::Op(Op::Call { slot, args }) if last && self.own(slot, &args) => {
                 self.again = true;
                 Expr::Op(Op::Again(args))
             }
@@ -171,24 +164,12 @@ fn leave(call: Op, locals: &mut usize) -> Expr {
         bound.push((local, op));
         Value::Local(local)
     };
-    let (callee, args, metered) = match call {
-        Op::Call {
-            slot,
-            args,
-            metered,
-        } => (bind(Op::Slot(slot)), args, metered),
-        Op::CallValue {
-            callee,
-            args,
-            metered,
-        } => (callee, args, metered),
+    let (callee, args) = match call {
+        Op::Call { slot, args } => (bind(Op::Slot(slot)), args),
+        Op::CallValue { callee, args } => (callee, args),
         other => return Expr::Op(other),
     };
-    let tail = Expr::Op(Op::Tail {
-        callee,
-        args,
-        metered,
-    });
+    let tail = Expr::Op(Op::Tail { callee, args });
     bound
         .into_iter()
         .rev()

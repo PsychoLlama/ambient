@@ -24,7 +24,6 @@ pub(super) struct Known {
     pub(super) definition: u64,
     /// The unit it is in, or zero for the program's own.
     unit: u64,
-    metered: bool,
 }
 
 /// What one load brought.
@@ -171,7 +170,6 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
             return Ok((entry, 0));
         };
         let base = u64::from(base.get(&mut *store).unwrap_i32().cast_unsigned());
-        let metered = exported(module, instance, &mut *store, "metered:");
         let definitions: HashMap<String, u64> =
             exported(module, instance, &mut *store, "definition:")
                 .into_iter()
@@ -185,7 +183,6 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
                 root: base + root,
                 definition: definition.map_or(0, |at| base + at),
                 unit: if loaded { base } else { 0 },
-                metered: metered.iter().any(|(other, _)| *other == name),
             };
             self.state(|state| state.known.insert(hash, known));
         }
@@ -199,8 +196,6 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
         let text = |error: wasmtime::Error| format!("{error:#}");
         let engine = self.store.as_context().engine().clone();
         let module = Module::new(&engine, module).map_err(text)?;
-        let wanted: Vec<&str> = module.exports().map(|export| export.name()).collect();
-        let wants_metered = |hash: &Hash| wanted.contains(&format!("metered:{hash}").as_str());
 
         let linker = self.state(|state| state.linker.clone());
         let mut linker = linker.ok_or("the program is not loaded yet")?;
@@ -225,10 +220,7 @@ impl<S: AsContextMut<Data = State>> Guest<S> {
                 continue;
             };
             let hash = Hash::parse(hash).ok_or("a unit imports what is not a hash")?;
-            // A function that is here without the metered form the unit
-            // calls it by is brought again, with one.
             let known = self.state(|state| state.known.get(&hash).copied());
-            let known = known.filter(|known| known.metered || !wants_metered(&hash));
             let address = known.map_or(0, |known| match what {
                 "root" => known.root,
                 _ => known.definition,

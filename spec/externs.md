@@ -46,7 +46,6 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - A call back that unwinds, by a fault, an [abort](handlers.md), or a cancellation, unwinds the native code that made it: the native code lets go of what it holds and cannot answer.
 - Native code that calls back counts toward the [depth of calls](backends.md#calls) at a fixed size, so calls nested through native code fault at the limit as any others do.
 - Native code names an ability as an extern is named: by its package and its module path and name.
-- A handler native code performs runs inside the [budget](budgets.md) it was bound inside, as one performed in the language does.
 - TODO: a suspending extern cannot ask yet, so native code that performs what waits on the world faults.
 - TODO: a function type reached through a named type is not held to an empty row.
 

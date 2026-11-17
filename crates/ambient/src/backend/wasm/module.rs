@@ -89,7 +89,7 @@ pub fn module_for(parts: &Parts, host: &[&'static str]) -> Result<Vec<u8>, Strin
 /// runtime as `piece:<hash>` and the address of each state as
 /// `state:<hash>`; `base`, the address of its block; and for each
 /// definition `root:<hash>` and `definition:<hash>`, offsets from
-/// that, and `metered:<hash>` if the definition has a metered form.
+/// that.
 ///
 /// # Errors
 ///
@@ -290,8 +290,7 @@ fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assem
     if loaded {
         exports.export("drop", ExportKind::Func, init + 1);
     } else {
-        // A part's plain code comes before its metered code.
-        let entry = u32::try_from(own.positions[parts.entry * 2]).unwrap_or(0);
+        let entry = u32::try_from(own.positions[parts.entry]).unwrap_or(0);
         exports.export("entry", ExportKind::Func, first + entry);
     }
 
@@ -358,8 +357,7 @@ fn constant(
     Ok(())
 }
 
-/// Exports where the block has each part, as offsets from its base, and
-/// which functions have a metered form.
+/// Exports where the block has each part, as offsets from its base.
 fn describe(
     parts: &Parts,
     plan: &Statics,
@@ -385,9 +383,6 @@ fn describe(
             &format!("definition:{hash}"),
             definition,
         )?;
-        if matches!(&part.body, Body::Function { metered, .. } if metered.is_some()) {
-            constant(defined, exports, next, &format!("metered:{hash}"), 1)?;
-        }
     }
     Ok(())
 }

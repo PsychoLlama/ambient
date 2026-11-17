@@ -4,7 +4,7 @@ use alloc::boxed::Box;
 use alloc::vec;
 
 use crate::list::members;
-use crate::object::layout::DEFINITION_HASH;
+use crate::object::layout::{DEFINITION_ARITY, DEFINITION_HASH};
 use crate::object::{
     KIND_BYTES, KIND_CELL, KIND_CLOSURE, KIND_FLOAT, KIND_HANDLE, KIND_ITERATOR, KIND_LIST,
     KIND_METHOD, KIND_RECORD, KIND_SCOPE, KIND_STRING, KIND_TAG, KIND_TOKEN, KIND_TUPLE, header,
@@ -171,7 +171,7 @@ pub unsafe extern "C" fn amb_closure_hash(word: Word) -> Word {
 pub unsafe extern "C" fn amb_closure_arity(word: Word) -> u64 {
     unsafe {
         let definition = words(word)[0] as usize as *const u64;
-        definition.add(2).read()
+        definition.add(DEFINITION_ARITY as usize / 8).read()
     }
 }
 

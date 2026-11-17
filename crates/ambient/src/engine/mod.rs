@@ -55,7 +55,6 @@ use crate::workspace::Sources;
 pub use ambient_host::parts::{Artifact, Body, Native, Part, Parts, Unloadable};
 pub use check::Interface;
 pub use compile::Backend;
-use compile::Mode;
 pub use read::{Entry, Read, Table};
 pub use resolve::Resolved;
 pub use scope::{Member, Members, Scope};
@@ -134,7 +133,7 @@ pub struct Engine<'a> {
     /// The definitions packs brought, by the symbols they were given.
     received: RefCell<HashMap<Symbol, Arc<crate::core::Open>>>,
     hash: RefCell<HashMap<Symbol, Hash>>,
-    compile: Memo<(Symbol, String, Mode), Artifact>,
+    compile: Memo<(Symbol, String, bool), Artifact>,
     /// Whether each function asked about is handed its type arguments.
     handed: RefCell<HashMap<Symbol, bool>>,
     /// The definitions being checked, outermost first. A comptime call
