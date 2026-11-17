@@ -70,7 +70,7 @@ unsafe fn started(context: *mut Context, thunks: Word, first: bool) -> Word {
             let id = scheduler.admit(Task {
                 thunk: *thunk,
                 place: Some((join, place)),
-                budget,
+                budget: super::budget::shared(budget),
                 ..Task::default()
             });
             scheduler.queue(id);

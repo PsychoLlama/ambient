@@ -387,6 +387,7 @@ impl Running for Call<'_, '_> {
         let answered = self.made(handler, args);
         if let Some(saved) = saved {
             self.guest.at("amb_budget_back", self.context, &[saved, 0]);
+            self.guest.words("amb_release", &[saved]);
         }
         answered
     }

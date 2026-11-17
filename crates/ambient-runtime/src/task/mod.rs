@@ -94,8 +94,11 @@ struct Task {
     join: Option<usize>,
     /// Its wait on a cell, if it is in one.
     cell: Option<watch::Watch>,
-    /// The innermost budget it runs inside.
-    budget: Option<usize>,
+    /// The innermost budget it runs inside, which it holds.
+    budget: Option<Word>,
+    /// The outermost budget that ran out and made it unwind, which it
+    /// holds: what it does inside that one is a cleanup (`budget.rs`).
+    told: Option<Word>,
     /// Its wait on the host, if native code said it would answer later.
     wait: wait::Wait,
     /// Where it is with native code it called.
@@ -182,8 +185,6 @@ pub(crate) struct Scheduler {
     closed: Vec<usize>,
     ready: VecDeque<usize>,
     current: usize,
-    /// Every budget entered, by the number compiled code knows it by.
-    budgets: Vec<budget::Budget>,
     /// Whether every task was once found waiting on something that would
     /// never happen. From then on nothing holds cancellation off.
     stalled: bool,
@@ -199,7 +200,6 @@ impl Scheduler {
             closed: Vec::new(),
             ready: VecDeque::new(),
             current: ROOT,
-            budgets: Vec::new(),
             stalled: false,
             waits: wait::Waits::default(),
         }

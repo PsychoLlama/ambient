@@ -35,6 +35,9 @@ pub(crate) const KIND_BYTES: u32 = 15;
 /// A handle: see [`crate::handle`].
 pub(crate) const KIND_HANDLE: u32 = 16;
 
+/// Not a value: a budget. See `task/budget.rs`.
+pub(crate) const KIND_BUDGET: u32 = 17;
+
 /// The count of an object that is never reclaimed.
 pub(crate) const PINNED: u32 = u32::MAX;
 /// The count of an object in a block of a unit: a reference to it is a
@@ -314,6 +317,8 @@ unsafe fn reclaim(word: Word) {
                     amb_unit_release(unit::of(words(word)[2]));
                     &words(word)[..2]
                 }
+                // Only the budget around it is counted.
+                KIND_BUDGET => &words(word)[..1],
                 // The first word is the definition, which is not a value.
                 KIND_CLOSURE | KIND_METHOD => {
                     amb_unit_release(unit::of(words(word)[0]));

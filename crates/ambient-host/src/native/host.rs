@@ -239,6 +239,7 @@ impl Running for Call<'_> {
             let answered = self.made(at(handler), args);
             if let Some(saved) = saved {
                 ambient_runtime::amb_budget_back(self.context, saved, 0);
+                ambient_runtime::amb_release(saved);
             }
             answered
         }

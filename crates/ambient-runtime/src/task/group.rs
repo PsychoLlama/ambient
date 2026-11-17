@@ -53,7 +53,7 @@ pub unsafe extern "C" fn amb_spawn(context: *mut Context, group: Word, thunk: Wo
             thunk,
             place: Some((join, place)),
             cancelled,
-            budget,
+            budget: super::budget::shared(budget),
             ..Task::default()
         });
         if let Some(Some(members)) = scheduler.joins.get_mut(join) {

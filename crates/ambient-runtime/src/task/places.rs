@@ -3,7 +3,7 @@
 //! so a program that goes on starting tasks does not go on growing.
 //!
 //! Whatever names a task by number therefore stops naming it when it
-//! is over: the join that started it, and the budgets that told it.
+//! is over: the join that started it.
 
 use alloc::vec::Vec;
 
@@ -36,12 +36,14 @@ impl Scheduler {
 
     /// Records that a task is over, with `result` if it gave one.
     pub(super) unsafe fn finish(&mut self, id: usize, result: Option<Word>) {
-        let Some(task) = self.tasks[id].take() else {
+        let Some(mut task) = self.tasks[id].take() else {
             return;
         };
         self.idle.push(id);
-        self.forget(id, task.budget);
-        unsafe { amb_release(task.thunk) };
+        unsafe {
+            task.leaves();
+            amb_release(task.thunk);
+        }
         let Some((join, place)) = task.place else {
             return;
         };
