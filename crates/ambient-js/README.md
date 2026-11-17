@@ -13,6 +13,11 @@ const program = await load(fetch("page.wasm"), {
     "main.said": (line) => console.log(line),
     // One that gives a promise answers later: its extern is declared `suspending`.
     "main.slept": (ms) => new Promise((wake) => setTimeout(wake, ms, null)),
+    // A function it is handed is one it calls, while it runs.
+    "main.applied": (work, to) => work(to),
+    // After its arguments comes the call, which performs the abilities of its row.
+    "main.echoed": (line, call) =>
+      call.perform("<package id>", "main.say", line),
   },
 });
 console.log(await program.run());

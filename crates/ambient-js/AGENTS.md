@@ -7,6 +7,7 @@ The JavaScript host of a module built with `ambient build --module`. The root `A
 - `js/host.js` is ES modules with no dependencies, which know of no browser and no Node. Install nothing from a registry.
 - `constants.js` is written from the runtime by `build.rs` and never committed; restate no constant in JavaScript.
 - The host restates what `backend/wasm`'s host does; where they differ, that one is right.
+- Native code calls back only through its `Call`, which is closed when it returns or gives a promise; a function it was handed is the same call by another name.
 - A run keeps its own waits, by its context (`Waits`), so runs at once never share an answer.
 
 ## Testing

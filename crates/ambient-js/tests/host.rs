@@ -20,7 +20,8 @@ use ambient::store::MemoryStore;
 /// The package the tests run: its ID, and its one module. Its target
 /// binds an ability that answers at once and one that answers later.
 /// What it is handed is how long it waits before it gives up, and gives
-/// zero.
+/// zero. Two externs are functions: one calls a function it is handed,
+/// and one performs an ability of its row.
 const PACKAGE: &str = "app";
 const PROGRAM: &str = r#"
     import ambient.iterator;
@@ -31,6 +32,9 @@ const PROGRAM: &str = r#"
     extern handler said for say;
     extern suspending handler slept for sleep;
 
+    extern fn applied(work: fn(int): int, to: int): int;
+    extern fn echoed(text: string): null with say;
+
     target page { say: said, sleep: slept }
 
     fn main(patience: int): int with say, sleep {
@@ -39,7 +43,7 @@ const PROGRAM: &str = r#"
 
     fn together(): int with say, sleep {
         let (counted, waited) = all(fn() => count(3), fn() => linger());
-        return counted + waited;
+        return applied(fn(count: int) => count + waited, counted);
     }
 
     fn gives_up(after: int): int with sleep {
@@ -57,7 +61,7 @@ const PROGRAM: &str = r#"
 
     fn linger(): int with say, sleep {
         sleep!(25);
-        say!("still here");
+        echoed("still here");
         return 1;
     }
 "#;

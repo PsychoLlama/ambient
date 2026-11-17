@@ -48,6 +48,8 @@ async function page(natives = {}) {
   const offered = {
     "main.said": (line) => void said.push(line),
     "main.slept": clock(),
+    "main.applied": (work, to) => work(to),
+    "main.echoed": (line, call) => call.perform(PACKAGE, "main.say", line),
     ...natives,
   };
   const program = await load(await readFile(module), { [PACKAGE]: offered });
@@ -88,6 +90,48 @@ test("native code that throws is a fault the page can read", async () => {
   assert.deepEqual([fault.kind, fault.cause], ["native", cause]);
 });
 
+test("native code calls a function only while it runs", async () => {
+  let kept;
+  const { program } = await page({
+    "main.applied": (work, to) => (kept = work)(to),
+  });
+
+  assert.equal(await program.run(PATIENT), 4);
+  assert.throws(() => kept(1), /not a function this call was handed/);
+});
+
+test("native code performs only an ability of its row", async () => {
+  const { program } = await page({
+    "main.echoed": (line, call) => call.perform(PACKAGE, "main.sleep", 1),
+  });
+
+  const fault = await program.run(PATIENT).then(assert.fail, (fault) => fault);
+  assert.match(fault.cause.message, /does not declare the ability/);
+});
+
+test("a call back that unwinds ends the native code that made it", async () => {
+  const cause = new Error("no voice");
+  const echoed = (line, call) => {
+    try {
+      call.perform(PACKAGE, "main.say", line);
+    } catch {
+      // Whatever native code makes of it, the unwinding goes on.
+    }
+    return call.perform(PACKAGE, "main.say", "again");
+  };
+  const { program, said } = await page({
+    "main.echoed": echoed,
+    "main.said": (line) => {
+      if (line === "still here") throw cause;
+      said.push(line);
+    },
+  });
+
+  const fault = await program.run(PATIENT).then(assert.fail, (fault) => fault);
+  assert.deepEqual([fault.kind, fault.cause], ["native", cause]);
+  assert.ok(!said.includes("again"));
+});
+
 test("a wait that fails is a fault", async () => {
   const { program } = await page({
     "main.slept": () => Promise.reject(new Error("awake")),
@@ -99,7 +143,7 @@ test("a wait that fails is a fault", async () => {
 test("a program that lacks native code is not loaded", async () => {
   await assert.rejects(
     load(await readFile(module), {}),
-    /no native code for `main\.s/,
+    /no native code for `main\./,
   );
 });
 
@@ -109,7 +153,12 @@ test("a module is loaded from the response that carries it", async () => {
     new Response(await readFile(module), { headers }),
   );
   const program = await load(response, {
-    [PACKAGE]: { "main.said": () => null, "main.slept": clock() },
+    [PACKAGE]: {
+      "main.said": () => null,
+      "main.slept": clock(),
+      "main.applied": (work, to) => work(to),
+      "main.echoed": () => null,
+    },
   });
 
   assert.equal(await program.run(PATIENT), 4);

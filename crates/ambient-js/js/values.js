@@ -57,14 +57,18 @@ export class Values {
     return value;
   }
 
-  /** The value a word stands for, as JavaScript has it: a copy. */
-  value(word) {
+  /**
+   * The value a word stands for, as JavaScript has it: a copy. A
+   * function among what native code was handed is one `call` can call
+   * while it runs; any other is the program's alone.
+   */
+  value(word, call = null) {
     const x = this.exports;
     const members = (from, step) => {
       const found = [];
       const length = x.amb_length(word) * BigInt(step);
       for (let at = BigInt(from); at < length; at += BigInt(step)) {
-        found.push(this.value(x.amb_word_at(word, at)));
+        found.push(this.value(x.amb_word_at(word, at), call));
       }
       return found;
     };
@@ -101,8 +105,10 @@ export class Values {
       }
       case Kind.handle:
         return this.handles.get(x.amb_word_at(word, 1n));
+      case Kind.function:
+        return call?.handed(word);
       default:
-        // A function, a cell, and what else is the program's alone.
+        // A cell, and what else is the program's alone.
         return undefined;
     }
   }
@@ -146,6 +152,9 @@ export class Values {
       const number = BigInt((this.minted += 1));
       this.handles.set(number, value.value);
       return x.amb_handle_new(brand, number);
+    }
+    if (typeof value === "function") {
+      throw new TypeError("a function is not a value a program is handed");
     }
     if (value instanceof Tuple) return this.tuple(value);
     if (Array.isArray(value)) return this.sequence(1n, value);

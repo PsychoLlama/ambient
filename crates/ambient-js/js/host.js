@@ -50,6 +50,76 @@ export async function load(source, natives = {}) {
   return program;
 }
 
+// What a call back says when it cannot be made: what the host in
+// `crates/ambient-host/src/native/host.rs` says of the same.
+const UNDECLARED_ABILITY = "the extern does not declare the ability in its row";
+const UNWOUND = "the call back unwound";
+const ANSWERING = "native code that answers later has nothing more to call";
+const UNCALLABLE =
+  "not a function this call was handed that takes as many arguments";
+
+/**
+ * One call of native code, which the native code is handed after its
+ * arguments: what it calls back into the program through, while it
+ * runs. A function among its arguments is called as any function is.
+ */
+class Call {
+  /** Why it can call nothing more, once it cannot. */
+  closed = null;
+  /** Whether a call it made unwound: the unwinding goes on through it. */
+  unwound = false;
+
+  constructor(program, context, row, handlers) {
+    this.program = program;
+    this.context = context;
+    /** The abilities its extern declared, each a package and a path. */
+    this.row = row;
+    /** The handlers bound for them where it was called, in that order. */
+    this.handlers = handlers;
+  }
+
+  /**
+   * Performs an ability of the extern's row with `args`, by the ID of
+   * its package and its module path and name, and gives what its
+   * handler gives.
+   */
+  perform(pkg, path, ...args) {
+    const at = this.row.findIndex(
+      ([of, named]) => of === pkg && named === path,
+    );
+    if (at < 0) throw new Error(UNDECLARED_ABILITY);
+    const x = this.program.exports;
+    return this.made(x.amb_word_at(this.handlers, BigInt(at)), args);
+  }
+
+  /** A function the call was handed, as one JavaScript calls. */
+  handed(word) {
+    return (...args) => this.made(word, args);
+  }
+
+  /** Calls `callee`, which something else holds, with nothing bound. */
+  made(callee, args) {
+    const { program, context } = this;
+    const x = program.exports;
+    if (this.unwound) throw new Error(UNWOUND);
+    if (this.closed) throw new Error(this.closed);
+    if (x.amb_closure_arity(callee) !== BigInt(args.length + 1)) {
+      throw new Error(UNCALLABLE);
+    }
+    const handed = program.tuple([null, ...args]);
+    // A program in which a task can suspend gives others their turns
+    // beneath the call; any other has nothing that does.
+    const call = x.amb_call_among ?? x.amb_call_back;
+    const result = call(context, callee, handed);
+    x.amb_release(handed);
+    if (result === UNWIND) {
+      this.unwound = true;
+      throw new Error(UNWOUND);
+    }
+    return program.taken(result);
+  }
+}
+
 /** What one run's tasks wait on the world for. */
 class Waits {
   /** Answers that came and were not yet handed over. */
@@ -93,12 +163,17 @@ class Program extends Values {
     this.exports = instance.exports;
     for (const { name, kind } of WebAssembly.Module.exports(module)) {
       if (kind !== "global" || !name.startsWith("native:")) continue;
-      const [pkg, path] = name.slice("native:".length).split("\t");
-      const native = natives[pkg]?.[path];
-      if (typeof native !== "function") {
+      // Its package and path, and then those of each ability of its row.
+      const [pkg, path, ...names] = name.slice("native:".length).split("\t");
+      const run = natives[pkg]?.[path];
+      if (typeof run !== "function") {
         throw new Error(`no native code for \`${path}\` of package \`${pkg}\``);
       }
-      this.natives[Number(this.exports[name].value)] = native;
+      const row = [];
+      for (let at = 0; at < names.length; at += 2) {
+        row.push([names[at], names[at + 1]]);
+      }
+      this.natives[Number(this.exports[name].value)] = { run, row };
     }
     this.entry = this.exports.init();
   }
@@ -170,16 +245,24 @@ class Program extends Values {
       waits.pending.delete(bindings);
       return NULL;
     }
+    const { run, row } = this.natives[Number(index)];
+    const call = new Call(this, context, row, bindings);
     let gave;
     try {
-      gave = this.natives[Number(index)](...this.value(args));
+      gave = run(...this.value(args, call), call);
+      // What it called is unwinding, and goes on through it, whatever
+      // it made of that.
+      if (call.unwound) return UNWIND;
+      if (typeof gave?.then !== "function") return this.word(gave);
     } catch (failure) {
-      return this.failed(context, failure);
+      return call.unwound ? UNWIND : this.failed(context, failure);
+    } finally {
+      call.closed = UNCALLABLE;
     }
-    if (typeof gave?.then !== "function") return this.word(gave);
     // It answers later: the task waits, and what is returned here is
     // not looked at.
-    const ticket = x.amb_await(context);
+    call.closed = ANSWERING;
+    const ticket = x.amb_await?.(context) ?? 0n;
     if (ticket === 0n) {
       return this.failed(
         context,

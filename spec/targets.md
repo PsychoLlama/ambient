@@ -91,6 +91,8 @@ A target defines the world a program runs in: a root binding for every ability t
 - Such a package's host code is JavaScript: a function for each extern, found by its identity.
 - Building under one gives the module and the JavaScript that loads it, with a function for each extern the program reaches and no others. What a page fetches follows from what its entry reaches.
 - A suspending extern's function gives a promise, and what the promise settles to is the answer.
+- A function among an extern's arguments is a JavaScript function, which [calls back](externs.md#calling-back) while the extern's function runs and throws after.
+- An extern's function is handed the call it is in after its arguments, and performs the abilities of its row through that.
 - A handle minted there stands for a JavaScript object. The host keeps the object by the handle and lets it go when the handle is reclaimed.
 - An event of a page is a [call from the world](#calls-from-the-world), so a handler that cancels one does so before it next waits.
 - TODO: no package is such a target yet. A host is loaded by hand and given its functions, and a build emits no JavaScript.
