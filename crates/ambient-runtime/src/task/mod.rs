@@ -31,7 +31,7 @@ mod watch;
 use alloc::collections::VecDeque;
 
 pub use back::{amb_call_among, amb_call_back};
-pub use depth::{DEPTH, FRAME, NATIVE, amb_depth, amb_enter};
+pub use depth::{BOUNCED, DEPTH, FRAME, NATIVE, amb_depth, amb_enter};
 pub use frame::{amb_frame_load, amb_frame_point, amb_frame_push, amb_frame_save};
 pub use group::{amb_group_close, amb_group_end, amb_group_new, amb_spawn};
 pub use join::{amb_all, amb_first};

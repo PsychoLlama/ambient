@@ -13,7 +13,7 @@ use alloc::vec;
 
 use core::mem::transmute;
 
-use super::depth::NOWHERE;
+use super::depth::{BOUNCED, DEPTH, NOWHERE};
 use super::{Frame, RESUMING, SUSPENDING, scheduler};
 use crate::object::layout::DEFINITION_CODE;
 use crate::object::{amb_release, amb_retain, fault, words};
@@ -155,8 +155,14 @@ pub unsafe extern "C" fn amb_bounce(context: *mut Context, depth: Word) -> Word 
         }) = Pending::take(context, &mut args)
         {
             let args = &args[..count];
-            (*context).depth = depth >> 1;
-            let result = call(context, code as usize, callee, args);
+            // What is called stands on this, which counts as a call.
+            let beneath = (depth >> 1).saturating_add(BOUNCED);
+            let result = if beneath <= DEPTH {
+                (*context).depth = beneath;
+                call(context, code as usize, callee, args)
+            } else {
+                fault(context, Fault::Deep)
+            };
             if result == UNWIND && (*context).mode == SUSPENDING {
                 // The call is kept, to be made again when the task
                 // resumes: what it called has kept where it was.

@@ -25,6 +25,11 @@ pub const FRAME: u64 = 32;
 /// call it makes.
 pub const NATIVE: u64 = 4096;
 
+/// What a call the runtime makes for a function that left to make it
+/// weighs: room for what the runtime keeps beneath what it calls,
+/// which the function that left no longer does.
+pub const BOUNCED: u64 = 64;
+
 /// The depth of what is called from outside compiled code.
 pub(super) const NOWHERE: Word = 1;
 
