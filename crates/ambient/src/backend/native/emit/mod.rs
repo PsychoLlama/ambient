@@ -146,9 +146,11 @@ struct Emitter<'a> {
     context: Val,
     closure: Val,
     /// Where the locals are kept: in memory, a word each. A local is
-    /// read wherever the function may suspend, so as a value it would be
-    /// live nearly everywhere, and a function with many would take the
-    /// register allocator time beyond all proportion to its size.
+    /// held until the end of its `Let`, so as a value it would be live
+    /// across everything after it, and a function with many would take
+    /// the register allocator time beyond all proportion to its size.
+    /// Measured as values: no faster to run, and a function of
+    /// thousands of locals eight times slower to compile.
     frame: StackSlot,
     /// How many of the locals are parameters.
     params: usize,
