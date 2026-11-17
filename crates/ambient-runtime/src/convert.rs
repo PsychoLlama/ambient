@@ -1,10 +1,9 @@
 //! Conversions between integers, floats, and text. See "Conversions" in
 //! `spec/operations.md`.
 
-use alloc::format;
-
 use crate::number::{amb_float_new, amb_int_new};
 use crate::object::{bytes, float, int};
+use crate::shortest;
 use crate::text::amb_string_new;
 use crate::{NULL, Word};
 
@@ -79,7 +78,9 @@ fn decimal(value: i64, room: &mut [u8; DIGITS]) -> &[u8] {
 /// A float as the shortest decimal that reads back as the same float.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_float_text(value: Word) -> Word {
-    unsafe { text(&format!("{:?}", float(value))) }
+    let mut room = [0; shortest::ROOM];
+    let written = shortest::shortest(unsafe { float(value) }, &mut room);
+    unsafe { amb_string_new(written.as_ptr(), written.len() as u64) }
 }
 
 /// What a string says, every byte of it, or nothing.

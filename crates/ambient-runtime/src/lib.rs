@@ -55,6 +55,7 @@ mod record;
 mod same;
 mod scope;
 mod sequence;
+mod shortest;
 mod state;
 mod task;
 mod text;
