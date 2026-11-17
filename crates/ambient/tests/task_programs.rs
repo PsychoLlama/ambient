@@ -9,6 +9,10 @@
 
 mod support;
 
+use std::io::Write;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::Duration;
+
 use ambient::builder::{self as b, pat, ty};
 use ambient::surface::Expr;
 use proptest::prelude::*;
@@ -37,6 +41,19 @@ enum Step {
 }
 
 impl Step {
+    /// Runs the step as a program on every backend, which fails if they
+    /// disagree or either leaks.
+    fn run(&self) {
+        // What it gave, what its tasks noted, and what they left in the cell.
+        let seen = b::tuple([self.expr(), b::read(b::name("log")), b::read(b::name("c"))]);
+        let body = b::let_("c", b::cell(ty::int(), b::int(0)), seen);
+        let body = b::let_("log", b::cell(ty::int(), b::int(0)), body);
+        let main = b::function("main").returns(ty::unknown()).body(body);
+
+        // A fault or a wait on nothing is an end like any other.
+        let _ = run([note(), set(), until(), main], &[]);
+    }
+
     fn expr(&self) -> Expr {
         let (c, log) = (|| b::name("c"), || b::name("log"));
         let exprs = |steps: &[Self]| steps.iter().map(Self::expr).collect::<Vec<_>>();
@@ -68,6 +85,35 @@ impl Step {
     }
 }
 
+/// How long a program is given before it is taken never to end. One
+/// runs in milliseconds.
+const PATIENCE: Duration = Duration::from_mins(1);
+
+/// Runs `step` as a program, and ends the test if it does not end.
+///
+/// A program that hangs would otherwise be a test that never ends and
+/// never says which program it was on. Nothing can stop the thread it
+/// runs on, so the process ends there, and the program is not shrunk.
+fn ends(step: &Step) {
+    let (done, over) = mpsc::channel();
+    let program = step.clone();
+    let ran = std::thread::spawn(move || {
+        program.run();
+        let _ = done.send(());
+    });
+    match over.recv_timeout(PATIENCE) {
+        Ok(()) => {}
+        Err(RecvTimeoutError::Timeout) => {
+            let _ = writeln!(std::io::stderr(), "a program did not end: {step:?}");
+            std::process::exit(1);
+        }
+        // It failed, which is the test's to report and shrink.
+        Err(RecvTimeoutError::Disconnected) => {
+            std::panic::resume_unwind(ran.join().unwrap_err());
+        }
+    }
+}
+
 fn steps() -> impl Strategy<Value = Step> {
     let leaf = prop_oneof![
         (0..9i64).prop_map(Step::Give),
@@ -94,13 +140,6 @@ proptest! {
 
     #[test]
     fn a_program_of_tasks_ends_the_same_way_on_every_backend(step in steps()) {
-        // What it gave, what its tasks noted, and what they left in the cell.
-        let seen = b::tuple([step.expr(), b::read(b::name("log")), b::read(b::name("c"))]);
-        let body = b::let_("c", b::cell(ty::int(), b::int(0)), seen);
-        let body = b::let_("log", b::cell(ty::int(), b::int(0)), body);
-        let main = b::function("main").returns(ty::unknown()).body(body);
-
-        // A fault or a wait on nothing is an end like any other.
-        let _ = run([note(), set(), until(), main], &[]);
+        ends(&step);
     }
 }
