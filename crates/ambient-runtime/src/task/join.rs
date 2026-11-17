@@ -47,7 +47,6 @@ unsafe fn started(context: *mut Context, thunks: Word, first: bool) -> Word {
         }
         let scheduler = scheduler(context);
         let parent = scheduler.current;
-        let join = scheduler.joins.len();
         let gives = match (first, kind(thunks) == KIND_LIST) {
             (true, _) => Gives::First,
             (false, true) => Gives::List,
@@ -55,29 +54,31 @@ unsafe fn started(context: *mut Context, thunks: Word, first: bool) -> Word {
         };
         let thunks = members(thunks);
         let budget = scheduler.task(parent).budget;
-        let mut children = Vec::new();
-        for (place, thunk) in thunks.iter().enumerate() {
-            amb_retain(*thunk);
-            let id = scheduler.tasks.len();
-            scheduler.tasks.push(Some(Task {
-                thunk: *thunk,
-                place: Some((join, place)),
-                budget,
-                ..Task::default()
-            }));
-            scheduler.queue(id);
-            children.push(id);
-        }
-        scheduler.joins.push(Some(Join {
+        let join = scheduler.open(Join {
             parent,
-            children,
+            children: Vec::new(),
             results: vec![NULL; thunks.len()],
             remaining: thunks.len(),
             failure: None,
             gives,
             winner: None,
             closing: false,
-        }));
+        });
+        let mut children = Vec::new();
+        for (place, thunk) in thunks.iter().enumerate() {
+            amb_retain(*thunk);
+            let id = scheduler.admit(Task {
+                thunk: *thunk,
+                place: Some((join, place)),
+                budget,
+                ..Task::default()
+            });
+            scheduler.queue(id);
+            children.push(id);
+        }
+        if let Some(Some(join)) = scheduler.joins.get_mut(join) {
+            join.children = children;
+        }
         scheduler.current().join = Some(join);
         if thunks.is_empty() && !first {
             scheduler.queue(parent);
@@ -108,14 +109,14 @@ unsafe fn joined(context: *mut Context) -> Word {
                 .map(|join| join.children.clone())
                 .unwrap_or_default();
             for child in children {
-                if scheduler.tasks[child].is_some() {
+                if scheduler.live(child) {
                     scheduler.cancel(child);
                 }
             }
             return amb_suspend(context);
         }
         scheduler.current().join = None;
-        let Some(join) = scheduler.joins[id].take() else {
+        let Some(join) = scheduler.close(id) else {
             return fault(context, Fault::Cancelled);
         };
         let interrupted = scheduler.interrupted();

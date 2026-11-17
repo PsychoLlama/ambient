@@ -58,7 +58,11 @@ fn fold() -> Expr {
 /// The most a program that does nothing may be, for a host that
 /// starts a call and reads nothing. Lower it when the floor falls;
 /// raising it is a decision, not a fix.
-const FLOOR: usize = 7_700;
+///
+/// Raised once, by 30: the scheduler keeps which places its tasks and
+/// joins have left, so that a program that goes on starting tasks does
+/// not go on growing.
+const FLOOR: usize = 7_730;
 
 #[test]
 fn a_program_that_does_nothing_is_within_the_floor() {

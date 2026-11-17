@@ -20,8 +20,7 @@ use crate::{Context, Fault, NULL, UNWIND, Word, amb_rethrow};
 pub unsafe extern "C" fn amb_group_new(context: *mut Context) -> Word {
     unsafe {
         let scheduler = scheduler(context);
-        let id = scheduler.joins.len();
-        scheduler.joins.push(Some(Join {
+        let id = scheduler.open(Join {
             parent: scheduler.current,
             children: Vec::new(),
             results: Vec::new(),
@@ -30,7 +29,7 @@ pub unsafe extern "C" fn amb_group_new(context: *mut Context) -> Word {
             gives: Gives::Nothing,
             winner: None,
             closing: false,
-        }));
+        });
         amb_int_new(id as i64)
     }
 }
@@ -42,24 +41,25 @@ pub unsafe extern "C" fn amb_spawn(context: *mut Context, group: Word, thunk: Wo
     unsafe {
         let scheduler = scheduler(context);
         let join = int(group) as usize;
-        let id = scheduler.tasks.len();
-        let Some(Some(members)) = scheduler.joins.get_mut(join) else {
+        let Some(Some(members)) = scheduler.joins.get(join) else {
             return NULL;
         };
         let place = members.children.len();
-        members.children.push(id);
-        members.remaining += 1;
         // A group that is already stopping starts nothing more.
         let cancelled = members.closing || members.failure.is_some();
         let budget = scheduler.current().budget;
         amb_retain(thunk);
-        scheduler.tasks.push(Some(Task {
+        let id = scheduler.admit(Task {
             thunk,
             place: Some((join, place)),
             cancelled,
             budget,
             ..Task::default()
-        }));
+        });
+        if let Some(Some(members)) = scheduler.joins.get_mut(join) {
+            members.children.push(id);
+            members.remaining += 1;
+        }
         scheduler.queue(id);
         NULL
     }
@@ -90,7 +90,7 @@ unsafe fn closing(context: *mut Context, group: Word, unwinding: u64) -> Word {
         if (stop || join.failure.is_some()) && !join.closing {
             join.closing = true;
             for child in join.children.clone() {
-                if scheduler.tasks[child].is_some() {
+                if scheduler.live(child) {
                     scheduler.cancel(child);
                 }
             }
@@ -108,9 +108,7 @@ pub unsafe extern "C" fn amb_group_end(context: *mut Context, group: Word, held:
     unsafe {
         let scheduler = scheduler(context);
         let failure = scheduler
-            .joins
-            .get_mut(int(group) as usize)
-            .and_then(Option::take)
+            .close(int(group) as usize)
             .and_then(|join| join.failure);
         let Some(failure) = failure else {
             let interrupted = scheduler.interrupted();

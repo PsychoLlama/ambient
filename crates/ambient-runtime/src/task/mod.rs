@@ -23,6 +23,7 @@ mod depth;
 mod frame;
 mod group;
 mod join;
+mod places;
 mod stack;
 mod tail;
 mod wait;
@@ -46,7 +47,7 @@ pub use tail::{amb_bounce, amb_start, amb_tail, amb_tail_arg};
 pub use wait::{FORSAKEN, amb_answer, amb_await, amb_native_wait, amb_refuse, amb_strand};
 
 use crate::object::amb_release;
-use crate::{Context, Fault, NULL, UNWIND, Word};
+use crate::{Context, Fault, UNWIND, Word};
 
 /// The modes of a context. Compiled code reads the mode after a call
 /// that unwound, and on entry.
@@ -163,9 +164,20 @@ impl Failure {
     }
 }
 
+/// In a join's list of the tasks it started, one that is over: a
+/// task's number is another's once it is.
+const NOBODY: usize = usize::MAX;
+
 pub(crate) struct Scheduler {
+    /// Every task, by its number: the place it has here until it is
+    /// over, which the next task started then takes.
     tasks: Vec<Option<Task>>,
+    /// The places in `tasks` no task has.
+    idle: Vec<usize>,
+    /// Every join, numbered as tasks are.
     joins: Vec<Option<Join>>,
+    /// The places in `joins` no join has.
+    closed: Vec<usize>,
     ready: VecDeque<usize>,
     current: usize,
     /// Every budget entered, by the number compiled code knows it by.
@@ -180,7 +192,9 @@ impl Scheduler {
     pub(crate) fn new() -> Self {
         Self {
             tasks: vec![Some(Task::default())],
+            idle: Vec::new(),
             joins: Vec::new(),
+            closed: Vec::new(),
             ready: VecDeque::new(),
             current: ROOT,
             budgets: Vec::new(),
@@ -241,46 +255,6 @@ impl Scheduler {
         self.current = id;
         self.task(id).queued = false;
         unsafe { (*context).mode = RESUMING };
-    }
-
-    /// Records that a task is over, with `result` if it gave one.
-    unsafe fn finish(&mut self, id: usize, result: Option<Word>) {
-        let Some(task) = self.tasks[id].take() else {
-            return;
-        };
-        unsafe { amb_release(task.thunk) };
-        let Some((join, place)) = task.place else {
-            return;
-        };
-        let Some(join) = self.joins[join].as_mut() else {
-            return;
-        };
-        if join.gives == Gives::Nothing {
-            unsafe { amb_release(result.unwrap_or(NULL)) };
-        } else {
-            join.results[place] = result.unwrap_or(NULL);
-        }
-        join.remaining -= 1;
-        let parent = join.parent;
-        let remaining = join.remaining;
-        let won = join.gives == Gives::First
-            && result.is_some()
-            && join.winner.is_none()
-            && join.failure.is_none();
-        let losers = if won {
-            join.winner = Some(place);
-            join.children.clone()
-        } else {
-            Vec::new()
-        };
-        for loser in losers {
-            if self.tasks[loser].is_some() {
-                self.cancel(loser);
-            }
-        }
-        if remaining == 0 {
-            self.queue(parent);
-        }
     }
 }
 
@@ -385,6 +359,10 @@ pub unsafe extern "C" fn amb_schedule(context: *mut Context) {
 unsafe fn turn(context: *mut Context, id: usize, depth: Word) {
     unsafe {
         let scheduler = scheduler(context);
+        // A turn is only ever waiting for a task that is not over.
+        if !scheduler.live(id) {
+            return;
+        }
         scheduler.current = id;
         let task = scheduler.task(id);
         task.queued = false;
@@ -452,7 +430,7 @@ unsafe fn ended(context: *mut Context, id: usize, result: Word) {
                 join.failure = Some(failure);
                 let disturbs = (join.gives == Gives::Nothing).then_some(join.parent);
                 for sibling in join.children.clone() {
-                    if sibling != id && scheduler.tasks[sibling].is_some() {
+                    if sibling != id && scheduler.live(sibling) {
                         scheduler.cancel(sibling);
                     }
                 }

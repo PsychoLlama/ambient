@@ -112,7 +112,12 @@ pub(super) unsafe fn until(context: *mut Context, id: usize, depth: Word) {
             let scheduler = scheduler(context);
             let here = |task: usize| {
                 let free = |task: &super::Task| task.beneath == Beneath::Free;
-                task == id || (task != ROOT && scheduler.tasks[task].as_ref().is_some_and(free))
+                task == id
+                    || (task != ROOT
+                        && scheduler
+                            .tasks
+                            .get(task)
+                            .is_some_and(|task| task.as_ref().is_some_and(free)))
             };
             let next = scheduler.ready.iter().position(|task| here(*task));
             let next = next.and_then(|at| scheduler.ready.remove(at));

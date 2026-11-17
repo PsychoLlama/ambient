@@ -108,3 +108,16 @@ fn thousands_of_tasks_wait_at_once() {
     ";
     assert_eq!(timed(body), ("4000".to_owned(), 6));
 }
+
+#[test]
+fn tasks_started_one_after_another_take_each_others_places() {
+    // Each round's tasks are over before the next begins, and the
+    // next takes the places they had.
+    let body = r"
+        let rounds = iterator.range(0, 300).to_list();
+        let slept = rounds.map(fn(round: int): int =>
+            tasks.map([1, 2, 3], fn(length: int): int => nap(length)).length());
+        return slept.length().to_text();
+    ";
+    assert_eq!(timed(body), ("300".to_owned(), 900));
+}

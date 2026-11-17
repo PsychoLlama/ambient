@@ -65,6 +65,19 @@ impl Budget {
     }
 }
 
+impl super::Scheduler {
+    /// Takes the task `task`, which is over, out of what the budgets
+    /// from `innermost` outward keep of the tasks they told: its number
+    /// is another task's from here on.
+    pub(super) fn forget(&mut self, task: usize, innermost: Option<usize>) {
+        let mut next = innermost;
+        while let Some(budget) = next.and_then(|id| self.budgets.get_mut(id)) {
+            budget.told.retain(|told| *told != task);
+            next = budget.parent;
+        }
+    }
+}
+
 /// Enters a budget of `steps` steps and `words` words of allocation, both
 /// integers; a negative limit allows nothing. Returns the budget, for the
 /// entry points that end it.
