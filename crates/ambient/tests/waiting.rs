@@ -88,8 +88,8 @@ fn the_host_is_told_of_a_wait_its_task_left() {
     })
     .unwrap();
 
-    // The first wait, of five ticks, on each backend.
-    assert_eq!(delays.borrow().forsaken, [1, 1]);
+    // The wait of five ticks, on each backend.
+    assert_eq!(delays.borrow().forsaken, [5, 5]);
 }
 
 #[test]
@@ -104,7 +104,7 @@ fn a_cleanup_waits_on_the_host_though_its_task_was_cancelled() {
     });
 
     assert_eq!(gave, Ok(Value::Int(1)));
-    assert_eq!(delays.borrow().forsaken, [1, 1]);
+    assert_eq!(delays.borrow().forsaken, [9, 9]);
 }
 
 #[test]

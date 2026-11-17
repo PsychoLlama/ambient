@@ -16,8 +16,9 @@ type Due = (i64, u64, Result<Value, String>);
 #[derive(Default)]
 pub struct Delays {
     waits: Vec<Due>,
-    /// The tickets of the waits tasks left, in the order they left.
-    pub forsaken: Vec<u64>,
+    /// How many ticks each wait a task left was for, in the order they
+    /// were left: a ticket is the runtime's to number.
+    pub forsaken: Vec<i64>,
 }
 
 impl Waits for Delays {
@@ -28,8 +29,9 @@ impl Waits for Delays {
     }
 
     fn forsake(&mut self, ticket: u64) {
+        let left = self.waits.iter().filter(|wait| wait.1 == ticket);
+        self.forsaken.extend(left.map(|wait| wait.0));
         self.waits.retain(|wait| wait.1 != ticket);
-        self.forsaken.push(ticket);
     }
 }
 

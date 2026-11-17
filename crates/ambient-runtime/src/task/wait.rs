@@ -17,6 +17,11 @@ use crate::{Context, Fault, Word};
 /// what the call returns is not looked at.
 pub const FORSAKEN: u64 = u64::MAX;
 
+/// The part of a ticket that says which task took it, so its answer
+/// finds the task without looking through them all. A task past what
+/// that holds says all ones, and is looked for.
+const TASK: u64 = (1 << 24) - 1;
+
 /// Where a task is in waiting on the host.
 #[derive(Default)]
 pub(super) enum Wait {
@@ -32,7 +37,8 @@ pub(super) enum Wait {
 /// The waits of a program's tasks on its host.
 #[derive(Default)]
 pub(super) struct Waits {
-    /// The last ticket given out. None is zero.
+    /// How many tickets were given out: each is its number, and then
+    /// its task ([`TASK`]). None is zero.
     tickets: u64,
     /// How many tasks wait for an answer.
     pending: usize,
@@ -69,7 +75,15 @@ impl super::Scheduler {
     /// Whether one did.
     fn answer(&mut self, ticket: u64, answer: Option<Word>) -> bool {
         let waiting = |task: &Option<super::Task>| matches!(task, Some(task) if matches!(task.wait, Wait::Pending(pending) if pending == ticket));
-        let Some(id) = self.tasks.iter().position(waiting) else {
+        // The ticket says which task took it, unless that one was past
+        // what a ticket has room to say.
+        let said = (ticket & TASK) as usize;
+        let id = if ticket & TASK == TASK {
+            self.tasks.iter().position(waiting)
+        } else {
+            self.tasks.get(said).is_some_and(waiting).then_some(said)
+        };
+        let Some(id) = id else {
             return false;
         };
         self.task(id).wait = Wait::Answered(answer);
@@ -144,7 +158,8 @@ pub unsafe extern "C" fn amb_await(context: *mut Context) -> u64 {
     scheduler.waits.open = false;
     scheduler.waits.tickets += 1;
     scheduler.waits.pending += 1;
-    let ticket = scheduler.waits.tickets;
+    let task = (scheduler.current as u64).min(TASK);
+    let ticket = scheduler.waits.tickets << TASK.trailing_ones() | task;
     scheduler.current().wait = Wait::Pending(ticket);
     ticket
 }
