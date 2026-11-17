@@ -39,6 +39,9 @@ function clock() {
     });
 }
 
+/** Long enough for the program to be done before it gives up. */
+const PATIENT = 1000;
+
 /** The program, over a page that keeps what it is told. */
 async function page(natives = {}) {
   const said = [];
@@ -54,8 +57,22 @@ async function page(natives = {}) {
 test("a program runs, and its tasks wait on the page together", async () => {
   const { program, said } = await page();
 
-  assert.equal(await program.run(), 4);
+  assert.equal(await program.run(PATIENT), 4);
   assert.deepEqual(said, ["counted 1", "counted 2", "counted 3", "still here"]);
+});
+
+test("a task that is cancelled leaves its wait on the page", async () => {
+  const { program, said } = await page();
+
+  assert.equal(await program.run(15), 0);
+  assert.deepEqual(said, ["counted 1", "counted 2"]);
+});
+
+test("runs at once each wait on the page for their own answers", async () => {
+  const { program } = await page();
+
+  const gave = await Promise.all([program.run(PATIENT), program.run(15)]);
+  assert.deepEqual(gave, [4, 0]);
 });
 
 test("native code that throws is a fault the page can read", async () => {
@@ -66,7 +83,7 @@ test("native code that throws is a fault the page can read", async () => {
     },
   });
 
-  const fault = await program.run().then(assert.fail, (fault) => fault);
+  const fault = await program.run(PATIENT).then(assert.fail, (fault) => fault);
   assert.ok(fault instanceof Fault);
   assert.deepEqual([fault.kind, fault.cause], ["native", cause]);
 });
@@ -76,7 +93,7 @@ test("a wait that fails is a fault", async () => {
     "main.slept": () => Promise.reject(new Error("awake")),
   });
 
-  await assert.rejects(program.run(), { kind: "native" });
+  await assert.rejects(program.run(PATIENT), { kind: "native" });
 });
 
 test("a program that lacks native code is not loaded", async () => {
@@ -95,5 +112,5 @@ test("a module is loaded from the response that carries it", async () => {
     [PACKAGE]: { "main.said": () => null, "main.slept": clock() },
   });
 
-  assert.equal(await program.run(), 4);
+  assert.equal(await program.run(PATIENT), 4);
 });

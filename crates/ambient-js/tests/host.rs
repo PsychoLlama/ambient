@@ -19,6 +19,8 @@ use ambient::store::MemoryStore;
 
 /// The package the tests run: its ID, and its one module. Its target
 /// binds an ability that answers at once and one that answers later.
+/// What it is handed is how long it waits before it gives up, and gives
+/// zero.
 const PACKAGE: &str = "app";
 const PROGRAM: &str = r#"
     import ambient.iterator;
@@ -31,9 +33,18 @@ const PROGRAM: &str = r#"
 
     target page { say: said, sleep: slept }
 
-    fn main(): int with say, sleep {
+    fn main(patience: int): int with say, sleep {
+        return first(fn() => together(), fn() => gives_up(patience));
+    }
+
+    fn together(): int with say, sleep {
         let (counted, waited) = all(fn() => count(3), fn() => linger());
         return counted + waited;
+    }
+
+    fn gives_up(after: int): int with sleep {
+        sleep!(after);
+        return 0;
     }
 
     fn count(to: int): int with say, sleep {
