@@ -95,7 +95,10 @@ impl Scripted {
 pub fn app(source: &str) -> BTreeMap<PathBuf, String> {
     let file = |(path, text): (&str, &str)| (PathBuf::from(path), text.to_owned());
     let files = [
-        ("app/ambient.toml", "name = \"app\"\nid = \"app\""),
+        (
+            "app/ambient.toml",
+            "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"",
+        ),
         ("app/src/main.ab", source),
     ];
     files.into_iter().map(file).collect()

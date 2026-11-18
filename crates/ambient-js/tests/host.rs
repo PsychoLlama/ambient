@@ -74,7 +74,7 @@ const PROGRAM: &str = r#"
 /// Builds `main` of [`PROGRAM`] under its target as a module at `output`.
 fn build(output: &Path) {
     let file = |(path, text): (&str, String)| (PathBuf::from(path), text);
-    let manifest = format!("name = \"app\"\nid = \"{PACKAGE}\"");
+    let manifest = format!("name = \"app\"\nid = \"{PACKAGE}\"\nversion = \"0.1.0\"");
     let files: BTreeMap<PathBuf, String> = [
         ("app/ambient.toml", manifest),
         ("app/src/main.ab", PROGRAM.to_owned()),

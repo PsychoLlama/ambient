@@ -6,23 +6,27 @@
 //! is the library module. Files are reached through [`Files`], so a
 //! project is assembled the same way from a disk and from memory.
 
+mod error;
 mod files;
+mod manifest;
+mod members;
 
 use std::collections::BTreeMap;
-use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
 use ambient_runtime::FAULT_PACKAGE;
-use serde::Deserialize;
-
+pub use error::ProjectError;
 pub use files::{Disk, Files};
+pub use manifest::{Dependency, Manifest, Package, Version};
+use members::{Members, normal};
 
 use crate::builder::OWN_PACKAGE;
 use crate::error::Error;
 use crate::surface::{Definition, GENERATOR};
+use crate::symbol::PackageId;
 use crate::symbol::{ModuleId, Namespace, Symbol};
-use crate::syntax::{Placed, Position, SyntaxError};
-use crate::workspace::{Sources, Workspace, WorkspaceError};
+use crate::syntax::{Placed, Position};
+use crate::workspace::{Sources, Workspace};
 
 /// The name of a package's manifest.
 pub const MANIFEST: &str = "ambient.toml";
@@ -31,116 +35,6 @@ const SOURCES: &str = "src";
 /// The file that is a package's library module.
 const LIBRARY: &str = "lib";
 const EXTENSION: &str = "ab";
-
-/// What a package says of itself.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Manifest {
-    /// What the package is called in messages, and in this workspace.
-    pub name: String,
-    /// The package's identity, made once and kept whatever the package
-    /// comes to be called. See "Identity" in `spec/packages.md`.
-    pub id: String,
-    /// The modules in scope in every module of the package, each a path
-    /// that begins with `pkg` or a dependency. Listing any replaces the
-    /// standard library's.
-    #[serde(default)]
-    pub preludes: Vec<String>,
-    /// Other packages, by the name this one uses for each.
-    #[serde(default)]
-    pub dependencies: BTreeMap<String, Dependency>,
-    /// The abilities the package's comptime calls may take from the
-    /// build target, each a path as a prelude's is, to an ability.
-    #[serde(default)]
-    pub grants: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Dependency {
-    /// Where the package is, from the directory of this manifest.
-    pub path: PathBuf,
-}
-
-/// Why a directory is not a project.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ProjectError {
-    /// A file or directory could not be read.
-    Unreadable {
-        path: PathBuf,
-        reason: String,
-    },
-    /// A manifest is not one.
-    Manifest {
-        path: PathBuf,
-        reason: String,
-    },
-    /// A source file is not a module.
-    Syntax {
-        path: PathBuf,
-        error: SyntaxError,
-    },
-    /// A source file's path does not name a module.
-    Unnamed {
-        path: PathBuf,
-    },
-    /// Two packages have one name.
-    Duplicate {
-        name: String,
-        first: PathBuf,
-        second: PathBuf,
-    },
-    /// A prelude names a package this one does not depend on.
-    Prelude {
-        package: String,
-        prelude: String,
-    },
-    /// A build grant names no ability the package can reach.
-    Grant {
-        package: String,
-        grant: String,
-    },
-    Workspace(WorkspaceError),
-}
-
-impl fmt::Display for ProjectError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Unreadable { path, reason } | Self::Manifest { path, reason } => {
-                write!(f, "{}: {reason}", path.display())
-            }
-            Self::Syntax { path, error } => write!(f, "{}:{error}", path.display()),
-            Self::Unnamed { path } => {
-                write!(f, "{}: its path does not name a module", path.display())
-            }
-            Self::Duplicate {
-                name,
-                first,
-                second,
-            } => write!(
-                f,
-                "two packages are named `{name}`: {} and {}",
-                first.display(),
-                second.display()
-            ),
-            Self::Prelude { package, prelude } => {
-                write!(
-                    f,
-                    "{package}: the prelude `{prelude}` names no package it can reach"
-                )
-            }
-            Self::Grant { package, grant } => {
-                write!(
-                    f,
-                    "{package}: the grant `{grant}` names no ability it can reach"
-                )
-            }
-            Self::Workspace(error) => write!(f, "{error}"),
-        }
-    }
-}
-
-impl std::error::Error for ProjectError {}
 
 /// A package and everything it depends on, ready to build.
 #[derive(Clone, Debug)]
@@ -218,15 +112,17 @@ impl Project {
 ///
 /// Fails if a manifest or a source file is missing or malformed.
 pub fn open(files: &dyn Files, directory: &Path) -> Result<Project, ProjectError> {
+    let directory = normal(directory);
     let mut opening = Opening {
         files,
+        members: Members::around(files, &directory)?,
         workspace: Workspace::new(),
         opened: BTreeMap::new(),
         modules: Vec::new(),
     };
     crate::library::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
     crate::system::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
-    let root = opening.package(directory)?;
+    let root = opening.package(&directory)?;
     Ok(Project {
         workspace: opening.workspace,
         root,
@@ -237,27 +133,12 @@ pub fn open(files: &dyn Files, directory: &Path) -> Result<Project, ProjectError
 
 struct Opening<'a> {
     files: &'a dyn Files,
+    /// The packages of the workspace, opened or not.
+    members: Members,
     workspace: Workspace,
     /// Where each package opened so far is.
     opened: BTreeMap<String, PathBuf>,
     modules: Vec<Read>,
-}
-
-/// `path` with `.` and `..` worked out, as far as they can be.
-fn normal(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir
-                if matches!(out.components().next_back(), Some(Component::Normal(_))) =>
-            {
-                out.pop();
-            }
-            other => out.push(other),
-        }
-    }
-    out
 }
 
 /// The module path a source file under a package's sources names, as
@@ -296,16 +177,12 @@ impl Opening<'_> {
     /// Opens the package at `directory`, if it is not open, and gives
     /// its name.
     fn package(&mut self, directory: &Path) -> Result<String, ProjectError> {
-        let directory = normal(directory);
+        let member = self.members.at(self.files, directory)?.clone();
+        let (directory, manifest) = (member.directory, member.package);
         let path = directory.join(MANIFEST);
-        let manifest: Manifest =
-            toml::from_str(&self.read(&path)?).map_err(|error| ProjectError::Manifest {
-                path: path.clone(),
-                reason: error.message().to_owned(),
-            })?;
         let name = manifest.name.clone();
         match self.opened.get(&name) {
-            Some(first) if *first == directory => return Ok(name),
+            Some(first) if Members::same(self.files, first, &directory) => return Ok(name),
             Some(first) => {
                 return Err(ProjectError::Duplicate {
                     name,
@@ -335,21 +212,73 @@ impl Opening<'_> {
                 .depend(&name, given, given)
                 .map_err(library)?;
         }
+        // A package that depends on this one finds it open already,
+        // so packages may depend on each other.
         for (local, dependency) in &manifest.dependencies {
-            let package = self.package(&directory.join(&dependency.path))?;
+            let target = self.target(&name, &directory, local, dependency)?;
+            let package = self.package(&target)?;
             self.workspace
                 .depend(&name, local, &package)
                 .map_err(ProjectError::Workspace)?;
         }
         for prelude in &manifest.preludes {
-            let module = self.prelude(&name, &manifest, prelude)?;
+            let module = self.prelude(&name, prelude)?;
             self.workspace.prelude(&name, module);
         }
         for grant in &manifest.grants {
-            let ability = self.grant(&name, &manifest, grant)?;
+            let ability = self.grant(&name, grant)?;
             self.workspace.grant(&name, ability);
         }
         Ok(name)
+    }
+
+    /// Where the package a dependency of `package` means is: the
+    /// directory it names, or the member that stands in for it.
+    fn target(
+        &mut self,
+        package: &str,
+        directory: &Path,
+        name: &str,
+        dependency: &Dependency,
+    ) -> Result<PathBuf, ProjectError> {
+        let Some(path) = &dependency.path else {
+            // A manifest is not read without one or the other.
+            let major = dependency.version.map_or(0, |version| version.major);
+            let standing = self.members.standing(&dependency.id, major);
+            return standing
+                .map(|member| member.directory.clone())
+                .ok_or_else(|| ProjectError::Absent {
+                    package: package.to_owned(),
+                    name: name.to_owned(),
+                    id: dependency.id.clone(),
+                    major,
+                });
+        };
+        let path = normal(&directory.join(path));
+        let found = &self.members.at(self.files, &path)?.package;
+        let mistaken = |declared: String, found: String| ProjectError::Mistaken {
+            package: package.to_owned(),
+            name: name.to_owned(),
+            path: path.clone(),
+            declared,
+            found,
+        };
+        if found.id != dependency.id {
+            let (declared, found) = (&dependency.id, &found.id);
+            return Err(mistaken(
+                format!("package `{declared}`"),
+                format!("`{found}`"),
+            ));
+        }
+        match dependency.version {
+            Some(least) if least.major != found.version.major || least > found.version => {
+                Err(mistaken(
+                    format!("at least version {least}"),
+                    format!("version {}", found.version),
+                ))
+            }
+            _ => Ok(path),
+        }
     }
 
     /// Reads every source file of a package into the workspace.
@@ -385,21 +314,15 @@ impl Opening<'_> {
         Ok(())
     }
 
-    /// The module a prelude written in a manifest names.
     /// The ability a build grant names, which is one some module that
     /// was opened declares.
-    fn grant(
-        &self,
-        package: &str,
-        manifest: &Manifest,
-        grant: &str,
-    ) -> Result<Symbol, ProjectError> {
+    fn grant(&self, package: &str, grant: &str) -> Result<Symbol, ProjectError> {
         let unknown = || ProjectError::Grant {
             package: package.to_owned(),
             grant: grant.to_owned(),
         };
         let (module, name) = grant.rsplit_once('.').ok_or_else(unknown)?;
-        let module = self.prelude(package, manifest, module);
+        let module = self.prelude(package, module);
         let module = module.map_err(|_| unknown())?;
         let declared = self.workspace.module(&module).is_some_and(|module| {
             let ability = |definition: &Definition| {
@@ -410,28 +333,19 @@ impl Opening<'_> {
         declared.then(|| module.ability(name)).ok_or_else(unknown)
     }
 
-    fn prelude(
-        &self,
-        package: &str,
-        manifest: &Manifest,
-        prelude: &str,
-    ) -> Result<ModuleId, ProjectError> {
+    /// The module a prelude written in a manifest names: a path that
+    /// begins as one in the package's modules does.
+    fn prelude(&self, package: &str, prelude: &str) -> Result<ModuleId, ProjectError> {
         let (first, rest) = prelude.split_once('.').unwrap_or((prelude, ""));
-        let unknown = || ProjectError::Prelude {
-            package: package.to_owned(),
-            prelude: prelude.to_owned(),
-        };
         if first == OWN_PACKAGE {
             return Ok(ModuleId::new(package, rest));
         }
-        let given = [FAULT_PACKAGE, crate::system::PACKAGE].contains(&first);
-        if given && !manifest.dependencies.contains_key(first) {
-            return Ok(ModuleId::new(first, rest));
-        }
-        let dependency = manifest.dependencies.get(first).ok_or_else(unknown)?;
-        let directory = normal(&self.opened[package].join(&dependency.path));
-        let found = self.opened.iter().find(|(_, at)| **at == directory);
-        let (name, _) = found.ok_or_else(unknown)?;
-        Ok(ModuleId::new(name, rest))
+        let own = PackageId(package.to_owned());
+        let named = self.workspace.dependency(&own, first);
+        let named = named.ok_or_else(|| ProjectError::Prelude {
+            package: package.to_owned(),
+            prelude: prelude.to_owned(),
+        })?;
+        Ok(ModuleId::new(&named.0, rest))
     }
 }

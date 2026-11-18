@@ -41,7 +41,7 @@ fn package(grants: &str, notes: &str, path: &str) -> Files {
     let files = [
         (
             "app/ambient.toml",
-            format!("name = \"app\"\nid = \"app\"\n{grants}"),
+            format!("name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n{grants}"),
         ),
         ("app/src/main.ab", READS.replace("PATH", path)),
         ("app/notes.txt", notes.to_owned()),

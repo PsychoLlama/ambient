@@ -29,6 +29,10 @@ pub trait Files {
     /// The directory is missing or cannot be read.
     fn names(&self, directory: &Path) -> io::Result<Vec<String>>;
 
+    /// `path` from the top of these files, however it was written, so
+    /// that two paths of one file can be told to be.
+    fn absolute(&self, path: &Path) -> PathBuf;
+
     /// These files, for something that outlives a borrow of them: a
     /// build reads them whenever a comptime call asks.
     fn shared(&self) -> Rc<dyn Files>;
@@ -73,6 +77,10 @@ impl Files for Disk {
         Ok(names)
     }
 
+    fn absolute(&self, path: &Path) -> PathBuf {
+        std::path::absolute(path).unwrap_or_else(|_| path.to_owned())
+    }
+
     fn shared(&self) -> Rc<dyn Files> {
         Rc::new(Self)
     }
@@ -102,6 +110,10 @@ impl Files for BTreeMap<PathBuf, String> {
             return Err(io::Error::new(io::ErrorKind::NotFound, "no such directory"));
         }
         Ok(names)
+    }
+
+    fn absolute(&self, path: &Path) -> PathBuf {
+        path.to_owned()
     }
 
     fn shared(&self) -> Rc<dyn Files> {
