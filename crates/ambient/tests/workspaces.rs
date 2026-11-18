@@ -110,6 +110,31 @@ fn two_lines_of_a_package_are_two_members_under_two_names() {
     assert_eq!(side_by_side("0.0.1", "0.0.2"), Ok(77));
 }
 
+/// What `app` gives when it hands a branded value that the member
+/// `old` made to the member `new`, each a package with the ID given.
+fn exchanged(old: &str, new: &str) -> Result<i32, String> {
+    const UNITS: &str = "pub brand Meters;
+        pub fn meters(n: int): int & Meters => Meters(n);
+        pub fn length(m: int & Meters): int => m;";
+    let app = package("app", "app")
+        .on("units", old, "version = \"1.0.0\"")
+        .on("units_next", new, "version = \"2.0.0\"")
+        .library(
+            "import units.meters; import units_next.length;
+            pub fn main(): int => length(meters(7));",
+        );
+    let old = Package::versioned("old", old, "1.0.0").library(UNITS);
+    let new = Package::versioned("new", new, "2.0.0").library(UNITS);
+    ran(&files(Some(&["app", "old", "new"]), [app, old, new]))
+}
+
+#[test]
+fn two_instances_of_a_package_share_what_is_the_same_in_both() {
+    assert_eq!(exchanged("units", "units"), Ok(7));
+    // The same text in another package is another brand.
+    assert!(exchanged("units", "others").is_err());
+}
+
 #[test]
 fn two_members_in_one_line_of_a_package_are_refused() {
     let said = side_by_side("0.2.0", "0.2.5").unwrap_err();
