@@ -72,6 +72,45 @@ impl Engine<'_> {
         self.flatten(target, &mut Vec::new())
     }
 
+    /// The tool that builds a program under `target`: the one it
+    /// names, or else the one the targets it extends are built by.
+    /// See "Builds" in `spec/tools.md`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if `target` is not a target, extends itself, or extends
+    /// targets built by different tools without naming one.
+    pub fn builder(&self, target: &Symbol) -> Result<Option<Symbol>, Error> {
+        self.built_by(target, &mut Vec::new())
+    }
+
+    fn built_by(
+        &self,
+        target: &Symbol,
+        visiting: &mut Vec<Symbol>,
+    ) -> Result<Option<Symbol>, Error> {
+        if visiting.contains(target) {
+            return Err(Error::TargetCycle(target.clone()));
+        }
+        let resolved = self.resolve(target)?;
+        let DefinitionKind::Target(definition) = &resolved.definition.kind else {
+            return Err(Error::NotTarget(target.clone()));
+        };
+        if let Some(Reference::Definition(tool)) = &definition.tool {
+            return Ok(Some(tool.clone()));
+        }
+        let mut tools = BTreeSet::new();
+        visiting.push(target.clone());
+        for extended in abilities(&definition.extends) {
+            tools.extend(self.built_by(&extended, visiting)?);
+        }
+        visiting.pop();
+        if tools.len() > 1 {
+            return Err(Error::ToolConflict(target.clone()));
+        }
+        Ok(tools.into_iter().next())
+    }
+
     fn flatten(
         &self,
         target: &Symbol,

@@ -1,4 +1,5 @@
 import pkg.Error;
+import pkg.tree.{Reference};
 
 /// Nothing of the package is at the path.
 pub tag not_found;
@@ -16,6 +17,43 @@ pub ability read_bytes(path: string): bytes | Error;
 /// The names of what a directory of the package holds, in order.
 pub ability list(path: string): List<string> | Error;
 
+/// What was asked for could not be made; the message says why.
+pub tag failed;
+
+/// A file a build gives: where it goes, from the directory the build
+/// is written into, and what it holds.
+pub type File = { path: string, bytes: bytes };
+
+/// What a tool that builds a program gives: the files of the build.
+/// Such a tool takes a reference to the entry and one to the target.
+pub type Files = List<File>;
+
+/// An extern a compiled program imports: the ID of the package that
+/// declares it, and its module path and name.
+pub type Extern = { package: string, path: string };
+
+/// A number the runtime gives a meaning, by a name for it.
+pub type Word = { name: string, word: int };
+
+/// A program compiled as a WebAssembly module: the module, the
+/// externs it imports, and what the runtime defines that its host
+/// must agree with. `words` are the words with a meaning of their
+/// own, the modes of a context, the fault native code that fails is,
+/// and what native code is told a task left a wait by; `kinds` are
+/// what kind of value a word is.
+pub type Compiled = { module: bytes, externs: List<Extern>, words: List<Word>, kinds: List<Word> };
+
+/// An entry compiled under a target, for a host that supplies what
+/// the target binds.
+pub ability compile(entry: Reference, target: Reference): Compiled | Error;
+
+/// The text of a file of host code: one of the package of an ID, for
+/// a platform, at a path from the directory the package keeps that
+/// platform's host code in, which is named for it.
+pub ability host_code(package: string, platform: string, path: string): string | Error;
+
+extern handler compiling for compile;
+extern handler hosting for host_code;
 extern handler reading for read;
 extern handler reading_bytes for read_bytes;
 extern handler listing for list;
@@ -24,6 +62,8 @@ extern handler listing for list;
 /// is a question a build can ask again, so a call is made again only
 /// when an answer has changed.
 pub target world {
+    compile: compiling,
+    host_code: hosting,
     read: reading,
     read_bytes: reading_bytes,
     list: listing,

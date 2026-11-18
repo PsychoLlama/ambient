@@ -177,6 +177,9 @@ pub enum ExternKind<N = Path> {
 pub struct Target<N = Path> {
     /// Targets whose bindings this one starts from.
     pub extends: Vec<N>,
+    /// The tool that builds a program under it, if it names one: see
+    /// "Builds" in `spec/tools.md`.
+    pub tool: Option<N>,
     /// An ability, and the function or native handler bound to it.
     pub bindings: Vec<(N, N)>,
 }

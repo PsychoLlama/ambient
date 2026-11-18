@@ -113,6 +113,7 @@ pub fn target(name: &str) -> TargetBuilder {
         public: false,
         target: Target {
             extends: Vec::new(),
+            tool: None,
             bindings: Vec::new(),
         },
     }
@@ -136,6 +137,14 @@ impl TargetBuilder {
     #[must_use]
     pub fn extends(mut self, target: &str) -> Self {
         self.target.extends.push(Path::parse(target));
+        self
+    }
+
+    /// Names the tool at a dotted path as what builds a program under
+    /// the target.
+    #[must_use]
+    pub fn built_by(mut self, tool: &str) -> Self {
+        self.target.tool = Some(Path::parse(tool));
         self
     }
 

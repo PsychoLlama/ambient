@@ -161,6 +161,14 @@ pub enum Error {
     /// Two targets a target extends bind one ability differently, and it
     /// does not say which it wants.
     TargetConflict { symbol: Symbol, ability: Symbol },
+    /// What a target is built by is not a tool: it does not take an
+    /// entry and a target and give the files of a build.
+    NotTool(Symbol),
+    /// Two targets a target extends are built by different tools, and
+    /// it does not name its own.
+    ToolConflict(Symbol),
+    /// A tool takes a build ability that its package was not granted.
+    ToolUngranted { symbol: Symbol, ability: Symbol },
     /// A program's entry has type parameters.
     GenericEntry(Symbol),
     /// An ability is used where nothing binds it.
@@ -224,6 +232,9 @@ impl Error {
             | Self::TargetCycle(symbol)
             | Self::NativeRow(symbol)
             | Self::GenericEntry(symbol)
+            | Self::ToolConflict(symbol)
+            | Self::NotTool(symbol)
+            | Self::ToolUngranted { symbol, .. }
             | Self::SpawnOutsideGroup(symbol)
             | Self::ComptimeAbilities(symbol)
             | Self::EntryAbilities(symbol)

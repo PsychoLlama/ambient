@@ -1,5 +1,5 @@
 //! The JavaScript host of an Ambient program: what loads a WebAssembly
-//! module built with `ambient build --module` and runs it. See
+//! module built with `ambient build --target` and runs it. See
 //! "JavaScript hosts" in `spec/targets.md`.
 //!
 //! The host is JavaScript (`js/`, apart from the Rust), and knows of no browser and no

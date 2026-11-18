@@ -12,8 +12,8 @@ mod waits;
 
 pub use externs::Externs;
 pub use host::{
-    ANSWERING, NativeFn, Natives, Nowhere, Observation, Offered, Running, UNCALLABLE, UNDECLARED,
-    UNDECLARED_ABILITY, UNWOUND, bound,
+    ANSWERING, NativeFn, Natives, Nowhere, Observation, Offered, Questions, Running, UNASKED,
+    UNCALLABLE, UNDECLARED, UNDECLARED_ABILITY, UNWOUND, bound,
 };
 pub use load::Program;
 pub use values::{Host, Inside, encode};

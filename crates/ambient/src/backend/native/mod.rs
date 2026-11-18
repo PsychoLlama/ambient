@@ -6,7 +6,7 @@ mod emit;
 
 pub use ambient_host::native::{
     ANSWERING, Answer, Answers, Externs, Host, Inside, NAME, NativeFn, Natives, Nowhere,
-    Observation, Offered, Program, Running, UNCALLABLE, UNDECLARED, UNDECLARED_ABILITY, UNWOUND,
-    Waits, bound, encode,
+    Observation, Offered, Program, Questions, Running, UNCALLABLE, UNDECLARED, UNDECLARED_ABILITY,
+    UNWOUND, Waits, bound, encode,
 };
 pub use emit::Native;

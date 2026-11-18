@@ -1,6 +1,6 @@
 # ambient-js
 
-The JavaScript host of a module built with `ambient build --module`. The root `AGENTS.md` holds what spans crates.
+The JavaScript host of a module built with `ambient build --target`. The root `AGENTS.md` holds what spans crates.
 
 ## Invariants
 

@@ -282,7 +282,7 @@ impl Parser {
         Ok((name, DefinitionKind::Extern(Extern { kind, suspends })))
     }
 
-    /// `target name extends a, b { ability: handler, ... }`
+    /// `target name extends a, b built by tool { ability: handler, ... }`
     fn target(&mut self) -> Parsed<(String, DefinitionKind)> {
         let name = self.name()?;
         let mut extends = Vec::new();
@@ -292,12 +292,24 @@ impl Parser {
                 extends.push(self.path()?);
             }
         }
+        let mut tool = None;
+        if self.eat_word("built") {
+            self.expect_word("by")?;
+            tool = Some(self.path()?);
+        }
         self.expect("{")?;
         let bindings = self.list("}", |parser| {
             let ability = parser.path()?;
             parser.expect(":")?;
             Ok((ability, parser.path()?))
         })?;
-        Ok((name, DefinitionKind::Target(Target { extends, bindings })))
+        Ok((
+            name,
+            DefinitionKind::Target(Target {
+                extends,
+                tool,
+                bindings,
+            }),
+        ))
     }
 }

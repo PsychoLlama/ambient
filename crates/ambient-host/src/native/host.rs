@@ -72,6 +72,34 @@ pub trait Running {
     /// Fails with [`UNDECLARED_ABILITY`] if the extern's row has no
     /// such ability, and otherwise as [`Self::call`] does.
     fn perform(&mut self, package: &str, path: &str, args: &[Value]) -> Result<Value, String>;
+
+    /// Asks whatever is running the program a question of its own,
+    /// by name: what native code that only passes a question on does.
+    /// See [`Questions`].
+    ///
+    /// # Errors
+    ///
+    /// Fails if nothing that answers is running the program, or with
+    /// what the answer failed with.
+    fn ask(&mut self, _question: &str, _args: &[Value]) -> Result<Value, String> {
+        Err(UNASKED.to_owned())
+    }
+}
+
+/// What asking says where nothing answers: only a build does.
+pub const UNASKED: &str = "nothing that is running the program answers questions";
+
+/// What answers the questions a program asks of what runs it, each by
+/// name. A build is one: a program it runs asks it what a definition
+/// reaches or compiles to, which only the build knows. See "Build
+/// abilities" in `spec/tools.md`.
+pub trait Questions {
+    /// The answer to `question`, asked with `args`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if there is no such question, or it has no answer.
+    fn answer(&self, question: &str, args: &[Value]) -> Result<Value, String>;
 }
 
 /// What a perform says of an ability the extern's row does not hold.
@@ -217,6 +245,13 @@ impl Running for Call<'_> {
         let handler = unsafe { ambient_runtime::amb_word_at(self.handlers, handler) };
         self.made(handler, args)
     }
+
+    fn ask(&mut self, question: &str, args: &[Value]) -> Result<Value, String> {
+        let questions = self.program.questions.get();
+        questions
+            .ok_or_else(|| UNASKED.to_owned())?
+            .answer(question, args)
+    }
 }
 
 /// Native code for one extern: the program that called it and its
@@ -295,6 +330,25 @@ impl Natives {
         native: impl Fn(&[Value]) -> Result<Value, String> + 'static,
     ) -> Self {
         self.offer(package, path, true, move |_, args| native(args))
+    }
+
+    /// Adds native code that passes `question` on to whatever is
+    /// running the program: see [`Running::ask`]. It is verifiable,
+    /// since what answers can be asked again.
+    #[must_use]
+    pub fn asking(self, package: &str, path: &str, question: &'static str) -> Self {
+        self.offer(package, path, true, move |running, args| {
+            running.ask(question, args)
+        })
+    }
+
+    /// Everything offered here and in `other`, whose native code is
+    /// taken where both offer some for one extern.
+    #[must_use]
+    pub fn and(mut self, other: Self) -> Self {
+        self.offered.extend(other.offered);
+        self.waits = other.waits.or(self.waits);
+        self
     }
 
     /// Says what brings the answers of native code that answers later.

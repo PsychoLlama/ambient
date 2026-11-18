@@ -92,7 +92,7 @@ fn build(output: &Path) {
         path: PathBuf::from("app"),
         entry: "main.main".to_owned(),
         output: Some(output.to_owned()),
-        module: Some("main.page".to_owned()),
+        target: Some("main.page".to_owned()),
     };
     assert_eq!(session.execute(&command), 0);
 }

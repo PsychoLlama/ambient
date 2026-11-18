@@ -20,6 +20,7 @@
 //! twice costs nothing. A new snapshot needs a new engine over the same
 //! store.
 
+mod asked;
 mod blame;
 mod check;
 mod compile;
@@ -53,6 +54,7 @@ use crate::symbol::{ModuleId, Symbol};
 use crate::workspace::Sources;
 
 pub use ambient_host::parts::{Artifact, Body, Native, Part, Parts, Unloadable};
+pub use asked::{Files, refused};
 pub use check::Interface;
 pub use compile::Backend;
 pub use read::{Entry, Read, Table};

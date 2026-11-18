@@ -6,8 +6,9 @@ use std::cell::OnceCell;
 
 use serde::{Deserialize, Serialize};
 
+use super::asked::{self, Again};
 use super::{Engine, Stage};
-use crate::backend::native::{Native, Natives, Nowhere, Observation, Program};
+use crate::backend::native::{Native, Natives, Observation, Program, Running};
 use crate::checker::Evaluate;
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest, encode as bytes};
@@ -49,11 +50,11 @@ pub(super) struct Dependency {
 
 /// Whether everything in a trace, repeated now, gives what it gave then.
 /// A call that cannot be repeated never holds.
-fn holds(trace: &[Observation], natives: &Natives) -> bool {
+fn holds(trace: &[Observation], natives: &Natives, running: &mut dyn Running) -> bool {
     trace.iter().all(|seen| {
         seen.verifiable
             && natives.get(&seen.native).is_some_and(|offered| {
-                offered.verifiable && (offered.run)(&mut Nowhere, &seen.args) == seen.result
+                offered.verifiable && (offered.run)(running, &seen.args) == seen.result
             })
     })
 }
@@ -98,7 +99,9 @@ impl Engine<'_> {
         let root = self.program(function, &build.target)?;
         // What a run reads depends on where its package is, so the
         // runs of two packages are kept apart.
-        self.memoized(function, &root, args, &(build.natives)(from), &from.0)
+        // The engine answers what a run asks of the build itself.
+        let natives = (build.natives)(from).and(asked::natives());
+        self.memoized(function, &root, args, &natives, &from.0)
     }
 
     /// Calls `function` with `args` under `target`, with the native code
@@ -151,7 +154,8 @@ impl Engine<'_> {
             Err(message) => return Err(failed(message.clone())),
         };
         let still = |stored: &Result<Run, Error>| {
-            stored.as_ref().is_ok_and(|run| holds(&run.trace, natives))
+            let held = |run: &Run| holds(&run.trace, natives, &mut Again(self));
+            stored.as_ref().is_ok_and(held)
         };
         let run = self.stage_if(Stage::Run, function, key.finish(), still, || {
             // Everything the program is made of is covered by the
@@ -160,7 +164,8 @@ impl Engine<'_> {
             let parts = self.link(entry, native)?;
             let program = Program::load(&parts, natives).map_err(failed)?;
             program.observe();
-            let outcome = program.run(args).map_err(|fault| Error::ComptimeFault {
+            let ran = program.run_asking(args, self);
+            let outcome = ran.map_err(|fault| Error::ComptimeFault {
                 function: function.clone(),
                 fault: match program.failure() {
                     Some(message) => format!("{fault:?}: {message}"),

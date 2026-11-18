@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use ambient_runtime::{Entry, Fault, NULL, Word};
 
 use super::externs::Externs;
-use super::host::{Natives, Observation, dispatch};
+use super::host::{Natives, Observation, Questions, dispatch};
 use super::unit::{Unit, map};
 use super::values::Host;
 use super::waits::{Answers, Asked};
@@ -49,6 +49,19 @@ pub struct Program {
     pub(super) waits: Option<Answers>,
     /// The calls that are to be answered, by ticket.
     pub(super) asked: RefCell<HashMap<u64, Asked>>,
+    /// What answers the questions native code passes on, for the
+    /// length of a call made with [`Self::run_asking`].
+    pub(super) questions: Cell<Option<&'static dyn Questions>>,
+}
+
+/// Lets go of what answers a program's questions when the call that
+/// was made with it is over, however it ends.
+struct Unasked<'a>(&'a Cell<Option<&'static dyn Questions>>);
+
+impl Drop for Unasked<'_> {
+    fn drop(&mut self) {
+        self.0.set(None);
+    }
 }
 
 impl Drop for Program {
@@ -92,6 +105,7 @@ impl Program {
             open: parts.open,
             waits: natives.waits(),
             asked: RefCell::default(),
+            questions: Cell::new(None),
         };
         program.entry.set(program.place(parts, natives, false)?);
         Ok(program)
@@ -321,6 +335,27 @@ impl Program {
             self.heard();
             value
         })
+    }
+
+    /// Runs the entry as [`Self::run`] does, with `questions` to
+    /// answer what its native code passes on ([`Running::ask`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns the fault if the program faulted.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `args` is not as many values as the entry takes.
+    pub fn run_asking(&self, args: &[Value], questions: &dyn Questions) -> Result<Value, Fault> {
+        // SAFETY: the reference is held only until this call returns:
+        // `Unasked` takes it back however the call ends, and
+        // `questions` is borrowed for all of it.
+        let kept =
+            unsafe { std::mem::transmute::<&dyn Questions, &'static dyn Questions>(questions) };
+        self.questions.set(Some(kept));
+        let _unasked = Unasked(&self.questions);
+        self.run(args)
     }
 
     /// Calls a function value of this program with `args`, which it

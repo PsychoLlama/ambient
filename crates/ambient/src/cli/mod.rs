@@ -5,6 +5,7 @@
 
 mod build;
 mod building;
+mod files;
 mod init;
 mod launch;
 mod package;
@@ -79,11 +80,12 @@ pub enum Command {
         /// The file to make; one named for the package, if not said.
         #[arg(long, short)]
         output: Option<PathBuf>,
-        /// Makes a WebAssembly module of the program under this target
-        /// of the package, a module path and a name, for a host that
-        /// supplies the native code the target binds.
+        /// Builds the program under this target of the package, a
+        /// module path and a name: the files the tool the target is
+        /// built by gives, or with no tool the WebAssembly module
+        /// alone. The output is then a directory.
         #[arg(long)]
-        module: Option<String>,
+        target: Option<String>,
     },
     /// Checks every definition of a package and of those it depends on.
     Check {
@@ -157,14 +159,14 @@ impl Session<'_> {
                 path,
                 entry,
                 output,
-                module: None,
+                target: None,
             } => self.build(path, entry, output.as_deref()),
             Command::Build {
                 path,
                 entry,
                 output,
-                module: Some(target),
-            } => self.module(path, entry, target, output.as_deref()),
+                target: Some(target),
+            } => self.build_under(path, entry, target, output.as_deref()),
             Command::Check { path } => self.check(path).map(|()| 0),
             Command::Init { path } => self.init(path),
             Command::Update { name, path } => self.update(path, name.as_deref()),

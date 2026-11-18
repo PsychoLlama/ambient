@@ -57,5 +57,5 @@ A tool is a function a build runs to make something other than a program's defin
 
 ## Unbuilt
 
-- TODO: only the abilities that read a package's files are built. A build gives an executable or a module alone, and no tool runs.
+- TODO: a tool reads its package's files, compiles an entry, and reads host code, and nothing else: no reflection, reach, nested run, or fetch. Only a target's tool runs: there are no build steps, lints, or selections.
 - TODO: [testing](packages.md#testing) is not a tool: its harness is the command line's, so no package replaces it.

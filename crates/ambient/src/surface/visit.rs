@@ -425,6 +425,7 @@ impl<N> Definition<N> {
             },
             DefinitionKind::Target(target) => {
                 target.extends.iter().for_each(&mut *visit);
+                target.tool.iter().for_each(&mut *visit);
                 for (ability, handler) in &target.bindings {
                     visit(ability);
                     visit(handler);

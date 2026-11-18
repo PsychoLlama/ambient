@@ -44,6 +44,7 @@ pub use definitions::{defined, definitions};
 pub(crate) use generics::{function_type, generic_type};
 use header::header;
 pub use header::{check_ability, check_key, check_type, encode_header};
+pub(crate) use reflect::reference;
 pub use reify::{closed, function, module, tree};
 pub use world::{check_extern, check_target};
 

@@ -26,7 +26,7 @@ fn build(source: &str, launcher: &[u8]) -> Vec<u8> {
         path: PathBuf::from("app"),
         entry: "main.main".to_owned(),
         output: None,
-        module: None,
+        target: None,
     };
     let (code, after) = world.execute(&app(source), &command);
     assert_eq!(
@@ -144,7 +144,7 @@ fn a_program_that_is_wrong_builds_nothing() {
         path: PathBuf::from("app"),
         entry: "main.main".to_owned(),
         output: Some(PathBuf::from("out")),
-        module: None,
+        target: None,
     };
 
     let (code, after) = world.execute(&app("fn main(): int => \"one\";"), &command);
@@ -221,7 +221,7 @@ fn a_program_is_built_as_a_module_for_a_host_that_supplies_its_native_code() {
         path: PathBuf::from("app"),
         entry: "main.main".to_owned(),
         output: None,
-        module: Some("main.page".to_owned()),
+        target: Some("main.page".to_owned()),
     };
     let (code, after) = Scripted::default().execute(&app(PAGE), &command);
     assert_eq!(code, 0, "{}", after.err);

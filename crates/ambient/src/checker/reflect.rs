@@ -61,7 +61,7 @@ impl Checker<'_> {
 }
 
 /// A definition as a `tree.Reference`.
-fn reference(symbol: &Symbol) -> Value {
+pub(crate) fn reference(symbol: &Symbol) -> Value {
     let text = |text: &String| Value::String(text.clone());
     let kind = match symbol.namespace {
         Namespace::Type => "type",

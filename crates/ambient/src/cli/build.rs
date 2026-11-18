@@ -78,15 +78,16 @@ impl Session<'_> {
         Ok(0)
     }
 
-    /// Makes a WebAssembly module of `entry` of the package at `path`,
-    /// under `target` of the same package: at `output`, or else in the
-    /// directory the command was run in, named for the package. See
-    /// "WebAssembly hosts" in `spec/targets.md`.
+    /// Builds `entry` of the package at `path` under `target` of the
+    /// same package. See "Builds" in `spec/tools.md`.
     ///
-    /// The module is the program alone. Whatever loads it supplies the
-    /// native code its target binds, which the module names in what it
-    /// exports (`backend::wasm::module`).
-    pub(super) fn module(
+    /// A target built by a tool gives that tool's files, written into
+    /// the directory `output`, or else `build` in the package's own.
+    /// One with no tool gives the WebAssembly module alone, at
+    /// `output` or named for the package: whatever loads it supplies
+    /// the native code its target binds, which the module names in
+    /// what it exports (`backend::wasm::module`).
+    pub(super) fn build_under(
         &self,
         path: &Path,
         entry: &str,
@@ -97,6 +98,10 @@ impl Session<'_> {
         let engine = self.engine(&project);
         let refused = |error| vec![super::report(&project, &engine, &error)];
         let (entry, target) = (entry_of(&project, entry), entry_of(&project, target));
+        if let Some(files) = engine.built(&entry, &target).map_err(refused)? {
+            let directory = output.map_or_else(|| path.join("build"), Path::to_owned);
+            return self.written(&directory, &files);
+        }
         let root = engine.program(&entry, &target).map_err(refused)?;
         let parts = engine.link(&root, &Wasm).map_err(refused)?;
         let module = wasm::module(&parts).map_err(|message| vec![message])?;

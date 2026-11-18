@@ -255,6 +255,7 @@ impl<'a> Resolver<'a> {
                 }
                 DefinitionKind::Target(Target {
                     extends: target.extends.iter().map(value).collect::<Result<_, _>>()?,
+                    tool: target.tool.as_ref().map(value).transpose()?,
                     bindings,
                 })
             }

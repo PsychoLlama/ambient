@@ -79,6 +79,9 @@ impl fmt::Display for Error {
             | Self::TargetCycle(_)
             | Self::NativeRow(_)
             | Self::TargetConflict { .. }
+            | Self::ToolConflict(_)
+            | Self::NotTool(_)
+            | Self::ToolUngranted { .. }
             | Self::GenericEntry(_) => self.fmt_world(f),
             Self::NotBundle { .. }
             | Self::DuplicateHandler { .. }
@@ -230,6 +233,19 @@ impl Error {
             Self::TargetConflict { symbol, ability } => write!(
                 f,
                 "{symbol}: the targets it extends bind `{ability}` differently"
+            ),
+            Self::NotTool(symbol) => write!(
+                f,
+                "{symbol}: what builds a program takes a `tree.Reference` to its entry and one to \
+                 its target, and gives `build.Files`"
+            ),
+            Self::ToolConflict(symbol) => write!(
+                f,
+                "{symbol}: the targets it extends are built by different tools"
+            ),
+            Self::ToolUngranted { symbol, ability } => write!(
+                f,
+                "{symbol}: the tool takes `{ability}`, which its package is not granted"
             ),
             Self::GenericEntry(symbol) => {
                 write!(f, "{symbol}: an entry cannot have type parameters")

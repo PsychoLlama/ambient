@@ -2,7 +2,7 @@
 
 The JavaScript is `js/`; the Rust around it writes the constants and runs the tests.
 
-`js/host.js` loads a program built with `ambient build --module <target>` and runs it. It is ES modules with no dependencies, and knows of no browser and no Node: a target for either builds on it.
+`js/host.js` loads a program built with `ambient build --target <target>` and runs it. It is ES modules with no dependencies, and knows of no browser and no Node: a target for either builds on it.
 
 ```js
 import { load } from "./host.js";

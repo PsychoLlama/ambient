@@ -91,6 +91,7 @@ pub(super) fn check_extern(name: &str, native: &Extern) -> Result<(), BuildError
 
 pub(super) fn check_target(target: &Target) -> Result<(), BuildError> {
     target.extends.iter().try_for_each(check_path)?;
+    target.tool.iter().try_for_each(check_path)?;
     let mut bound = BTreeSet::new();
     for (ability, handler) in &target.bindings {
         check_path(ability)?;
