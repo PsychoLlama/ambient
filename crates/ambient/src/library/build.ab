@@ -1,0 +1,30 @@
+import pkg.Error;
+
+/// Nothing of the package is at the path.
+pub tag not_found;
+
+/// The path names what is not a file of the package.
+pub tag denied;
+
+/// The text of a file of the package. A path is from the directory of
+/// the package the call is written in.
+pub ability read(path: string): string | Error;
+
+/// What a file of the package holds, text or not.
+pub ability read_bytes(path: string): bytes | Error;
+
+/// The names of what a directory of the package holds, in order.
+pub ability list(path: string): List<string> | Error;
+
+extern handler reading for read;
+extern handler reading_bytes for read_bytes;
+extern handler listing for list;
+
+/// The world of a comptime call: what a build may be granted. Each
+/// is a question a build can ask again, so a call is made again only
+/// when an answer has changed.
+pub target world {
+    read: reading,
+    read_bytes: reading_bytes,
+    list: listing,
+}

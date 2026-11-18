@@ -5,7 +5,7 @@ import ambient.json.{Json};
 import ambient.map.{Map};
 import ambient.tree;
 import ambient.Error;
-import system.fs;
+import ambient.build;
 
 /// Asks the host for what it offers under a name: the one way out of
 /// the program, which says nothing of what is asked or what comes
@@ -31,8 +31,8 @@ fn named(name: Json): tree.Type {
 /// The manifest, a file of the package: for each name the host
 /// offers, the types it takes and the type it gives. It is null if
 /// the file is not there or is not JSON.
-fn read(): Json with fs.read {
-    match fs.read!("manifest.json") {
+fn read(): Json with build.read {
+    match build.read!("manifest.json") {
         let error: Error => { return null; }
         let text: string => { return parsed(text); }
     }
@@ -102,7 +102,7 @@ fn hosting(entries: List<(string, Json)>): tree.Function =>
 /// there, and `hosted`: the whole of a module.
 ///
 /// `comptime bind.all();`
-pub fn all(): tree.Module with fs.read {
+pub fn all(): tree.Module with build.read {
     match read() {
         let entries: Map<Json> => {
             let listed = entries.entries();

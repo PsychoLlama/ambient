@@ -34,12 +34,6 @@ pub fn target() -> Symbol {
     ModuleId::new(PACKAGE, "").value("cli")
 }
 
-/// The target comptime calls of a package on disk run under.
-#[must_use]
-pub fn build() -> Symbol {
-    ModuleId::new(PACKAGE, "").value("build")
-}
-
 /// Adds the package to a workspace that has the standard library.
 ///
 /// # Errors

@@ -18,11 +18,11 @@ type Files = BTreeMap<PathBuf, String>;
 /// A program that prints what a comptime call read of `path`.
 const READS: &str = r#"
     import system.console;
-    import system.fs;
+    import ambient.build;
     import ambient.Error;
 
-    fn read(path: string): string with fs.read {
-        match fs.read!(path) {
+    fn read(path: string): string with build.read {
+        match build.read!(path) {
             let error: Error => { return error.message; }
             let text: string => { return text; }
         }
@@ -56,7 +56,7 @@ fn package(grants: &str, notes: &str, path: &str) -> Files {
 /// The files beside its sources that the package says are its own.
 const LISTED: &str = "files = [\"notes.txt\", \"kept\"]";
 
-const GRANTED: &str = "grants = [\"system.fs.read\"]";
+const GRANTED: &str = "grants = [\"ambient.build.read\"]";
 
 /// What running the package over `store` prints and warns.
 fn run(files: &Files, store: &MemoryStore) -> (String, String) {
@@ -84,7 +84,7 @@ fn a_call_takes_nothing_its_package_was_not_granted() {
     let (out, err) = run(&package("", "milk", "notes.txt"), &MemoryStore::new());
 
     assert_eq!(out, "");
-    assert!(err.contains("system:fs.read"), "{err}");
+    assert!(err.contains("ambient:build.read"), "{err}");
 }
 
 #[test]
@@ -120,13 +120,13 @@ fn a_build_reads_only_the_files_its_package_lists() {
 #[test]
 fn a_granted_call_lists_a_directory_of_its_package() {
     let lists = READS
-        .replace("fs.read!(path)", "fs.list!(path)")
-        .replace("fs.read", "fs.list")
+        .replace("build.read!(path)", "build.list!(path)")
+        .replace("build.read", "build.list")
         .replace(
             "let text: string => { return text; }",
             "let names: List<string> => { return names.join_with(\" \"); }",
         );
-    let mut files = package("grants = [\"system.fs.list\"]", "milk", "kept");
+    let mut files = package("grants = [\"ambient.build.list\"]", "milk", "kept");
     files.insert(
         PathBuf::from("app/src/main.ab"),
         lists.replace("PATH", "kept"),
@@ -137,12 +137,12 @@ fn a_granted_call_lists_a_directory_of_its_package() {
 
 #[test]
 fn a_grant_names_an_ability() {
-    let files = package("grants = [\"system.fs.peek\"]", "milk", "notes.txt");
+    let files = package("grants = [\"ambient.build.peek\"]", "milk", "notes.txt");
     let (out, err) = run(&files, &MemoryStore::new());
 
     assert_eq!(out, "");
     assert_eq!(
         err,
-        "error: app: the grant `system.fs.peek` names no ability it can reach\n"
+        "error: app: the grant `ambient.build.peek` names no ability it can reach\n"
     );
 }

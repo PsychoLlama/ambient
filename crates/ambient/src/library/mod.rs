@@ -12,9 +12,10 @@ use crate::workspace::{Workspace, WorkspaceError};
 
 /// The modules written as source: the path of each, and its text. One
 /// named for a shape is that shape's methods.
-const SOURCES: [(&str, &str); 19] = [
+const SOURCES: [(&str, &str); 20] = [
     ("base64", include_str!("base64.ab")),
     ("bool", include_str!("bool.ab")),
+    ("build", include_str!("build.ab")),
     ("bytes", include_str!("bytes.ab")),
     ("cell", include_str!("cell.ab")),
     ("cleanup", include_str!("cleanup.ab")),
@@ -33,6 +34,13 @@ const SOURCES: [(&str, &str); 19] = [
     ("time", include_str!("time.ab")),
     ("tree", include_str!("tree.ab")),
 ];
+
+/// The target comptime calls of a package on disk run under: see
+/// "Build abilities" in `spec/tools.md`.
+#[must_use]
+pub fn build() -> crate::symbol::Symbol {
+    ModuleId::new(FAULT_PACKAGE, "build").value("world")
+}
 
 /// The key a value holds what releases it under, which a using reads.
 #[must_use]

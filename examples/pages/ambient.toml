@@ -2,4 +2,4 @@ name = "pages"
 id = "5e0c9a3b7d2f4e61a8b4c6d1f09e2a37"
 version = "0.1.0"
 files = ["pages"]
-grants = ["system.fs.list", "system.fs.read"]
+grants = ["ambient.build.list", "ambient.build.read"]
