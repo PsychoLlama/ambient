@@ -4,11 +4,11 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 
 ## Versions
 
-- A version is three numbers: a major, a minor, and a patch. A package's manifest states its version, so its snapshot covers it.
-- A release that changes or removes the [interface](definitions.md) of anything public takes a new major, and one that only adds takes a new minor.
+- A version is a semantic version: a major, a minor, and a patch, and what may mark it a pre-release. A package's manifest states its version, so its snapshot covers it.
+- A version's line is its major; under major zero its minor as well; under minor zero too, all three. Versions of one line are compatible.
+- A release that changes or removes the [interface](definitions.md) of anything public takes a new line. Above major zero, one that only adds takes a new minor.
 - Publishing compares the public interfaces of a release with those of the release before it, and refuses a version that says less than they changed.
 - Only interfaces are compared: a release that changes what a function does, under the same interface, is the publisher's to number.
-- Major zero is a major like any other.
 
 ## Releases
 
@@ -29,30 +29,32 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 
 ## Selection
 
-- A declaration of a released package gives its ID, its publisher, and a minimum version. The major of the minimum is the only upper bound.
-- A workspace builds one snapshot of each package ID, publisher, and major: the highest minimum any declaration in it states.
+- A declaration of a released package gives its ID, its publisher, and a minimum version. The [line](#versions) of the minimum is the only upper bound.
+- A workspace builds one snapshot of each package ID, publisher, and line: the highest minimum any declaration in it states.
 - Selection therefore searches for nothing, and no set of declarations is unsatisfiable.
-- Two majors of a package, or one package from two publishers, are distinct [package instances](packages.md), and one package may declare both under two local names.
+- Two lines of a package, or one package from two publishers, are distinct [package instances](packages.md), and one package may declare both under two local names.
 - Updating a dependency raises the minimum in the manifest that declares it, so the minimum a package states is one it was built and tested with.
 - What a [lock](#locks) holds stands while it satisfies every declaration: selection only raises it. A workspace updates a package it does not declare by raising the lock.
 - A package ID that reaches a workspace from a second publisher is reported when it first does, since a package's [identities](definitions.md) are scoped by ID alone.
 
-## Pinned dependencies
+## Git dependencies
 
-- A declaration may instead pin: it gives where a package is and exactly which state of it, and the lock holds that snapshot.
-- A pinned dependency has no publisher and no version to select among. It changes only when its declaration does.
+- A declaration may instead name a git repository, a directory in it, and a branch, a tag, or a commit of it. With none of the three it means the repository's default branch.
+- A declaration is written by a person and says what an update may move to. The lock is written by the tool and says what is built: the commit the declaration led to, and the snapshot there.
+- A branch or a tag is read once, when the lock holds nothing for the declaration. No command asks a repository whether it has moved, except an update.
+- A git dependency has no publisher and no version to select among: nothing is looked for among a repository's tags.
 - Where a package was fetched from is a hint. A snapshot is the same from anywhere, since it is verified by its hash.
-- A name that moves, such as a branch or a tag, is only ever a way to choose what to pin.
 
 ## Locks
 
 - A workspace has one lock: each snapshot it builds that is not a member, by package ID, publisher, and version, with where it was fetched from.
 - A build reads the lock and selects nothing. A declaration the lock does not satisfy is selected for, and the lock written.
-- A lock is a list in order of package ID, publisher, and major, one entry to a snapshot, so that changes made apart merge.
+- Every command settles the lock against the declarations of every member: an entry none of them leads to is dropped. Editing a manifest therefore never leaves a workspace that does not build.
+- A lock is a list in a fixed order, one entry to each snapshot a declaration leads to, so that changes made apart merge.
 - A lock is no part of any snapshot: whatever depends on a package selects for itself.
-- A closure is the hash of a workspace's members' snapshots and the snapshots in its lock. It names everything a build reads.
+- A closure is the hash of the snapshots in a workspace's lock. It names everything a build reads from outside its workspace.
 - A closure is a hash of a list, never of what each snapshot depends on, so packages that depend on each other have one.
-- A built program records its closure, so a definition's [hash](definitions.md) in a report leads to its source.
+- A built program records its closure, so a definition of a locked snapshot leads to its source.
 
 ## Fetching
 
@@ -82,6 +84,7 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 
 ## Unbuilt
 
-- TODO: pinned dependencies, the lock, fetching, and vendoring are built, and what [packages](packages.md) says of members. There are no releases, publishers, or registries, so nothing is selected, and no closure is recorded.
+- TODO: git dependencies, the lock, fetching, and vendoring are built, and what [packages](packages.md) says of members. There are no releases, publishers, or registries, so nothing is selected, and no closure is recorded.
 - TODO: a build grant is taken as soon as it is declared, by a fetched package as by a member.
-- TODO: a lock keeps an entry nothing pins any longer.
+- TODO: a version is three numbers and its line is its major. A git dependency names only a whole commit, and nothing updates one.
+- TODO: a lock keeps an entry nothing declares any longer.

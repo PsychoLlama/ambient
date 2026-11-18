@@ -8,6 +8,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A snapshot covers no other package: a manifest names a dependency by ID, never by snapshot. Packages that depend on each other therefore each have one.
 - A snapshot identifies exactly one state of a package and never changes meaning.
 - A snapshot is the same wherever the package is: in a checkout, in an archive, or copied into another workspace.
+- A snapshot is how a package is distributed. A member of a workspace is built from its files as they are, and what those are is its repository's to say.
 - A package ID is a generated identifier, fixed when the package is created and shared by every snapshot of it, forks included.
 - A [publisher](releases.md#publishers) is a key-holding identity that releases snapshots; trust in updates attaches to a publisher, not to a package ID or a name.
 - A [version](releases.md#versions) is a publisher's ordering of its own snapshots of one package ID; versions from different publishers are unrelated.
@@ -15,7 +16,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 ## Dependencies
 
-- A dependency declaration binds a local name to a package ID, and says which package of that ID is meant: a [member](#workspaces), a [release](releases.md#selection), or a [pinned](releases.md#pinned-dependencies) snapshot.
+- A dependency declaration binds a local name to a package ID, and says which package of that ID is meant: a [member](#workspaces), a [release](releases.md#selection), or a package in a [git repository](releases.md#git-dependencies).
 - The local name is an identifier chosen by the depending package, and is the only name its modules use for the dependency.
 - A module can name its own package and its package's declared dependencies, and nothing else; transitive dependencies are out of reach.
 - Packages may depend on each other, in a workspace and released.
@@ -45,7 +46,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A source file is the [module](modules.md) its path under the sources names, and the file named `lib` at their top is the library module.
 - The manifest says the package's name, its ID, and its version, and lists its dependencies, its preludes, its [build grants](comptime.md), each the path of an ability, and its other files.
 - A dependency is listed by its local name, with the ID of the package and where it is: a directory, or what [selects](releases.md#selection) a release.
-- A dependency at a directory is on the package there, whose ID must be the one declared.
+- A dependency at a directory is on the package there, whose ID must be the one declared. It states no version: the package there is a member, as it is.
 - A file of the package is one under its sources or one its manifest lists. Nothing else in its directory is part of it, and no [comptime](comptime.md) call reads anything else.
 - No package's ID is the standard library's, or the [`system`](targets.md) package's.
 - Every package reaches the standard library under the name `ambient`, and the `system` package under its own, without declaring them.
@@ -76,10 +77,14 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - Every package belongs to a workspace; a lone package is a workspace of one.
 - A workspace is a directory whose manifest lists its members, each the directory of a package. The workspace's own directory may be one of them.
 - A package's workspace is the nearest directory above it whose manifest lists it, and a package at a directory a member depends on is a member too.
-- A member stands in for every dependency in its workspace on its package ID and major [version](releases.md#versions), whatever publisher the declaration names.
-- Two members of one package ID and major are an error, so what stands in is never a choice.
-- A workspace lists the [preludes](modules.md) its members take when they list none.
+- A member stands in for every dependency in its workspace on its package ID and [line](releases.md#versions) of versions, whatever publisher the declaration names.
+- Two members of one package ID and line are an error, so what stands in is never a choice.
+- Two members of one name are an error: a name identifies nothing, and two packages that share one are taken for a mistake.
+- A member takes nothing from its workspace's manifest: a package means the same in any workspace.
+- A command that checks or tests, run at a workspace's directory, covers every member.
 - A workspace has one [store](build.md), one [index](symbols.md), and one [lock](releases.md#locks).
+
+- TODO: checking and testing take one package, and refuse a workspace's directory that is not one.
 
 ## Beginning
 
