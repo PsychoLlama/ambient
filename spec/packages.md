@@ -4,27 +4,29 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 ## Identity
 
-- A snapshot is a hash of a package's entire contents: sources, manifest, and the digests of its [native bundles](externs.md).
+- A snapshot is a hash of a package's own contents: its manifest, its sources, the other files its manifest lists, and the digests of its [native bundles](externs.md).
+- A snapshot covers no other package: a manifest names a dependency by ID, never by snapshot. Packages that depend on each other therefore each have one.
 - A snapshot identifies exactly one state of a package and never changes meaning.
+- A snapshot is the same wherever the package is: in a checkout, in an archive, or copied into another workspace.
 - A package ID is a generated identifier, fixed when the package is created and shared by every snapshot of it, forks included.
-- A publisher is a key-holding identity that releases snapshots; trust in updates attaches to a publisher, not to a package ID or a name.
-- A version is a publisher's ordering of its own snapshots of one package ID; versions from different publishers are unrelated.
-- A name is a registry's label for discovery; it identifies nothing, and reassigning it affects no dependent.
+- A [publisher](releases.md#publishers) is a key-holding identity that releases snapshots; trust in updates attaches to a publisher, not to a package ID or a name.
+- A [version](releases.md#versions) is a publisher's ordering of its own snapshots of one package ID; versions from different publishers are unrelated.
+- A name identifies nothing: a package's own is for messages, and a dependent's is its own choice.
 
 ## Dependencies
 
-- A dependency declaration binds a local name to a package ID, a publisher, and a version constraint.
+- A dependency declaration binds a local name to a package ID, and says which package of that ID is meant: a [member](#workspaces), a [release](releases.md#selection), or a [pinned](releases.md#pinned-dependencies) snapshot.
 - The local name is an identifier chosen by the depending package, and is the only name its modules use for the dependency.
 - A module can name its own package and its package's declared dependencies, and nothing else; transitive dependencies are out of reach.
-- A lock records the snapshot, package ID, and publisher of every dependency.
-- An update is a newer snapshot of the same package ID from the same publisher.
+- Packages may depend on each other, in a workspace and released.
 - Adopting a fork changes the publisher in the declaration and changes no import.
-- A dependency without a registry name is still a complete dependency.
+- A build takes only what its entry [reaches](build.md), so a dependency costs a program only what the program uses of it. No declaration is optional, and none is switched on.
 
 ## Package instances
 
-- A package instance is a workspace member or a locked snapshot; it is the package component of a [symbol](symbols.md).
+- A package instance is a workspace member or a [locked](releases.md#locks) snapshot; it is the package component of a [symbol](symbols.md).
 - Two snapshots of one package ID may coexist in a workspace as distinct package instances.
+- Coexisting snapshots share every definition that is the same in both, since a definition is kept by its [hash](definitions.md).
 - Coexisting snapshots share [tags](definitions.md), so an ability whose signature is unchanged between them is one ability.
 
 ## Contents
@@ -34,19 +36,19 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A public module exposes its public definitions to dependents; nothing else leaves the package.
 - A public module is reached by the same path its own package uses, so moving one is a change of interface, made as an [edit](trees.md) across dependents.
 - A package may define any number of named entries, each a function.
-- A package declares its dependencies, its [preludes](modules.md), its [build grants](comptime.md), and its native bundles.
+- A package declares its version, its dependencies, its [preludes](modules.md), its [build grants](comptime.md), its native bundles, and the files beside its sources that are part of it.
 - A package is distributed as source.
 
 ## Layout
 
 - A package is a directory: a manifest, and its modules as source files under one directory of sources.
 - A source file is the [module](modules.md) its path under the sources names, and the file named `lib` at their top is the library module.
-- The manifest says the package's name and its ID, and lists its dependencies, each by the local name and where the package is, its preludes, and its [build grants](comptime.md), each the path of an ability.
+- The manifest says the package's name, its ID, and its version, and lists its dependencies, its preludes, its [build grants](comptime.md), each the path of an ability, and its other files.
+- A dependency is listed by its local name, with the ID of the package and where it is: a directory, or what [selects](releases.md#selection) a release.
+- A dependency at a directory is on the package there, whose ID must be the one declared.
+- A file of the package is one under its sources or one its manifest lists. Nothing else in its directory is part of it, and no [comptime](comptime.md) call reads anything else.
 - No package's ID is the standard library's, or the [`system`](targets.md) package's.
 - Every package reaches the standard library under the name `ambient`, and the `system` package under its own, without declaring them.
-- TODO: a build grant is taken as soon as it is declared: nothing asks whoever installs a package.
-- TODO: nothing says whether two packages may depend on each other. A [snapshot](#identity) that covers its dependencies' snapshots cannot be made of two that do.
-- TODO: a dependency is only a path to a directory; there are no publishers, versions, locks, or registries yet, and nothing checks that an ID was generated.
 
 ## Running
 
@@ -72,12 +74,12 @@ A package is a tree of modules whose identity does not depend on any name. Names
 ## Workspaces
 
 - Every package belongs to a workspace; a lone package is a workspace of one.
-- A workspace has one [store](build.md), one [index](symbols.md), and one lock.
-
-## Registries
-
-- A registry maps names and package IDs to publishers and their versions.
-- A registry is a convenience, not an authority: everything it serves is verified against a snapshot and a publisher's key.
+- A workspace is a directory whose manifest lists its members, each the directory of a package. The workspace's own directory may be one of them.
+- A package's workspace is the nearest directory above it whose manifest lists it, and a package at a directory a member depends on is a member too.
+- A member stands in for every dependency in its workspace on its package ID and major [version](releases.md#versions), whatever publisher the declaration names.
+- Two members of one package ID and major are an error, so what stands in is never a choice.
+- A workspace lists the [preludes](modules.md) its members take when they list none.
+- A workspace has one [store](build.md), one [index](symbols.md), and one [lock](releases.md#locks).
 
 ## Beginning
 

@@ -62,6 +62,7 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - [syntax](syntax.md): how trees are written as text.
 - [core](core.md): what a core tree contains, open and closed definitions, encoding.
 - [modules](modules.md): modules, visibility, preludes.
-- [packages](packages.md): package identity, publishers, dependencies, workspaces.
+- [packages](packages.md): package identity, dependencies, contents, workspaces.
+- [releases](releases.md): versions, publishers, selection, locks, vendoring, registries.
 - [exchange](exchange.md): moving definitions and values between programs.
 - [upgrade](upgrade.md): live upgrade as a pattern over abilities, cells, and exchange.
