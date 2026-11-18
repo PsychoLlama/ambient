@@ -3,8 +3,9 @@
 // gives its tasks their turns. See "WebAssembly hosts" and "JavaScript
 // hosts" in `spec/targets.md`.
 //
-// It has no dependencies but `constants.js`, and knows of no browser and
-// no Node: a target for either builds on it. What it does is what the
+// It has no dependencies but `constants.js`, which the build writes
+// beside it, and knows of no browser and no Node: a target for either
+// builds on it. What it does is what the
 // host in `crates/ambient/src/backend/wasm` does; where the two
 // differ, that one is right.
 

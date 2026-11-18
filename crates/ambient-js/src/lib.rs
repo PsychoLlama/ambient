@@ -1,15 +1,8 @@
-//! The JavaScript host of an Ambient program: what loads a WebAssembly
-//! module built with `ambient build --target` and runs it. See
-//! "JavaScript hosts" in `spec/targets.md`.
+//! The tests of the JavaScript target (`packages/js`): what builds an
+//! Ambient program for a JavaScript host, and the host that loads and
+//! runs it. See "JavaScript hosts" in `spec/targets.md`.
 //!
-//! The host is JavaScript (`js/`, apart from the Rust), and knows of no browser and no
-//! Node: a target for either builds on it, and brings what its world
-//! offers. This crate holds the text for whatever writes it beside a
-//! module, and the tests that run it.
-
-/// The host: a module with no dependencies but [`CONSTANTS`].
-pub const HOST: &str = include_str!("../js/host.js");
-
-/// `constants.js`: what the runtime defines and the host must agree
-/// with, which `build.rs` writes from the runtime.
-pub const CONSTANTS: &str = include_str!("../js/constants.js");
+//! The target is an Ambient package and its host is JavaScript, so
+//! nothing of either is Rust. This crate builds a program with them
+//! and runs the JavaScript tests, so that the one command that runs
+//! every test runs these too.

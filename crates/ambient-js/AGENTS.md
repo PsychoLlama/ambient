@@ -1,18 +1,9 @@
 # ambient-js
 
-The JavaScript host of a module built with `ambient build --target`. The root `AGENTS.md` holds what spans crates.
-
-## Invariants
-
-- `js/host.js` is ES modules with no dependencies, which know of no browser and no Node. Install nothing from a registry.
-- `constants.js` is written from the runtime by `build.rs` and never committed; restate no constant in JavaScript.
-- The host restates what `backend/wasm`'s host does; where they differ, that one is right.
-- Native code calls back only through its `Call`, which is closed when it returns or gives a promise; a function it was handed is the same call by another name.
-- `units.js` restates `backend/wasm/units.rs`. Loads go one at a time and nothing is reclaimed while one instantiates, since a unit is told addresses and how many externs the program has.
-- A `Loaded` owns one reference to its function, and gives it up once: by being handed to the program, or by `release`.
-- A run keeps its own waits, by its context (`Waits`), so runs at once never share an answer.
+The tests of the JavaScript target, `packages/js`, whose `AGENTS.md` holds its invariants. The root `AGENTS.md` holds what spans crates.
 
 ## Testing
 
-- `ambient-js/tests/host.rs` builds a program as a module and runs `js/*.test.js` under Node's own runner. JavaScript is tested nowhere else, and only what the host itself does.
+- `tests/host.rs` builds a program with the target, as `ambient build --target` does, into a directory of its own, and runs `js/*.test.js` under Node's own runner against what was built.
 - The tests are thin: one fixture program, one to load into with a unit, and one Node process. What a program means is tested in `crates/ambient`.
+- Nothing here is installed from a registry. Keep it so.

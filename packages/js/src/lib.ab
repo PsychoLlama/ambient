@@ -1,0 +1,143 @@
+/// What a JavaScript target starts from: a target that binds nothing
+/// and is built by `bundle`. A browser's target or Node's extends it,
+/// and binds its own abilities to externs whose native side is
+/// JavaScript.
+///
+/// A package keeps the JavaScript of its externs in a directory `js`
+/// that its manifest lists: a file for each module that declares one,
+/// at the module's path, which exports a function for each extern by
+/// its name.
+import ambient.build;
+import ambient.build.{Compiled, Extern, File, Files, Word};
+import ambient.errors.{throw};
+import ambient.tree.{Reference};
+import ambient.Error;
+
+/// The world of a program a JavaScript host runs, before anything is
+/// bound in it.
+pub target host built by bundle {}
+
+/// The files of the host that loads a module, which are this
+/// package's: see `host/host.js`.
+fn runtime(): List<string> => ["host.js", "units.js", "values.js"];
+
+fn file(path: string, text: string): File => { path: path, bytes: text.to_bytes() };
+
+/// The text of a file of this package.
+fn read(path: string): string with build.read, throw {
+    match build.read!(path) {
+        let error: Error => { return throw!(error); }
+        let text: string => { return text; }
+    }
+}
+
+/// The module an extern is declared in, as the path of a file: the
+/// library module is `lib`.
+fn module_of(native: Extern): string {
+    let parts = native.path.split(".");
+    let module = parts.take(parts.length() - 1);
+    return module.is_empty() ? "lib" : module.join_with("/");
+}
+
+/// The name an extern is declared by, which its host code exports.
+fn name_of(native: Extern): string => native.path.split(".").last() as string else "";
+
+/// Where a build keeps the host code an extern's function is in.
+fn kept(native: Extern): string => "externs/" ++ native.package ++ "/" ++ module_of(native) ++ ".js";
+
+/// The host code of the module an extern is declared in, as its
+/// package keeps it.
+fn hosted(native: Extern): File with build.host_code, throw {
+    match build.host_code!(native.package, "js", module_of(native) ++ ".js") {
+        let error: Error => { return throw!(error); }
+        let text: string => { return file(kept(native), text); }
+    }
+}
+
+/// The host code of every module that declares one of `externs`,
+/// each once.
+fn sources(externs: List<Extern>): Files with build.host_code, throw {
+    let none: Files = [];
+    return externs.fold(none, fn(found: Files, native: Extern): Files {
+        let path = kept(native);
+        let held = found.some(fn(file: File): bool => file.path == path);
+        return held ? found : found.push(hosted(native));
+    });
+}
+
+/// `constants.js`: what the runtime defines and the host must agree
+/// with, which only the compiler that made the module knows. A word
+/// crosses into JavaScript as a `BigInt`.
+fn constants(compiled: Compiled): string {
+    let word = fn(word: Word): string {
+        let name = word.name.to_upper();
+        return "export const ${name} = ${word.word}n;";
+    };
+    let kind = fn(kind: Word): string => "  ${kind.name}: ${kind.word}n,";
+    let lines = ["// What the runtime defines and the host must agree with, written by the build."]
+        .join(compiled.words.map(word))
+        .push("export const Kind = {")
+        .join(compiled.kinds.map(kind))
+        .push("};");
+    return lines.join_with("\n") ++ "\n";
+}
+
+/// `program.js`: what loads the module with the function of each
+/// extern it reaches, and no other.
+fn loader(externs: List<Extern>): string {
+    let none: List<string> = [];
+    let imports = externs.fold(none, fn(lines: List<string>, native: Extern): List<string> {
+        let name = name_of(native);
+        return lines.push("import { ${name} as e${lines.length()} } from \"./${kept(native)}\";");
+    });
+    let supplies = externs.fold(none, fn(lines: List<string>, native: Extern): List<string> =>
+        lines.push("supply(\"${native.package}\", \"${native.path}\", e${lines.length()});"));
+    let lines = ["// Written by the build of this program.", "import { load } from \"./runtime/host.js\";"]
+        .join(imports)
+        .join([
+            "",
+            "export * from \"./runtime/host.js\";",
+            "",
+            "// The native code of each extern the program reaches, by package and path.",
+            "const natives = {};",
+            "const supply = (pkg, path, run) => ((natives[pkg] ??= {})[path] = run);",
+        ])
+        .join(supplies)
+        .join([
+            "",
+            "/**",
+            " * Loads the program, which `run` then runs. The module is fetched from",
+            " * beside this file unless `source` is its bytes or a response that",
+            " * carries them. Native code in `over`, by package and path, is used in",
+            " * place of the program's own.",
+            " */",
+            "export function start(source, over = {}) {",
+            "  const offered = { ...natives };",
+            "  for (const [pkg, paths] of Object.entries(over)) {",
+            "    offered[pkg] = { ...offered[pkg], ...paths };",
+            "  }",
+            "  const module = source ?? fetch(new URL(\"./program.wasm\", import.meta.url));",
+            "  return load(module, offered);",
+            "}",
+        ]);
+    return lines.join_with("\n") ++ "\n";
+}
+
+/// A program for a JavaScript host: the module, the host that loads
+/// it, the JavaScript of each extern it reaches, and `program.js`,
+/// which puts them together.
+pub fn bundle(entry: Reference, target: Reference): Files
+    with build.compile, build.host_code, build.read, throw
+{
+    match build.compile!(entry, target) {
+        let error: Error => { return throw!(error); }
+        let compiled: Compiled => {
+            let host = runtime().map(fn(name: string): File => file("runtime/" ++ name, read("host/" ++ name)));
+            return [{ path: "program.wasm", bytes: compiled.module }]
+                .push(file("program.js", loader(compiled.externs)))
+                .push(file("runtime/constants.js", constants(compiled)))
+                .join(host)
+                .join(sources(compiled.externs));
+        }
+    }
+}

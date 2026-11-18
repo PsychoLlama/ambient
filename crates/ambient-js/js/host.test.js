@@ -1,13 +1,20 @@
 // The host runs a program built for it: the one `tests/host.rs` holds,
-// which builds its module and then runs these.
+// which builds it with the JavaScript target and then runs these.
 
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { test } from "node:test";
+import { pathToFileURL } from "node:url";
 
-import { Fault, load } from "./host.js";
+/** The directory the program was built into. */
+const built = process.env.AMBIENT_BUILD;
+// What the build wrote to load the program: the host, and `start`.
+const { Fault, load, start } = await import(
+  pathToFileURL(join(built, "program.js"))
+);
 
-const module = process.env.AMBIENT_MODULE;
+const module = join(built, "program.wasm");
 const PACKAGE = process.env.AMBIENT_PACKAGE;
 /** A program code is loaded into, and code to load into it. */
 const { AMBIENT_OPEN: open, AMBIENT_UNIT: unit } = process.env;
@@ -57,6 +64,21 @@ async function page(natives = {}) {
   const program = await load(await readFile(module), { [PACKAGE]: offered });
   return { program, said };
 }
+
+test("a build loads its program with the native code of its package", async () => {
+  const program = await start(await readFile(module));
+
+  assert.equal(await program.run(PATIENT), 4);
+});
+
+test("native code handed to a build's loader is used over its own", async () => {
+  const said = [];
+  const over = { [PACKAGE]: { "main.said": (line) => void said.push(line) } };
+  const program = await start(await readFile(module), over);
+
+  assert.equal(await program.run(PATIENT), 4);
+  assert.equal(said.length, 4);
+});
 
 test("a program runs, and its tasks wait on the page together", async () => {
   const { program, said } = await page();

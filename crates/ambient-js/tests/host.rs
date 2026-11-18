@@ -1,5 +1,5 @@
-//! The JavaScript host (`js/host.js`) runs a program built for it, under
-//! Node. See "JavaScript hosts" in `spec/targets.md`.
+//! The JavaScript target (`packages/js`) builds a program, and its host
+//! runs it under Node. See "JavaScript hosts" in `spec/targets.md`.
 //!
 //! The tests themselves are JavaScript (`js/*.test.js`), since what they test
 //! is. This builds the program they run and runs them, so that the one
@@ -17,6 +17,7 @@ use ambient::backend::wasm::{self, Wasm};
 use ambient::cli::{Command, Session};
 use ambient::engine::Engine;
 use ambient::host::System;
+use ambient::project::{Disk, Files};
 use ambient::store::MemoryStore;
 use ambient::symbol::ModuleId;
 use ambient::syntax::parse;
@@ -30,6 +31,7 @@ use ambient::workspace::Workspace;
 const PACKAGE: &str = "app";
 const PROGRAM: &str = r#"
     import ambient.iterator;
+    import js.{host};
 
     ability say(text: string): null;
     ability sleep(milliseconds: int): null;
@@ -40,7 +42,7 @@ const PROGRAM: &str = r#"
     extern fn applied(work: fn(int): int, to: int): int;
     extern fn echoed(text: string): null with say;
 
-    target page { say: said, sleep: slept }
+    target page extends host { say: said, sleep: slept }
 
     fn main(patience: int): int with say, sleep {
         return first(fn() => together(), fn() => gives_up(patience));
@@ -71,16 +73,41 @@ const PROGRAM: &str = r#"
     }
 "#;
 
-/// Builds `main` of [`PROGRAM`] under its target as a module at `output`.
+/// The JavaScript of the package's externs, which its build takes:
+/// a page that says nothing and waits as long as it is asked to.
+const HOSTED: &str = r#"
+    export const said = () => null;
+    export const slept = (ms) => new Promise((wake) => setTimeout(wake, ms, null));
+    export const applied = (work, to) => work(to);
+    export const echoed = (line, call) => call.perform("app", "main.say", line);
+"#;
+
+/// The JavaScript target, as it is in this repository.
+fn target() -> BTreeMap<PathBuf, String> {
+    let package = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/js");
+    let mut files = BTreeMap::new();
+    for path in Disk.sources(&package).unwrap() {
+        let text = Disk.read(&package.join(&path)).unwrap();
+        files.insert(Path::new("js").join(path), text);
+    }
+    files
+}
+
+/// Builds `main` of [`PROGRAM`] under its target into the directory
+/// `output`: the module, and the JavaScript that loads it.
 fn build(output: &Path) {
-    let file = |(path, text): (&str, String)| (PathBuf::from(path), text);
-    let manifest = format!("name = \"app\"\nid = \"{PACKAGE}\"\nversion = \"0.1.0\"");
-    let files: BTreeMap<PathBuf, String> = [
-        ("app/ambient.toml", manifest),
-        ("app/src/main.ab", PROGRAM.to_owned()),
-    ]
-    .map(file)
-    .into();
+    let manifest = format!(
+        "name = \"app\"\nid = \"{PACKAGE}\"\nversion = \"0.1.0\"\nfiles = [\"js\"]\n\
+         [dependencies]\njs = {{ id = \"7c1e4b9a02d84f6e9b35a1c8d07e6f24\", path = \"../js\" }}"
+    );
+    let mut files = target();
+    for (path, text) in [
+        ("app/ambient.toml", manifest.as_str()),
+        ("app/src/main.ab", PROGRAM),
+        ("app/js/main.js", HOSTED),
+    ] {
+        files.insert(PathBuf::from(path), text.to_owned());
+    }
     let session = Session {
         files: &files,
         store: &MemoryStore::new(),
@@ -138,23 +165,19 @@ fn build_to_load(open: &Path, unit: &Path) {
 
 #[test]
 fn the_host_runs_a_program_built_for_it() {
-    let file = |name: &str| {
-        std::env::temp_dir().join(format!("ambient-js-{}-{name}.wasm", std::process::id()))
-    };
-    let (module, open, unit) = (file("module"), file("open"), file("unit"));
-    build(&module);
+    let built = std::env::temp_dir().join(format!("ambient-js-{}", std::process::id()));
+    build(&built);
+    let (open, unit) = (built.join("open.wasm"), built.join("unit.wasm"));
     build_to_load(&open, &unit);
     let ran = Process::new("node")
         .arg("--test")
         .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("js/host.test.js"))
-        .env("AMBIENT_MODULE", &module)
+        .env("AMBIENT_BUILD", &built)
         .env("AMBIENT_OPEN", &open)
         .env("AMBIENT_UNIT", &unit)
         .env("AMBIENT_PACKAGE", PACKAGE)
         .output();
-    for file in [module, open, unit] {
-        std::fs::remove_file(file).unwrap();
-    }
+    std::fs::remove_dir_all(built).unwrap();
 
     let ran = ran.expect("the development shell has `node`");
     let said = String::from_utf8_lossy(&ran.stdout);

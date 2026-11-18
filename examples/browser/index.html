@@ -4,16 +4,10 @@
 <title>Ambient in a page</title>
 <pre id="said"></pre>
 <script type="module">
-  import { load } from "../../crates/ambient-js/js/host.js";
+  // What the build wrote: the module, its host, and the JavaScript of
+  // each extern the program reaches (`js/main.js`).
+  import { start } from "./build/program.js";
 
-  // The package's ID, as its manifest says it.
-  const PACKAGE = "dc397fcddc58e66b5137bae3178633f0";
-  const said = document.getElementById("said");
-  const page = {
-    "main.said": (line) => void said.append(`${line}\n`),
-    "main.slept": (ms) => new Promise((wake) => setTimeout(wake, ms, null)),
-  };
-
-  const program = await load(fetch("page.wasm"), { [PACKAGE]: page });
-  said.append(`gave ${await program.run()}\n`);
+  const program = await start();
+  document.getElementById("said").append(`gave ${await program.run()}\n`);
 </script>

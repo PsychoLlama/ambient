@@ -1,27 +1,45 @@
-# The JavaScript host
+# The JavaScript target
 
-The JavaScript is `js/`; the Rust around it writes the constants and runs the tests.
+An Ambient package that builds a program for a JavaScript host. A target that extends `host` is built by this package's tool:
 
-`js/host.js` loads a program built with `ambient build --target <target>` and runs it. It is ES modules with no dependencies, and knows of no browser and no Node: a target for either builds on it.
+```
+import js.{host};
+
+pub ability say(text: string): null;
+extern handler said for say;
+
+pub target page extends host { say: said }
+```
+
+The package that declares an extern keeps its JavaScript in a directory `js`, which its manifest lists (`files = ["js"]`): a file for each module, which exports a function for each extern by its name.
 
 ```js
-import { load } from "./host.js";
+// js/main.js, beside src/main.ab
+export const said = (line) => console.log(line);
+// One that gives a promise answers later: its extern is declared `suspending`.
+export const slept = (ms) => new Promise((wake) => setTimeout(wake, ms, null));
+// A function it is handed is one it calls, while it runs.
+export const applied = (work, to) => work(to);
+// After its arguments comes the call, which performs the abilities of its row.
+export const echoed = (line, call) =>
+  call.perform("<package id>", "main.say", line);
+```
 
-const program = await load(fetch("page.wasm"), {
-  // By the ID in the package's `ambient.toml`, then the extern's module path and name.
-  "<package id>": {
-    "main.said": (line) => console.log(line),
-    // One that gives a promise answers later: its extern is declared `suspending`.
-    "main.slept": (ms) => new Promise((wake) => setTimeout(wake, ms, null)),
-    // A function it is handed is one it calls, while it runs.
-    "main.applied": (work, to) => work(to),
-    // After its arguments comes the call, which performs the abilities of its row.
-    "main.echoed": (line, call) =>
-      call.perform("<package id>", "main.say", line),
-  },
-});
+`ambient build <package> --target main.page` writes a directory:
+
+- `program.wasm`: the program.
+- `program.js`: what loads it, with a function for each extern the program reaches and no other.
+- `runtime/`: the host (`host/` here), and the constants the compiler that made the module says it must agree with.
+- `externs/`: the JavaScript of each module that declares an extern the program reaches.
+
+```js
+import { start } from "./build/program.js";
+
+const program = await start();
 console.log(await program.run());
 ```
+
+`start` fetches the module from beside `program.js`; hand it the bytes, or a response that carries them, where there is no `fetch` of a file. Its second argument is native code to use in place of the program's own, as `{ "<package id>": { "main.said": ... } }`.
 
 `examples/browser` is a page that does this.
 
@@ -32,15 +50,11 @@ A program built to be loaded into takes more code while it runs. No command buil
 const plugin = await program.add(fetch("plugin.wasm"), natives);
 console.log(await program.call(plugin, 4));
 plugin.release();
-// A suspending extern that answers with one hands it to the program.
-const fetched = () => program.add(fetch("plugin.wasm"));
 ```
 
 ## Testing
 
-- `cargo nextest run -p ambient-js` builds a program and runs `js/*.test.js` under Node's own runner (`tests/host.rs`).
-- The tests are thin: that the host runs what the compiler makes. What a program means is tested in `crates/ambient`.
-- `constants.js` is what the runtime defines, written by `build.rs` when the crate is built and never committed. Build the crate before loading `js/host.js` from here.
+- `cargo nextest run -p ambient-js` builds a program with this package and runs `crates/ambient-js/js/*.test.js` under Node's own runner.
 - Nothing here is installed from a registry. Keep it so.
 
-See "WebAssembly hosts" and "JavaScript hosts" in `spec/targets.md`.
+See "JavaScript hosts" in `spec/targets.md` and `spec/tools.md`.

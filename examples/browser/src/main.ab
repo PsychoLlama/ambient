@@ -1,4 +1,5 @@
 import ambient.iterator;
+import js.{host};
 
 /// Writes a line where a page can show it.
 pub ability say(text: string): null;
@@ -9,8 +10,10 @@ pub ability sleep(milliseconds: int): null;
 extern handler said for say;
 extern suspending handler slept for sleep;
 
-/// What a page offers this program. Its native side is JavaScript.
-pub target page { say: said, sleep: slept }
+/// What a page offers this program. Its native side is JavaScript
+/// (`js/main.js`), and `host` says how a program under it is
+/// built: the module, and the JavaScript that loads it.
+pub target page extends host { say: said, sleep: slept }
 
 /// Counts aloud, slowly, beside a task that says it is waiting.
 pub fn main(): int with say, sleep {

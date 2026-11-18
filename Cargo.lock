@@ -70,7 +70,6 @@ name = "ambient-js"
 version = "0.1.0"
 dependencies = [
  "ambient",
- "ambient-runtime",
 ]
 
 [[package]]

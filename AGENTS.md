@@ -4,9 +4,9 @@
 - `crates/ambient`: the implementation, a library plus an empty binary. Module docs name the spec page each module implements.
 - `crates/ambient-host`: what loads and runs a compiled program, with no compiler in it: trees, values, parts, the native loader, the native side of `system`, and launching. `ambient` gives its modules again at the paths they had (`ambient::core`, `backend::native`, `host`), which is how the bullets below name them.
 - `crates/ambient-launcher`: the binary a built program is put after. It links `ambient-host` and nothing of the compiler; keep it so.
-- `crates/ambient-js`: the JavaScript host of a module built with `ambient build --target` (`js/host.js`).
+- `packages/js`: the JavaScript target, an Ambient package: the tool that builds a program for a JavaScript host, and the host (`host/host.js`). `crates/ambient-js` holds its tests.
 - `crates/ambient-runtime`: what compiled code calls. Built natively into the compiler, and for wasm32 by `crates/ambient/build.rs` as one relocatable object.
-- Each crate but the launcher has an `AGENTS.md` of its own invariants. Read it before working there, and put a new invariant in the crate that must uphold it.
+- Each crate but the launcher, and each package, has an `AGENTS.md` of its own invariants. Read it before working there, and put a new invariant in the crate that must uphold it.
 
 ## Invariants
 
@@ -24,7 +24,7 @@ What spans crates:
 - Programs are built with builders. Text is for tests of the reader, of library methods (`support::text`), and of whole packages.
 - A program is run with `support::run` or `support::run_with`, which run it natively and in wasmtime and fail if they disagree or if either leaks an object.
 - An incremental test builds twice over one store and asserts on `Engine::ran` and `Engine::reused`.
-- JavaScript is tested only in `crates/ambient-js`.
+- JavaScript is tested only in `crates/ambient-js`, against a program built by `packages/js`.
 
 ## Committing
 

@@ -2,10 +2,7 @@
 name = "ambient-js"
 version.workspace = true
 edition.workspace = true
-description = "What runs an Ambient program in JavaScript: a host for a browser's target or Node's to build on"
-
-[build-dependencies]
-ambient-runtime.workspace = true
+description = "The tests of the JavaScript target: a program built by `packages/js`, run under Node"
 
 [dev-dependencies]
 ambient = { path = "../ambient" }
