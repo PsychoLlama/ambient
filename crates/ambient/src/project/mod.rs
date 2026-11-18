@@ -6,6 +6,7 @@
 //! is the library module. Files are reached through [`Files`], so a
 //! project is assembled the same way from a disk and from memory.
 
+mod contents;
 mod error;
 mod files;
 mod manifest;
@@ -15,6 +16,7 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 use ambient_runtime::FAULT_PACKAGE;
+pub use contents::Contents;
 pub use error::ProjectError;
 pub use files::{Disk, Files};
 pub use manifest::{Dependency, Manifest, Package, Version};
@@ -31,7 +33,7 @@ use crate::workspace::{Sources, Workspace};
 /// The name of a package's manifest.
 pub const MANIFEST: &str = "ambient.toml";
 /// The directory a package's modules are under.
-const SOURCES: &str = "src";
+pub(crate) const SOURCES: &str = "src";
 /// The file that is a package's library module.
 const LIBRARY: &str = "lib";
 const EXTENSION: &str = "ab";
@@ -44,8 +46,8 @@ pub struct Project {
     pub root: String,
     /// Each module read from a file.
     pub modules: Vec<Read>,
-    /// Where each package that was opened is, by its name.
-    pub directories: BTreeMap<String, PathBuf>,
+    /// The files of each package that was opened, by its name.
+    pub packages: BTreeMap<String, Contents>,
 }
 
 /// A module read from a file.
@@ -127,7 +129,7 @@ pub fn open(files: &dyn Files, directory: &Path) -> Result<Project, ProjectError
         workspace: opening.workspace,
         root,
         modules: opening.modules,
-        directories: opening.opened,
+        packages: opening.opened,
     })
 }
 
@@ -136,8 +138,8 @@ struct Opening<'a> {
     /// The packages of the workspace, opened or not.
     members: Members,
     workspace: Workspace,
-    /// Where each package opened so far is.
-    opened: BTreeMap<String, PathBuf>,
+    /// The files of each package opened so far.
+    opened: BTreeMap<String, Contents>,
     modules: Vec<Read>,
 }
 
@@ -181,7 +183,7 @@ impl Opening<'_> {
         let (directory, manifest) = (member.directory, member.package);
         let path = directory.join(MANIFEST);
         let name = manifest.name.clone();
-        match self.opened.get(&name) {
+        match self.opened.get(&name).map(|first| &first.directory) {
             Some(first) if Members::same(self.files, first, &directory) => return Ok(name),
             Some(first) => {
                 return Err(ProjectError::Duplicate {
@@ -190,8 +192,14 @@ impl Opening<'_> {
                     second: directory,
                 });
             }
-            None => self.opened.insert(name.clone(), directory.clone()),
-        };
+            None => {
+                let contents = Contents {
+                    directory: directory.clone(),
+                    listed: manifest.files.clone(),
+                };
+                self.opened.insert(name.clone(), contents);
+            }
+        }
         let taken = [FAULT_PACKAGE, crate::system::PACKAGE];
         if taken.contains(&name.as_str()) || name == OWN_PACKAGE {
             let reason = format!("a package cannot be named `{name}`");

@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Component, PathBuf};
 
 use serde::Deserialize;
 
@@ -25,6 +25,9 @@ pub struct Package {
     /// The abilities the package's comptime calls may take from the
     /// build target, each a path as a prelude's is, to an ability.
     pub grants: Vec<String>,
+    /// The files and directories beside the sources that are part of
+    /// the package, each a path from the manifest's directory.
+    pub files: Vec<PathBuf>,
 }
 
 /// A package another depends on: which it is, and where to find it.
@@ -94,6 +97,8 @@ struct Written {
     dependencies: BTreeMap<String, Dependency>,
     #[serde(default)]
     grants: Vec<String>,
+    #[serde(default)]
+    files: Vec<PathBuf>,
     members: Option<Vec<PathBuf>>,
 }
 
@@ -123,6 +128,7 @@ impl Manifest {
                 preludes: written.preludes,
                 dependencies: written.dependencies,
                 grants: written.grants,
+                files: written.files,
             }),
             (None, None, None) if members.is_some() => None,
             (name, id, _) => {
@@ -140,6 +146,17 @@ impl Manifest {
                     "the dependency `{name}` says neither a `path` nor a `version`"
                 ));
             }
+        }
+        let outside = |path: &&PathBuf| {
+            let inside = |part| matches!(part, Component::Normal(_));
+            path.as_os_str().is_empty() || !path.components().all(inside)
+        };
+        let mut files = package.iter().flat_map(|package| &package.files);
+        if let Some(path) = files.find(outside) {
+            return Err(format!(
+                "the file `{}` is not under the package's directory",
+                path.display()
+            ));
         }
         Ok(Self { package, members })
     }
@@ -185,6 +202,16 @@ mod tests {
         assert_eq!(lacks(""), says("name"));
         assert_eq!(lacks("name = \"a\""), says("id"));
         assert_eq!(lacks("name = \"a\"\nid = \"a\""), says("version"));
+    }
+
+    #[test]
+    fn a_file_a_package_lists_is_under_its_directory() {
+        let package = "name = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n";
+        let read = |files: &str| Manifest::read(&format!("{package}files = [{files}]")).is_ok();
+        assert!(read("\"pages\", \"notes/today.txt\""));
+        for outside in ["\"../secret\"", "\"/etc\"", "\"\"", "\"./pages\""] {
+            assert!(!read(outside), "{outside}");
+        }
     }
 
     #[test]

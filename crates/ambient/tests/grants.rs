@@ -41,14 +41,20 @@ fn package(grants: &str, notes: &str, path: &str) -> Files {
     let files = [
         (
             "app/ambient.toml",
-            format!("name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n{grants}"),
+            format!("name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n{LISTED}\n{grants}"),
         ),
         ("app/src/main.ab", READS.replace("PATH", path)),
         ("app/notes.txt", notes.to_owned()),
+        ("app/kept/one.txt", String::new()),
+        ("app/kept/two.txt", String::new()),
+        ("app/draft.txt", "unfinished".to_owned()),
         ("secret.txt", "hidden".to_owned()),
     ];
     files.into_iter().map(file).collect()
 }
+
+/// The files beside its sources that the package says are its own.
+const LISTED: &str = "files = [\"notes.txt\", \"kept\"]";
 
 const GRANTED: &str = "grants = [\"system.fs.read\"]";
 
@@ -94,11 +100,21 @@ fn a_build_follows_the_files_it_read() {
 fn a_build_reads_nothing_outside_its_package() {
     let said = |path: &str| run(&package(GRANTED, "milk", path), &MemoryStore::new()).0;
 
+    let refused = |path: &str| format!("{path} is not a file of the package\n");
+    assert_eq!(said("../secret.txt"), refused("../secret.txt"));
+    assert_eq!(said("/secret.txt"), refused("/secret.txt"));
+}
+
+#[test]
+fn a_build_reads_only_the_files_its_package_lists() {
+    let said = |path: &str| run(&package(GRANTED, "milk", path), &MemoryStore::new()).0;
+
     assert_eq!(
-        said("../secret.txt"),
-        "../secret.txt is not in the package\n"
+        said("draft.txt"),
+        "draft.txt is not a file of the package\n"
     );
-    assert_eq!(said("/secret.txt"), "/secret.txt is not in the package\n");
+    assert_eq!(said("./notes.txt"), "milk\n");
+    assert!(said("ambient.toml").starts_with("name = \"app\""));
 }
 
 #[test]
@@ -110,13 +126,13 @@ fn a_granted_call_lists_a_directory_of_its_package() {
             "let text: string => { return text; }",
             "let names: List<string> => { return names.join_with(\" \"); }",
         );
-    let mut files = package("grants = [\"system.fs.list\"]", "milk", ".");
-    files.insert(PathBuf::from("app/src/main.ab"), lists.replace("PATH", "."));
-
-    assert_eq!(
-        run(&files, &MemoryStore::new()).0,
-        "ambient.toml notes.txt src\n"
+    let mut files = package("grants = [\"system.fs.list\"]", "milk", "kept");
+    files.insert(
+        PathBuf::from("app/src/main.ab"),
+        lists.replace("PATH", "kept"),
     );
+
+    assert_eq!(run(&files, &MemoryStore::new()).0, "one.txt two.txt\n");
 }
 
 #[test]

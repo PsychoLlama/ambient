@@ -10,7 +10,7 @@ A package is a directory with a manifest and its modules under `src/`:
 
 ```
 hello/
-  ambient.toml      its name and its ID
+  ambient.toml      its name, its ID, and its version
   src/
     main.ab         the module `main`
     text/trim.ab    the module `text.trim`
@@ -496,4 +496,4 @@ pub fn main(): string {
 - A record with methods, such as a `Map`, can be tested for only where the value's type leaves no doubt: a `Json` can be asked `as Map<Json>`, an `unknown` cannot.
 - Only a function that captured nothing is packed: one written at the top of a module, not one written inside another that uses what is around it.
 - A function written inside another may call itself, and then says its parameter and return types.
-- There is no way yet to depend on a package except by a path in the manifest: `[dependencies] text = { path = "../text" }`.
+- A package is depended on by its ID, at a path or as a member of the workspace: `[dependencies] text = { id = "…", path = "../text" }`. There are no releases to depend on yet.

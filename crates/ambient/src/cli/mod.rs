@@ -7,6 +7,7 @@ mod build;
 mod building;
 mod init;
 mod launch;
+mod package;
 mod test;
 mod trace;
 
@@ -84,6 +85,12 @@ pub enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Says a package's snapshot: the hash of the files that are it.
+    Snapshot {
+        /// The package's directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
     /// Runs every test of a package: each function that takes nothing
     /// and whose name begins with `test_`.
     Test {
@@ -127,6 +134,7 @@ impl Session<'_> {
             } => self.module(path, entry, target, output.as_deref()),
             Command::Check { path } => self.check(path).map(|()| 0),
             Command::Init { path } => self.init(path),
+            Command::Snapshot { path } => self.snapshot(path),
             Command::Test { path, only } => self.test(path, only.as_deref()),
         };
         done.unwrap_or_else(|problems| {

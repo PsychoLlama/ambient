@@ -14,6 +14,13 @@ pub trait Files {
     /// The file is missing or is not text.
     fn read(&self, path: &Path) -> io::Result<String>;
 
+    /// What a file holds, text or not.
+    ///
+    /// # Errors
+    ///
+    /// The file is missing or cannot be read.
+    fn bytes(&self, path: &Path) -> io::Result<Vec<u8>>;
+
     /// Every file under a directory, at any depth, as paths from it, in
     /// order.
     ///
@@ -61,6 +68,10 @@ impl Files for Disk {
         std::fs::read_to_string(path)
     }
 
+    fn bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
+        std::fs::read(path)
+    }
+
     fn sources(&self, directory: &Path) -> io::Result<Vec<PathBuf>> {
         let mut found = Vec::new();
         Self::walk(directory, Path::new(""), &mut found)?;
@@ -91,6 +102,10 @@ impl Files for BTreeMap<PathBuf, String> {
     fn read(&self, path: &Path) -> io::Result<String> {
         let missing = || io::Error::new(io::ErrorKind::NotFound, "no such file");
         self.get(path).cloned().ok_or_else(missing)
+    }
+
+    fn bytes(&self, path: &Path) -> io::Result<Vec<u8>> {
+        self.read(path).map(String::into_bytes)
     }
 
     fn sources(&self, directory: &Path) -> io::Result<Vec<PathBuf>> {
