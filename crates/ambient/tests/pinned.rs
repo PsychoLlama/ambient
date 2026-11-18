@@ -1,0 +1,243 @@
+//! Dependencies pinned to a commit of a repository, and the lock that
+//! holds what each was. See "Pinned dependencies" and "Locks" in
+//! `spec/releases.md`.
+
+#![allow(clippy::unwrap_used)]
+
+mod support;
+
+use std::path::PathBuf;
+
+use ambient::cli::Command;
+use support::packages::{Files, Package, Remote, files, package, pinned, rev};
+
+const GIT: &str = "https://example.com/numbers";
+const SEVEN: &str = "pub fn seven(): int => 7;";
+
+/// An `app` whose `main` gives what `seven` of the package it calls
+/// `numbers` gives, which it pins at the commit `rev`.
+fn app(rev: &str) -> Package {
+    let app = package("app", "app").on("numbers", "n", &pinned(GIT, rev));
+    app.library(
+        "import numbers.seven;
+        pub fn main(): int => seven();",
+    )
+}
+
+/// The package `numbers` as the commit `at` has it.
+fn numbers(at: &'static str) -> Package {
+    package(at, "n").library(SEVEN)
+}
+
+/// An `app` that pins the commit of all ones, which is at `one/`.
+fn pinning() -> Files {
+    files(None, [app(&rev('1')), numbers("one")])
+}
+
+fn remote(files: &Files) -> Remote<'_> {
+    Remote::new(files, [(GIT, &rev('1'), "one"), (GIT, &rev('2'), "two")])
+}
+
+fn run() -> Command {
+    Command::Run {
+        path: PathBuf::from("app"),
+        entry: "main.main".to_owned(),
+        args: Vec::new(),
+    }
+}
+
+/// What running `app` exits with on `machine`, or what it reports.
+fn ran(machine: &Remote) -> Result<i32, String> {
+    let world = support::scripted::Scripted::default();
+    let store = ambient::store::MemoryStore::new();
+    let (code, world) = world.execute_from(machine.files, &store, machine, &run());
+    if world.err.is_empty() {
+        Ok(code)
+    } else {
+        Err(world.err)
+    }
+}
+
+/// The files once `app` has been run on a machine that kept nothing:
+/// with the lock that wrote.
+fn locked(files: &Files) -> Files {
+    remote(files).written(&run()).unwrap()
+}
+
+#[test]
+fn a_pinned_dependency_is_fetched_and_locked() {
+    let files = pinning();
+    let machine = remote(&files);
+    let after = machine.written(&run()).unwrap();
+
+    assert_eq!(*machine.fetched.borrow(), [GIT]);
+    let lock = &after[&PathBuf::from("app/ambient.lock")];
+    let held = "id = \"n\"\nversion = \"1.0.0\"\nsnapshot = \"";
+    assert!(lock.starts_with(&format!("[[snapshot]]\n{held}")), "{lock}");
+    assert!(lock.ends_with(&format!("\"\ngit = \"{GIT}\"\nrev = \"{}\"\n", rev('1'))));
+    assert_eq!(ran(&remote(&after)), Ok(7));
+}
+
+#[test]
+fn what_is_locked_and_kept_is_not_fetched_again() {
+    let files = locked(&pinning());
+    let machine = remote(&files);
+
+    assert_eq!(ran(&machine), Ok(7));
+    assert_eq!(ran(&machine), Ok(7));
+    // Once, since the machine kept nothing; the lock is not written
+    // again either.
+    assert_eq!(machine.fetched.borrow().len(), 1);
+    assert_eq!(machine.written(&run()).unwrap(), files);
+}
+
+#[test]
+fn what_is_fetched_must_be_what_was_locked() {
+    let mut files = locked(&pinning());
+    files.insert(
+        "one/src/lib.ab".into(),
+        "pub fn seven(): int => 8;".to_owned(),
+    );
+
+    let said = ran(&remote(&files)).unwrap_err();
+    assert!(
+        said.starts_with(&format!("error: {GIT} is not what was locked: ")),
+        "{said}"
+    );
+}
+
+#[test]
+fn what_is_kept_must_be_what_was_locked() {
+    // The machine fetched it as it was, and its files changed since.
+    let files = locked(&pinning());
+    let machine = remote(&files);
+    assert_eq!(ran(&machine), Ok(7));
+    let mut changed = files.clone();
+    changed.insert(
+        "one/src/lib.ab".into(),
+        "pub fn seven(): int => 8;".to_owned(),
+    );
+    let kept = machine.kept.into_inner();
+    let machine = Remote {
+        kept: kept.into(),
+        ..remote(&changed)
+    };
+
+    let said = ran(&machine).unwrap_err();
+    assert!(
+        said.starts_with("error: one is not what was locked: "),
+        "{said}"
+    );
+}
+
+#[test]
+fn a_pin_that_changes_is_fetched_and_locked_beside_the_old_one() {
+    let two = package("two", "n").library("pub fn seven(): int => 70;");
+    let mut files = locked(&files(None, [app(&rev('1')), numbers("one"), two]));
+    let moved = app(&rev('2')).manifest;
+    files.insert("app/ambient.toml".into(), moved);
+    let after = remote(&files).written(&run()).unwrap();
+
+    assert_eq!(ran(&remote(&after)), Ok(70));
+    let lock = &after[&PathBuf::from("app/ambient.lock")];
+    assert_eq!(lock.matches("[[snapshot]]").count(), 2, "{lock}");
+}
+
+#[test]
+fn two_pins_of_one_package_are_two_instances() {
+    let two = package("two", "n").library("pub fn seventy(): int => 70;");
+    let app = app(&rev('1'))
+        .on("numbers_next", "n", &pinned(GIT, &rev('2')))
+        .library(
+            "import numbers.seven; import numbers_next.seventy;
+            pub fn main(): int => seven() + seventy();",
+        );
+    let files = files(None, [app, numbers("one"), two]);
+
+    assert_eq!(ran(&remote(&files)), Ok(77));
+}
+
+#[test]
+fn a_pin_must_be_of_the_package_it_says() {
+    let other = package("one", "m").library(SEVEN);
+    let files = files(None, [app(&rev('1')), other]);
+
+    assert_eq!(
+        ran(&remote(&files)),
+        Err(format!(
+            "error: app: the dependency `numbers` says package `n`, \
+             and the package at {GIT} is `m`\n"
+        ))
+    );
+}
+
+#[test]
+fn a_dependency_that_cannot_be_fetched_is_reported() {
+    let files = files(None, [app(&rev('3'))]);
+
+    assert_eq!(
+        ran(&remote(&files)),
+        Err(format!(
+            "error: app: the dependency `numbers` was not fetched: {GIT} has no commit {}\n",
+            rev('3')
+        ))
+    );
+}
+
+#[test]
+fn a_fetched_package_names_no_directory() {
+    let numbers = numbers("one").on("other", "o", "path = \"../other\"");
+    let files = files(None, [app(&rev('1')), numbers, package("other", "o")]);
+
+    assert_eq!(
+        ran(&remote(&files)),
+        Err("error: one/ambient.toml: the dependency `other` names a directory\n".to_owned())
+    );
+}
+
+#[test]
+fn a_fetched_package_pins_what_it_depends_on_into_the_same_lock() {
+    let far = "https://example.com/far";
+    let twice = package("one", "t")
+        .on("n", "n", &pinned(far, &rev('5')))
+        .library("import n.seven; pub fn fourteen(): int => seven() + seven();");
+    let app = package("app", "app").on("twice", "t", &pinned(GIT, &rev('1')));
+    let app = app.library("import twice.fourteen; pub fn main(): int => fourteen();");
+    let files = files(None, [app, twice, numbers("five")]);
+    let commits = [(GIT, &*rev('1'), "one"), (far, &*rev('5'), "five")];
+    let after = Remote::new(&files, commits).written(&run()).unwrap();
+
+    let lock = &after[&PathBuf::from("app/ambient.lock")];
+    assert_eq!(lock.matches("[[snapshot]]").count(), 2, "{lock}");
+    assert_eq!(ran(&Remote::new(&after, commits)), Ok(14));
+}
+
+#[test]
+fn a_member_stands_in_for_a_pinned_dependency() {
+    let near = package("near", "n").library("pub fn seven(): int => 700;");
+    let mut files = locked(&pinning());
+    files.extend(support::packages::files(Some(&["app", "near"]), [near]));
+    // The lock is the workspace's, which is now the directory above.
+    let lock = files.remove(&PathBuf::from("app/ambient.lock")).unwrap();
+    files.insert("ambient.lock".into(), lock);
+
+    assert_eq!(ran(&remote(&files)), Ok(700));
+}
+
+#[test]
+fn a_pinned_dependency_is_vendored_and_built_with_nothing_to_fetch() {
+    let files = locked(&pinning());
+    let vendor = Command::Vendor {
+        name: Some("numbers".to_owned()),
+        path: PathBuf::from("app"),
+    };
+    let mut files = remote(&files).written(&vendor).unwrap();
+    // The pin still says where the copy came from.
+    let manifest = &files[&PathBuf::from("app/ambient.toml")];
+    assert!(manifest.contains(&pinned(GIT, &rev('1'))), "{manifest}");
+
+    files.retain(|path, _| !path.starts_with("one"));
+    let nowhere = Remote::new(&files, []);
+    assert_eq!(ran(&nowhere), Ok(7));
+    assert_eq!(*nowhere.fetched.borrow(), [""; 0]);
+}

@@ -27,7 +27,7 @@ use launch::Launch;
 use crate::engine::Engine;
 use crate::error::Error;
 use crate::host::{self, World};
-use crate::project::{self, Files, Project};
+use crate::project::{self, Files, Project, Snapshots};
 use crate::store::Store;
 use crate::surface::DefinitionKind;
 use crate::symbol::{ModuleId, Symbol};
@@ -128,6 +128,8 @@ pub enum Command {
 pub struct Session<'a> {
     pub files: &'a dyn Files,
     pub store: &'a dyn Store,
+    /// The snapshots this machine keeps, and what fetches one.
+    pub snapshots: &'a dyn Snapshots,
     pub world: Rc<RefCell<dyn World>>,
     /// The file of the command itself, which loads what it builds; a
     /// session that has none builds nothing.
@@ -170,7 +172,17 @@ impl Session<'_> {
     }
 
     fn open(&self, path: &Path) -> Result<Project, Vec<String>> {
-        project::open(self.files, path).map_err(|error| vec![error.to_string()])
+        let project = project::open_from(self.files, self.snapshots, path);
+        let project = project.map_err(|error| vec![error.to_string()])?;
+        // What opening locked is what every later build is held to.
+        if let Some((lock, text)) = &project.locked {
+            let stored = self
+                .world
+                .borrow_mut()
+                .store(&lock.to_string_lossy(), text.as_bytes());
+            stored.map_err(|failure| vec![format!("{}: {}", lock.display(), failure.message)])?;
+        }
+        Ok(project)
     }
 
     fn run(&self, path: &Path, entry: &str) -> Result<i32, Vec<String>> {

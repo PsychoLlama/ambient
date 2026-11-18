@@ -20,7 +20,7 @@ What spans crates:
 
 ## Testing
 
-- Tests build a `Workspace` in memory and run an `Engine` over a `MemoryStore`; nothing touches disk, except `tests/disk.rs`, which tests the `DiskStore` under the system's temporary directory.
+- Tests build a `Workspace` in memory and run an `Engine` over a `MemoryStore`; nothing touches disk, except `tests/disk.rs` and `tests/fetched.rs`, which test the `DiskStore` and fetching with `git` under the system's temporary directory.
 - Programs are built with builders. Text is for tests of the reader, of library methods (`support::text`), and of whole packages.
 - A program is run with `support::run` or `support::run_with`, which run it natively and in wasmtime and fail if they disagree or if either leaks an object.
 - An incremental test builds twice over one store and asserts on `Engine::ran` and `Engine::reused`.

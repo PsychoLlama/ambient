@@ -67,6 +67,20 @@ pub enum ProjectError {
         declared: String,
         found: String,
     },
+    /// A pinned dependency could not be fetched.
+    Fetch {
+        package: String,
+        name: String,
+        reason: String,
+    },
+    /// What a pinned dependency names is not the snapshot the lock
+    /// holds for it.
+    Altered {
+        /// Where it was read from.
+        from: String,
+        locked: String,
+        found: String,
+    },
     Workspace(WorkspaceError),
 }
 
@@ -133,6 +147,22 @@ impl fmt::Display for ProjectError {
                 f,
                 "{package}: the dependency `{name}` says {declared}, and the package at {} is {found}",
                 path.display()
+            ),
+            Self::Fetch {
+                package,
+                name,
+                reason,
+            } => write!(
+                f,
+                "{package}: the dependency `{name}` was not fetched: {reason}"
+            ),
+            Self::Altered {
+                from,
+                locked,
+                found,
+            } => write!(
+                f,
+                "{from} is not what was locked: its snapshot is {found}, and the lock holds {locked}"
             ),
             Self::Workspace(error) => write!(f, "{error}"),
         }

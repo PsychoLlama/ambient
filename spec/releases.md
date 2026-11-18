@@ -82,4 +82,6 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 
 ## Unbuilt
 
-- TODO: only vendoring is built, and what [packages](packages.md) says of members. There are no releases, publishers, registries, locks, or pinned dependencies, so only a package at a directory is vendored, and a build grant is taken as soon as it is declared.
+- TODO: pinned dependencies, the lock, fetching, and vendoring are built, and what [packages](packages.md) says of members. There are no releases, publishers, or registries, so nothing is selected, and no closure is recorded.
+- TODO: a build grant is taken as soon as it is declared, by a fetched package as by a member.
+- TODO: a lock keeps an entry nothing pins any longer.

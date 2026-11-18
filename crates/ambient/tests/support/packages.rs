@@ -4,7 +4,12 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use std::cell::RefCell;
+
 use ambient::cli::Command;
+use ambient::hash::Hash;
+use ambient::project::{Contents, Manifest, Pin, Snapshots};
+use ambient::store::MemoryStore;
 
 use super::scripted::Scripted;
 
@@ -13,7 +18,7 @@ pub type Files = BTreeMap<PathBuf, String>;
 /// A package to write out: where it is, and what its manifest says.
 pub struct Package {
     at: &'static str,
-    manifest: String,
+    pub manifest: String,
     library: &'static str,
 }
 
@@ -108,4 +113,80 @@ pub fn written(mut files: Files, command: &Command) -> Result<Files, String> {
         files.insert(PathBuf::from(path), text);
     }
     Ok(files)
+}
+
+/// A commit, written out whole, that is all the digit `digit`.
+pub fn rev(digit: char) -> String {
+    digit.to_string().repeat(40)
+}
+
+/// How a dependency pins the commit `rev` of the repository `git`.
+pub fn pinned(git: &str, rev: &str) -> String {
+    format!("git = \"{git}\", rev = \"{rev}\"")
+}
+
+/// Repositories held in the same files as everything else, and a
+/// machine that keeps what it fetched from them.
+pub struct Remote<'a> {
+    pub files: &'a Files,
+    /// Where the files of each commit are, by repository and commit.
+    pub commits: BTreeMap<(String, String), PathBuf>,
+    /// What the machine keeps: where each snapshot was fetched to.
+    pub kept: RefCell<BTreeMap<Hash, PathBuf>>,
+    /// Every repository that was fetched from, in order.
+    pub fetched: RefCell<Vec<String>>,
+}
+
+impl<'a> Remote<'a> {
+    /// A machine that keeps nothing yet, and can fetch each of
+    /// `commits`: a repository, a commit, and where its files are.
+    pub fn new<const N: usize>(files: &'a Files, commits: [(&str, &str, &str); N]) -> Self {
+        let commit = |(git, rev, at): (&str, &str, &str)| {
+            ((git.to_owned(), rev.to_owned()), PathBuf::from(at))
+        };
+        Self {
+            files,
+            commits: commits.into_iter().map(commit).collect(),
+            kept: RefCell::default(),
+            fetched: RefCell::default(),
+        }
+    }
+
+    /// What `command` over the files comes to on this machine, with
+    /// what it wrote: the files after it, or what it refused with.
+    pub fn written(&self, command: &Command) -> Result<Files, String> {
+        let world = Scripted::default();
+        let store = MemoryStore::new();
+        let (_, world) = world.execute_from(self.files, &store, self, command);
+        if !world.err.is_empty() {
+            return Err(world.err);
+        }
+        let mut files = self.files.clone();
+        for (path, bytes) in world.files {
+            files.insert(PathBuf::from(path), String::from_utf8(bytes).unwrap());
+        }
+        Ok(files)
+    }
+}
+
+impl Snapshots for Remote<'_> {
+    fn held(&self, snapshot: &Hash) -> Option<PathBuf> {
+        self.kept.borrow().get(snapshot).cloned()
+    }
+
+    fn fetch(&self, pin: &Pin) -> Result<Hash, String> {
+        self.fetched.borrow_mut().push(pin.git.clone());
+        let commit = (pin.git.clone(), pin.rev.clone());
+        let missing = || format!("{} has no commit {}", pin.git, pin.rev);
+        let directory = self.commits.get(&commit).ok_or_else(missing)?;
+        let directory: PathBuf = directory.iter().chain(&pin.directory).collect();
+        let manifest = &self.files[&directory.join("ambient.toml")];
+        let contents = Contents {
+            directory: directory.clone(),
+            listed: Manifest::read(manifest)?.package.unwrap().files,
+        };
+        let snapshot = contents.snapshot(self.files).unwrap();
+        self.kept.borrow_mut().insert(snapshot, directory);
+        Ok(snapshot)
+    }
 }

@@ -11,7 +11,7 @@ use ambient::engine::Engine;
 use ambient::host::{
     Done, Entry, Failure, Incoming, Info, Kind, Listening, Ran, Request, Response, Work, World,
 };
-use ambient::project::Files;
+use ambient::project::{Files, Nowhere, Snapshots};
 use ambient::store::MemoryStore;
 use ambient::workspace::Sources;
 
@@ -77,11 +77,24 @@ impl Scripted {
         store: &MemoryStore,
         command: &Command,
     ) -> (i32, Self) {
+        self.execute_from(files, store, &Nowhere, command)
+    }
+
+    /// [`Self::execute_over`], on a machine that keeps and fetches
+    /// `snapshots`.
+    pub fn execute_from(
+        self,
+        files: &dyn Files,
+        store: &MemoryStore,
+        snapshots: &dyn Snapshots,
+        command: &Command,
+    ) -> (i32, Self) {
         let scripted = Rc::new(RefCell::new(self));
         let world: Rc<RefCell<dyn World>> = scripted.clone();
         let session = Session {
             files,
             store,
+            snapshots,
             world,
             launcher: Some(PathBuf::from(LAUNCHER)),
         };

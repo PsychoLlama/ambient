@@ -84,6 +84,7 @@ fn build(output: &Path) {
     let session = Session {
         files: &files,
         store: &MemoryStore::new(),
+        snapshots: &ambient::project::Nowhere,
         world: Rc::new(RefCell::new(System::new(Vec::new()))),
         launcher: None,
     };

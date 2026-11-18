@@ -9,21 +9,28 @@
 mod contents;
 mod declare;
 mod error;
+mod fetch;
 mod files;
+mod locked;
 mod manifest;
 mod members;
+mod pinned;
 mod vendor;
 
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
+use ambient_host::hash::Hash;
 use ambient_runtime::FAULT_PACKAGE;
 pub use contents::Contents;
 pub use declare::declared;
 pub use error::ProjectError;
+pub use fetch::Kept;
 pub use files::{Disk, Files};
+pub use locked::{LOCK, Lock, Locked, Nowhere, Pin, Snapshots};
 pub use manifest::{Dependency, Manifest, Package, Version};
 use members::{Members, normal};
+use pinned::Pinned;
 pub use vendor::{Vendored, kept, vendored};
 
 use crate::builder::OWN_PACKAGE;
@@ -53,6 +60,9 @@ pub struct Project {
     /// The directory of the workspace's manifest, if the package is in
     /// one that lists its members.
     pub above: Option<PathBuf>,
+    /// The workspace's lock and what it is to say from now on, if
+    /// opening locked a snapshot it did not hold.
+    pub locked: Option<(PathBuf, String)>,
     /// The files of each package that was opened, by its name.
     pub packages: BTreeMap<String, Contents>,
 }
@@ -115,25 +125,53 @@ impl Project {
 }
 
 /// Opens the package at `directory`, the packages it depends on, and
-/// the standard library.
+/// the standard library, on a machine that fetches nothing.
 ///
 /// # Errors
 ///
 /// Fails if a manifest or a source file is missing or malformed.
 pub fn open(files: &dyn Files, directory: &Path) -> Result<Project, ProjectError> {
+    open_from(files, &Nowhere, directory)
+}
+
+/// [`open`], with the snapshots of pinned dependencies kept in, and
+/// fetched by, `snapshots`.
+///
+/// # Errors
+///
+/// Fails if a manifest or a source file is missing or malformed, or a
+/// pinned dependency is not what its lock holds.
+pub fn open_from(
+    files: &dyn Files,
+    snapshots: &dyn Snapshots,
+    directory: &Path,
+) -> Result<Project, ProjectError> {
     let directory = normal(directory);
+    let members = Members::around(files, &directory)?;
+    let lock = members.root.as_ref().unwrap_or(&directory).join(LOCK);
+    let held = match files.read(&lock) {
+        Ok(text) => Lock::read(&text).map_err(|reason| ProjectError::Manifest {
+            path: lock.clone(),
+            reason,
+        })?,
+        Err(_) => Lock::default(),
+    };
     let mut opening = Opening {
         files,
-        members: Members::around(files, &directory)?,
+        snapshots,
+        members,
+        lock: held.clone(),
         workspace: Workspace::new(),
         opened: BTreeMap::new(),
         modules: Vec::new(),
     };
     crate::library::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
     crate::system::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
-    let root = opening.package(&directory)?;
+    let root = opening.member(&directory)?;
+    let locked = (opening.lock != held).then(|| (lock, opening.lock.written()));
     Ok(Project {
         above: opening.members.root,
+        locked,
         workspace: opening.workspace,
         root,
         modules: opening.modules,
@@ -143,8 +181,11 @@ pub fn open(files: &dyn Files, directory: &Path) -> Result<Project, ProjectError
 
 struct Opening<'a> {
     files: &'a dyn Files,
+    snapshots: &'a dyn Snapshots,
     /// The packages of the workspace, opened or not.
     members: Members,
+    /// What the workspace has locked, and what opening locks.
+    lock: Lock,
     workspace: Workspace,
     /// The files of each package opened so far.
     opened: BTreeMap<String, Contents>,
@@ -184,13 +225,27 @@ impl Opening<'_> {
             })
     }
 
-    /// Opens the package at `directory`, if it is not open, and gives
+    /// Opens the member at `directory`, if it is not open, and gives
     /// its name.
-    fn package(&mut self, directory: &Path) -> Result<String, ProjectError> {
+    fn member(&mut self, directory: &Path) -> Result<String, ProjectError> {
         let member = self.members.at(self.files, directory)?.clone();
-        let (directory, manifest) = (member.directory, member.package);
+        self.package(member.directory, &member.package, None)
+    }
+
+    /// Opens a package, if it is not open, and gives the name of the
+    /// instance: the package's own for a member, and one that tells a
+    /// snapshot from every other.
+    fn package(
+        &mut self,
+        directory: PathBuf,
+        manifest: &Package,
+        snapshot: Option<Hash>,
+    ) -> Result<String, ProjectError> {
         let path = directory.join(MANIFEST);
-        let name = manifest.name.clone();
+        let name = match snapshot {
+            Some(snapshot) => format!("{}@{}", manifest.name, &snapshot.to_string()[..8]),
+            None => manifest.name.clone(),
+        };
         match self.opened.get(&name).map(|first| &first.directory) {
             Some(first) if Members::same(self.files, first, &directory) => return Ok(name),
             Some(first) => {
@@ -209,8 +264,8 @@ impl Opening<'_> {
             }
         }
         let taken = [FAULT_PACKAGE, crate::system::PACKAGE];
-        if taken.contains(&name.as_str()) || name == OWN_PACKAGE {
-            let reason = format!("a package cannot be named `{name}`");
+        if taken.contains(&manifest.name.as_str()) || manifest.name == OWN_PACKAGE {
+            let reason = format!("a package cannot be named `{}`", manifest.name);
             return Err(ProjectError::Manifest { path, reason });
         }
         // What comes with the compiler is named by its ID: no package
@@ -231,8 +286,23 @@ impl Opening<'_> {
         // A package that depends on this one finds it open already,
         // so packages may depend on each other.
         for (local, dependency) in &manifest.dependencies {
-            let target = self.target(&name, &directory, local, dependency)?;
-            let package = self.package(&target)?;
+            let package = match dependency.pin() {
+                Some(pin) => self.pinned(&Pinned {
+                    package: &name,
+                    name: local,
+                    dependency,
+                    pin: &pin,
+                })?,
+                // A snapshot is whole: nothing is beside it.
+                None if snapshot.is_some() && dependency.path.is_some() => {
+                    let reason = format!("the dependency `{local}` names a directory");
+                    return Err(ProjectError::Manifest { path, reason });
+                }
+                None => {
+                    let target = self.target(&name, &directory, local, dependency)?;
+                    self.member(&target)?
+                }
+            };
             self.workspace
                 .depend(&name, local, &package)
                 .map_err(ProjectError::Workspace)?;

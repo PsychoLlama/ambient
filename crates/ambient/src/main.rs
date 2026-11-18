@@ -7,16 +7,16 @@ use std::rc::Rc;
 
 use ambient::cli::{Cli, Command, Session};
 use ambient::host::{System, World};
-use ambient::project::Disk;
+use ambient::project::{Disk, Kept, Nowhere, Snapshots};
 use ambient::store::{DiskStore, MemoryStore, Store};
 use clap::Parser;
 
-/// Where built definitions are kept between runs: one store for every
-/// project, since a definition is kept by its content.
+/// Where what is built and what is fetched are kept between runs: one
+/// place for every project, since each is kept by its content.
 fn cache() -> Option<PathBuf> {
     let home = |name: &str| std::env::var_os(name).map(PathBuf::from);
     let base = home("XDG_CACHE_HOME").or_else(|| home("HOME").map(|home| home.join(".cache")))?;
-    Some(base.join("ambient").join("store"))
+    Some(base.join("ambient"))
 }
 
 fn main() -> ExitCode {
@@ -33,14 +33,21 @@ fn main() -> ExitCode {
         _ => Vec::new(),
     };
     // Without somewhere to keep it, a build is kept for this run alone.
-    let store: Box<dyn Store> = match cache().and_then(|root| DiskStore::open(root).ok()) {
+    let built = cache().map(|root| root.join("store"));
+    let store: Box<dyn Store> = match built.and_then(|root| DiskStore::open(root).ok()) {
         Some(store) => Box::new(store),
         None => Box::new(MemoryStore::new()),
     };
     let world: Rc<RefCell<dyn World>> = Rc::new(RefCell::new(System::new(args)));
+    // Without somewhere to keep it, nothing is fetched.
+    let snapshots: Box<dyn Snapshots> = match cache() {
+        Some(root) => Box::new(Kept::under(root.join("snapshots"))),
+        None => Box::new(Nowhere),
+    };
     let session = Session {
         files: &Disk,
         store: store.as_ref(),
+        snapshots: snapshots.as_ref(),
         world,
         launcher,
     };

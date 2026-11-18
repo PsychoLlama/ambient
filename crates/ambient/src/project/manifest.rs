@@ -3,9 +3,11 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::{Component, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+use super::locked::Pin;
 
 /// What a package says of itself.
 #[derive(Clone, Debug)]
@@ -42,12 +44,60 @@ pub struct Dependency {
     /// Where the package is, from the directory of this manifest. One
     /// that is nowhere is a member of the workspace.
     pub path: Option<PathBuf>,
+    /// The repository a pinned package is in.
+    pub git: Option<String>,
+    /// The commit of it that is pinned, written out whole.
+    pub rev: Option<String>,
+    /// The package's directory in the repository, if not its top.
+    pub directory: Option<PathBuf>,
+}
+
+/// Whether a path names something under where it starts.
+fn inside(path: &Path) -> bool {
+    let part = |part| matches!(part, Component::Normal(_));
+    !path.as_os_str().is_empty() && path.components().all(part)
+}
+
+impl Dependency {
+    /// Exactly what the dependency pins, if it pins.
+    #[must_use]
+    pub fn pin(&self) -> Option<Pin> {
+        Some(Pin {
+            git: self.git.clone()?,
+            rev: self.rev.clone()?,
+            directory: self.directory.clone().unwrap_or_default(),
+        })
+    }
+
+    /// What is wrong with how the dependency says where its package
+    /// is, if anything.
+    fn wrong(&self) -> Option<&'static str> {
+        // A name that moves is no pin: a commit is written out whole.
+        let whole = |rev: &String| {
+            let digit = |byte: u8| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte);
+            matches!(rev.len(), 40 | 64) && rev.bytes().all(digit)
+        };
+        match (&self.git, &self.rev) {
+            (Some(_), _) if self.path.is_some() => Some("says both a `path` and a `git`"),
+            (Some(_), None) => Some("says a `git` and no `rev`"),
+            (Some(_), Some(rev)) if !whole(rev) => Some("pins a `rev` that is not a whole commit"),
+            (None, Some(_)) => Some("says a `rev` and no `git`"),
+            (None, None) if self.directory.is_some() => Some("says a `directory` and no `git`"),
+            (None, None) if self.path.is_none() && self.version.is_none() => {
+                Some("says neither a `path`, a `version`, nor a `git`")
+            }
+            _ if self.directory.as_deref().is_some_and(|path| !inside(path)) => {
+                Some("says a `directory` that is not in the repository")
+            }
+            _ => None,
+        }
+    }
 }
 
 /// A package's version: a major, a minor, and a patch. See "Versions"
 /// in `spec/releases.md`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
-#[serde(try_from = "String")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub struct Version {
     pub major: u64,
     pub minor: u64,
@@ -75,6 +125,12 @@ impl TryFrom<String> for Version {
                 "`{text}` is not a version: three numbers, as in `1.2.0`"
             )),
         }
+    }
+}
+
+impl From<Version> for String {
+    fn from(version: Version) -> Self {
+        version.to_string()
     }
 }
 
@@ -146,16 +202,11 @@ impl Manifest {
             }
         };
         for (name, dependency) in package.iter().flat_map(|package| &package.dependencies) {
-            if dependency.path.is_none() && dependency.version.is_none() {
-                return Err(format!(
-                    "the dependency `{name}` says neither a `path` nor a `version`"
-                ));
+            if let Some(wrong) = dependency.wrong() {
+                return Err(format!("the dependency `{name}` {wrong}"));
             }
         }
-        let outside = |path: &&PathBuf| {
-            let inside = |part| matches!(part, Component::Normal(_));
-            path.as_os_str().is_empty() || !path.components().all(inside)
-        };
+        let outside = |path: &&PathBuf| !inside(path);
         let mut files = package.iter().flat_map(|package| &package.files);
         if let Some(path) = files.find(outside) {
             return Err(format!(
@@ -231,7 +282,42 @@ mod tests {
         assert_eq!(read("b = { id = \"b\", version = \"2.1.0\" }"), None);
         assert_eq!(
             read("b = { id = \"b\" }"),
-            Some("the dependency `b` says neither a `path` nor a `version`".to_owned())
+            Some("the dependency `b` says neither a `path`, a `version`, nor a `git`".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_dependency_pins_a_whole_commit_of_a_repository() {
+        let package = "name = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n[dependencies]\n";
+        let rev = "0123456789abcdef0123456789abcdef01234567";
+        let read = |pinned: &str| {
+            let pinned = pinned.replace("REV", rev);
+            let read = Manifest::read(&format!("{package}b = {{ id = \"b\", {pinned} }}"));
+            read.err()
+                .map(|said| said.replace("the dependency `b` ", ""))
+        };
+        let said = |wrong: &str| Some(wrong.to_owned());
+
+        assert_eq!(
+            read("git = \"url\", rev = \"REV\", directory = \"packages/b\""),
+            None
+        );
+        assert_eq!(read("git = \"url\""), said("says a `git` and no `rev`"));
+        assert_eq!(
+            read("git = \"url\", rev = \"main\""),
+            said("pins a `rev` that is not a whole commit")
+        );
+        assert_eq!(
+            read("git = \"url\", rev = \"REV\", path = \"../b\""),
+            said("says both a `path` and a `git`")
+        );
+        assert_eq!(
+            read("rev = \"REV\", path = \"../b\""),
+            said("says a `rev` and no `git`")
+        );
+        assert_eq!(
+            read("git = \"url\", rev = \"REV\", directory = \"../b\""),
+            said("says a `directory` that is not in the repository")
         );
     }
 }
