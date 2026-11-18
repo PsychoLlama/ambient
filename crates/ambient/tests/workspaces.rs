@@ -86,36 +86,35 @@ fn packages_may_depend_on_each_other() {
     assert_eq!(ran(&files(None, [app, even, odd])), Ok(1));
 }
 
-#[test]
-fn two_majors_of_a_package_are_two_members_under_two_names() {
-    let old = Package::versioned("old", "n", "1.4.0").library(SEVEN);
-    let new = Package::versioned("new", "n", "2.0.0").library("pub fn seventy(): int => 70;");
+/// What `app` gives when it depends on the package `n` at least at
+/// each of two versions, and a member is at each.
+fn side_by_side(old: &str, new: &str) -> Result<i32, String> {
     let app = package("app", "app")
-        .on("numbers", "n", "version = \"1.2.0\"")
-        .on("numbers_next", "n", "version = \"2.0.0\"")
+        .on("numbers", "n", &format!("version = \"{old}\""))
+        .on("numbers_next", "n", &format!("version = \"{new}\""))
         .library(
             "import numbers.seven; import numbers_next.seventy;
             pub fn main(): int => seven() + seventy();",
         );
-    let files = files(Some(&["app", "old", "new"]), [app, old, new]);
-
-    assert_eq!(ran(&files), Ok(77));
+    let old = Package::versioned("old", "n", old).library(SEVEN);
+    let new = Package::versioned("new", "n", new).library("pub fn seventy(): int => 70;");
+    ran(&files(Some(&["app", "old", "new"]), [app, old, new]))
 }
 
 #[test]
-fn two_members_of_one_package_and_major_are_refused() {
-    let files = files(
-        Some(&["app", "one", "other"]),
-        [
-            app().on("numbers", "n", "version = \"1.0.0\""),
-            package("one", "n").library(SEVEN),
-            Package::versioned("other", "n", "1.3.0").library(SEVEN),
-        ],
-    );
+fn two_lines_of_a_package_are_two_members_under_two_names() {
+    assert_eq!(side_by_side("1.4.0", "2.0.0"), Ok(77));
+    // Under major zero a minor is a line, and under that a patch.
+    assert_eq!(side_by_side("0.1.4", "0.2.0"), Ok(77));
+    assert_eq!(side_by_side("0.0.1", "0.0.2"), Ok(77));
+}
 
+#[test]
+fn two_members_in_one_line_of_a_package_are_refused() {
+    let said = side_by_side("0.2.0", "0.2.5").unwrap_err();
     assert_eq!(
-        ran(&files),
-        Err("error: two members are package `n` at major 1: one and other\n".to_owned())
+        said,
+        "error: two members are package `n` in the version line `0.2`: old and new\n"
     );
 }
 
@@ -127,7 +126,7 @@ fn a_dependency_no_member_stands_in_for_is_refused() {
         [app().on("numbers", "n", "version = \"1.0.0\""), numbers],
     );
 
-    let said = "error: app: the dependency `numbers` is on package `n` at major 1, \
+    let said = "error: app: the dependency `numbers` is on package `n` in the version line `1`, \
                 which no member of the workspace is\n";
     assert_eq!(ran(&files), Err(said.to_owned()));
 }

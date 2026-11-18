@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 use super::manifest::{Manifest, Package};
-use super::{Files, MANIFEST, ProjectError};
+use super::{Files, Line, MANIFEST, ProjectError};
 
 /// A package of the workspace.
 #[derive(Clone, Debug)]
@@ -128,10 +128,11 @@ impl Members {
                 let reason = "this is a workspace's manifest, not a package's".to_owned();
                 return Err(ProjectError::Manifest { path, reason });
             };
-            if let Some(rival) = self.standing(&package.id, package.version.major) {
+            let line = Line::of(&package.version);
+            if let Some(rival) = self.standing(&package.id, line) {
                 return Err(ProjectError::Rivals {
                     id: package.id,
-                    major: package.version.major,
+                    line,
                     first: rival.directory.clone(),
                     second: directory.to_owned(),
                 });
@@ -144,10 +145,10 @@ impl Members {
     }
 
     /// The member that stands in for a dependency on the package `id`
-    /// at `major`.
-    pub fn standing(&self, id: &str, major: u64) -> Option<&Member> {
+    /// in `line`.
+    pub fn standing(&self, id: &str, line: Line) -> Option<&Member> {
         let stands =
-            |member: &&Member| member.package.id == id && member.package.version.major == major;
+            |member: &&Member| member.package.id == id && Line::of(&member.package.version) == line;
         self.found.values().find(stands)
     }
 

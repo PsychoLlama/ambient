@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use ambient_host::hash::Hash;
 use serde::{Deserialize, Serialize};
 
-use super::manifest::Version;
+use super::version::Version;
 
 /// The name of a workspace's lock, beside its manifest.
 pub const LOCK: &str = "ambient.lock";
@@ -145,7 +145,7 @@ mod tests {
     use crate::project::Version;
 
     fn locked(id: &str, rev: &str, directory: &str) -> Locked {
-        let version = Version::try_from("1.2.0".to_owned()).unwrap_or_else(|_| unreachable!());
+        let version = Version::new(1, 2, 0);
         Locked {
             id: id.to_owned(),
             version,

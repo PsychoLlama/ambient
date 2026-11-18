@@ -16,6 +16,7 @@ mod manifest;
 mod members;
 mod pinned;
 mod vendor;
+mod version;
 
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
@@ -28,10 +29,11 @@ pub use error::ProjectError;
 pub use fetch::Kept;
 pub use files::{Disk, Files};
 pub use locked::{LOCK, Lock, Locked, Nowhere, Pin, Snapshots};
-pub use manifest::{Dependency, Manifest, Package, Version};
+pub use manifest::{Dependency, Manifest, Package};
 use members::{Members, normal};
 use pinned::Pinned;
 pub use vendor::{Vendored, kept, vendored};
+pub use version::{Line, Version};
 
 use crate::builder::OWN_PACKAGE;
 use crate::error::Error;
@@ -329,15 +331,16 @@ impl Opening<'_> {
     ) -> Result<PathBuf, ProjectError> {
         let Some(path) = &dependency.path else {
             // A manifest is not read without one or the other.
-            let major = dependency.version.map_or(0, |version| version.major);
-            let standing = self.members.standing(&dependency.id, major);
+            let least = dependency.version.clone().unwrap_or(Version::new(0, 0, 0));
+            let line = Line::of(&least);
+            let standing = self.members.standing(&dependency.id, line);
             return standing
                 .map(|member| member.directory.clone())
                 .ok_or_else(|| ProjectError::Absent {
                     package: package.to_owned(),
                     name: name.to_owned(),
                     id: dependency.id.clone(),
-                    major,
+                    line,
                 });
         };
         let path = normal(&directory.join(path));
@@ -356,8 +359,10 @@ impl Opening<'_> {
                 format!("`{found}`"),
             ));
         }
-        match dependency.version {
-            Some(least) if least.major != found.version.major || least > found.version => {
+        match &dependency.version {
+            Some(least)
+                if Line::of(least) != Line::of(&found.version) || *least > found.version =>
+            {
                 Err(mistaken(
                     format!("at least version {least}"),
                     format!("version {}", found.version),

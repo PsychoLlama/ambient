@@ -3,6 +3,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
+use super::Line;
 use crate::syntax::SyntaxError;
 use crate::workspace::WorkspaceError;
 
@@ -44,10 +45,10 @@ pub enum ProjectError {
         package: String,
         grant: String,
     },
-    /// Two members of a workspace are one package at one major.
+    /// Two members of a workspace are one package in one line of versions.
     Rivals {
         id: String,
-        major: u64,
+        line: Line,
         first: PathBuf,
         second: PathBuf,
     },
@@ -56,7 +57,7 @@ pub enum ProjectError {
         package: String,
         name: String,
         id: String,
-        major: u64,
+        line: Line,
     },
     /// A dependency says one thing of a package, and the package at
     /// the directory it names says another.
@@ -118,12 +119,12 @@ impl fmt::Display for ProjectError {
             }
             Self::Rivals {
                 id,
-                major,
+                line,
                 first,
                 second,
             } => write!(
                 f,
-                "two members are package `{id}` at major {major}: {} and {}",
+                "two members are package `{id}` in the version line `{line}`: {} and {}",
                 first.display(),
                 second.display()
             ),
@@ -131,10 +132,10 @@ impl fmt::Display for ProjectError {
                 package,
                 name,
                 id,
-                major,
+                line,
             } => write!(
                 f,
-                "{package}: the dependency `{name}` is on package `{id}` at major {major}, \
+                "{package}: the dependency `{name}` is on package `{id}` in the version line `{line}`, \
                  which no member of the workspace is"
             ),
             Self::Mistaken {

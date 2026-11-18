@@ -35,6 +35,7 @@ dependencies = [
  "cranelift-native",
  "postcard",
  "proptest",
+ "semver",
  "serde",
  "sha2",
  "toml",

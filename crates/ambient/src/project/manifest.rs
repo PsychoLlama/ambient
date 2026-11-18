@@ -2,12 +2,12 @@
 //! "Layout" and "Workspaces" in `spec/packages.md`.
 
 use std::collections::BTreeMap;
-use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use super::locked::Pin;
+use super::version::Version;
 
 /// What a package says of itself.
 #[derive(Clone, Debug)]
@@ -38,7 +38,7 @@ pub struct Package {
 pub struct Dependency {
     /// The ID of the package meant.
     pub id: String,
-    /// The least version of it that will do, whose major is the one
+    /// The least version of it that will do, whose line is the one
     /// meant. See "Selection" in `spec/releases.md`.
     pub version: Option<Version>,
     /// Where the package is, from the directory of this manifest. One
@@ -91,52 +91,6 @@ impl Dependency {
             }
             _ => None,
         }
-    }
-}
-
-/// A package's version: a major, a minor, and a patch. See "Versions"
-/// in `spec/releases.md`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct Version {
-    pub major: u64,
-    pub minor: u64,
-    pub patch: u64,
-}
-
-impl TryFrom<String> for Version {
-    type Error = String;
-
-    fn try_from(text: String) -> Result<Self, String> {
-        // A number is written one way: no sign, no leading zero.
-        let number = |part: &str| {
-            let plain = part == "0" || !part.starts_with('0');
-            let digits = !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
-            (plain && digits).then(|| part.parse().ok()).flatten()
-        };
-        let mut parts = text.split('.').map(number);
-        match (parts.next(), parts.next(), parts.next(), parts.next()) {
-            (Some(Some(major)), Some(Some(minor)), Some(Some(patch)), None) => Ok(Self {
-                major,
-                minor,
-                patch,
-            }),
-            _ => Err(format!(
-                "`{text}` is not a version: three numbers, as in `1.2.0`"
-            )),
-        }
-    }
-}
-
-impl From<Version> for String {
-    fn from(version: Version) -> Self {
-        version.to_string()
-    }
-}
-
-impl fmt::Display for Version {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }
 }
 
@@ -224,26 +178,7 @@ impl Manifest {
 
 #[cfg(test)]
 mod tests {
-    use super::{Manifest, Version};
-
-    fn version(text: &str) -> Result<Version, String> {
-        Version::try_from(text.to_owned())
-    }
-
-    #[test]
-    fn a_version_is_three_numbers_written_one_way() {
-        let read = version("1.20.3").map(|version| version.to_string());
-        assert_eq!(read.as_deref(), Ok("1.20.3"));
-        for wrong in ["1.2", "1.2.3.4", "1.02.3", "1.2.x", "+1.2.3", "", "1..3"] {
-            assert!(version(wrong).is_err(), "{wrong}");
-        }
-    }
-
-    #[test]
-    fn versions_are_ordered_by_major_then_minor_then_patch() {
-        let ordered = ["0.9.9", "1.0.0", "1.0.10", "1.2.0", "2.0.0"].map(version);
-        assert!(ordered.is_sorted());
-    }
+    use super::Manifest;
 
     #[test]
     fn a_manifest_is_a_package_a_workspace_or_both() {
@@ -253,6 +188,20 @@ mod tests {
         assert_eq!(read(package), Ok((true, None)));
         assert_eq!(read("members = []"), Ok((false, Some(Vec::new()))));
         assert_eq!(read(&both), Ok((true, Some(vec!["b".into()]))));
+    }
+
+    #[test]
+    fn a_version_is_a_semantic_version() {
+        let read = |version: &str| {
+            Manifest::read(&format!(
+                "name = \"a\"\nid = \"a\"\nversion = \"{version}\""
+            ))
+            .is_ok()
+        };
+        assert!(read("1.20.3") && read("0.1.0-rc.1") && read("1.0.0+linux"));
+        for wrong in ["1.2", "1.2.3.4", "1.02.3", "1.2.x", ""] {
+            assert!(!read(wrong), "{wrong}");
+        }
     }
 
     #[test]

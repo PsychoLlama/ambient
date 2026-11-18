@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use ambient_host::hash::Hash;
 
 use super::members::manifest;
-use super::{Contents, Dependency, Locked, Opening, Package, Pin, ProjectError};
+use super::{Contents, Dependency, Line, Locked, Opening, Package, Pin, ProjectError};
 
 /// A dependency that pins, and the package that declares it.
 pub(super) struct Pinned<'a> {
@@ -88,7 +88,7 @@ impl Opening<'_> {
     /// holds for it, or the member that stands in for that.
     pub(super) fn pinned(&mut self, pinned: &Pinned) -> Result<String, ProjectError> {
         let locked = self.locked(pinned)?;
-        let standing = self.members.standing(&locked.id, locked.version.major);
+        let standing = self.members.standing(&locked.id, Line::of(&locked.version));
         if let Some(directory) = standing.map(|member| member.directory.clone()) {
             return self.member(&directory);
         }
