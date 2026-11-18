@@ -37,4 +37,28 @@ impl Session<'_> {
             .map_err(|failure| vec![format!("{}: {}", file.display(), failure.message)])?;
         Ok(0)
     }
+
+    /// Copies the dependency `name` of the package at `path` into its
+    /// workspace, or says of each copy there whether it was changed.
+    pub(super) fn vendor(&self, path: &Path, name: Option<&str>) -> Result<i32, Vec<String>> {
+        let project = self.open(path)?;
+        let refused = |error: project::ProjectError| vec![error.to_string()];
+        let mut world = self.world.borrow_mut();
+        let Some(name) = name else {
+            for (directory, same) in project::kept(self.files, &project).map_err(refused)? {
+                let state = if same { "as copied" } else { "changed" };
+                world.write(&format!("{}: {state}\n", directory.display()));
+            }
+            return Ok(0);
+        };
+        let vendored = project::vendored(self.files, &project, name).map_err(refused)?;
+        for (file, bytes) in &vendored.files {
+            world
+                .store(&file.to_string_lossy(), bytes)
+                .map_err(|failure| vec![format!("{}: {}", file.display(), failure.message)])?;
+        }
+        let copy = vendored.directory.display();
+        world.write(&format!("copied `{name}` to {copy}\n"));
+        Ok(0)
+    }
 }

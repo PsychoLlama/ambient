@@ -97,6 +97,15 @@ pub enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Copies a dependency into the workspace, where it can be read
+    /// and changed; with none named, says which copies were changed.
+    Vendor {
+        /// The dependency, by the name the package uses for it.
+        name: Option<String>,
+        /// The directory of the package that depends on it.
+        #[arg(long = "in", default_value = ".")]
+        path: PathBuf,
+    },
     /// Says a package's snapshot: the hash of the files that are it.
     Snapshot {
         /// The package's directory.
@@ -147,6 +156,7 @@ impl Session<'_> {
             } => self.module(path, entry, target, output.as_deref()),
             Command::Check { path } => self.check(path).map(|()| 0),
             Command::Init { path } => self.init(path),
+            Command::Vendor { name, path } => self.vendor(path, name.as_deref()),
             Command::Snapshot { path } => self.snapshot(path),
             Command::Test { path, only } => self.test(path, only.as_deref()),
         };

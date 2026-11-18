@@ -100,6 +100,8 @@ struct Written {
     #[serde(default)]
     files: Vec<PathBuf>,
     members: Option<Vec<PathBuf>>,
+    #[serde(default)]
+    vendored: BTreeMap<PathBuf, String>,
 }
 
 /// A manifest: a package's, a workspace's, or one that is both.
@@ -109,6 +111,9 @@ pub struct Manifest {
     /// The directories of a workspace's members, from the manifest's
     /// own, if it is a workspace's.
     pub members: Option<Vec<PathBuf>>,
+    /// The snapshot each member that was vendored was copied from, by
+    /// its directory. See "Vendoring" in `spec/releases.md`.
+    pub vendored: BTreeMap<PathBuf, String>,
 }
 
 impl Manifest {
@@ -119,7 +124,7 @@ impl Manifest {
     /// The text is not a manifest, and why.
     pub fn read(text: &str) -> Result<Self, String> {
         let written: Written = toml::from_str(text).map_err(|error| error.message().to_owned())?;
-        let members = written.members;
+        let (members, vendored) = (written.members, written.vendored);
         let package = match (written.name, written.id, written.version) {
             (Some(name), Some(id), Some(version)) => Some(Package {
                 name,
@@ -158,7 +163,11 @@ impl Manifest {
                 path.display()
             ));
         }
-        Ok(Self { package, members })
+        Ok(Self {
+            package,
+            members,
+            vendored,
+        })
     }
 }
 

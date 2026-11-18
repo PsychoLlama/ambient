@@ -21,6 +21,8 @@ pub(super) struct Member {
 #[derive(Default)]
 pub(super) struct Members {
     found: BTreeMap<PathBuf, Member>,
+    /// The directory of the workspace's manifest, if one lists them.
+    pub root: Option<PathBuf>,
 }
 
 /// `path` with `.` and `..` worked out, as far as they can be.
@@ -103,7 +105,9 @@ impl Members {
     /// only that package, if no workspace lists it.
     pub fn around(files: &dyn Files, directory: &Path) -> Result<Self, ProjectError> {
         let mut members = Self::default();
-        for listed in workspace(files, directory)?.unwrap_or_default() {
+        let listed = workspace(files, directory)?;
+        members.root = listed.as_ref().and_then(|listed| listed.last().cloned());
+        for listed in listed.unwrap_or_default() {
             // The last is the workspace's own directory, which need
             // not be a package.
             let package = manifest(files, &listed)?.package;
@@ -145,6 +149,11 @@ impl Members {
         let stands =
             |member: &&Member| member.package.id == id && member.package.version.major == major;
         self.found.values().find(stands)
+    }
+
+    /// Whether the directory `inner` is `outer` or under it.
+    pub fn within(files: &dyn Files, inner: &Path, outer: &Path) -> bool {
+        key(files, inner).starts_with(key(files, outer))
     }
 
     /// Whether two paths are of one directory.

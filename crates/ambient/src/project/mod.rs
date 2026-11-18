@@ -12,6 +12,7 @@ mod error;
 mod files;
 mod manifest;
 mod members;
+mod vendor;
 
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
@@ -23,6 +24,7 @@ pub use error::ProjectError;
 pub use files::{Disk, Files};
 pub use manifest::{Dependency, Manifest, Package, Version};
 use members::{Members, normal};
+pub use vendor::{Vendored, kept, vendored};
 
 use crate::builder::OWN_PACKAGE;
 use crate::error::Error;
@@ -48,6 +50,9 @@ pub struct Project {
     pub root: String,
     /// Each module read from a file.
     pub modules: Vec<Read>,
+    /// The directory of the workspace's manifest, if the package is in
+    /// one that lists its members.
+    pub above: Option<PathBuf>,
     /// The files of each package that was opened, by its name.
     pub packages: BTreeMap<String, Contents>,
 }
@@ -128,6 +133,7 @@ pub fn open(files: &dyn Files, directory: &Path) -> Result<Project, ProjectError
     crate::system::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
     let root = opening.package(&directory)?;
     Ok(Project {
+        above: opening.members.root,
         workspace: opening.workspace,
         root,
         modules: opening.modules,

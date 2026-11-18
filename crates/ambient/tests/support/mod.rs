@@ -4,6 +4,7 @@
 #![allow(dead_code, clippy::unwrap_used)]
 
 pub mod delays;
+pub mod packages;
 pub mod scripted;
 pub mod tasks;
 pub mod text;

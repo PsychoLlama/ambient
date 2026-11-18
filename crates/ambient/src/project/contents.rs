@@ -54,7 +54,11 @@ impl Contents {
 
     /// Every file of the package, as a path from its directory, in the
     /// order their names are in.
-    fn files(&self, files: &dyn Files) -> io::Result<Vec<(String, PathBuf)>> {
+    ///
+    /// # Errors
+    ///
+    /// A file's name is not text.
+    pub fn files(&self, files: &dyn Files) -> io::Result<Vec<(String, PathBuf)>> {
         let mut found = vec![PathBuf::from(MANIFEST)];
         let within = self.listed.iter().map(PathBuf::as_path);
         for within in within.chain([Path::new(SOURCES)]) {

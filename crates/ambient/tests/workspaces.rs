@@ -5,83 +5,10 @@
 
 mod support;
 
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use ambient::cli::Command;
-use support::scripted::{Scripted, run};
-
-type Files = BTreeMap<PathBuf, String>;
-
-/// A package to write out: where it is, and what its manifest says.
-struct Package {
-    at: &'static str,
-    manifest: String,
-    library: &'static str,
-}
-
-/// A package at `at`, named for it, with the ID `id` at version 1.0.0.
-fn package(at: &'static str, id: &str) -> Package {
-    Package::versioned(at, id, "1.0.0")
-}
-
-impl Package {
-    fn versioned(at: &'static str, id: &str, version: &str) -> Self {
-        let name = at.rsplit('/').next().unwrap();
-        let manifest =
-            format!("name = \"{name}\"\nid = \"{id}\"\nversion = \"{version}\"\n[dependencies]\n");
-        Self {
-            at,
-            manifest,
-            library: "",
-        }
-    }
-
-    /// Depends on the package `id` as `name`, `found` saying where it
-    /// is or which version: `path = ".."` or `version = ".."`.
-    fn on(mut self, name: &str, id: &str, found: &str) -> Self {
-        let dependency = format!("{name} = {{ id = \"{id}\", {found} }}\n");
-        self.manifest.push_str(&dependency);
-        self
-    }
-
-    /// Has `source` for its library module.
-    fn library(mut self, source: &'static str) -> Self {
-        self.library = source;
-        self
-    }
-}
-
-/// The files of `packages`, of which `app` says its `main` in its
-/// library module, under a workspace at the top that lists `members`.
-fn files<const N: usize>(members: Option<&[&str]>, packages: [Package; N]) -> Files {
-    let mut files = Files::new();
-    if let Some(members) = members {
-        let listed: Vec<String> = members.iter().map(|at| format!("\"{at}\"")).collect();
-        let manifest = format!("members = [{}]", listed.join(", "));
-        files.insert("ambient.toml".into(), manifest);
-    }
-    for package in packages {
-        let at = PathBuf::from(package.at);
-        let module = if package.at == "app" { "main" } else { "lib" };
-        files.insert(at.join("ambient.toml"), package.manifest);
-        files.insert(
-            at.join(format!("src/{module}.ab")),
-            package.library.to_owned(),
-        );
-    }
-    files
-}
-
-/// What running `app` exits with, or the error it reports.
-fn ran(files: &Files) -> Result<i32, String> {
-    let (code, world) = run(files);
-    if world.err.is_empty() {
-        Ok(code)
-    } else {
-        Err(world.err)
-    }
-}
+use support::packages::{Files, Package, files, package, ran, written};
 
 /// An `app` whose `main` gives what `seven` of the package it calls
 /// `numbers` gives.
@@ -251,19 +178,13 @@ fn a_workspace_that_does_not_list_a_package_is_not_its_workspace() {
 
 /// The files once `app` is made to depend on the package at `on`,
 /// under `name` if one is given, or what refused.
-fn added(mut files: Files, on: &str, name: Option<&str>) -> Result<Files, String> {
+fn added(files: Files, on: &str, name: Option<&str>) -> Result<Files, String> {
     let command = Command::Add {
         on: PathBuf::from(on),
         name: name.map(str::to_owned),
         path: PathBuf::from("app"),
     };
-    let (_, world) = Scripted::default().execute(&files, &command);
-    if !world.err.is_empty() {
-        return Err(world.err);
-    }
-    let manifest = world.file("app/ambient.toml").to_owned();
-    files.insert("app/ambient.toml".into(), manifest);
-    Ok(files)
+    written(files, &command)
 }
 
 #[test]

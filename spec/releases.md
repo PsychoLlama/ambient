@@ -61,7 +61,8 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 
 ## Vendoring
 
-- Vendoring copies a snapshot into a workspace as a [member](packages.md#workspaces), with a record of the snapshot and publisher it was copied from.
+- Vendoring copies a package into a workspace as a [member](packages.md#workspaces). The workspace records the snapshot and publisher it was copied from; the copy itself is changed in nothing.
+- A package that depends on another by a directory is not copied, since the copy is somewhere else.
 - Every dependent in the workspace then builds the copy, as it would any member.
 - A copy that is unchanged has the snapshot it was copied from and every definition's hash, so it builds what the snapshot did.
 - A copy that is edited is a fork kept in the workspace. Its record says what to compare it with when the origin moves.
@@ -81,4 +82,4 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 
 ## Unbuilt
 
-- TODO: nothing here is built but what [packages](packages.md) says of members. There are no releases, publishers, registries, locks, or pinned dependencies, and a build grant is taken as soon as it is declared.
+- TODO: only vendoring is built, and what [packages](packages.md) says of members. There are no releases, publishers, registries, locks, or pinned dependencies, so only a package at a directory is vendored, and a build grant is taken as soon as it is declared.
