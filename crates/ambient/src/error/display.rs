@@ -81,6 +81,7 @@ impl fmt::Display for Error {
             | Self::TargetConflict { .. }
             | Self::ToolConflict(_)
             | Self::NotTool(_)
+            | Self::NotAnnotation { .. }
             | Self::ToolUngranted { .. }
             | Self::GenericEntry(_) => self.fmt_world(f),
             Self::NotBundle { .. }
@@ -233,6 +234,14 @@ impl Error {
             Self::TargetConflict { symbol, ability } => write!(
                 f,
                 "{symbol}: the targets it extends bind `{ability}` differently"
+            ),
+            Self::NotAnnotation { symbol, key: true } => {
+                write!(f, "{symbol}: the key of an annotation is a tag")
+            }
+            Self::NotAnnotation { symbol, key: false } => write!(
+                f,
+                "{symbol}: the value of an annotation is plain data: a literal, or a list, a \
+                 tuple, or a record of them"
             ),
             Self::NotTool(symbol) => write!(
                 f,

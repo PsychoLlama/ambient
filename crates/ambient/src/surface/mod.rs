@@ -98,6 +98,16 @@ pub struct Definition<N = Path> {
     pub public: bool,
     pub doc: Option<String>,
     pub kind: DefinitionKind<N>,
+    /// What it says to a build, in the order it is written.
+    pub annotations: Vec<Annotation<N>>,
+}
+
+/// Data on a definition that a build reads: the tag that is its key,
+/// and an expression of plain data. See `spec/annotations.md`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Annotation<N = Path> {
+    pub key: N,
+    pub value: Expr<N>,
 }
 
 /// The name of the one definition a generated module is written with.

@@ -23,3 +23,9 @@ An annotation is data a build reads and a program never does. It is how a defini
 - Reach is by definition, so an annotation in a branch that is never taken is still given.
 - An annotation in a generic function is one annotation, whatever types the function is used at.
 - A target's annotations are read only by the tools that ask for their key, so a program built for one target pays nothing for what its libraries say to another.
+
+## Unbuilt
+
+- TODO: only a definition is annotated: no expression is, so a comptime call gives none, and a generated definition carries none.
+- TODO: a value is literal data alone: it holds no bytes by digest and no reference to a function.
+- TODO: a definition's hash keys what is compiled for it, so changing an annotation compiles it again.

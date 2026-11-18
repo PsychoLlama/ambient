@@ -9,7 +9,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use super::Engine;
-use crate::core::Open;
+use crate::core::{Open, encode_annotations};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher};
 use crate::lower::deep;
@@ -137,10 +137,11 @@ impl Engine<'_> {
             && !member.open.slots.contains(&member.symbol)
         {
             let slots = &member.open.slots;
-            let encoding = member
+            let mut encoding = member
                 .open
                 .tree
                 .resolved(&|slot, out| outside(&slots[slot.0], out));
+            encode_annotations(&member.open.annotations, &mut encoding);
             let hash = Hasher::new("definition").bytes(&encoding).finish();
             known.insert(member.symbol.clone(), hash);
             return;
@@ -153,7 +154,7 @@ impl Engine<'_> {
         // if nothing reachable tells them apart, in which case they are the
         // same definition and get the same hash.
         let colour = |member: &Node, colours: Option<&[Hash]>| {
-            let encoding = member.open.tree.resolved(&|slot, out| {
+            let mut encoding = member.open.tree.resolved(&|slot, out| {
                 let symbol = &member.open.slots[slot.0];
                 match position(symbol) {
                     Some(target) => {
@@ -165,6 +166,7 @@ impl Engine<'_> {
                     None => outside(symbol, out),
                 }
             });
+            encode_annotations(&member.open.annotations, &mut encoding);
             Hasher::new("member").bytes(&encoding).finish()
         };
         let mut colours: Vec<Hash> = members.iter().map(|m| colour(m, None)).collect();

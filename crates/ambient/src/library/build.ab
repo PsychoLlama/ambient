@@ -53,7 +53,23 @@ pub ability compile(entry: Reference, target: Reference): Compiled | Error;
 /// platform's host code in, which is named for it.
 pub ability host_code(package: string, platform: string, path: string): string | Error;
 
+/// An annotation: the definition it is on, and its value, which is
+/// whatever the package that owns its key says one is.
+pub type Annotation = { on: Reference, value: unknown };
+
+/// The annotations of a key that a definition reaches: its own, and
+/// those of every definition it refers to. They are in the order a
+/// walk from it first meets them, which is the same on every build.
+pub ability annotations(from: Reference, key: Tag): List<Annotation> | Error;
+
+/// What tells a definition from every other: the ID of the package
+/// that declares it, and its module path and name as one text. It is
+/// how an extern a compiled program imports is known.
+pub ability identity(of: Reference): Extern;
+
 extern handler compiling for compile;
+extern handler annotating for annotations;
+extern handler identifying for identity;
 extern handler hosting for host_code;
 extern handler thrown for errors.throw;
 extern handler reading for read;
@@ -66,6 +82,8 @@ extern handler listing for list;
 /// thrown and not caught fails the build.
 pub target world {
     compile: compiling,
+    annotations: annotating,
+    identity: identifying,
     host_code: hosting,
     errors.throw: thrown,
     read: reading,

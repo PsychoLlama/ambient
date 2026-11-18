@@ -302,6 +302,19 @@ impl Engine<'_> {
     }
 
     fn check_named(&self, symbol: &Symbol) -> Query<Open> {
+        let open = self.check_tree(symbol)?;
+        let annotations = self.annotations_of(symbol)?;
+        if annotations.is_empty() {
+            return Ok(open);
+        }
+        Ok(Arc::new(Open {
+            annotations,
+            ..(*open).clone()
+        }))
+    }
+
+    /// A definition's tree, checked, before what it is annotated with.
+    fn check_tree(&self, symbol: &Symbol) -> Query<Open> {
         if let Some(root) = self.root_of(symbol) {
             return self.check_root(symbol, &root);
         }

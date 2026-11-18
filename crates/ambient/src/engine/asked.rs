@@ -68,6 +68,8 @@ pub(super) fn natives() -> Natives {
     };
     Natives::new()
         .asking(FAULT_PACKAGE, "build.compiling", "compile")
+        .asking(FAULT_PACKAGE, "build.annotating", "annotations")
+        .asking(FAULT_PACKAGE, "build.identifying", "identity")
         .verifiable(FAULT_PACKAGE, "build.thrown", thrown)
 }
 
@@ -112,6 +114,15 @@ impl Questions for Engine<'_> {
                 let compiled = self.module_of(&entry, &target);
                 Ok(compiled.unwrap_or_else(|error| refused("failed", error.to_string())))
             }
+            "annotations" => {
+                let from = definition(args, 0)?;
+                let Some(Value::Tag { package, tag }) = args.get(1) else {
+                    return Err("an annotation's key is a tag".to_owned());
+                };
+                let found = self.annotations(&from, package, tag);
+                Ok(found.unwrap_or_else(|error| refused("failed", error.to_string())))
+            }
+            "identity" => Ok(self.identity_of(&definition(args, 0)?)),
             _ => Err(format!("a build has no answer to `{question}`")),
         }
     }

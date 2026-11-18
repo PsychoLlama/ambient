@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::Tree;
+use crate::core::{Annotation, Tree};
 use crate::deep;
 use crate::hash::Hash;
 
@@ -26,6 +26,8 @@ pub enum Target {
 pub struct Closed {
     pub tree: Tree,
     pub slots: Vec<Target>,
+    /// Its annotations, which its hash covers as it does its tree.
+    pub annotations: Vec<Annotation>,
 }
 
 /// A definition and the dependencies its receiver lacks.

@@ -15,8 +15,8 @@ use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest};
 use crate::surface::{
-    Ability, Definition, DefinitionKind, Expr, Extern, ExternKind, Function, KeyDefinition, Param,
-    Path, Reference, Target, Type, TypeDefinition, TypeParam,
+    Ability, Annotation, Definition, DefinitionKind, Expr, Extern, ExternKind, Function,
+    KeyDefinition, Param, Path, Reference, Target, Type, TypeDefinition, TypeParam,
 };
 use crate::symbol::{ModuleId, Namespace, Symbol};
 
@@ -260,11 +260,20 @@ impl<'a> Resolver<'a> {
                 })
             }
         };
+        // A key is a tag, which is named as a type is.
+        let mut annotations = Vec::new();
+        for annotation in &definition.annotations {
+            annotations.push(Annotation {
+                key: Reference::Definition(self.lookup(Namespace::Type, &annotation.key)?),
+                value: self.expr(&annotation.value)?,
+            });
+        }
         Ok(Definition {
             name: definition.name.clone(),
             public: definition.public,
             doc: definition.doc.clone(),
             kind,
+            annotations,
         })
     }
 

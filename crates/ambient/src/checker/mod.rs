@@ -99,6 +99,7 @@ pub fn check_function(
         }),
         slots: frame.slots,
         lambdas: frame.lambdas,
+        annotations: Vec::new(),
     })
 }
 

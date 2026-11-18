@@ -31,6 +31,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - An extern says what it performs as a function does: `with` and a row, after what it gives or the ability it handles.
 - A word that only begins a definition is not reserved: `key`, `tag`, `ability`, `target`, `extern`, `import`, and `module` may name anything, since nothing else begins where a definition does.
 - `pub` before one makes it public, and a `///` comment before one is its doc comment.
+- An [annotation](annotations.md) is written before a definition, after its doc comment: `@`, the key, and the value in parentheses. A definition may have several.
 - No definition is given a string to be known by: [identity](definitions.md) is read from where it is declared.
 - An `import` names a module, or a module and the definitions taken from it in braces; `pub import` re-exports.
 - Type parameters follow a name in angle brackets, each with an optional bound after a colon.

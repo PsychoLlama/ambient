@@ -30,6 +30,7 @@ pub fn check_type(
         },
         slots: checker.finish().slots,
         lambdas: Vec::new(),
+        annotations: Vec::new(),
     })
 }
 
@@ -98,6 +99,7 @@ pub fn check_ability(
         },
         slots: checker.finish().slots,
         lambdas: Vec::new(),
+        annotations: Vec::new(),
     })
 }
 
@@ -123,6 +125,7 @@ pub fn check_key(
         },
         slots: checker.finish().slots,
         lambdas: Vec::new(),
+        annotations: Vec::new(),
     })
 }
 

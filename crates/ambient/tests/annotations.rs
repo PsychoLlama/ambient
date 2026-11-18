@@ -1,0 +1,144 @@
+//! Annotations: what a definition says to a build, which a tool
+//! collects and a program never reads. See `spec/annotations.md`.
+
+#![allow(clippy::unwrap_used)]
+
+mod support;
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+use ambient::builder::{function, int, string, tag, ty};
+use ambient::cli::Command;
+use ambient::engine::Engine;
+use ambient::store::MemoryStore;
+use ambient::surface::Definition;
+use support::scripted::Scripted;
+use support::{program, value};
+
+/// A tool that gives one file: the notes its entry reaches, in the
+/// order the build gives them.
+const TOOL: &str = r#"
+    import ambient.build;
+    import ambient.build.{Annotation, Files};
+    import ambient.tree.{Reference};
+    import ambient.Error;
+
+    tag note;
+    tag other;
+
+    target page built by notes {}
+
+    fn line(found: Annotation): string => "${found.on.name}=${found.value as string else "?"}";
+
+    fn notes(entry: Reference, target: Reference): Files with build.annotations {
+        match build.annotations!(entry, note) {
+            let error: Error => { return [{ path: "notes.txt", bytes: error.message.to_bytes() }]; }
+            let found: List<Annotation> => {
+                return [{ path: "notes.txt", bytes: found.map(line).join_with(" ").to_bytes() }];
+            }
+        }
+    }
+"#;
+
+/// Builds `main` of a package whose module is [`TOOL`] and then
+/// `program`, and gives the world it left.
+fn build(program: &str) -> Scripted {
+    let manifest = "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n\
+                    grants = [\"ambient.build.annotations\"]";
+    let files: BTreeMap<PathBuf, String> = [
+        ("app/ambient.toml", manifest.to_owned()),
+        ("app/src/main.ab", format!("{TOOL}{program}")),
+    ]
+    .into_iter()
+    .map(|(path, text)| (PathBuf::from(path), text))
+    .collect();
+    let command = Command::Build {
+        path: PathBuf::from("app"),
+        entry: "main.main".to_owned(),
+        output: Some(PathBuf::from("out")),
+        target: Some("main.page".to_owned()),
+    };
+    Scripted::default().execute(&files, &command).1
+}
+
+fn notes(built: &Scripted) -> String {
+    assert_eq!(built.err, "");
+    String::from_utf8_lossy(&built.files["out/notes.txt"]).into_owned()
+}
+
+#[test]
+fn a_tool_is_given_the_annotations_reached_in_the_order_they_are_met() {
+    let built = build(
+        r#"
+        @note("entry") fn main(): int => later() + sooner();
+        @note("b") @other("unasked") fn sooner(): int => shared();
+        @note("a") fn later(): int => shared();
+        @note("both") fn shared(): int => 1;
+        @note("unreached") fn apart(): int => 2;
+        "#,
+    );
+
+    assert_eq!(notes(&built), "main=entry later=a shared=both sooner=b");
+}
+
+#[test]
+fn an_extern_and_an_ability_are_annotated_though_neither_has_a_body() {
+    let built = build(
+        r#"
+        @note("asks") ability say(text: string): null;
+        @note("answers") extern handler said for say;
+        fn main(): null with say => say!("hello");
+        "#,
+    );
+
+    assert_eq!(notes(&built), "say=asks");
+}
+
+#[test]
+fn a_key_that_is_no_tag_is_refused() {
+    let built = build("type Plain = int;\n@Plain(1) fn main(): int => 1;");
+
+    assert!(notes(&built).ends_with("the key of an annotation is a tag"));
+}
+
+#[test]
+fn a_value_that_is_not_plain_data_is_refused() {
+    let built = build("@note(1 + 1) fn main(): int => 1;");
+
+    assert!(notes(&built).contains("the value of an annotation is plain data"));
+}
+
+/// A program whose entry is annotated with `said`, if with anything.
+fn annotated(said: Option<&str>) -> Vec<Definition> {
+    let main = function("main").returns(ty::int()).body(int(1));
+    let main = said
+        .into_iter()
+        .fold(main, |main, said| main.annotated("note", string(said)));
+    vec![tag("note"), main]
+}
+
+#[test]
+fn an_annotation_is_content_of_its_definition() {
+    let hash = |said| {
+        let workspace = program(annotated(said));
+        let store = MemoryStore::new();
+        Engine::new(&workspace, &store)
+            .hash(&value("main", "main"))
+            .unwrap()
+    };
+
+    assert_ne!(hash(Some("one")), hash(Some("two")));
+    assert_ne!(hash(Some("one")), hash(None));
+    assert_eq!(hash(Some("one")), hash(Some("one")));
+}
+
+#[test]
+fn a_program_runs_as_it_would_with_no_annotation() {
+    let workspace = program(annotated(Some("one")));
+
+    assert_eq!(
+        support::run_in(&workspace),
+        Ok(ambient::value::Value::Int(1))
+    );
+}

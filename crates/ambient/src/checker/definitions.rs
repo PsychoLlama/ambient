@@ -121,6 +121,7 @@ pub fn definitions(tree: &core::Expr, home: &ModuleId) -> Read<Vec<Definition<Re
             name: name.to_owned(),
             public: *public,
             doc: None,
+            annotations: Vec::new(),
             kind: kind(home, fields).map_err(|why| format!("`{name}`: {why}"))?,
         })
     })

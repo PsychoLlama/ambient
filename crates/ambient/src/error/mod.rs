@@ -161,6 +161,9 @@ pub enum Error {
     /// Two targets a target extends bind one ability differently, and it
     /// does not say which it wants.
     TargetConflict { symbol: Symbol, ability: Symbol },
+    /// A definition is annotated under a key that is no tag, or with
+    /// a value that is not plain data: `key` says which.
+    NotAnnotation { symbol: Symbol, key: bool },
     /// What a target is built by is not a tool: it does not take an
     /// entry and a target and give the files of a build.
     NotTool(Symbol),
@@ -234,6 +237,7 @@ impl Error {
             | Self::GenericEntry(symbol)
             | Self::ToolConflict(symbol)
             | Self::NotTool(symbol)
+            | Self::NotAnnotation { symbol, .. }
             | Self::ToolUngranted { symbol, .. }
             | Self::SpawnOutsideGroup(symbol)
             | Self::ComptimeAbilities(symbol)

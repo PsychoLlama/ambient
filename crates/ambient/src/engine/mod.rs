@@ -20,6 +20,7 @@
 //! twice costs nothing. A new snapshot needs a new engine over the same
 //! store.
 
+mod annotate;
 mod asked;
 mod blame;
 mod check;

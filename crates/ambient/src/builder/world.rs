@@ -99,6 +99,7 @@ impl From<ExternBuilder> for Definition {
             name: builder.name,
             public: builder.public,
             doc: None,
+            annotations: Vec::new(),
             kind: DefinitionKind::Extern(builder.native),
         }
     }
@@ -165,6 +166,7 @@ impl From<TargetBuilder> for Definition {
             name: builder.name,
             public: builder.public,
             doc: None,
+            annotations: Vec::new(),
             kind: DefinitionKind::Target(builder.target),
         }
     }

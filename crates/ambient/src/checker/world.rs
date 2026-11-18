@@ -71,6 +71,7 @@ pub fn check_extern(
         },
         slots: checker.finish().slots,
         lambdas: Vec::new(),
+        annotations: Vec::new(),
     })
 }
 
@@ -149,5 +150,6 @@ pub fn check_target(
         tree: Tree::Target { bindings: tree },
         slots: checker.finish().slots,
         lambdas: Vec::new(),
+        annotations: Vec::new(),
     })
 }

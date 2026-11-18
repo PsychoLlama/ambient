@@ -4,8 +4,8 @@ use super::super::lex::Token;
 use super::{Parsed, Parser};
 use crate::builder::{self as b, ModuleBuilder};
 use crate::surface::{
-    Ability, Definition, DefinitionKind, Extern, ExternKind, Function, GENERATOR, KeyDefinition,
-    Param, Path, Target, Type, TypeDefinition,
+    Ability, Annotation, Definition, DefinitionKind, Extern, ExternKind, Function, GENERATOR,
+    KeyDefinition, Param, Path, Target, Type, TypeDefinition,
 };
 use crate::syntax::{Placed, SyntaxError, place};
 
@@ -36,6 +36,13 @@ impl Parser {
             }
             _ => None,
         };
+        let at = self.position();
+        let mut annotations = self.annotations()?;
+        // Their marks come out as a body's do. Nothing is said of a
+        // node of one, so where each was is not kept.
+        for annotation in &mut annotations {
+            place::lift(&mut annotation.value, &self.positions, at, &mut Vec::new());
+        }
         let public = self.eat_word("pub");
         if self.eat_word("import") {
             return self.import(module, public);
@@ -67,7 +74,21 @@ impl Parser {
             public,
             doc,
             kind,
+            annotations,
         }))
+    }
+
+    /// The annotations before a definition: each `@key(value)`.
+    fn annotations(&mut self) -> Parsed<Vec<Annotation>> {
+        let mut annotations = Vec::new();
+        while self.eat("@") {
+            let key = self.path()?;
+            self.expect("(")?;
+            let value = self.expr()?;
+            self.expect(")")?;
+            annotations.push(Annotation { key, value });
+        }
+        Ok(annotations)
     }
 
     /// `import a.b;`, `import a.b as c;`, or `import a.{b, c as d};`.

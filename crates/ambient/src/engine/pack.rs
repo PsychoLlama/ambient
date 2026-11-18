@@ -90,6 +90,7 @@ impl Engine<'_> {
             definitions.push(Closed {
                 tree: open.tree.clone(),
                 slots,
+                annotations: open.annotations.clone(),
             });
         }
         Ok(Pack {
@@ -154,6 +155,7 @@ impl Engine<'_> {
                 tree: definition.tree.clone(),
                 slots,
                 lambdas: Vec::new(),
+                annotations: definition.annotations.clone(),
             }));
         }
 

@@ -257,6 +257,7 @@ impl Checker<'_> {
             }),
             slots: frame.slots,
             lambdas: frame.lambdas,
+            annotations: Vec::new(),
         });
         Made {
             slot: self.slot(&symbol),

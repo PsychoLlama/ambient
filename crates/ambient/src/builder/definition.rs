@@ -8,8 +8,8 @@ use super::validate::{
 };
 use super::{BuildError, null, ty};
 use crate::surface::{
-    Ability, Definition, DefinitionKind, Expr, Function, Import, KeyDefinition, Module, Param,
-    Path, TypeDefinition, TypeParam,
+    Ability, Annotation, Definition, DefinitionKind, Expr, Function, Import, KeyDefinition, Module,
+    Param, Path, TypeDefinition, TypeParam,
 };
 use crate::symbol::Namespace;
 
@@ -102,6 +102,7 @@ impl From<AbilityBuilder> for Definition {
             name: builder.name,
             public: builder.public,
             doc: builder.doc,
+            annotations: Vec::new(),
             kind: DefinitionKind::Ability(builder.ability),
         }
     }
@@ -114,6 +115,7 @@ pub fn type_(name: &str, ty: crate::surface::Type) -> Definition {
         name: name.to_owned(),
         public: false,
         doc: None,
+        annotations: Vec::new(),
         kind: DefinitionKind::Type(TypeDefinition {
             params: Vec::new(),
             ty,
@@ -129,6 +131,7 @@ pub fn generates(call: crate::surface::Expr) -> Definition {
         name: crate::surface::GENERATOR.to_owned(),
         public: false,
         doc: None,
+        annotations: Vec::new(),
         kind: DefinitionKind::Module(crate::surface::Expr::Comptime(Box::new(call))),
     }
 }
@@ -140,6 +143,7 @@ pub fn generated(name: &str, call: crate::surface::Expr) -> Definition {
         name: name.to_owned(),
         public: false,
         doc: None,
+        annotations: Vec::new(),
         kind: DefinitionKind::Generated(crate::surface::Expr::Comptime(Box::new(call))),
     }
 }
@@ -151,6 +155,7 @@ pub fn derived(name: &str, call: crate::surface::Expr) -> Definition {
         name: name.to_owned(),
         public: false,
         doc: None,
+        annotations: Vec::new(),
         kind: DefinitionKind::Derived(crate::surface::Expr::Comptime(Box::new(call))),
     }
 }
@@ -162,6 +167,7 @@ pub fn key(name: &str, ty: crate::surface::Type) -> Definition {
         name: name.to_owned(),
         public: false,
         doc: None,
+        annotations: Vec::new(),
         kind: DefinitionKind::Key(KeyDefinition { ty }),
     }
 }
@@ -174,6 +180,7 @@ pub fn tag(name: &str) -> Definition {
         name: name.to_owned(),
         public: false,
         doc: None,
+        annotations: Vec::new(),
         kind: DefinitionKind::Tag,
     }
 }
@@ -186,6 +193,7 @@ pub fn brand(name: &str) -> Definition {
         name: name.to_owned(),
         public: false,
         doc: None,
+        annotations: Vec::new(),
         kind: DefinitionKind::Brand,
     }
 }
@@ -200,6 +208,7 @@ pub fn generic_type<'a>(
         name: name.to_owned(),
         public: false,
         doc: None,
+        annotations: Vec::new(),
         kind: DefinitionKind::Type(TypeDefinition {
             params: params.into_iter().map(str::to_owned).collect(),
             ty,
@@ -208,6 +217,15 @@ pub fn generic_type<'a>(
 }
 
 impl Definition {
+    /// Annotates the definition: `key` is the dotted path of a tag, and
+    /// `value` plain data.
+    #[must_use]
+    pub fn annotated(mut self, key: &str, value: Expr) -> Self {
+        let key = Path::parse(key);
+        self.annotations.push(Annotation { key, value });
+        self
+    }
+
     /// Makes the definition visible throughout its package.
     #[must_use]
     pub fn public(mut self) -> Self {
@@ -294,6 +312,7 @@ impl FunctionBuilder {
             name: self.name,
             public: self.public,
             doc: self.doc,
+            annotations: Vec::new(),
             kind: DefinitionKind::Function(self.function),
         }
     }

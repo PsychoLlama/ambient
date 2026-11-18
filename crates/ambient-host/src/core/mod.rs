@@ -11,7 +11,7 @@ use crate::symbol::Symbol;
 
 pub use depth::DEPTH;
 pub use encode::Resolve;
-pub use encode::encode_signature;
+pub use encode::{encode_annotations, encode_signature};
 
 /// A reference to another definition, as an index into the slot table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -427,4 +427,18 @@ pub struct Open {
     /// The lambdas written in this definition, each a definition of its
     /// own. A slot reaches one through its symbol.
     pub lambdas: Vec<Open>,
+    /// What the definition says to a build, in the order it is written.
+    pub annotations: Vec<Annotation>,
+}
+
+/// Data on a definition that a build reads and a program never does:
+/// a key, which is a tag, and a value. It is content, so a hash
+/// covers it. See `spec/annotations.md`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Annotation {
+    /// The key: the package a tag is of, and the tag.
+    pub package: String,
+    pub tag: String,
+    /// The value, as it is exchanged: plain data.
+    pub value: Vec<u8>,
 }
