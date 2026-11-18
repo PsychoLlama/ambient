@@ -148,6 +148,11 @@ impl<'a> Reader<'a> {
                 target: self.boxed(need("of")?)?,
                 key: Key::Field(text(need("field")?)?.to_owned()),
             },
+            _ if has("annotated") => Expr::Annotated {
+                key: definition(self.home, need("key")?, &["type"])?,
+                value: Box::new(plain(need("value")?)?),
+                expr: self.boxed(need("annotated")?)?,
+            },
             _ if has("cast") => Expr::Cast {
                 value: self.boxed(need("cast")?)?,
                 ty: written(self.home, need("to")?)?,
@@ -281,4 +286,24 @@ impl<'a> Reader<'a> {
             body: Box::new(body?),
         })
     }
+}
+
+/// Plain data that was spliced, as the expression that makes it: what
+/// an annotation in a tree says.
+fn plain(value: &core::Expr) -> Read<Expr<Reference>> {
+    let all = |members: &[core::Expr]| members.iter().map(plain).collect::<Read<Vec<_>>>();
+    Ok(match value {
+        core::Expr::Null => Expr::Null,
+        core::Expr::Literal(literal) => Expr::Literal(literal.clone()),
+        core::Expr::List(members) => Expr::List(all(members)?),
+        core::Expr::Tuple(members) => Expr::Tuple(all(members)?),
+        core::Expr::Record(fields) => {
+            let field = |(key, value): &(core::Key, core::Expr)| match key {
+                core::Key::Field(name) => Ok((Key::Field(name.clone()), plain(value)?)),
+                core::Key::Ability(_) => Err("an annotation holds no handler".to_owned()),
+            };
+            Expr::Record(fields.iter().map(field).collect::<Read<_>>()?)
+        }
+        _ => return Err("the value of an annotation is plain data".to_owned()),
+    })
 }

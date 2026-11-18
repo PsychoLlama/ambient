@@ -221,6 +221,8 @@ impl Lowering {
             core::Expr::Widen { value, .. } | core::Expr::Brand { value, .. } => {
                 return self.expr(value);
             }
+            // What is said to a build is nothing to a program.
+            core::Expr::Annotated { value, .. } => return self.expr(value),
             core::Expr::Null => Op::Copy(Value::Null),
             core::Expr::Literal(literal) => match literal {
                 Literal::Bool(value) => Op::Copy(Value::Bool(*value)),

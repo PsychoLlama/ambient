@@ -130,6 +130,9 @@ pub type Arm = { pattern: Pattern, gives: Expr };
 ///   as were bound around the function.
 /// - `perform` calls the handler bound to an ability, and `identity`
 ///   is the text an observer is told the ability is.
+/// - `annotated` is an expression with `value` said of it to a build
+///   under `key`, a reference to a tag: plain data, which a program
+///   that runs never sees.
 /// - `cast` is the value at the type `to` if the type describes it,
 ///   and `otherwise` if not.
 /// - `method` is called on the value `of`, as `value.method(...)` is.
@@ -152,6 +155,7 @@ pub type Expr =
     | { field: string, of: Expr }
     | { method: string, of: Expr, given: List<Expr> }
     | { cast: Expr, to: Type, otherwise: Expr }
+    | { annotated: Expr, key: Reference, value: unknown }
     | { bind: Expr, body: Expr }
     | { handlers: Expr, body: Expr }
     | { under: Expr, over: Expr }

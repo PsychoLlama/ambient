@@ -254,6 +254,12 @@ pub enum Expr {
         value: Box<Expr>,
         ty: Type,
     },
+    /// `value`, with something said of it to a build. A program that
+    /// runs sees the value alone. See `spec/annotations.md`.
+    Annotated {
+        annotation: Annotation,
+        value: Box<Expr>,
+    },
     /// `value` as a branded type, `ty`, which it is of but for the
     /// brands. Nothing is tested and nothing is made: a brand is not
     /// there as a program runs.
@@ -431,7 +437,8 @@ pub struct Open {
     pub annotations: Vec<Annotation>,
 }
 
-/// Data on a definition that a build reads and a program never does:
+/// Data on a definition or an expression that a build reads and a
+/// program never does:
 /// a key, which is a tag, and a value. It is content, so a hash
 /// covers it. See `spec/annotations.md`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

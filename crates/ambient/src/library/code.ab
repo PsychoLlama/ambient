@@ -124,6 +124,12 @@ pub fn field(of: Code, name: string): Code => fn(depth: int): Expr => { field: n
 pub fn send(of: Code, name: string, given: List<Code>): Code =>
     fn(depth: int): Expr => { method: name, of: of(depth), given: placed(given, depth) };
 
+/// `of`, with `value` said of it to a build under `key`: a reference
+/// to a tag, as `comptime tree.reference(tag)` gives one, and plain
+/// data. It is how what a comptime call found reaches a tool.
+pub fn annotated(key: Reference, value: unknown, of: Code): Code =>
+    fn(depth: int): Expr => { annotated: of(depth), key: key, value: value };
+
 /// `value` at the type `to` if the type describes it, and `otherwise`
 /// if not.
 pub fn cast(value: Code, to: Type, otherwise: Code): Code =>

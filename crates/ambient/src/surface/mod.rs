@@ -7,6 +7,7 @@
 //! These types are plain data that anything may read. A [`Module`] can only
 //! be made by a [`crate::builder`], which is what rejects ill-formed trees.
 
+mod data;
 mod operator;
 mod shape;
 pub mod shown;
@@ -16,6 +17,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+pub use data::data;
 pub use operator::Operator;
 pub use shape::Shape;
 pub use shown::Shown;
@@ -440,6 +442,14 @@ pub enum Expr<N = Path> {
     /// Evaluates the body, and is what it gave, or the fault that ended
     /// it, as an error. See `spec/values.md`.
     Boundary(Box<Expr<N>>),
+    /// `expr`, with something said of it to a build: a key, which is
+    /// a tag, and `value`, which is plain data. See
+    /// `spec/annotations.md`.
+    Annotated {
+        key: N,
+        value: Box<Expr<N>>,
+        expr: Box<Expr<N>>,
+    },
     /// Evaluates the body, and is what it gave once every task it spawned
     /// is over. See `spec/tasks.md`.
     Group(Box<Expr<N>>),

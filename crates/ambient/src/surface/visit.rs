@@ -189,6 +189,7 @@ impl<N> Expr<N> {
                 row.iter().for_each(&mut *visit);
             }
             Self::Cell { ty: Some(ty), .. } | Self::Cast { ty, .. } => ty.names(visit),
+            Self::Annotated { key, .. } => visit(key),
             _ => {}
         }
         self.children(&mut |child| child.names(visit));
@@ -291,6 +292,8 @@ macro_rules! children {
                 $visit(value);
                 $visit(otherwise);
             }
+            // What is said is data, and no part of what is evaluated.
+            Self::Annotated { expr, .. } => $visit(expr),
         }
     };
 }

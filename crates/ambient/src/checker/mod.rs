@@ -9,6 +9,7 @@
 //! result by content.
 
 mod abilities;
+mod annotate;
 mod blame;
 mod calls;
 mod code;
@@ -449,6 +450,7 @@ impl<'a> Checker<'a> {
             Expr::At(..) => return Err(Error::UnknownSymbol(self.symbol.clone())),
             Expr::Group(body) => self.group(body)?,
             Expr::Boundary(body) => self.boundary(body)?,
+            Expr::Annotated { key, value, expr } => self.annotated(key, value, expr)?,
             Expr::Spawn(task) => self.spawn(task)?,
             Expr::All(branches) => self.join(branches, false)?,
             Expr::First(branches) => self.join(branches, true)?,

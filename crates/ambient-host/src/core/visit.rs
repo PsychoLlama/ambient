@@ -42,6 +42,7 @@ macro_rules! children {
             | Self::Cell { value: inner, .. }
             | Self::Widen { value: inner, .. }
             | Self::Brand { value: inner, .. }
+            | Self::Annotated { value: inner, .. }
             | Self::Boundary(inner)
             | Self::Group(inner)
             | Self::Spawn(inner)

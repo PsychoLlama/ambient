@@ -7,44 +7,48 @@ use std::collections::{HashMap, HashSet};
 use super::Engine;
 use super::asked::record;
 use crate::checker;
-use crate::core::{Annotation, Tree};
+use crate::core::{Annotation, Expr, Open, Slot, Tree};
 use crate::error::Error;
 use crate::exchange;
 use crate::hash::Hasher;
 use crate::literal::Literal;
-use crate::surface::{DefinitionKind, Expr, Key, Reference, Type};
+use crate::surface::{DefinitionKind, Reference, Type, data};
 use crate::symbol::Symbol;
 use crate::types::Ty;
 use crate::value::Value;
 
-/// The value an expression of plain data is, if it is one: a literal,
-/// or a list, a tuple, or a record of them.
-fn data(expr: &Expr<Reference>) -> Option<Value> {
-    let all = |members: &[Expr<Reference>]| members.iter().map(data).collect::<Option<Vec<_>>>();
-    Some(match expr {
-        Expr::Null => Value::Null,
-        Expr::Literal(Literal::Bool(value)) => Value::Bool(*value),
-        Expr::Literal(Literal::Int(value)) => Value::Int(*value),
-        Expr::Literal(Literal::Float(bits)) => Value::Float(f64::from_bits(*bits)),
-        Expr::Literal(Literal::String(value)) => Value::String(value.clone()),
-        Expr::Literal(Literal::Bytes(value)) => Value::Bytes(value.clone()),
-        Expr::Literal(Literal::Tag { package, tag }) => Value::Tag {
-            package: package.clone(),
-            tag: tag.clone(),
-        },
-        Expr::List(members) => Value::List(all(members)?),
-        Expr::Tuple(members) => Value::Tuple(all(members)?),
-        Expr::Record(fields) => Value::Record(
-            fields
-                .iter()
-                .map(|(key, value)| match key {
-                    Key::Field(name) => Some((name.clone(), data(value)?)),
-                    Key::Ability(_) => None,
-                })
-                .collect::<Option<_>>()?,
-        ),
-        _ => return None,
-    })
+/// What a walk of a definition meets: something said to a build, or
+/// another definition, which the walk goes on into.
+enum Met {
+    Said(Annotation),
+    Named(Symbol),
+}
+
+/// What a walk of `open` meets, in order: what is said of the
+/// definition, then its body as it is written, then whatever else it
+/// refers to, as its types do.
+fn met(open: &Open) -> Vec<Met> {
+    let mut found: Vec<Met> = open.annotations.iter().cloned().map(Met::Said).collect();
+    let named = |slot: &Slot| open.slots.get(slot.0).cloned().map(Met::Named);
+    if let Tree::Function(function) = &open.tree {
+        // What is left to walk, the next expression last.
+        let mut pending = vec![&function.body];
+        while let Some(expr) = pending.pop() {
+            match expr {
+                Expr::Annotated { annotation, .. } => found.push(Met::Said(annotation.clone())),
+                Expr::Reference(slot, _)
+                | Expr::Closure { slot, .. }
+                | Expr::AbilityId(slot)
+                | Expr::Perform { ability: slot, .. } => found.extend(named(slot)),
+                _ => {}
+            }
+            let from = pending.len();
+            expr.children(&mut |child| pending.push(child));
+            pending[from..].reverse();
+        }
+    }
+    found.extend(open.slots.iter().cloned().map(Met::Named));
+    found
 }
 
 impl Engine<'_> {
@@ -97,26 +101,30 @@ impl Engine<'_> {
         tag: &str,
     ) -> Result<Value, Error> {
         let mut found = Vec::new();
-        let mut seen = HashSet::new();
-        // What is left to walk, the next to visit last.
-        let mut pending = vec![from.clone()];
-        while let Some(symbol) = pending.pop() {
-            if !seen.insert(symbol.clone()) {
-                continue;
-            }
-            let open = self.check(&symbol)?;
-            for annotation in &open.annotations {
-                if annotation.package != package || annotation.tag != tag {
-                    continue;
+        let mut seen = HashSet::from([from.clone()]);
+        // The definitions being walked, each with what is left of it.
+        let mut walking = vec![(from.clone(), met(&*self.check(from)?).into_iter())];
+        while let Some((symbol, rest)) = walking.last_mut() {
+            match rest.next() {
+                Some(Met::Said(said)) if said.package == package && said.tag == tag => {
+                    // What was encoded here decodes.
+                    let value = exchange::decode(&said.value).unwrap_or(Value::Null);
+                    found.push(record([
+                        ("on", checker::reference(symbol)),
+                        ("value", value),
+                    ]));
                 }
-                // What was encoded here decodes.
-                let value = exchange::decode(&annotation.value).unwrap_or(Value::Null);
-                found.push(record([
-                    ("on", checker::reference(&symbol)),
-                    ("value", value),
-                ]));
+                Some(Met::Said(_)) => {}
+                Some(Met::Named(named)) => {
+                    if seen.insert(named.clone()) {
+                        let rest = met(&*self.check(&named)?).into_iter();
+                        walking.push((named, rest));
+                    }
+                }
+                None => {
+                    walking.pop();
+                }
             }
-            pending.extend(open.slots.iter().rev().cloned());
         }
         Ok(Value::List(found))
     }

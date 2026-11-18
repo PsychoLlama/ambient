@@ -239,6 +239,17 @@ pub fn with_only(bundle: Expr, body: Expr) -> Expr {
     }
 }
 
+/// `expr`, with `value` said of it to a build under `key`: the dotted
+/// path of a tag, and plain data.
+#[must_use]
+pub fn annotated(key: &str, value: Expr, expr: Expr) -> Expr {
+    Expr::Annotated {
+        key: Path::parse(key),
+        value: Box::new(value),
+        expr: Box::new(expr),
+    }
+}
+
 /// Evaluates `body`, and is what it gave, or the fault that ended it, as
 /// an error.
 #[must_use]

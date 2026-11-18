@@ -8,7 +8,7 @@ mod support;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use ambient::builder::{function, int, string, tag, ty};
+use ambient::builder::{annotated, function, int, string, tag, ty};
 use ambient::cli::Command;
 use ambient::engine::Engine;
 use ambient::store::MemoryStore;
@@ -20,6 +20,8 @@ use support::{program, value};
 /// order the build gives them.
 const TOOL: &str = r#"
     import ambient.build;
+    import ambient.code;
+    import ambient.tree;
     import ambient.build.{Build, Annotation, Files};
     import ambient.tree.{Reference};
     import ambient.Error;
@@ -83,6 +85,22 @@ fn a_tool_is_given_the_annotations_reached_in_the_order_they_are_met() {
 }
 
 #[test]
+fn what_a_comptime_call_says_in_the_code_it_gives_is_met_where_the_code_is() {
+    let built = build(
+        r#"
+        fn marked(): tree.Expr =>
+            code.build(code.annotated(comptime tree.reference(note), "inside", code.literal(1)));
+
+        fn main(): int => later() + (comptime marked()) + sooner();
+        @note("b") fn sooner(): int => 1;
+        @note("a") fn later(): int => 1;
+        "#,
+    );
+
+    assert_eq!(notes(&built), "later=a main=inside sooner=b");
+}
+
+#[test]
 fn an_extern_and_an_ability_are_annotated_though_neither_has_a_body() {
     let built = build(
         r#"
@@ -110,7 +128,7 @@ fn a_value_that_is_not_plain_data_is_refused() {
 }
 
 /// A program whose entry is annotated with `said`, if with anything.
-fn annotated(said: Option<&str>) -> Vec<Definition> {
+fn noted(said: Option<&str>) -> Vec<Definition> {
     let main = function("main").returns(ty::int()).body(int(1));
     let main = said
         .into_iter()
@@ -121,7 +139,7 @@ fn annotated(said: Option<&str>) -> Vec<Definition> {
 #[test]
 fn an_annotation_is_content_of_its_definition() {
     let hash = |said| {
-        let workspace = program(annotated(said));
+        let workspace = program(noted(said));
         let store = MemoryStore::new();
         Engine::new(&workspace, &store)
             .hash(&value("main", "main"))
@@ -134,8 +152,28 @@ fn an_annotation_is_content_of_its_definition() {
 }
 
 #[test]
+fn an_annotation_on_an_expression_is_content_and_nothing_to_a_program() {
+    let said = |said| {
+        let body = annotated("note", string(said), int(1));
+        program([tag("note"), function("main").returns(ty::int()).body(body)])
+    };
+    let hash = |workspace: &ambient::workspace::Workspace| {
+        let store = MemoryStore::new();
+        Engine::new(workspace, &store)
+            .hash(&value("main", "main"))
+            .unwrap()
+    };
+
+    assert_ne!(hash(&said("one")), hash(&said("two")));
+    assert_eq!(
+        support::run_in(&said("one")),
+        Ok(ambient::value::Value::Int(1))
+    );
+}
+
+#[test]
 fn a_program_runs_as_it_would_with_no_annotation() {
-    let workspace = program(annotated(Some("one")));
+    let workspace = program(noted(Some("one")));
 
     assert_eq!(
         support::run_in(&workspace),

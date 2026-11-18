@@ -72,7 +72,7 @@ impl<'a> Sink<'a> {
 
 /// The version named by every encoding. Changing the node set or the
 /// encoding means changing this, which changes every hash.
-const FORMAT: u8 = 36;
+const FORMAT: u8 = 37;
 
 impl Tree {
     /// The encoding of the tree as it is stored: slots by index.
@@ -173,12 +173,17 @@ pub fn encode_annotations(annotations: &[super::Annotation], out: &mut Vec<u8>) 
     let mut sink = Sink::new(None);
     unsigned(annotations.len() as u64, &mut sink);
     for annotation in annotations {
-        text(&annotation.package, &mut sink);
-        text(&annotation.tag, &mut sink);
-        unsigned(annotation.value.len() as u64, &mut sink);
-        sink.extend_from_slice(&annotation.value);
+        encode_annotation(annotation, &mut sink);
     }
     out.extend_from_slice(&sink.bytes);
+}
+
+/// One annotation: its key, and its value as it is exchanged.
+fn encode_annotation(annotation: &super::Annotation, out: &mut Sink<'_>) {
+    text(&annotation.package, out);
+    text(&annotation.tag, out);
+    unsigned(annotation.value.len() as u64, out);
+    out.extend_from_slice(&annotation.value);
 }
 
 /// The canonical encoding of a signature alone, for interface digests.

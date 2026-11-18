@@ -111,6 +111,12 @@ impl Resolver<'_> {
             Expr::Group(body) => Expr::Group(Box::new(self.expr(body)?)),
             Expr::Cell { .. } => self.block(expr)?,
             Expr::Boundary(body) => Expr::Boundary(Box::new(self.expr(body)?)),
+            // A key is a tag, which is named as a type is.
+            Expr::Annotated { key, value, expr } => Expr::Annotated {
+                key: Reference::Definition(self.lookup(Namespace::Type, key)?),
+                value: Box::new(self.expr(value)?),
+                expr: Box::new(self.expr(expr)?),
+            },
             Expr::Spawn(task) => Expr::Spawn(Box::new(self.expr(task)?)),
             Expr::All(branches) => Expr::All(self.exprs(branches)?),
             Expr::First(branches) => Expr::First(self.exprs(branches)?),
