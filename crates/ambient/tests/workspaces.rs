@@ -8,7 +8,8 @@ mod support;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use support::scripted::run;
+use ambient::cli::Command;
+use support::scripted::{Scripted, run};
 
 type Files = BTreeMap<PathBuf, String>;
 
@@ -246,4 +247,57 @@ fn a_workspace_that_does_not_list_a_package_is_not_its_workspace() {
     );
 
     assert!(ran(&files).is_err());
+}
+
+/// The files once `app` is made to depend on the package at `on`,
+/// under `name` if one is given, or what refused.
+fn added(mut files: Files, on: &str, name: Option<&str>) -> Result<Files, String> {
+    let command = Command::Add {
+        on: PathBuf::from(on),
+        name: name.map(str::to_owned),
+        path: PathBuf::from("app"),
+    };
+    let (_, world) = Scripted::default().execute(&files, &command);
+    if !world.err.is_empty() {
+        return Err(world.err);
+    }
+    let manifest = world.file("app/ambient.toml").to_owned();
+    files.insert("app/ambient.toml".into(), manifest);
+    Ok(files)
+}
+
+#[test]
+fn adding_a_dependency_writes_what_the_package_says_of_itself() {
+    let numbers = Package::versioned("kept/numbers", "n", "1.2.0").library(SEVEN);
+    let files = added(files(None, [app(), numbers]), "kept/numbers", None).unwrap();
+
+    let manifest = &files[&PathBuf::from("app/ambient.toml")];
+    let written = "numbers = { id = \"n\", version = \"1.2.0\", path = \"../kept/numbers\" }\n";
+    assert!(manifest.ends_with(written), "{manifest}");
+    assert_eq!(ran(&files), Ok(7));
+}
+
+#[test]
+fn a_dependency_is_added_under_the_name_asked_for() {
+    let app = package("app", "app").library(
+        "import sevens.seven;
+        pub fn main(): int => seven();",
+    );
+    let files = files(None, [app, package("numbers", "n").library(SEVEN)]);
+
+    assert_eq!(
+        added(files, "numbers", Some("sevens")).map(|files| ran(&files)),
+        Ok(Ok(7))
+    );
+}
+
+#[test]
+fn a_dependency_is_not_added_over_another() {
+    let app = app().on("numbers", "n", "path = \"../numbers\"");
+    let files = files(None, [app, package("numbers", "n").library(SEVEN)]);
+
+    assert_eq!(
+        added(files, "numbers", None).err().as_deref(),
+        Some("error: app/ambient.toml: there is a dependency `numbers` already\n")
+    );
 }

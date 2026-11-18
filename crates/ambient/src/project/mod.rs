@@ -7,6 +7,7 @@
 //! project is assembled the same way from a disk and from memory.
 
 mod contents;
+mod declare;
 mod error;
 mod files;
 mod manifest;
@@ -17,6 +18,7 @@ use std::path::{Component, Path, PathBuf};
 
 use ambient_runtime::FAULT_PACKAGE;
 pub use contents::Contents;
+pub use declare::declared;
 pub use error::ProjectError;
 pub use files::{Disk, Files};
 pub use manifest::{Dependency, Manifest, Package, Version};

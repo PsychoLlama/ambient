@@ -24,7 +24,7 @@ fn test_a_greeting_names_who_it_greets(): null with check {
 "#;
 
 /// Whether other packages could import a package by this name.
-fn names(name: &str) -> bool {
+pub(super) fn names(name: &str) -> bool {
     let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
     name.starts_with(|c: char| c.is_ascii_alphabetic()) && name.chars().all(word)
 }

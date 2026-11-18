@@ -55,6 +55,18 @@ pub enum Command {
         #[arg(last = true)]
         args: Vec<String>,
     },
+    /// Makes a package depend on another: writes the dependency into
+    /// its manifest.
+    Add {
+        /// The directory of the package to depend on.
+        on: PathBuf,
+        /// The name the package uses for it; its own, if not said.
+        #[arg(long = "as")]
+        name: Option<String>,
+        /// The directory of the package that is to depend on it.
+        #[arg(long = "in", default_value = ".")]
+        path: PathBuf,
+    },
     /// Makes an executable of a function of a package: one file that
     /// runs it without the package or the compiler.
     Build {
@@ -119,6 +131,7 @@ impl Session<'_> {
     #[must_use]
     pub fn execute(&self, command: &Command) -> i32 {
         let done = match command {
+            Command::Add { on, name, path } => self.add(path, on, name.as_deref()),
             Command::Run { path, entry, .. } => self.run(path, entry),
             Command::Build {
                 path,

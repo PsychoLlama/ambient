@@ -43,7 +43,16 @@ fn key(files: &dyn Files, path: &Path) -> PathBuf {
     normal(&files.absolute(path))
 }
 
-fn manifest(files: &dyn Files, directory: &Path) -> Result<Manifest, ProjectError> {
+/// The path that leads from the directory `from` to `to`.
+pub(super) fn relative(files: &dyn Files, from: &Path, to: &Path) -> PathBuf {
+    let (from, to) = (key(files, from), key(files, to));
+    let shared = from.components().zip(to.components());
+    let shared = shared.take_while(|(one, other)| one == other).count();
+    let up = from.components().skip(shared).map(|_| Component::ParentDir);
+    up.chain(to.components().skip(shared)).collect()
+}
+
+pub(super) fn manifest(files: &dyn Files, directory: &Path) -> Result<Manifest, ProjectError> {
     let path = directory.join(MANIFEST);
     let text = files
         .read(&path)
