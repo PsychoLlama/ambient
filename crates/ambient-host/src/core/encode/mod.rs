@@ -20,6 +20,9 @@ pub type Resolve<'a> = &'a dyn Fn(Slot, &mut Vec<u8>);
 struct Sink<'a> {
     bytes: Vec<u8>,
     resolve: Option<Resolve<'a>>,
+    /// Whether what is said to a build is left out: see
+    /// [`Tree::compiled`].
+    bare: bool,
 }
 
 impl<'a> Sink<'a> {
@@ -27,6 +30,7 @@ impl<'a> Sink<'a> {
         Self {
             bytes: Vec::new(),
             resolve,
+            bare: false,
         }
     }
 
@@ -79,6 +83,16 @@ impl Tree {
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         self.write(Sink::new(None))
+    }
+
+    /// The encoding compiled code is kept under: the tree as it is
+    /// stored, without what it says to a build, which no backend
+    /// reads. See `spec/annotations.md`.
+    #[must_use]
+    pub fn compiled(&self) -> Vec<u8> {
+        let mut sink = Sink::new(None);
+        sink.bare = true;
+        self.write(sink)
     }
 
     /// The encoding a hash is computed over: each slot as `resolve` writes

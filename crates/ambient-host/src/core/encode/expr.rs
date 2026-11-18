@@ -120,6 +120,7 @@ pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
             encode_type(ty, out);
             encode_expr(value, out);
         }
+        Expr::Annotated { value, .. } if out.bare => encode_expr(value, out),
         Expr::Annotated { annotation, value } => {
             out.push(35);
             super::encode_annotation(annotation, out);

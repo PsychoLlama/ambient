@@ -323,3 +323,28 @@ fn a_method_added_to_a_shape_rechecks_no_call_of_another() {
 fn a_method_taken_from_a_shape_rechecks_no_call_of_another() {
     assert!(rechecked_after(&["other", "same"], &["same"]).is_empty());
 }
+
+/// A leaf that says `said` to a build, on itself and in its body.
+fn noted(said: &str) -> ModuleBuilder {
+    let body = b::annotated("note", b::string(said), b::int(1));
+    let leaf = b::function("leaf").returns(ty::int()).body(body);
+    chain(leaf.annotated("note", b::string(said))).define(b::tag("note"))
+}
+
+#[test]
+fn what_a_definition_says_to_a_build_compiles_nothing_again() {
+    let store = MemoryStore::new();
+    let old = build(&Engine::new(&main(noted("one")), &store), &chain_symbols());
+
+    let after = main(noted("two"));
+    let engine = Engine::new(&after, &store);
+    let new = build(&engine, &chain_symbols());
+
+    // It is content, so every hash that covers it is another.
+    assert_ne!(old, new);
+    assert_eq!(engine.ran(Stage::Compile), names(&[]));
+    assert_eq!(
+        engine.reused(Stage::Compile),
+        names(&["leaf", "mid", "top"])
+    );
+}

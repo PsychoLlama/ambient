@@ -87,7 +87,8 @@ impl Engine<'_> {
                     .map(|slot| u8::from(*slot))
                     .collect::<Vec<_>>(),
             );
-            key.bytes(&open.tree.encode());
+            // What a tree says to a build is nothing to a backend.
+            key.bytes(&open.tree.compiled());
             for slot in &open.slots {
                 key.hash(&self.interface(slot)?.digest);
             }
