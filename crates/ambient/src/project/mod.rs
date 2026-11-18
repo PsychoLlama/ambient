@@ -32,6 +32,7 @@ pub use files::{Disk, Files};
 use git::Git;
 pub use locked::{Commit, LOCK, Lock, Locked, Nowhere, Snapshots, Source};
 pub use manifest::{Dependency, Manifest, Package};
+pub use members::covered;
 use members::{Members, normal};
 pub use settle::Update;
 pub use vendor::{Vendored, kept, vendored};
@@ -352,31 +353,16 @@ impl Opening<'_> {
         };
         let path = normal(&directory.join(path));
         let found = &self.members.at(self.files, &path)?.package;
-        let mistaken = |declared: String, found: String| ProjectError::Mistaken {
-            package: package.to_owned(),
-            name: name.to_owned(),
-            path: path.clone(),
-            declared,
-            found,
-        };
         if found.id != dependency.id {
-            let (declared, found) = (&dependency.id, &found.id);
-            return Err(mistaken(
-                format!("package `{declared}`"),
-                format!("`{found}`"),
-            ));
+            return Err(ProjectError::Mistaken {
+                package: package.to_owned(),
+                name: name.to_owned(),
+                declared: format!("package `{}`", dependency.id),
+                found: format!("`{}`", found.id),
+                path,
+            });
         }
-        match &dependency.version {
-            Some(least)
-                if Line::of(least) != Line::of(&found.version) || *least > found.version =>
-            {
-                Err(mistaken(
-                    format!("at least version {least}"),
-                    format!("version {}", found.version),
-                ))
-            }
-            _ => Ok(path),
-        }
+        Ok(path)
     }
 
     /// Reads every source file of a package into the workspace.

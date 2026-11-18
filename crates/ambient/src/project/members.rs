@@ -65,6 +65,23 @@ pub(super) fn manifest(files: &dyn Files, directory: &Path) -> Result<Manifest, 
     Manifest::read(&text).map_err(|reason| ProjectError::Manifest { path, reason })
 }
 
+/// The packages a command at `directory` covers: every member, if it
+/// is a workspace's directory, and else the package there.
+///
+/// # Errors
+///
+/// The manifest there is missing or malformed.
+pub fn covered(files: &dyn Files, directory: &Path) -> Result<Vec<PathBuf>, ProjectError> {
+    let directory = &normal(directory);
+    let said = manifest(files, directory)?;
+    let Some(listed) = said.members else {
+        return Ok(vec![directory.clone()]);
+    };
+    let mut covered: Vec<PathBuf> = said.package.iter().map(|_| directory.clone()).collect();
+    covered.extend(listed.iter().map(|path| normal(&directory.join(path))));
+    Ok(covered)
+}
+
 /// The directory above `directory`, if there is one.
 fn above(files: &dyn Files, directory: &Path) -> Option<PathBuf> {
     let above = normal(&directory.join(".."));
@@ -110,12 +127,16 @@ impl Members {
         for listed in listed.unwrap_or_default() {
             // The last is the workspace's own directory, which need
             // not be a package.
-            let package = manifest(files, &listed)?.package;
-            if package.is_some() || key(files, &listed) == key(files, directory) {
+            if manifest(files, &listed)?.package.is_some() {
                 members.at(files, &listed)?;
             }
         }
-        members.at(files, directory)?;
+        // A workspace's directory that is no package has its members
+        // around it all the same.
+        let said = manifest(files, directory)?;
+        if said.package.is_some() || said.members.is_none() {
+            members.at(files, directory)?;
+        }
         Ok(members)
     }
 

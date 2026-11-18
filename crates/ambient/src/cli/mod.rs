@@ -212,7 +212,27 @@ impl Session<'_> {
         Ok(code(&gave))
     }
 
+    /// The packages a command at `path` covers: every member, at a
+    /// workspace's directory.
+    fn covered(&self, path: &Path) -> Result<Vec<PathBuf>, Vec<String>> {
+        project::covered(self.files, path).map_err(|error| vec![error.to_string()])
+    }
+
+    /// Checks each package at `path`, and reports what is wrong with
+    /// any of them.
     fn check(&self, path: &Path) -> Result<(), Vec<String>> {
+        let mut problems = BTreeSet::new();
+        for package in self.covered(path)? {
+            problems.extend(self.checked(&package).err().into_iter().flatten());
+        }
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(problems.into_iter().collect())
+        }
+    }
+
+    fn checked(&self, path: &Path) -> Result<(), Vec<String>> {
         let project = self.open(path)?;
         let engine = self.engine(&project);
         let mut problems = BTreeSet::new();

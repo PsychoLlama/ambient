@@ -95,6 +95,10 @@ impl Dependency {
                 Some("says a `rev` that is not a whole commit")
             }
             Some(_) if outside => Some("says a `directory` that is not in the repository"),
+            // The package at a directory is a member, as it is.
+            None if self.path.is_some() && self.version.is_some() => {
+                Some("says both a `path` and a `version`")
+            }
             None if states > 0 => Some("says a `branch`, a `tag`, or a `rev`, and no `git`"),
             None if self.directory.is_some() => Some("says a `directory` and no `git`"),
             None if self.path.is_none() && self.version.is_none() => {
@@ -240,6 +244,10 @@ mod tests {
         let read = |dependency: &str| Manifest::read(&format!("{package}{dependency}")).err();
         assert_eq!(read("b = { id = \"b\", path = \"../b\" }"), None);
         assert_eq!(read("b = { id = \"b\", version = \"2.1.0\" }"), None);
+        assert_eq!(
+            read("b = { id = \"b\", version = \"2.1.0\", path = \"../b\" }"),
+            Some("the dependency `b` says both a `path` and a `version`".to_owned())
+        );
         assert_eq!(
             read("b = { id = \"b\" }"),
             Some("the dependency `b` says neither a `path`, a `version`, nor a `git`".to_owned())

@@ -46,7 +46,6 @@ pub fn declared(
         .collect();
     let mut dependency = InlineTable::new();
     dependency.insert("id", package.id.into());
-    dependency.insert("version", package.version.to_string().into());
     dependency.insert("path", leads.join("/").into());
 
     let text = files

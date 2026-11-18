@@ -28,6 +28,15 @@ impl Session<'_> {
     /// gives the code to exit with: zero if none failed. With `only`,
     /// the tests are those whose module path and name hold it.
     pub(super) fn test(&self, path: &Path, only: Option<&str>) -> Result<i32, Vec<String>> {
+        let mut code = 0;
+        for package in self.covered(path)? {
+            code = code.max(self.tested(&package, only)?);
+        }
+        Ok(code)
+    }
+
+    /// Runs the tests of the one package at `path`.
+    fn tested(&self, path: &Path, only: Option<&str>) -> Result<i32, Vec<String>> {
         let project = self.open(path)?;
         let engine = self.engine(&project);
         let launch = Launch {

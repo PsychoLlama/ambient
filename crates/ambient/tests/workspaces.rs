@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use ambient::cli::Command;
 use support::packages::{Files, Package, files, package, ran, written};
+use support::scripted::Scripted;
 
 /// An `app` whose `main` gives what `seven` of the package it calls
 /// `numbers` gives.
@@ -132,32 +133,17 @@ fn a_dependency_no_member_stands_in_for_is_refused() {
 }
 
 #[test]
-fn a_dependency_is_held_to_what_the_package_at_its_directory_says() {
-    let run = |declared: &str, version: &str| {
-        let found = format!("path = \"../numbers\"{version}");
+fn a_dependency_at_a_directory_is_on_the_package_it_says() {
+    let run = |declared: &str| {
         let numbers = Package::versioned("numbers", "n", "1.2.0").library(SEVEN);
-        ran(&files(
-            None,
-            [app().on("numbers", declared, &found), numbers],
-        ))
-    };
-    let said = |declared: &str, found: &str| {
-        Err(format!(
-            "error: app: the dependency `numbers` says {declared}, \
-             and the package at numbers is {found}\n"
-        ))
+        let app = app().on("numbers", declared, "path = \"../numbers\"");
+        ran(&files(None, [app, numbers]))
     };
 
-    assert_eq!(run("n", ", version = \"1.2.0\""), Ok(7));
-    assert_eq!(run("m", ""), said("package `m`", "`n`"));
-    assert_eq!(
-        run("n", ", version = \"1.3.0\""),
-        said("at least version 1.3.0", "version 1.2.0")
-    );
-    assert_eq!(
-        run("n", ", version = \"2.0.0\""),
-        said("at least version 2.0.0", "version 1.2.0")
-    );
+    assert_eq!(run("n"), Ok(7));
+    let said = "error: app: the dependency `numbers` says package `m`, \
+                and the package at numbers is `n`\n";
+    assert_eq!(run("m"), Err(said.to_owned()));
 }
 
 #[test]
@@ -173,6 +159,69 @@ fn a_workspace_that_does_not_list_a_package_is_not_its_workspace() {
     );
 
     assert!(ran(&files).is_err());
+}
+
+/// A workspace of two packages, each with the library `one` and
+/// `other` give it, whose own directory is no package.
+fn pair(one: &'static str, other: &'static str) -> Files {
+    let packages = [
+        package("one", "one").library(one),
+        package("other", "other").library(other),
+    ];
+    files(Some(&["one", "other"]), packages)
+}
+
+/// What `command` comes to at the workspace's directory: the code it
+/// exits with and all it says.
+fn at_the_top(files: &Files, command: &Command) -> (i32, String) {
+    let (code, world) = Scripted::default().execute(files, command);
+    (code, world.out + &world.err)
+}
+
+#[test]
+fn checking_a_workspace_checks_every_member() {
+    let check = Command::Check { path: ".".into() };
+    let wrong = "pub fn wrong(): int => \"no\";";
+
+    assert_eq!(at_the_top(&pair(SEVEN, SEVEN), &check), (0, String::new()));
+    let (code, said) = at_the_top(&pair(wrong, wrong), &check);
+    assert_ne!(code, 0);
+    assert!(
+        said.contains("one/src/lib.ab:1:") && said.contains("other/src/lib.ab:1:"),
+        "{said}"
+    );
+}
+
+#[test]
+fn testing_a_workspace_tests_every_member() {
+    let test = Command::Test {
+        path: ".".into(),
+        only: None,
+    };
+    let (code, said) = at_the_top(
+        &pair(
+            "fn test_one(): null => null;",
+            "fn test_other(): int => 1 / 0;",
+        ),
+        &test,
+    );
+
+    assert_eq!(code, 1);
+    assert!(
+        said.contains("ok    one:.test_one") && said.contains("FAIL  other:.test_other"),
+        "{said}"
+    );
+}
+
+#[test]
+fn a_workspace_that_is_no_package_is_not_run() {
+    let run = Command::Run {
+        path: ".".into(),
+        entry: "main.main".to_owned(),
+        args: Vec::new(),
+    };
+    let said = "error: ambient.toml: this is a workspace's manifest, not a package's\n";
+    assert_eq!(at_the_top(&pair(SEVEN, SEVEN), &run), (1, said.to_owned()));
 }
 
 /// The files once `app` is made to depend on the package at `on`,
@@ -192,7 +241,7 @@ fn adding_a_dependency_writes_what_the_package_says_of_itself() {
     let files = added(files(None, [app(), numbers]), "kept/numbers", None).unwrap();
 
     let manifest = &files[&PathBuf::from("app/ambient.toml")];
-    let written = "numbers = { id = \"n\", version = \"1.2.0\", path = \"../kept/numbers\" }\n";
+    let written = "numbers = { id = \"n\", path = \"../kept/numbers\" }\n";
     assert!(manifest.ends_with(written), "{manifest}");
     assert_eq!(ran(&files), Ok(7));
 }

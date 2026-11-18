@@ -84,8 +84,6 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A command that checks or tests, run at a workspace's directory, covers every member.
 - A workspace has one [store](build.md), one [index](symbols.md), and one [lock](releases.md#locks).
 
-- TODO: checking and testing take one package, and refuse a workspace's directory that is not one.
-
 ## Beginning
 
 - A new package is made in a directory and named for it: a manifest with a newly generated ID, and one module that runs and has a [test](#testing), so the first change is made to something that works.
