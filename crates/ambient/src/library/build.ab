@@ -1,3 +1,4 @@
+import pkg.errors;
 import pkg.Error;
 import pkg.tree.{Reference};
 
@@ -54,16 +55,19 @@ pub ability host_code(package: string, platform: string, path: string): string |
 
 extern handler compiling for compile;
 extern handler hosting for host_code;
+extern handler thrown for errors.throw;
 extern handler reading for read;
 extern handler reading_bytes for read_bytes;
 extern handler listing for list;
 
-/// The world of a comptime call: what a build may be granted. Each
-/// is a question a build can ask again, so a call is made again only
-/// when an answer has changed.
+/// The world of a comptime call and of a tool: what a build may be
+/// granted. Each is a question a build can ask again, so a run is
+/// made again only when an answer has changed. An error that is
+/// thrown and not caught fails the build.
 pub target world {
     compile: compiling,
     host_code: hosting,
+    errors.throw: thrown,
     read: reading,
     read_bytes: reading_bytes,
     list: listing,

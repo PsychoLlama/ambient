@@ -57,7 +57,18 @@ pub fn refused(kind: &str, message: String) -> Value {
 
 /// The native code that passes each question on to the engine.
 pub(super) fn natives() -> Natives {
-    Natives::new().asking(FAULT_PACKAGE, "build.compiling", "compile")
+    // An error nothing caught fails the run, as a fault does, with
+    // what the error says.
+    let thrown = |args: &[Value]| match args.first() {
+        Some(Value::Record(error)) => match error.get("message") {
+            Some(Value::String(message)) => Err(message.clone()),
+            _ => Err("an error was thrown".to_owned()),
+        },
+        _ => Err("an error was thrown".to_owned()),
+    };
+    Natives::new()
+        .asking(FAULT_PACKAGE, "build.compiling", "compile")
+        .verifiable(FAULT_PACKAGE, "build.thrown", thrown)
 }
 
 /// The engine, as what native code is handed when it is called again
