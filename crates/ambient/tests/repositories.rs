@@ -1,6 +1,6 @@
-//! Dependencies pinned to a commit of a repository, and the lock that
-//! holds what each was. See "Pinned dependencies" and "Locks" in
-//! `spec/releases.md`.
+//! Dependencies in git repositories, and the lock that holds the
+//! commit and snapshot each led to. See "Git dependencies" and "Locks"
+//! in `spec/releases.md`.
 
 #![allow(clippy::unwrap_used)]
 
@@ -9,7 +9,7 @@ mod support;
 use std::path::PathBuf;
 
 use ambient::cli::Command;
-use support::packages::{Files, Package, Remote, files, package, pinned, rev};
+use support::packages::{Files, Package, Remote, branch, files, package, pinned, rev};
 
 const GIT: &str = "https://example.com/numbers";
 const SEVEN: &str = "pub fn seven(): int => 7;";
@@ -161,6 +161,68 @@ fn a_lock_holds_what_every_member_declares_and_nothing_else() {
     let one = remote(&one).written(&run()).unwrap();
     assert_eq!(lock(&one).matches("[[snapshot]]").count(), 1);
     assert!(lock(&one).contains(&rev('1')));
+}
+
+/// An `app` on the branch `main` of `numbers`, and `numbers` as it is
+/// at two commits: one that gives 7 and one that gives 70.
+fn following() -> Files {
+    let app = package("app", "app").on("numbers", "n", &branch(GIT, "main"));
+    let app = app.library("import numbers.seven; pub fn main(): int => seven();");
+    let two = package("two", "n").library("pub fn seven(): int => 70;");
+    files(None, [app, numbers("one"), two])
+}
+
+/// A machine on which `main` is at the commit of all `digit`.
+fn main_at(files: &Files, digit: char) -> Remote<'_> {
+    remote(files).branch(GIT, "main", &rev(digit))
+}
+
+fn update(name: Option<&str>) -> Command {
+    Command::Update {
+        name: name.map(str::to_owned),
+        path: PathBuf::from("app"),
+    }
+}
+
+#[test]
+fn a_branch_is_read_once_and_the_commit_it_led_to_locked() {
+    let files = following();
+    let after = main_at(&files, '1').written(&run()).unwrap();
+    let lock = &after[&PathBuf::from("app/ambient.lock")];
+    let held = format!(
+        "git = \"{GIT}\"\nbranch = \"main\"\nrev = \"{}\"\n",
+        rev('1')
+    );
+    assert!(lock.ends_with(&held), "{lock}");
+
+    // The branch has moved, and nobody asks.
+    let moved = main_at(&after, '2');
+    assert_eq!(ran(&moved), Ok(7));
+    assert_eq!(*moved.resolved.borrow(), [""; 0]);
+}
+
+#[test]
+fn an_update_reads_a_branch_again_and_locks_where_it_is() {
+    let files = main_at(&following(), '1').written(&run()).unwrap();
+    for name in [None, Some("numbers")] {
+        let after = main_at(&files, '2').written(&update(name)).unwrap();
+        let lock = &after[&PathBuf::from("app/ambient.lock")];
+        assert_eq!(lock.matches("[[snapshot]]").count(), 1, "{lock}");
+        assert_eq!(ran(&main_at(&after, '2')), Ok(70));
+    }
+    // One that has not moved leaves the lock as it is.
+    assert_eq!(main_at(&files, '1').written(&update(None)), Ok(files));
+}
+
+#[test]
+fn an_update_is_of_a_dependency_that_moves() {
+    let files = locked(&pinning());
+    for name in ["numbers", "nothing"] {
+        let said = format!(
+            "error: app: `{name}` is no dependency on a branch or a tag, so nothing updates it\n"
+        );
+        assert_eq!(remote(&files).written(&update(Some(name))), Err(said));
+    }
 }
 
 #[test]

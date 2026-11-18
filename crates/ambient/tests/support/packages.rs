@@ -8,7 +8,7 @@ use std::cell::RefCell;
 
 use ambient::cli::Command;
 use ambient::hash::Hash;
-use ambient::project::{Contents, Manifest, Pin, Snapshots};
+use ambient::project::{Commit, Contents, Manifest, Snapshots, Source};
 use ambient::store::MemoryStore;
 
 use super::scripted::Scripted;
@@ -120,9 +120,14 @@ pub fn rev(digit: char) -> String {
     digit.to_string().repeat(40)
 }
 
-/// How a dependency pins the commit `rev` of the repository `git`.
+/// How a dependency says the commit `rev` of the repository `git`.
 pub fn pinned(git: &str, rev: &str) -> String {
     format!("git = \"{git}\", rev = \"{rev}\"")
+}
+
+/// How a dependency says the branch `branch` of the repository `git`.
+pub fn branch(git: &str, branch: &str) -> String {
+    format!("git = \"{git}\", branch = \"{branch}\"")
 }
 
 /// Repositories held in the same files as everything else, and a
@@ -131,6 +136,10 @@ pub struct Remote<'a> {
     pub files: &'a Files,
     /// Where the files of each commit are, by repository and commit.
     pub commits: BTreeMap<(String, String), PathBuf>,
+    /// The commit each branch is at, by repository and branch.
+    pub branches: BTreeMap<(String, String), String>,
+    /// Every branch that was asked after, in order.
+    pub resolved: RefCell<Vec<String>>,
     /// What the machine keeps: where each snapshot was fetched to.
     pub kept: RefCell<BTreeMap<Hash, PathBuf>>,
     /// Every repository that was fetched from, in order.
@@ -147,9 +156,18 @@ impl<'a> Remote<'a> {
         Self {
             files,
             commits: commits.into_iter().map(commit).collect(),
+            branches: BTreeMap::new(),
+            resolved: RefCell::default(),
             kept: RefCell::default(),
             fetched: RefCell::default(),
         }
+    }
+
+    /// With the branch `branch` of `git` at the commit `rev`.
+    pub fn branch(mut self, git: &str, branch: &str, rev: &str) -> Self {
+        let branch = (git.to_owned(), branch.to_owned());
+        self.branches.insert(branch, rev.to_owned());
+        self
     }
 
     /// What `command` over the files comes to on this machine, with
@@ -174,12 +192,20 @@ impl Snapshots for Remote<'_> {
         self.kept.borrow().get(snapshot).cloned()
     }
 
-    fn fetch(&self, pin: &Pin) -> Result<Hash, String> {
-        self.fetched.borrow_mut().push(pin.git.clone());
-        let commit = (pin.git.clone(), pin.rev.clone());
-        let missing = || format!("{} has no commit {}", pin.git, pin.rev);
-        let directory = self.commits.get(&commit).ok_or_else(missing)?;
-        let directory: PathBuf = directory.iter().chain(&pin.directory).collect();
+    fn resolve(&self, source: &Source) -> Result<String, String> {
+        let branch = source.branch.clone().unwrap_or_default();
+        self.resolved.borrow_mut().push(branch.clone());
+        let at = self.branches.get(&(source.git.clone(), branch.clone()));
+        let missing = || format!("{} has no branch `{branch}`", source.git);
+        at.cloned().ok_or_else(missing)
+    }
+
+    fn fetch(&self, commit: Commit) -> Result<Hash, String> {
+        self.fetched.borrow_mut().push(commit.git.to_owned());
+        let named = (commit.git.to_owned(), commit.rev.to_owned());
+        let missing = || format!("{} has no commit {}", commit.git, commit.rev);
+        let directory = self.commits.get(&named).ok_or_else(missing)?;
+        let directory: PathBuf = directory.iter().chain(commit.directory).collect();
         let manifest = &self.files[&directory.join("ambient.toml")];
         let contents = Contents {
             directory: directory.clone(),

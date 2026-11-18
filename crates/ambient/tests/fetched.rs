@@ -1,4 +1,4 @@
-//! Fetching a pinned dependency from a repository into what a machine
+//! Fetching a dependency from a git repository into what a machine
 //! keeps. See "Fetching" in `spec/releases.md`.
 //!
 //! These tests run `git` and write under the system's temporary
@@ -71,16 +71,18 @@ fn repository(scratch: &Scratch) -> String {
     git(&repo, &["init", "--quiet"]);
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "--quiet", "-m", "numbers"]);
+    // A tag that is an object of its own, which is not the commit.
+    git(&repo, &["tag", "-a", "v1", "-m", "the first"]);
     git(&repo, &["rev-parse", "HEAD"])
 }
 
-/// An `app` in `scratch` that pins `numbers` at `rev` of the
+/// An `app` in `scratch` that depends on `numbers` at `state` of the
 /// repository, opened on a machine that keeps snapshots there too.
-fn opened(scratch: &Scratch, rev: &str) -> Project {
+fn opened(scratch: &Scratch, state: &str) -> Project {
     let repo = scratch.0.join("repo");
     let manifest = format!(
         "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n[dependencies]\n\
-         numbers = {{ id = \"n\", git = \"{}\", rev = \"{rev}\", directory = \"packages/numbers\" }}",
+         numbers = {{ id = \"n\", git = \"{}\", {state} directory = \"packages/numbers\" }}",
         repo.display()
     );
     scratch.write("app/ambient.toml", &manifest);
@@ -110,7 +112,7 @@ fn names(directory: &Path) -> Vec<String> {
 fn a_commit_is_fetched_and_only_the_package_is_kept() {
     let scratch = Scratch::new();
     let rev = repository(&scratch);
-    let project = opened(&scratch, &rev);
+    let project = opened(&scratch, &format!("rev = \"{rev}\","));
 
     let lock = std::fs::read_to_string(scratch.0.join("app").join(LOCK)).unwrap();
     assert!(lock.contains(&format!("rev = \"{rev}\"")), "{lock}");
@@ -127,10 +129,45 @@ fn a_commit_is_fetched_and_only_the_package_is_kept() {
 #[test]
 fn what_is_kept_is_opened_without_the_repository() {
     let scratch = Scratch::new();
-    let rev = repository(&scratch);
-    opened(&scratch, &rev);
+    repository(&scratch);
+    opened(&scratch, "tag = \"v1\",");
     std::fs::remove_dir_all(scratch.0.join("repo")).unwrap();
 
-    let again = opened(&scratch, &rev);
+    let again = opened(&scratch, "tag = \"v1\",");
     assert_eq!(again.locked, None);
+}
+
+#[test]
+fn a_tag_and_a_repository_s_own_branch_lead_to_a_commit() {
+    for state in ["tag = \"v1\",", ""] {
+        let scratch = Scratch::new();
+        let rev = repository(&scratch);
+        opened(&scratch, state);
+
+        let lock = std::fs::read_to_string(scratch.0.join("app").join(LOCK)).unwrap();
+        assert!(
+            lock.contains(&format!("rev = \"{rev}\"")),
+            "{state}: {lock}"
+        );
+    }
+}
+
+#[test]
+fn a_branch_a_repository_lacks_is_reported() {
+    let scratch = Scratch::new();
+    repository(&scratch);
+    scratch.write(
+        "app/ambient.toml",
+        &format!(
+            "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n[dependencies]\n\
+             numbers = {{ id = \"n\", git = \"{}\", branch = \"absent\" }}",
+            scratch.0.join("repo").display()
+        ),
+    );
+    let kept = Kept::under(scratch.0.join("kept"));
+    let said = open_from(&Disk, &kept, &scratch.0.join("app")).unwrap_err();
+    assert!(
+        said.to_string().ends_with("repo has no branch `absent`"),
+        "{said}"
+    );
 }

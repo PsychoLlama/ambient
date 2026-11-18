@@ -8,15 +8,16 @@ use std::process::Command;
 use ambient_host::hash::Hash;
 
 use super::members::manifest;
-use super::{Contents, Disk, MANIFEST, Pin, Snapshots};
+use super::{Commit, Contents, Disk, MANIFEST, Snapshots, Source};
 
 /// Snapshots kept under one directory of this machine.
 pub struct Kept {
     root: PathBuf,
 }
 
-/// Runs `git` in `directory`, which never asks anyone anything.
-fn git(directory: &Path, args: &[&str]) -> Result<(), String> {
+/// What `git` says when run in `directory`. It never asks anyone
+/// anything.
+fn git(directory: &Path, args: &[&str]) -> Result<String, String> {
     let ran = Command::new("git")
         .args(args)
         .current_dir(directory)
@@ -24,7 +25,7 @@ fn git(directory: &Path, args: &[&str]) -> Result<(), String> {
         .output()
         .map_err(|error| format!("git did not run: {error}"))?;
     if ran.status.success() {
-        return Ok(());
+        return Ok(String::from_utf8_lossy(&ran.stdout).into_owned());
     }
     let said = String::from_utf8_lossy(&ran.stderr);
     Err(format!("git {}: {}", args.join(" "), said.trim_end()))
@@ -40,17 +41,17 @@ impl Kept {
         self.root.join(snapshot.to_string())
     }
 
-    /// Checks the commit `pin` names out into `work`.
-    fn checkout(work: &Path, pin: &Pin) -> Result<(), String> {
+    /// Checks `commit` out into `work`.
+    fn checkout(work: &Path, commit: Commit) -> Result<(), String> {
         git(work, &["init", "--quiet"])?;
         // Only the one commit, where the repository will give it; all
         // of the repository where it will not.
-        let one = ["fetch", "--quiet", "--depth", "1", &pin.git, &pin.rev];
+        let one = ["fetch", "--quiet", "--depth", "1", commit.git, commit.rev];
         if git(work, &one).is_err() {
             let all = "+refs/*:refs/fetched/*";
-            git(work, &["fetch", "--quiet", &pin.git, all])?;
+            git(work, &["fetch", "--quiet", commit.git, all])?;
         }
-        git(work, &["checkout", "--quiet", "--detach", &pin.rev])
+        git(work, &["checkout", "--quiet", "--detach", commit.rev]).map(|_| ())
     }
 
     /// Keeps the package at `directory`: its files and nothing else,
@@ -89,12 +90,37 @@ impl Snapshots for Kept {
         place.join(MANIFEST).exists().then_some(place)
     }
 
-    fn fetch(&self, pin: &Pin) -> Result<Hash, String> {
+    fn resolve(&self, source: &Source) -> Result<String, String> {
+        // A tag that is an object of its own is listed twice, the
+        // second time as the commit it is of.
+        let (named, refs) = match (&source.branch, &source.tag) {
+            (Some(branch), _) => (
+                format!("branch `{branch}`"),
+                vec![format!("refs/heads/{branch}")],
+            ),
+            (None, Some(tag)) => (
+                format!("tag `{tag}`"),
+                vec![format!("refs/tags/{tag}"), format!("refs/tags/{tag}^{{}}")],
+            ),
+            (None, None) => ("branch of its own".to_owned(), vec!["HEAD".to_owned()]),
+        };
+        std::fs::create_dir_all(&self.root).map_err(|error| error.to_string())?;
+        let mut args = vec!["ls-remote", &source.git];
+        args.extend(refs.iter().map(String::as_str));
+        let listed =
+            git(&self.root, &args).map_err(|reason| format!("{}: {reason}", source.git))?;
+        let commit = |line: &str| line.split_whitespace().next().map(str::to_owned);
+        let found = listed.lines().last().and_then(commit);
+        found.ok_or_else(|| format!("{} has no {named}", source.git))
+    }
+
+    fn fetch(&self, commit: Commit) -> Result<Hash, String> {
         let work = self.root.join(format!("fetching.{}", std::process::id()));
         std::fs::remove_dir_all(&work).ok();
         std::fs::create_dir_all(&work).map_err(|error| error.to_string())?;
-        let kept = Self::checkout(&work, pin).and_then(|()| self.keep(&work.join(&pin.directory)));
+        let kept =
+            Self::checkout(&work, commit).and_then(|()| self.keep(&work.join(commit.directory)));
         std::fs::remove_dir_all(&work).ok();
-        kept.map_err(|reason| format!("{}: {reason}", pin.git))
+        kept.map_err(|reason| format!("{}: {reason}", commit.git))
     }
 }

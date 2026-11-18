@@ -6,7 +6,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
 
-use super::locked::Pin;
+use super::locked::Source;
 use super::version::Version;
 
 /// What a package says of itself.
@@ -44,9 +44,13 @@ pub struct Dependency {
     /// Where the package is, from the directory of this manifest. One
     /// that is nowhere is a member of the workspace.
     pub path: Option<PathBuf>,
-    /// The repository a pinned package is in.
+    /// The git repository the package is in.
     pub git: Option<String>,
-    /// The commit of it that is pinned, written out whole.
+    /// The branch of it that is meant.
+    pub branch: Option<String>,
+    /// The tag of it that is meant.
+    pub tag: Option<String>,
+    /// The commit of it that is meant, written out whole.
     pub rev: Option<String>,
     /// The package's directory in the repository, if not its top.
     pub directory: Option<PathBuf>,
@@ -59,12 +63,14 @@ fn inside(path: &Path) -> bool {
 }
 
 impl Dependency {
-    /// Exactly what the dependency pins, if it pins.
+    /// Where the package is, if it is in a git repository.
     #[must_use]
-    pub fn pin(&self) -> Option<Pin> {
-        Some(Pin {
+    pub fn source(&self) -> Option<Source> {
+        Some(Source {
             git: self.git.clone()?,
-            rev: self.rev.clone()?,
+            branch: self.branch.clone(),
+            tag: self.tag.clone(),
+            rev: self.rev.clone(),
             directory: self.directory.clone().unwrap_or_default(),
         })
     }
@@ -72,22 +78,27 @@ impl Dependency {
     /// What is wrong with how the dependency says where its package
     /// is, if anything.
     fn wrong(&self) -> Option<&'static str> {
-        // A name that moves is no pin: a commit is written out whole.
         let whole = |rev: &String| {
             let digit = |byte: u8| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte);
             matches!(rev.len(), 40 | 64) && rev.bytes().all(digit)
         };
-        match (&self.git, &self.rev) {
-            (Some(_), _) if self.path.is_some() => Some("says both a `path` and a `git`"),
-            (Some(_), None) => Some("says a `git` and no `rev`"),
-            (Some(_), Some(rev)) if !whole(rev) => Some("pins a `rev` that is not a whole commit"),
-            (None, Some(_)) => Some("says a `rev` and no `git`"),
-            (None, None) if self.directory.is_some() => Some("says a `directory` and no `git`"),
-            (None, None) if self.path.is_none() && self.version.is_none() => {
-                Some("says neither a `path`, a `version`, nor a `git`")
+        let states = [&self.branch, &self.tag, &self.rev];
+        let states = states.into_iter().flatten().count();
+        let outside = self.directory.as_deref().is_some_and(|path| !inside(path));
+        match &self.git {
+            Some(_) if self.path.is_some() => Some("says both a `path` and a `git`"),
+            // Nothing is selected among a repository's versions.
+            Some(_) if self.version.is_some() => Some("says both a `version` and a `git`"),
+            Some(_) if states > 1 => Some("says more than one of a `branch`, a `tag`, and a `rev`"),
+            // A name that moves is a branch or a tag.
+            Some(_) if self.rev.as_ref().is_some_and(|rev| !whole(rev)) => {
+                Some("says a `rev` that is not a whole commit")
             }
-            _ if self.directory.as_deref().is_some_and(|path| !inside(path)) => {
-                Some("says a `directory` that is not in the repository")
+            Some(_) if outside => Some("says a `directory` that is not in the repository"),
+            None if states > 0 => Some("says a `branch`, a `tag`, or a `rev`, and no `git`"),
+            None if self.directory.is_some() => Some("says a `directory` and no `git`"),
+            None if self.path.is_none() && self.version.is_none() => {
+                Some("says neither a `path`, a `version`, nor a `git`")
             }
             _ => None,
         }
@@ -236,37 +247,45 @@ mod tests {
     }
 
     #[test]
-    fn a_dependency_pins_a_whole_commit_of_a_repository() {
+    fn a_dependency_in_a_repository_says_at_most_one_state_of_it() {
         let package = "name = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n[dependencies]\n";
         let rev = "0123456789abcdef0123456789abcdef01234567";
-        let read = |pinned: &str| {
-            let pinned = pinned.replace("REV", rev);
-            let read = Manifest::read(&format!("{package}b = {{ id = \"b\", {pinned} }}"));
+        let read = |found: &str| {
+            let found = found.replace("REV", rev);
+            let read = Manifest::read(&format!("{package}b = {{ id = \"b\", {found} }}"));
             read.err()
-                .map(|said| said.replace("the dependency `b` ", ""))
+                .map(|said| said.replace("the dependency `b` says ", ""))
         };
         let said = |wrong: &str| Some(wrong.to_owned());
+        let git = "git = \"url\"";
 
+        for right in ["", "branch = \"main\"", "tag = \"v1\"", "rev = \"REV\""] {
+            let found = format!("{git}, directory = \"packages/b\", {right}");
+            assert_eq!(read(&found), None, "{right}");
+        }
         assert_eq!(
-            read("git = \"url\", rev = \"REV\", directory = \"packages/b\""),
-            None
-        );
-        assert_eq!(read("git = \"url\""), said("says a `git` and no `rev`"));
-        assert_eq!(
-            read("git = \"url\", rev = \"main\""),
-            said("pins a `rev` that is not a whole commit")
-        );
-        assert_eq!(
-            read("git = \"url\", rev = \"REV\", path = \"../b\""),
-            said("says both a `path` and a `git`")
+            read(&format!("{git}, branch = \"main\", rev = \"REV\"")),
+            said("more than one of a `branch`, a `tag`, and a `rev`")
         );
         assert_eq!(
-            read("rev = \"REV\", path = \"../b\""),
-            said("says a `rev` and no `git`")
+            read(&format!("{git}, rev = \"main\"")),
+            said("a `rev` that is not a whole commit")
         );
         assert_eq!(
-            read("git = \"url\", rev = \"REV\", directory = \"../b\""),
-            said("says a `directory` that is not in the repository")
+            read(&format!("{git}, path = \"../b\"")),
+            said("both a `path` and a `git`")
+        );
+        assert_eq!(
+            read(&format!("{git}, version = \"1.0.0\"")),
+            said("both a `version` and a `git`")
+        );
+        assert_eq!(
+            read("tag = \"v1\", path = \"../b\""),
+            said("a `branch`, a `tag`, or a `rev`, and no `git`")
+        );
+        assert_eq!(
+            read(&format!("{git}, directory = \"../b\"")),
+            said("a `directory` that is not in the repository")
         );
     }
 }

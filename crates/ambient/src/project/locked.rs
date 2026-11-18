@@ -1,8 +1,8 @@
 //! A workspace's lock: each snapshot it builds that is not a member,
-//! and where it was fetched from. See "Locks" and "Pinned
+//! and where it was fetched from. See "Locks" and "Git
 //! dependencies" in `spec/releases.md`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use ambient_host::hash::Hash;
 use serde::{Deserialize, Serialize};
@@ -12,17 +12,50 @@ use super::version::Version;
 /// The name of a workspace's lock, beside its manifest.
 pub const LOCK: &str = "ambient.lock";
 
-/// Exactly which state of a package a dependency pins, and where it
-/// is.
+/// A package in a git repository: where it is, and which state of the
+/// repository is meant. A declaration says a branch, a tag, a commit,
+/// or none of them, which is the repository's own branch; what is
+/// locked for one says the same and the commit that led to.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct Pin {
+pub struct Source {
     /// The repository.
     pub git: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
     /// The commit, written out whole.
-    pub rev: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rev: Option<String>,
     /// The package's directory in the repository.
     #[serde(default, skip_serializing_if = "top")]
     pub directory: PathBuf,
+}
+
+impl Source {
+    /// Whether what the source means may change: it names no commit.
+    #[must_use]
+    pub fn moves(&self) -> bool {
+        self.rev.is_none()
+    }
+
+    /// The source, at the commit `rev`.
+    #[must_use]
+    pub fn at(&self, rev: String) -> Self {
+        let rev = Some(rev);
+        Self {
+            rev,
+            ..self.clone()
+        }
+    }
+}
+
+/// One commit of a repository, and a package's directory in it.
+#[derive(Clone, Copy, Debug)]
+pub struct Commit<'a> {
+    pub git: &'a str,
+    pub rev: &'a str,
+    pub directory: &'a Path,
 }
 
 /// Whether a directory in a repository is its top, which goes unsaid.
@@ -54,8 +87,28 @@ pub struct Locked {
     pub version: Version,
     #[serde(with = "written")]
     pub snapshot: Hash,
+    /// What was declared, and the commit it led to.
     #[serde(flatten)]
-    pub pin: Pin,
+    pub source: Source,
+}
+
+impl Locked {
+    /// The commit the snapshot is at.
+    #[must_use]
+    pub fn commit(&self) -> Commit<'_> {
+        Commit {
+            git: &self.source.git,
+            rev: self.source.rev.as_deref().unwrap_or_default(),
+            directory: &self.source.directory,
+        }
+    }
+
+    /// Whether this is what a declaration of the package `id` at
+    /// `source` leads to: the same, at whatever commit if it says none.
+    fn satisfies(&self, id: &str, source: &Source) -> bool {
+        let commit = source.rev.as_ref().or(self.source.rev.as_ref());
+        self.id == id && self.source == source.at(commit.cloned().unwrap_or_default())
+    }
 }
 
 /// A lock, as it is written.
@@ -74,7 +127,7 @@ pub struct Lock {
 /// What a lock is in the order of: one that does not depend on when
 /// each entry was locked, so that changes made apart merge.
 fn order(one: &Locked, other: &Locked) -> std::cmp::Ordering {
-    (&one.id, &one.pin).cmp(&(&other.id, &other.pin))
+    (&one.id, &one.source).cmp(&(&other.id, &other.source))
 }
 
 impl Lock {
@@ -86,6 +139,9 @@ impl Lock {
     pub fn read(text: &str) -> Result<Self, String> {
         let written: Written = toml::from_str(text).map_err(|error| error.message().to_owned())?;
         let mut snapshots = written.snapshot;
+        if snapshots.iter().any(|locked| locked.source.moves()) {
+            return Err("a snapshot says no `rev`".to_owned());
+        }
         snapshots.sort_by(order);
         Ok(Self { snapshots })
     }
@@ -97,12 +153,13 @@ impl Lock {
         toml::to_string(&Written { snapshot }).unwrap_or_default()
     }
 
-    /// What is locked for a dependency on the package `id` pinned at
-    /// `pin`.
+    /// What is locked for a declaration of the package `id` at
+    /// `source`.
     #[must_use]
-    pub fn find(&self, id: &str, pin: &Pin) -> Option<&Locked> {
-        let pinned = |locked: &&Locked| locked.id == id && locked.pin == *pin;
-        self.snapshots.iter().find(pinned)
+    pub fn find(&self, id: &str, source: &Source) -> Option<&Locked> {
+        self.snapshots
+            .iter()
+            .find(|locked| locked.satisfies(id, source))
     }
 
     /// Locks `locked`, if it is not locked already.
@@ -119,13 +176,20 @@ pub trait Snapshots {
     /// Where the files of a snapshot are, if the machine keeps it.
     fn held(&self, snapshot: &Hash) -> Option<PathBuf>;
 
-    /// Fetches the package `pin` names, keeps it, and gives its
+    /// The commit a source that names none is at now.
+    ///
+    /// # Errors
+    ///
+    /// The repository was not reached, or has no such branch or tag.
+    fn resolve(&self, source: &Source) -> Result<String, String>;
+
+    /// Fetches the package at `commit`, keeps it, and gives its
     /// snapshot.
     ///
     /// # Errors
     ///
     /// It could not be fetched, or what was fetched is no package.
-    fn fetch(&self, pin: &Pin) -> Result<Hash, String>;
+    fn fetch(&self, commit: Commit) -> Result<Hash, String>;
 }
 
 /// A machine that keeps nothing and fetches nothing.
@@ -136,8 +200,12 @@ impl Snapshots for Nowhere {
         None
     }
 
-    fn fetch(&self, pin: &Pin) -> Result<Hash, String> {
-        Err(format!("nothing fetches {} here", pin.git))
+    fn resolve(&self, source: &Source) -> Result<String, String> {
+        Err(format!("nothing reaches {} here", source.git))
+    }
+
+    fn fetch(&self, commit: Commit) -> Result<Hash, String> {
+        Err(format!("nothing fetches {} here", commit.git))
     }
 }
 
@@ -147,47 +215,69 @@ mod tests {
 
     use ambient_host::hash::Hasher;
 
-    use super::{Lock, Locked, Pin};
+    use super::{Lock, Locked, Source};
     use crate::project::Version;
 
-    fn locked(id: &str, rev: &str, directory: &str) -> Locked {
-        let version = Version::new(1, 2, 0);
+    fn source(branch: Option<&str>, rev: Option<&str>) -> Source {
+        Source {
+            git: "https://example.com/repo".to_owned(),
+            branch: branch.map(str::to_owned),
+            tag: None,
+            rev: rev.map(str::to_owned),
+            directory: PathBuf::new(),
+        }
+    }
+
+    /// The package `id` locked at the commit `rev` its branch led to.
+    fn locked(id: &str, branch: Option<&str>, rev: &str) -> Locked {
         Locked {
             id: id.to_owned(),
-            version,
+            version: Version::new(1, 2, 0),
             snapshot: Hasher::new(rev).finish(),
-            pin: Pin {
-                git: "https://example.com/repo".to_owned(),
-                rev: rev.to_owned(),
-                directory: PathBuf::from(directory),
-            },
+            source: source(branch, Some(rev)),
         }
+    }
+
+    fn lock<const N: usize>(entries: [Locked; N]) -> Lock {
+        let mut lock = Lock::default();
+        for locked in entries {
+            lock.insert(locked);
+        }
+        lock
     }
 
     #[test]
     fn a_lock_is_read_as_it_was_written() {
-        let mut lock = Lock::default();
-        lock.insert(locked("b", "22", "packages/b"));
-        lock.insert(locked("a", "11", ""));
-
-        assert_eq!(
-            Lock::read(&lock.written()).map(|read| read.written()),
-            Ok(lock.written())
-        );
-        assert!(lock.find("a", &locked("a", "11", "").pin).is_some());
-        assert!(lock.find("a", &locked("a", "12", "").pin).is_none());
+        let lock = lock([locked("b", Some("main"), "22"), locked("a", None, "11")]);
+        assert_eq!(Lock::read(&lock.written()), Ok(lock));
     }
 
     #[test]
-    fn a_lock_is_written_the_same_whatever_was_locked_first() {
-        let (one, other) = (locked("a", "11", ""), locked("b", "22", ""));
-        let mut forward = Lock::default();
-        let mut backward = Lock::default();
-        forward.insert(one.clone());
-        forward.insert(other.clone());
-        backward.insert(other);
-        backward.insert(one);
+    fn a_lock_is_the_same_whatever_was_locked_first() {
+        let (one, other) = (locked("a", None, "11"), locked("b", None, "22"));
+        assert_eq!(lock([one.clone(), other.clone()]), lock([other, one]));
+    }
 
-        assert_eq!(forward.written(), backward.written());
+    #[test]
+    fn a_declaration_finds_what_was_locked_for_it() {
+        let lock = lock([locked("a", Some("main"), "11")]);
+        let found = |branch, rev| lock.find("a", &source(branch, rev)).is_some();
+        // A branch is locked at whatever commit it led to.
+        assert!(found(Some("main"), None));
+        assert!(!found(Some("next"), None));
+        assert!(!found(None, None));
+        // A commit is locked only as itself.
+        assert!(!found(None, Some("11")));
+        assert!(lock.find("b", &source(Some("main"), None)).is_none());
+    }
+
+    #[test]
+    fn an_entry_that_says_no_commit_is_no_lock() {
+        let text = lock([locked("a", None, "11")]).written();
+        let without = text.replace("rev = \"11\"\n", "");
+        assert_eq!(
+            Lock::read(&without),
+            Err("a snapshot says no `rev`".to_owned())
+        );
     }
 }

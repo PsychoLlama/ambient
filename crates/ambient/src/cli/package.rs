@@ -5,7 +5,7 @@ use std::path::Path;
 
 use super::Session;
 use super::init::names;
-use crate::project::{self, MANIFEST};
+use crate::project::{self, MANIFEST, Update};
 
 impl Session<'_> {
     /// Says the snapshot of the package at `path`.
@@ -35,6 +35,20 @@ impl Session<'_> {
         world
             .store(&file.to_string_lossy(), manifest.as_bytes())
             .map_err(|failure| vec![format!("{}: {}", file.display(), failure.message)])?;
+        Ok(0)
+    }
+
+    /// Reads again the branch or tag the dependency `name` of the
+    /// package at `path` is on, or each one in its workspace, and says
+    /// whether the lock moved.
+    pub(super) fn update(&self, path: &Path, name: Option<&str>) -> Result<i32, Vec<String>> {
+        let update = name.map_or(Update::Every, |name| Update::One(name.to_owned()));
+        let project = self.open_with(path, &update)?;
+        let said = match &project.locked {
+            Some((lock, _)) => format!("wrote {}\n", lock.display()),
+            None => "nothing moved\n".to_owned(),
+        };
+        self.world.borrow_mut().write(&said);
         Ok(0)
     }
 

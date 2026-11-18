@@ -27,7 +27,7 @@ use launch::Launch;
 use crate::engine::Engine;
 use crate::error::Error;
 use crate::host::{self, World};
-use crate::project::{self, Files, Project, Snapshots};
+use crate::project::{self, Files, Project, Snapshots, Update};
 use crate::store::Store;
 use crate::surface::DefinitionKind;
 use crate::symbol::{ModuleId, Symbol};
@@ -97,6 +97,15 @@ pub enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Reads again the branch or tag a dependency is on, and locks the
+    /// commit it is at now; with none named, each one in the workspace.
+    Update {
+        /// The dependency, by the name the package uses for it.
+        name: Option<String>,
+        /// The directory of the package that depends on it.
+        #[arg(long = "in", default_value = ".")]
+        path: PathBuf,
+    },
     /// Copies a dependency into the workspace, where it can be read
     /// and changed; with none named, says which copies were changed.
     Vendor {
@@ -158,6 +167,7 @@ impl Session<'_> {
             } => self.module(path, entry, target, output.as_deref()),
             Command::Check { path } => self.check(path).map(|()| 0),
             Command::Init { path } => self.init(path),
+            Command::Update { name, path } => self.update(path, name.as_deref()),
             Command::Vendor { name, path } => self.vendor(path, name.as_deref()),
             Command::Snapshot { path } => self.snapshot(path),
             Command::Test { path, only } => self.test(path, only.as_deref()),
@@ -172,7 +182,11 @@ impl Session<'_> {
     }
 
     fn open(&self, path: &Path) -> Result<Project, Vec<String>> {
-        let project = project::open_from(self.files, self.snapshots, path);
+        self.open_with(path, &Update::Nothing)
+    }
+
+    fn open_with(&self, path: &Path, update: &Update) -> Result<Project, Vec<String>> {
+        let project = project::open_with(self.files, self.snapshots, path, update);
         let project = project.map_err(|error| vec![error.to_string()])?;
         // What opening locked is what every later build is held to.
         if let Some((lock, text)) = &project.locked {

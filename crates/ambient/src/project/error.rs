@@ -74,7 +74,12 @@ pub enum ProjectError {
         name: String,
         reason: String,
     },
-    /// What a pinned dependency names is not the snapshot the lock
+    /// An update names no dependency on a branch or a tag.
+    Fixed {
+        package: String,
+        name: String,
+    },
+    /// What a dependency leads to is not the snapshot the lock
     /// holds for it.
     Altered {
         /// Where it was read from.
@@ -156,6 +161,10 @@ impl fmt::Display for ProjectError {
             } => write!(
                 f,
                 "{package}: the dependency `{name}` was not fetched: {reason}"
+            ),
+            Self::Fixed { package, name } => write!(
+                f,
+                "{package}: `{name}` is no dependency on a branch or a tag, so nothing updates it"
             ),
             Self::Altered {
                 from,

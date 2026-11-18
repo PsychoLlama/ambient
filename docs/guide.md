@@ -496,4 +496,4 @@ pub fn main(): string {
 - A record with methods, such as a `Map`, can be tested for only where the value's type leaves no doubt: a `Json` can be asked `as Map<Json>`, an `unknown` cannot.
 - Only a function that captured nothing is packed: one written at the top of a module, not one written inside another that uses what is around it.
 - A function written inside another may call itself, and then says its parameter and return types.
-- A package is depended on by its ID: at a path (`ambient add ../text` writes it), as a member of the workspace, or pinned to a commit of a repository: `text = { id = "…", git = "…", rev = "…" }`. There are no releases to depend on yet.
+- A package is depended on by its ID: at a path (`ambient add ../text` writes it), as a member of the workspace, or in a git repository: `text = { id = "…", git = "…", branch = "main" }`, or a `tag`, or a whole commit as `rev`. `ambient.lock` holds the commit that led to, and only `ambient update` reads the branch again. There are no releases to depend on yet.

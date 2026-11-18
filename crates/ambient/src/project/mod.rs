@@ -11,10 +11,10 @@ mod declare;
 mod error;
 mod fetch;
 mod files;
+mod git;
 mod locked;
 mod manifest;
 mod members;
-mod pinned;
 mod settle;
 mod vendor;
 mod version;
@@ -29,10 +29,11 @@ pub use declare::declared;
 pub use error::ProjectError;
 pub use fetch::Kept;
 pub use files::{Disk, Files};
-pub use locked::{LOCK, Lock, Locked, Nowhere, Pin, Snapshots};
+use git::Git;
+pub use locked::{Commit, LOCK, Lock, Locked, Nowhere, Snapshots, Source};
 pub use manifest::{Dependency, Manifest, Package};
 use members::{Members, normal};
-use pinned::Pinned;
+pub use settle::Update;
 pub use vendor::{Vendored, kept, vendored};
 pub use version::{Line, Version};
 
@@ -137,35 +138,39 @@ pub fn open(files: &dyn Files, directory: &Path) -> Result<Project, ProjectError
     open_from(files, &Nowhere, directory)
 }
 
-/// [`open`], with the snapshots of pinned dependencies kept in, and
-/// fetched by, `snapshots`.
+/// [`open`], with the snapshots of dependencies in repositories kept
+/// in, and fetched by, `snapshots`.
 ///
 /// # Errors
 ///
-/// Fails if a manifest or a source file is missing or malformed, or a
-/// pinned dependency is not what its lock holds.
+/// Fails if a manifest or a source file is missing or malformed, or
+/// what a dependency leads to is not what its lock holds.
 pub fn open_from(
     files: &dyn Files,
     snapshots: &dyn Snapshots,
     directory: &Path,
 ) -> Result<Project, ProjectError> {
+    open_with(files, snapshots, directory, &Update::Nothing)
+}
+
+/// [`open_from`], reading again the branches and tags `update` says.
+///
+/// # Errors
+///
+/// As [`open_from`], or `update` names no dependency that moves.
+pub fn open_with(
+    files: &dyn Files,
+    snapshots: &dyn Snapshots,
+    directory: &Path,
+    update: &Update,
+) -> Result<Project, ProjectError> {
     let directory = normal(directory);
-    let members = Members::around(files, &directory)?;
-    let lock = members.root.as_ref().unwrap_or(&directory).join(LOCK);
-    let held = match files.read(&lock) {
-        Ok(text) => Lock::read(&text).map_err(|reason| ProjectError::Manifest {
-            path: lock.clone(),
-            reason,
-        })?,
-        Err(_) => Lock::default(),
-    };
-    let (members, settled) = settle::settled(files, snapshots, members, &held)?;
-    let locked = (settled != held).then(|| (lock, settled.written()));
+    let settled = settle::settled(files, snapshots, &directory, update)?;
     let mut opening = Opening {
         files,
         snapshots,
-        members,
-        lock: settled,
+        members: settled.members,
+        lock: settled.lock,
         workspace: Workspace::new(),
         opened: BTreeMap::new(),
         modules: Vec::new(),
@@ -175,7 +180,7 @@ pub fn open_from(
     let root = opening.member(&directory)?;
     Ok(Project {
         above: opening.members.root,
-        locked,
+        locked: settled.written,
         workspace: opening.workspace,
         root,
         modules: opening.modules,
@@ -290,12 +295,12 @@ impl Opening<'_> {
         // A package that depends on this one finds it open already,
         // so packages may depend on each other.
         for (local, dependency) in &manifest.dependencies {
-            let package = match dependency.pin() {
-                Some(pin) => self.pinned(&Pinned {
+            let package = match dependency.source() {
+                Some(source) => self.git(&Git {
                     package: &name,
                     name: local,
                     dependency,
-                    pin: &pin,
+                    source: &source,
                 })?,
                 // A snapshot is whole: nothing is beside it.
                 None if snapshot.is_some() && dependency.path.is_some() => {
