@@ -98,6 +98,13 @@ pub ability run(function: Reference, given: List<unknown>): Ran | Error;
 /// again.
 pub ability fetch(url: string, digest: string): bytes | Error;
 
+/// Keeps bytes for the build, and gives their digest: what an
+/// annotation holds in place of a file, so no tree holds one.
+pub ability keep(bytes: bytes): string;
+
+/// The bytes kept or fetched under a digest.
+pub ability kept(digest: string): bytes | Error;
+
 /// The digest of bytes, as `fetch` is given one.
 pub ability digest(of: bytes): string;
 
@@ -111,6 +118,8 @@ extern handler defining for definitions;
 extern handler reaching for reach;
 extern handler running for run;
 extern handler fetching for fetch;
+extern handler keeping for keep;
+extern handler holding for kept;
 extern handler digesting for digest;
 extern handler timing for now;
 extern handler signing for signature;
@@ -134,6 +143,8 @@ pub target world {
     reach: reaching,
     run: running,
     fetch: fetching,
+    keep: keeping,
+    kept: holding,
     digest: digesting,
     now: timing,
     host_code: hosting,

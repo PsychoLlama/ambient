@@ -70,6 +70,8 @@ pub(super) fn natives() -> Natives {
         .asking(FAULT_PACKAGE, "build.reaching", "reach")
         .asking(FAULT_PACKAGE, "build.running", "run")
         .asking(FAULT_PACKAGE, "build.fetching", "fetch")
+        .asking(FAULT_PACKAGE, "build.keeping", "keep")
+        .asking(FAULT_PACKAGE, "build.holding", "kept")
         // A digest is a function of the bytes alone.
         .verifiable(
             FAULT_PACKAGE,

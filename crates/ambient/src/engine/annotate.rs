@@ -78,7 +78,7 @@ impl Engine<'_> {
             let Type::Literal(Literal::Tag { package, tag }) = &tag.ty else {
                 return Err(wrong(true));
             };
-            let value = data(&annotation.value)
+            let value = data(&annotation.value, &|name| self.stands_for(name))
                 .and_then(|value| exchange::encode(&value).ok())
                 .ok_or_else(|| wrong(false))?;
             annotations.push(Annotation {
@@ -88,6 +88,25 @@ impl Engine<'_> {
             });
         }
         Ok(annotations)
+    }
+
+    /// What a name in an annotation's value stands for: the tag it
+    /// names, or else a reference to the definition.
+    fn stands_for(&self, name: &Reference) -> Option<Value> {
+        let Reference::Definition(named) = name else {
+            return None;
+        };
+        let resolved = self.resolve(named).ok()?;
+        Some(match &resolved.definition.kind {
+            DefinitionKind::Type(ty) => match &ty.ty {
+                Type::Literal(Literal::Tag { package, tag }) => Value::Tag {
+                    package: package.clone(),
+                    tag: tag.clone(),
+                },
+                _ => checker::reference(named),
+            },
+            _ => checker::reference(named),
+        })
     }
 
     /// The annotations of the key `package` and `tag` that `from`

@@ -196,3 +196,16 @@ fn a_tool_is_told_the_digest_of_bytes() {
 
     assert_eq!(said, HELLO);
 }
+
+#[test]
+fn a_tool_keeps_bytes_under_their_digest_and_is_given_them_back() {
+    let said = told(
+        r#"fn report(of: Build): Files with build.keep, build.kept {
+            let back = build.kept!(build.keep!("hello".to_bytes())) as bytes else "lost".to_bytes();
+            return [{ path: "told.txt", bytes: back }];
+        }"#,
+        "keep kept",
+    );
+
+    assert_eq!(said, "hello");
+}

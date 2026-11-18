@@ -8,6 +8,7 @@ use crate::exchange;
 use crate::literal::Literal;
 use crate::surface::{Expr, Reference, data};
 use crate::types::Ty;
+use crate::value::Value;
 
 impl Checker<'_> {
     /// `expr`, which is of the type it would be with nothing said of
@@ -29,7 +30,15 @@ impl Checker<'_> {
         let Some(Literal::Tag { package, tag }) = tag else {
             return Err(wrong(true));
         };
-        let value = data(value).and_then(|value| exchange::encode(&value).ok());
+        // A name is a tag, or else a definition, which data refers to.
+        let named = |name: &Reference| match name {
+            Reference::Definition(named) => Some(match self.tag(named) {
+                Some(Literal::Tag { package, tag }) => Value::Tag { package, tag },
+                _ => super::reference(named),
+            }),
+            _ => None,
+        };
+        let value = data(value, &named).and_then(|value| exchange::encode(&value).ok());
         let annotation = Annotation {
             package,
             tag,

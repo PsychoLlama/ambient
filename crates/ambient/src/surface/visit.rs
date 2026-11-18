@@ -189,7 +189,10 @@ impl<N> Expr<N> {
                 row.iter().for_each(&mut *visit);
             }
             Self::Cell { ty: Some(ty), .. } | Self::Cast { ty, .. } => ty.names(visit),
-            Self::Annotated { key, .. } => visit(key),
+            Self::Annotated { key, value, .. } => {
+                visit(key);
+                value.names(visit);
+            }
             _ => {}
         }
         self.children(&mut |child| child.names(visit));

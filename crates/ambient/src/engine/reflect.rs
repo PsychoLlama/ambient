@@ -11,7 +11,7 @@ use super::Engine;
 use super::asked::{record, refused};
 use crate::checker;
 use crate::error::Error;
-use crate::hash::Hasher;
+use crate::hash::{Hash, Hasher};
 use crate::surface::GENERATOR;
 use crate::symbol::{ModuleId, PackageId, Symbol};
 use crate::value::Value;
@@ -29,6 +29,11 @@ pub(super) fn digest(bytes: &[u8]) -> String {
             let _ = write!(hex, "{byte:02x}");
             hex
         })
+}
+
+/// Where the store keeps the bytes of a digest, fetched or kept.
+fn held(digest: &str) -> Hash {
+    Hasher::new("kept").bytes(digest.as_bytes()).finish()
 }
 
 fn text(args: &[Value], position: usize) -> Result<&str, String> {
@@ -65,6 +70,18 @@ impl<'a> Engine<'a> {
                     Ok(gave) => record([("gave", gave)]),
                     Err(error) => failed(error),
                 }
+            }),
+            "keep" => match args.first() {
+                Some(Value::Bytes(bytes)) => {
+                    let named = digest(bytes);
+                    self.store.put(held(&named), bytes.clone());
+                    Ok(Value::String(named))
+                }
+                _ => Err("argument 0 is not bytes".to_owned()),
+            },
+            "kept" => text(args, 0).map(|named| match self.store.get(&held(named)) {
+                Some(kept) => Value::Bytes(kept.to_vec()),
+                None => refused("not_found", format!("nothing is kept under {named}")),
             }),
             "fetch" => text(args, 0).and_then(|url| Ok(self.fetched(url, text(args, 1)?))),
             _ => return None,
@@ -128,7 +145,7 @@ impl<'a> Engine<'a> {
     /// The bytes at `url`, which are those of `digest`: from what was
     /// kept when they were last fetched, or else fetched now and kept.
     fn fetched(&self, url: &str, wanted: &str) -> Value {
-        let key = Hasher::new("fetched").bytes(wanted.as_bytes()).finish();
+        let key = held(wanted);
         if let Some(kept) = self.store.get(&key) {
             return Value::Bytes(kept.to_vec());
         }

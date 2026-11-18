@@ -31,7 +31,14 @@ const TOOL: &str = r#"
 
     target page built by notes {}
 
-    fn line(found: Annotation): string => "${found.on.name}=${found.value as string else "?"}";
+    fn line(found: Annotation): string {
+        match found.value {
+            let text: string => { return "${found.on.name}=${text}"; }
+            let tagged: other => { return "${found.on.name}=other"; }
+            let named: Reference => { return "${found.on.name}=&${named.name}"; }
+            _ => { return "${found.on.name}=?"; }
+        }
+    }
 
     fn notes(of: Build): Files with build.annotations {
         match build.annotations!(of.entry, note) {
@@ -111,6 +118,18 @@ fn an_extern_and_an_ability_are_annotated_though_neither_has_a_body() {
     );
 
     assert_eq!(notes(&built), "say=asks");
+}
+
+#[test]
+fn a_value_names_a_tag_or_refers_to_a_definition() {
+    let built = build(
+        r"
+        @note(other) fn main(): int => helper();
+        @note(main) fn helper(): int => 1;
+        ",
+    );
+
+    assert_eq!(notes(&built), "main=other helper=&main");
 }
 
 #[test]
