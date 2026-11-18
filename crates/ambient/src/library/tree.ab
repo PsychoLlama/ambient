@@ -176,16 +176,24 @@ pub type Function = {
     body: Expr,
 };
 
+/// Something said of a definition to a build: an annotation, by a
+/// reference to the tag that is its key and its value, plain data.
+pub type Said = { key: Reference, value: unknown };
+
 /// A definition a generated module has: its name, whether other
 /// modules may use it, and what it is. That is a function, the type
 /// the name means and how many type parameters it has, an ability by
 /// what it takes and gives and its type parameters, each by its bound
-/// or by null, or a tag, of which there is no more to say.
+/// or by null, a tag or a brand, of which there is no more to say, or
+/// an extern function by what it takes and gives, the abilities of
+/// its row, and what is said of it.
 pub type Definition =
     { name: string, public: bool, function: Function }
     | { name: string, public: bool, means: Type, parameters: int }
     | { name: string, public: bool, ability: List<Type>, returns: Type, generic: List<Type | null> }
-    | { name: string, public: bool, tag: null };
+    | { name: string, public: bool, tag: null }
+    | { name: string, public: bool, brand: null }
+    | { name: string, public: bool, extern: List<Type>, returns: Type, takes: List<Reference>, said: List<Said> };
 
 /// What a call gives for a module whose whole content it is.
 pub type Module = List<Definition>;

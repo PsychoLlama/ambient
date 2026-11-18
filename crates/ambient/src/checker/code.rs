@@ -290,7 +290,7 @@ impl<'a> Reader<'a> {
 
 /// Plain data that was spliced, as the expression that makes it: what
 /// an annotation in a tree says.
-fn plain(value: &core::Expr) -> Read<Expr<Reference>> {
+pub(super) fn plain(value: &core::Expr) -> Read<Expr<Reference>> {
     let all = |members: &[core::Expr]| members.iter().map(plain).collect::<Read<Vec<_>>>();
     Ok(match value {
         core::Expr::Null => Expr::Null,

@@ -88,7 +88,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 - An argument of a comptime call may name an ability, for a function that takes a reference to one.
 - A function's tree and an ability's say their type parameters, each by its bound or by nothing; a type definition's says how many it has. A type's tree names one by its position, as an expression's names a local.
 - A type parameter is named only inside the definition that has it: a derived type's tree names none.
-- TODO: a generated module defines no key, brand, extern, or target, so bindings made from a description cannot declare the externs they stand on.
+- TODO: a generated module defines no key, target, or native handler, and its externs perform nothing.
 - A derived type refers to itself as any tree refers to a definition: by a reference its call makes. Its call cannot name it, since naming it asks for the type the call has yet to give; nor can a generated function's call name that function, though its body may call it.
 - A type that refers to itself with arguments has a tree: the reference, and the tree of each argument.
 - A generated node has no [span](trees.md). An error in code a call gave is reported at the call, with that code written out around the node the error is at, which is marked.

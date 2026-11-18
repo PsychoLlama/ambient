@@ -5,14 +5,15 @@
 //! Each is read into what resolution leaves of one that was written,
 //! so the engine checks it as it would that.
 
-use super::code::Reader;
+use super::code::{Reader, plain};
 use super::reify::{
     Home, Read, definition, each, field, fields, need, parameter_within, text, written,
 };
 use crate::core;
 use crate::literal::Literal;
 use crate::surface::{
-    Ability, Definition, DefinitionKind, Function, Param, Reference, TypeDefinition, TypeParam,
+    Ability, Annotation, Definition, DefinitionKind, Extern, ExternKind, Function, Param,
+    Reference, TypeDefinition, TypeParam,
 };
 use crate::symbol::ModuleId;
 use crate::types::Ty;
@@ -121,8 +122,22 @@ pub fn definitions(tree: &core::Expr, home: &ModuleId) -> Read<Vec<Definition<Re
             name: name.to_owned(),
             public: *public,
             doc: None,
-            annotations: Vec::new(),
+            annotations: said(home, fields).map_err(|why| format!("`{name}`: {why}"))?,
             kind: kind(home, fields).map_err(|why| format!("`{name}`: {why}"))?,
+        })
+    })
+}
+
+/// What a `tree.Definition` with these fields is annotated with.
+fn said(home: Home, fields: &[(core::Key, core::Expr)]) -> Read<Vec<Annotation<Reference>>> {
+    let Some(said) = field(fields, "said") else {
+        return Ok(Vec::new());
+    };
+    each(said, |said| {
+        let fields = self::fields(said, "an annotation")?;
+        Ok(Annotation {
+            key: definition(home, need(fields, "key")?, &["type"])?,
+            value: plain(need(fields, "value")?)?,
         })
     })
 }
@@ -155,8 +170,22 @@ fn kind(home: Home, fields: &[(core::Key, core::Expr)]) -> Read<DefinitionKind<R
             params,
             ret: within(home, count, need(fields, "returns")?)?,
         })
+    } else if let Some(takes) = has("extern") {
+        let row = each(need(fields, "takes")?, |taken| {
+            definition(home, taken, &["ability"])
+        })?;
+        DefinitionKind::Extern(Extern {
+            suspends: false,
+            kind: ExternKind::Function {
+                params: params(home, takes)?,
+                ret: within(home, 0, need(fields, "returns")?)?,
+                row,
+            },
+        })
     } else if has("tag").is_some() {
         DefinitionKind::Tag
+    } else if has("brand").is_some() {
+        DefinitionKind::Brand
     } else {
         let core::Expr::Literal(Literal::Int(count)) = need(fields, "parameters")? else {
             return Err("a type does not say how many parameters it has".to_owned());

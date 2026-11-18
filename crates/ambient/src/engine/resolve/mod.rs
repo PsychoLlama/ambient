@@ -155,6 +155,18 @@ pub(super) fn tag(package: &str, symbol: &Symbol) -> DefinitionKind<Reference> {
     })
 }
 
+/// What a brand declared as `symbol` in the package of ID `package`
+/// is once resolved: the type of what is minted under it.
+pub(super) fn brand(package: &str, symbol: &Symbol) -> DefinitionKind<Reference> {
+    DefinitionKind::Type(TypeDefinition {
+        params: Vec::new(),
+        ty: Type::Brand(crate::literal::Brand {
+            package: package.to_owned(),
+            brand: symbol.identity(),
+        }),
+    })
+}
+
 struct Resolver<'a> {
     scope: &'a Scope,
     symbol: &'a Symbol,
@@ -220,13 +232,7 @@ impl<'a> Resolver<'a> {
             // value: a tag told apart by where this is declared.
             DefinitionKind::Tag => tag(self.package, self.symbol),
             // And a brand the type of what is minted under it.
-            DefinitionKind::Brand => DefinitionKind::Type(TypeDefinition {
-                params: Vec::new(),
-                ty: Type::Brand(crate::literal::Brand {
-                    package: self.package.to_owned(),
-                    brand: self.symbol.identity(),
-                }),
-            }),
+            DefinitionKind::Brand => brand(self.package, self.symbol),
             DefinitionKind::Key(key) => DefinitionKind::Key(KeyDefinition {
                 ty: self.ty(&key.ty)?,
             }),

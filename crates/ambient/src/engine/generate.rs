@@ -70,9 +70,11 @@ impl Engine<'_> {
         let mut seen = std::collections::BTreeSet::new();
         let id = self.sources.identity(&symbol.module.package);
         for definition in &mut made {
-            // A tag is named as a type and as a value, and is a type
-            // from here on, as one that was written is once resolved.
-            let tag = matches!(definition.kind, DefinitionKind::Tag);
+            // A tag or a brand is named as a type and as a value, and is
+            // a type from here on, as one that was written is once
+            // resolved.
+            let brand = matches!(definition.kind, DefinitionKind::Brand);
+            let tag = brand || matches!(definition.kind, DefinitionKind::Tag);
             let twice = !seen.insert((definition.kind.namespace(), definition.name.clone()))
                 || (tag && !seen.insert((Namespace::Value, definition.name.clone())));
             if twice {
@@ -81,8 +83,10 @@ impl Engine<'_> {
                     name: definition.name.clone(),
                 });
             }
-            if tag {
-                let declared = symbol.module.ty(&definition.name);
+            let declared = symbol.module.ty(&definition.name);
+            if brand {
+                definition.kind = super::resolve::brand(&id, &declared);
+            } else if tag {
                 definition.kind = super::resolve::tag(&id, &declared);
             }
         }

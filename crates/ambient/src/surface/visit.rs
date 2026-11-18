@@ -392,6 +392,7 @@ impl<N> Function<N> {
 impl<N> Definition<N> {
     /// Calls `visit` with every name in the definition, in order.
     pub fn names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
+        self.annotations.iter().for_each(|said| visit(&said.key));
         match &self.kind {
             DefinitionKind::Type(definition) => definition.ty.names(visit),
             DefinitionKind::Derived(call)

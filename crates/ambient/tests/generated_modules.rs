@@ -294,3 +294,37 @@ fn a_generated_module_is_made_once_for_a_store() {
     assert!(!build().is_empty());
     assert_eq!(build(), Vec::<String>::new());
 }
+
+/// A brand, and an extern that mints under it, with something said of
+/// the extern under a tag the making module declares.
+const NATIVE: &str = "[
+    code.named_brand(\"Address\"),
+    code.named_extern(
+        \"address\",
+        [tree.text],
+        { named: code.beside(\"Address\", \"type\") },
+        [{ key: comptime tree.reference(note), value: { new: \"URL\" } }],
+    ),
+]";
+
+#[test]
+fn a_module_is_given_an_extern_and_the_brand_it_mints_under() {
+    use ambient::core::Tree;
+
+    let maker = format!("pub tag note;\n{}", make(NATIVE));
+    let made = "import pkg.make; comptime make.all();";
+    let main = "import pkg.made; fn main(text: string): made.Address => made.address(text);";
+    let workspace = modules(&[("make", &maker), ("made", made), ("main", main)]);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+
+    engine.check(&value("main", "main")).unwrap();
+    let native = engine.check(&value("made", "address")).unwrap();
+    assert!(matches!(&native.tree, Tree::Extern { path, .. } if path == "made.address"));
+    let said: Vec<&str> = native
+        .annotations
+        .iter()
+        .map(|said| said.tag.as_str())
+        .collect();
+    assert_eq!(said, ["make.note"]);
+}

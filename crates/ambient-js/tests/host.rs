@@ -29,11 +29,13 @@ use ambient::workspace::Workspace;
 /// zero. Two externs are functions of the package's JavaScript: one
 /// calls a function it is handed, and one performs an ability of its
 /// row. The rest have none: each is bound to something JavaScript has,
-/// so the build writes it, and one gives a handle another takes.
+/// so the build writes it, and one gives a handle another takes. One
+/// of them no one wrote: a module of the package is generated.
 const PACKAGE: &str = "app";
 const PROGRAM: &str = r#"
     import ambient.iterator;
     import js.{binding, host};
+    import pkg.web;
 
     ability say(text: string): null;
     ability sleep(milliseconds: int): null;
@@ -43,7 +45,6 @@ const PROGRAM: &str = r#"
 
     extern fn applied(work: fn(int): int, to: int): int;
     extern fn echoed(text: string): null with say;
-    @binding("Math.max") extern fn larger(one: int, other: int): int;
 
     brand Address;
     @binding({ new: "URL" }) extern fn address(text: string): Address;
@@ -64,7 +65,7 @@ const PROGRAM: &str = r#"
     fn gives_up(after: int): int with sleep {
         sleep!(after);
         let home = address("https://example.com/path");
-        return larger(0, -1) + host_of(home).length() + written(home).length() - 35;
+        return web.larger(0, -1) + host_of(home).length() + written(home).length() - 35;
     }
 
     fn count(to: int): int with say, sleep {
@@ -80,6 +81,20 @@ const PROGRAM: &str = r#"
         echoed("still here");
         return 1;
     }
+"#;
+
+/// A module of bindings no one wrote: `web` is the call of this, which
+/// gives an extern bound to a function JavaScript has.
+const BINDINGS: &str = r#"
+    import ambient.code;
+    import ambient.tree;
+    import js.{binding};
+
+    pub fn all(): tree.Module => [
+        code.named_extern("larger", [tree.integer, tree.integer], tree.integer, [
+            { key: comptime tree.reference(binding), value: "Math.max" },
+        ]),
+    ];
 "#;
 
 /// The JavaScript of the package's externs, which its build takes:
@@ -113,6 +128,11 @@ fn build(output: &Path) {
     for (path, text) in [
         ("app/ambient.toml", manifest.as_str()),
         ("app/src/main.ab", PROGRAM),
+        ("app/src/bindings.ab", BINDINGS),
+        (
+            "app/src/web.ab",
+            "import pkg.bindings; comptime bindings.all();",
+        ),
         ("app/js/main.js", HOSTED),
     ] {
         files.insert(PathBuf::from(path), text.to_owned());
