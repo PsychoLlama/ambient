@@ -52,7 +52,9 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - [tasks](tasks.md): groups, tasks, suspension, scheduling, cancellation.
 - [cells](cells.md): the one mutable thing.
 - [comptime](comptime.md): compile-time calls and splices.
-- [memoization](memoization.md): trace-validated caching for comptime and tests.
+- [annotations](annotations.md): data a build reads and a program never does.
+- [tools](tools.md): functions a build runs, build abilities, build steps, commands.
+- [memoization](memoization.md): trace-validated caching for comptime, tools, and tests.
 - [externs](externs.md): native functions and native handlers.
 - [targets](targets.md): root bindings, platforms, embedding.
 - [build](build.md): demand-driven stages, the store, backends.

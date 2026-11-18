@@ -80,9 +80,9 @@ A target defines the world a program runs in: a root binding for every ability t
 - No host is the standard one, so a program built for one carries nothing of another.
 - Native code reaches such a program two ways. What only a host can do is the host's, in the host's language; what is only computation is itself WebAssembly, [linked](linking.md) into the program as the runtime is.
 - Linked native code shares the program's memory and is carried only if reached, so it runs under every host and reads a value where it lies.
-- Making a program into what a host loads is library code. A build hands a function of the target's package the module and the externs it imports, and what the function gives is the files.
-- A target with no such function is built as the module alone, for a host that loads it by hand.
-- TODO: a build gives only the module alone: no target says how its program is made into what a host loads, and nothing links native code into one.
+- Making a program into what a host loads is library code: the [tool](tools.md#builds) its target names, which gives the files.
+- A target with no such tool is built as the module alone, for a host that loads it by hand.
+- TODO: nothing links native code into a module.
 
 ## JavaScript hosts
 
@@ -90,6 +90,10 @@ A target defines the world a program runs in: a root binding for every ability t
 - The compiler comes with neither. What it knows of JavaScript is nothing.
 - Such a package's host code is JavaScript: a function for each extern, found by its identity.
 - Building under one gives the module and the JavaScript that loads it, with a function for each extern the program reaches and no others. What a page fetches follows from what its entry reaches.
+- How an extern's values cross is JavaScript the target's tool writes, for each extern reached, from its signature. No package writes that by hand, and none pays for a conversion its signature does not need.
+- An extern may say by an [annotation](annotations.md) what of JavaScript it stands for: a function, a method, a property. The tool then writes its function as well, which is how bindings are made from a description of an interface.
+- The tool also gives the types of what the host calls and is handed, as a declaration JavaScript's tools read.
+- A library declares an extern once, for every host. Another host's target reads the same signatures and its own annotations, so supporting it changes no library that only declares.
 - A suspending extern's function gives a promise, and what the promise settles to is the answer.
 - A function among an extern's arguments is a JavaScript function, which [calls back](externs.md#calling-back) while the extern's function runs and throws after.
 - An extern's function is handed the call it is in after its arguments, and performs the abilities of its row through that.
@@ -97,7 +101,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - A loaded function the host holds keeps its code; answering with it hands it to the program, and code nothing holds is dropped.
 - A handle minted there stands for a JavaScript object. The host keeps the object by the handle and lets it go when the handle is reclaimed.
 - An event of a page is a [call from the world](#calls-from-the-world), so a handler that cancels one does so before it next waits.
-- TODO: no package is such a target yet. A host is loaded by hand and given its functions, and a build emits no JavaScript.
+- TODO: no package is such a target yet. A host is loaded by hand and given its functions.
 - TODO: how JavaScript sees a value is undecided. Converting each at the call copies it, so a value is more likely held as it is and read through the program, with converting asked for.
 
 ## Network

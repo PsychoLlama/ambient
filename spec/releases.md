@@ -78,7 +78,7 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 
 ## Approvals
 
-- A workspace approves each package's [build grants](comptime.md) and [native code](externs.md), by package ID and publisher, those of packages it does not declare included.
+- A workspace approves each package's [build grants](comptime.md), [build steps](tools.md#builds), and [native code](externs.md), by package ID and publisher, those of packages it does not declare included.
 - An approval is written in the workspace, where a review sees it.
 - A snapshot that asks for more than was approved is not built until it is approved, so an update never widens what a dependency can reach.
 

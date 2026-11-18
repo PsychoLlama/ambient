@@ -1,6 +1,6 @@
 # Memoization
 
-A memoized run caches a function's result together with everything the run observed. Comptime calls and tests are both memoized runs.
+A memoized run caches a function's result together with everything the run observed. Comptime calls, [tools](tools.md), and tests are all memoized runs.
 
 ## Traces
 

@@ -22,7 +22,7 @@ Compilation is a set of demand-driven queries over content-addressed inputs. Not
 
 ## Store
 
-- One store per workspace holds definitions by hash, stage results, the index, [memoized runs](memoization.md), and artifacts.
+- One store per workspace holds definitions by hash, stage results, the index, [memoized runs](memoization.md), artifacts, and the files an [annotation](annotations.md) or a [tool](tools.md) names by digest.
 - A stage result is kept under a key derived from the content of that stage's inputs, so an unchanged input is never recomputed.
 - The compiler is an input to every stage: a result one build of it stored is never reused by another.
 - Every entry is either content-addressed or derived from entries that are; deleting the store loses only time.

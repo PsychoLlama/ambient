@@ -37,7 +37,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A public module exposes its public definitions to dependents; nothing else leaves the package.
 - A public module is reached by the same path its own package uses, so moving one is a change of interface, made as an [edit](trees.md) across dependents.
 - A package may define any number of named entries, each a function.
-- A package declares its version, its dependencies, its [preludes](modules.md), its [build grants](comptime.md), its native bundles, and the files beside its sources that are part of it.
+- A package declares its version, its dependencies, its [preludes](modules.md), its [build grants](comptime.md), its [build steps](tools.md#builds), its [lints](tools.md#commands), its native bundles, and the files beside its sources that are part of it.
 - A package is distributed as source.
 
 ## Layout
@@ -65,7 +65,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - It runs as the command line runs the function: under the same [target](targets.md), started with every argument it is given, exiting with what the function gives.
 - A [fault](values.md) is reported as it is when run from the package: the executable carries the name of each definition it holds and the place of each expression that can fault, as they were when it was built.
 - An executable never reads a [store](build.md) and never writes one.
-- A build may instead be of a function under a target of the package, as a WebAssembly module for a [host](targets.md#webassembly-hosts) that supplies what the target binds.
+- A build may instead be of a function under a target the package names, which gives what that target's [tool](tools.md#builds) does: a WebAssembly module and whatever its [host](targets.md#webassembly-hosts) loads it with.
 - What loads the program holds no compiler: an executable carries only what running needs, and can [load](exchange.md) compiled code as a program run from its package can.
 - A program that packs or compiles code needs the compiler as it runs, so what loads that one is the compiler's own executable.
 - An executable whose program [packs](targets.md#code) code carries the trees of what it could pack; one that does not carries none.

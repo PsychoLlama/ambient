@@ -15,6 +15,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 - A definition whose content depends on a comptime call that depends on that definition is an error.
 - A [fault](values.md) in a comptime call is a compile error at the call.
 - A comptime call is compiled and run for the machine doing the build, whatever the program is being built for.
+- A comptime call is never told what a program is being built for, so a definition has one hash under every [target](targets.md). What differs by target is a [tool](tools.md)'s to make.
 
 ## Splice positions
 
@@ -66,7 +67,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 
 - A comptime function's effects are abilities, so its row states everything it can touch.
 - The compiler runs comptime calls under a build [target](targets.md) whose abilities read from the developer's machine.
-- The build target binds reading a file as text and listing a directory. A path is from the directory of the package the call is written in, and names only [files of that package](packages.md#layout).
+- The build target binds the [build abilities](tools.md#build-abilities). A path is from the directory of the package the call is written in, and names only [files of that package](packages.md#layout).
 - A [package](packages.md) declares the build abilities it needs; granting them is its workspace's [approval](releases.md#approvals).
 - A comptime call runs under the grants of the package that contains the call site.
 - An ungranted ability is a compile error at the call, naming the ability.
@@ -76,6 +77,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 
 - Comptime calls are [memoized runs](memoization.md); a call reruns only when something it observed changed.
 - Each call is a run of its own: none sees what another did, and no result depends on the order calls are run in.
+- A result gathered from many calls is never accumulated by them. Each gives [annotations](annotations.md) in its tree, and a tool collects those a program reaches.
 
 ## Unsettled
 
@@ -86,11 +88,10 @@ A comptime call runs an ordinary function during compilation and splices what it
 - An argument of a comptime call may name an ability, for a function that takes a reference to one.
 - A function's tree and an ability's say their type parameters, each by its bound or by nothing; a type definition's says how many it has. A type's tree names one by its position, as an expression's names a local.
 - A type parameter is named only inside the definition that has it: a derived type's tree names none.
-- TODO: a generated module defines no key, brand, extern, or target.
+- TODO: a generated module defines no key, brand, extern, or target, so bindings made from a description cannot declare the externs they stand on.
 - A derived type refers to itself as any tree refers to a definition: by a reference its call makes. Its call cannot name it, since naming it asks for the type the call has yet to give; nor can a generated function's call name that function, though its body may call it.
 - A type that refers to itself with arguments has a tree: the reference, and the tree of each argument.
 - A generated node has no [span](trees.md). An error in code a call gave is reported at the call, with that code written out around the node the error is at, which is marked.
 - A frame of a [trace](errors.md) in generated code is at the call that gave it.
 - Code written out for a report names each local by the order it was bound in, since a tree binds no name.
 - TODO: code is written out for a report in a format of its own, which is not the canonical one a [tree is written back](trees.md) in.
-- TODO: a result gathered from many calls, such as one stylesheet from every call that declares a style, has no design. It would be asked of the build, never accumulated by the calls.

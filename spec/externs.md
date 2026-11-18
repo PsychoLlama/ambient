@@ -58,6 +58,8 @@ An extern is a definition implemented in native code. Ambient declares the inter
 ## Distribution
 
 - A package carries its native bundles precompiled, per platform, beside the extern declarations.
+- Host code is what a bundle is called for a platform whose language is not compiled, as JavaScript: it is carried as source, a function for each extern.
+- A package carries a bundle for each platform it supports, and a [build](tools.md#builds) reads only the one it is for.
 - Only externs the entry reaches are linked into a program.
 - That a package contains native code needs its workspace's [approval](releases.md#approvals), as its [build grants](comptime.md) do.
 - Definition hashes do not cover native code; a package's [snapshot](packages.md) does.
