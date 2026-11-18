@@ -23,8 +23,9 @@ A tool is a function a build runs to make something other than a program's defin
 - What a definition reaches: its definitions, its externs, and the annotations of a key, [in order](annotations.md#collecting).
 - Compiling an entry under a target for a backend, which gives the module and the externs it imports.
 - An extern's [host code](externs.md#distribution) for a platform, from the package that declares it.
-- Running a function under a target, as a memoized run of its own, which gives its result or its fault.
+- Running a function under a target, as a memoized run of its own, which gives its result or its fault. It takes what its own package is granted, whoever asked.
 - The bytes at a URL, given their digest. The digest is what is verified, so what was fetched once is never fetched again.
+- The digest of bytes, which is how a tool names what it made.
 - What differs from one build to the next, as the time does, is asked through volatile abilities. A run that asks is run on every build, and one that gives what it gave before invalidates nothing.
 - A comptime call may perform these too. One that asks about what reaches its own definition is the [cycle](comptime.md#calls) every such call is refused for.
 
@@ -60,5 +61,5 @@ A tool is a function a build runs to make something other than a program's defin
 
 ## Unbuilt
 
-- TODO: a tool reads its package's files, compiles an entry, reads host code, and asks for the annotations a definition reaches and for the type of a function or an extern, and nothing else: no tree of a definition, no reach but of annotations and of the externs compiled, nested run, or fetch. There are no lints and no selections, and a command hands no tool anything but a build.
+- TODO: a tool is told no tree of a definition, and no docs. It runs a function only under the build target, and no command hands a tool a selection: there are no lints.
 - TODO: [testing](packages.md#testing) is not a tool: its harness is the command line's, so no package replaces it.

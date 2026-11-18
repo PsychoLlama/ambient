@@ -101,22 +101,38 @@ impl Engine<'_> {
         tag: &str,
     ) -> Result<Value, Error> {
         let mut found = Vec::new();
+        self.walk(from, &mut |symbol, said| {
+            let Some(said) = said.filter(|said| said.package == package && said.tag == tag) else {
+                return;
+            };
+            // What was encoded here decodes.
+            let value = exchange::decode(&said.value).unwrap_or(Value::Null);
+            found.push(record([
+                ("on", checker::reference(symbol)),
+                ("value", value),
+            ]));
+        })?;
+        Ok(Value::List(found))
+    }
+
+    /// Walks what `from` reaches, in the order `spec/annotations.md`
+    /// gives: `visit` is told each definition as the walk comes to it,
+    /// and then each thing said in it, with the definition it is in.
+    pub(super) fn walk(
+        &self,
+        from: &Symbol,
+        visit: &mut dyn FnMut(&Symbol, Option<&Annotation>),
+    ) -> Result<(), Error> {
         let mut seen = HashSet::from([from.clone()]);
+        visit(from, None);
         // The definitions being walked, each with what is left of it.
         let mut walking = vec![(from.clone(), met(&*self.check(from)?).into_iter())];
         while let Some((symbol, rest)) = walking.last_mut() {
             match rest.next() {
-                Some(Met::Said(said)) if said.package == package && said.tag == tag => {
-                    // What was encoded here decodes.
-                    let value = exchange::decode(&said.value).unwrap_or(Value::Null);
-                    found.push(record([
-                        ("on", checker::reference(symbol)),
-                        ("value", value),
-                    ]));
-                }
-                Some(Met::Said(_)) => {}
+                Some(Met::Said(said)) => visit(symbol, Some(&said)),
                 Some(Met::Named(named)) => {
                     if seen.insert(named.clone()) {
+                        visit(&named, None);
                         let rest = met(&*self.check(&named)?).into_iter();
                         walking.push((named, rest));
                     }
@@ -126,7 +142,7 @@ impl Engine<'_> {
                 }
             }
         }
-        Ok(Value::List(found))
+        Ok(())
     }
 
     /// The type a function or an extern has, as a `tree.Type`: what it

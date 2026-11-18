@@ -20,7 +20,9 @@ use crate::workspace::Sources;
 
 impl Session<'_> {
     pub(super) fn engine<'e>(&'e self, project: &'e Project) -> Engine<'e> {
-        engine(self.files, self.store, project)
+        // What a build fetches, it fetches as the machine fetches a
+        // snapshot.
+        engine(self.files, self.store, project).with_fetch(|url| self.snapshots.bytes(url))
     }
 }
 

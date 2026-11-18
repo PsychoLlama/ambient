@@ -35,6 +35,7 @@ mod link;
 mod pack;
 mod program;
 mod read;
+mod reflect;
 mod resolve;
 mod run;
 mod scope;
@@ -149,6 +150,8 @@ pub struct Engine<'a> {
     runner: run::Runner,
     /// The world comptime calls run in, if the build has one.
     build: Option<run::Build>,
+    /// What gives the bytes at a URL, if the build may fetch.
+    fetch: Option<reflect::Fetch<'a>>,
     /// The runs made while checking each definition being checked,
     /// outermost first.
     observed: RefCell<Vec<Vec<run::Dependency>>>,
@@ -185,6 +188,7 @@ impl<'a> Engine<'a> {
             roots: RefCell::default(),
             runner: run::Runner::default(),
             build: None,
+            fetch: None,
             observed: RefCell::default(),
         }
     }

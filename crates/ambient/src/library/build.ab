@@ -72,7 +72,47 @@ pub ability annotations(from: Reference, key: Tag): List<Annotation> | Error;
 /// none to give.
 pub ability signature(of: Reference): Type | Error;
 
+/// The modules of a package, each by its path: the package is named
+/// as a reference names it.
+pub ability modules(package: string): List<List<string>>;
+
+/// The definitions of a module, public and not, in the order they are
+/// written.
+pub ability definitions(package: string, module: List<string>): List<Reference> | Error;
+
+/// The definitions a definition reaches, itself first, in the order a
+/// walk from it first meets them.
+pub ability reach(from: Reference): List<Reference> | Error;
+
+/// What a run of a function gave.
+pub type Ran = { gave: unknown };
+
+/// Runs a function of the build with what it is `given`, as a run of
+/// its own: it is kept apart from the run that asked, and made again
+/// only when what it asked has changed. It takes only the build
+/// abilities its own package is granted.
+pub ability run(function: Reference, given: List<unknown>): Ran | Error;
+
+/// The bytes at a URL, which are those of a digest: SHA-256, in
+/// hexadecimal. What was fetched once is kept, and never fetched
+/// again.
+pub ability fetch(url: string, digest: string): bytes | Error;
+
+/// The digest of bytes, as `fetch` is given one.
+pub ability digest(of: bytes): string;
+
+/// The time, in milliseconds since 1970. It is never what it was, so
+/// a run that asks is made again on every build.
+pub ability now(): int;
+
 extern handler compiling for compile;
+extern handler moduling for modules;
+extern handler defining for definitions;
+extern handler reaching for reach;
+extern handler running for run;
+extern handler fetching for fetch;
+extern handler digesting for digest;
+extern handler timing for now;
 extern handler signing for signature;
 extern handler annotating for annotations;
 extern handler hosting for host_code;
@@ -89,6 +129,13 @@ pub target world {
     compile: compiling,
     annotations: annotating,
     signature: signing,
+    modules: moduling,
+    definitions: defining,
+    reach: reaching,
+    run: running,
+    fetch: fetching,
+    digest: digesting,
+    now: timing,
     host_code: hosting,
     errors.throw: thrown,
     read: reading,

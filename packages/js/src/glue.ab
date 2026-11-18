@@ -22,9 +22,13 @@ fn is_path(path: string): bool {
 fn named(path: string): string with throw =>
     is_path(path) ? path : fail(unwritable, "`${path}` in a `js.binding` is no path of names");
 
+/// What is known of a program only once it is built, which an extern
+/// may give: the digest of its module.
+pub type Built = { digest: string };
+
 /// The expression a binding says an extern is, of `given`: the names
 /// of what the extern takes.
-fn does(says: unknown, given: List<string>): string with throw {
+fn does(says: unknown, given: List<string>, built: Built): string with throw {
     let all = given.join_with(", ");
     let on = given.get(0) as string else "undefined";
     let rest = given.skip(1).join_with(", ");
@@ -35,7 +39,11 @@ fn does(says: unknown, given: List<string>): string with throw {
         let sent: { method: string } => { return "${on}.${named(sent.method)}(${rest})"; }
         let held: { property: string } => { return "${on}.${named(held.property)}"; }
         let put: { set: string } => { return "(${on}.${named(put.set)} = ${rest}, null)"; }
-        _ => { return fail(unwritable, "a `js.binding` is a path, or one under `get`, `new`, `method`, `property`, or `set`"); }
+        let late: { build: string } => {
+            return late.build == "digest" ? "\"${built.digest}\""
+                : fail(unwritable, "a build knows its `digest`, and not its `${late.build}`");
+        }
+        _ => { return fail(unwritable, "a `js.binding` is a path, one under `get`, `new`, `method`, `property`, or `set`, or `build`"); }
     }
 }
 
@@ -57,9 +65,9 @@ fn given_back(returns: Type, made: string): string {
 /// The function that stands for an extern of type `takes` whose
 /// binding says `says`. It names exactly what the extern takes, so
 /// what the host hands it after that is not handed on.
-pub fn written(says: unknown, takes: Signature): string with throw {
+pub fn written(says: unknown, takes: Signature, built: Built): string with throw {
     let none: List<string> = [];
     let given = takes.function.fold(none, fn(given: List<string>, of: Type): List<string> =>
         given.push("a${given.length()}"));
-    return "(${given.join_with(", ")}) => ${given_back(takes.returns, does(says, given))}";
+    return "(${given.join_with(", ")}) => ${given_back(takes.returns, does(says, given, built))}";
 }

@@ -85,6 +85,12 @@ impl Kept {
 }
 
 impl Snapshots for Kept {
+    fn bytes(&self, url: &str) -> Result<Vec<u8>, String> {
+        let said = |error: ureq::Error| error.to_string();
+        let mut response = ureq::get(url).call().map_err(said)?;
+        response.body_mut().read_to_vec().map_err(said)
+    }
+
     fn held(&self, snapshot: &Hash) -> Option<PathBuf> {
         let place = self.place(snapshot);
         place.join(MANIFEST).exists().then_some(place)

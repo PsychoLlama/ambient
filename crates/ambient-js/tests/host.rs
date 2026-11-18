@@ -46,6 +46,8 @@ const PROGRAM: &str = r#"
     extern fn applied(work: fn(int): int, to: int): int;
     extern fn echoed(text: string): null with say;
 
+    @binding({ build: "digest" }) extern fn version(): string;
+
     brand Address;
     @binding({ new: "URL" }) extern fn address(text: string): Address;
     @binding({ property: "hostname" }) extern fn host_of(address: Address): string;
@@ -65,7 +67,8 @@ const PROGRAM: &str = r#"
     fn gives_up(after: int): int with sleep {
         sleep!(after);
         let home = address("https://example.com/path");
-        return web.larger(0, -1) + host_of(home).length() + written(home).length() - 35;
+        return web.larger(0, -1) + host_of(home).length() + written(home).length() - 35
+            + version().length() - 64;
     }
 
     fn count(to: int): int with say, sleep {

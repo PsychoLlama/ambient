@@ -65,6 +65,27 @@ pub(super) fn natives() -> Natives {
         .asking(FAULT_PACKAGE, "build.compiling", "compile")
         .asking(FAULT_PACKAGE, "build.annotating", "annotations")
         .asking(FAULT_PACKAGE, "build.signing", "signature")
+        .asking(FAULT_PACKAGE, "build.moduling", "modules")
+        .asking(FAULT_PACKAGE, "build.defining", "definitions")
+        .asking(FAULT_PACKAGE, "build.reaching", "reach")
+        .asking(FAULT_PACKAGE, "build.running", "run")
+        .asking(FAULT_PACKAGE, "build.fetching", "fetch")
+        // A digest is a function of the bytes alone.
+        .verifiable(
+            FAULT_PACKAGE,
+            "build.digesting",
+            |args: &[Value]| match args.first() {
+                Some(Value::Bytes(bytes)) => Ok(Value::String(super::reflect::digest(bytes))),
+                _ => Err("argument 0 is not bytes".to_owned()),
+            },
+        )
+        // The time is never what it was, so a run that asks is made
+        // again on every build.
+        .with(FAULT_PACKAGE, "build.timing", |_| {
+            let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+            let now = since.map_or(0, |since| since.as_millis());
+            Ok(Value::Int(i64::try_from(now).unwrap_or(i64::MAX)))
+        })
         .verifiable(FAULT_PACKAGE, "build.thrown", thrown)
 }
 
@@ -121,13 +142,15 @@ impl Questions for Engine<'_> {
                 let tree = self.signature_tree(&definition(args, 0)?);
                 Ok(tree.unwrap_or_else(|error| refused("failed", error.to_string())))
             }
-            _ => Err(format!("a build has no answer to `{question}`")),
+            _ => self
+                .told(question, args)
+                .unwrap_or_else(|| Err(format!("a build has no answer to `{question}`"))),
         }
     }
 }
 
 /// The definition a `tree.Reference` among `args` refers to.
-fn definition(args: &[Value], position: usize) -> Result<Symbol, String> {
+pub(super) fn definition(args: &[Value], position: usize) -> Result<Symbol, String> {
     let wrong = || format!("argument {position} is not a reference to a definition");
     let Some(Value::Record(fields)) = args.get(position) else {
         return Err(wrong());

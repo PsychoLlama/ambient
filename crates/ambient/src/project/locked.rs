@@ -190,6 +190,16 @@ pub trait Snapshots {
     ///
     /// It could not be fetched, or what was fetched is no package.
     fn fetch(&self, commit: Commit) -> Result<Hash, String>;
+
+    /// The bytes at a URL, for a build that names their digest. See
+    /// "Build abilities" in `spec/tools.md`.
+    ///
+    /// # Errors
+    ///
+    /// Nothing answered there, or this machine fetches nothing.
+    fn bytes(&self, url: &str) -> Result<Vec<u8>, String> {
+        Err(format!("nothing here fetches {url}"))
+    }
 }
 
 /// A machine that keeps nothing and fetches nothing.

@@ -14,7 +14,7 @@ import ambient.build.{Build, Annotation, Compiled, Extern, File, Files, Word};
 import ambient.errors.{fail, throw};
 import ambient.tree.{Reference, Type};
 import pkg.glue;
-import pkg.glue.{Signature};
+import pkg.glue.{Built, Signature};
 import pkg.types;
 import ambient.Error;
 
@@ -35,6 +35,9 @@ pub target host built by bundle {}
 ///   extern takes, with the rest.
 /// - `{ property: "href" }`: a property of the first thing it takes,
 ///   and `{ set: "href" }` the same put to the second.
+///
+/// - `{ build: "digest" }`: the digest of the program's own module,
+///   which nothing knows until the program is built.
 ///
 /// An extern that gives a handle gives what JavaScript gave, held by
 /// the host under the handle's brand.
@@ -138,13 +141,13 @@ fn constants(compiled: Compiled): string {
 /// `program.js`: what loads the module with the function of each
 /// extern it reaches, and no other. One that is bound is written
 /// here, from what the extern takes.
-fn loader(externs: List<Extern>, bindings: List<Bound>): string with build.signature, throw {
+fn loader(externs: List<Extern>, bindings: List<Bound>, built: Built): string with build.signature, throw {
     let none: List<string> = [];
     let imports = externs.fold(none, fn(lines: List<string>, native: Extern): List<string> {
         let position = lines.length();
         match binding_of(bindings, native) {
             let bound: Bound => {
-                let written = glue.written(bound.says, signature(native.definition));
+                let written = glue.written(bound.says, signature(native.definition), built);
                 return lines.push("const e${position} = ${written};");
             }
             null => {
@@ -225,7 +228,7 @@ fn declarations(entry: Reference, externs: List<Extern>): string with build.sign
 /// it, the JavaScript of each extern it reaches, and `program.js`,
 /// which puts them together.
 pub fn bundle(of: Build): Files
-    with build.compile, build.host_code, build.read, build.annotations, build.signature, throw
+    with build.compile, build.host_code, build.read, build.annotations, build.signature, build.digest, throw
 {
     match build.compile!(of.entry, of.target) {
         let error: Error => { return throw!(error); }
@@ -235,7 +238,7 @@ pub fn bundle(of: Build): Files
             let written = fn(native: Extern): bool => binding_of(bindings, native) == null;
             let host = runtime().map(fn(name: string): File => file("runtime/" ++ name, read("host/" ++ name)));
             return [{ path: "program.wasm", bytes: compiled.module }]
-                .push(file("program.js", loader(compiled.externs, bindings)))
+                .push(file("program.js", loader(compiled.externs, bindings, { digest: build.digest!(compiled.module) })))
                 .push(file("program.d.ts", declarations(of.entry, compiled.externs)))
                 .push(file("runtime/constants.js", constants(compiled)))
                 .join(host)
