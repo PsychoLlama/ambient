@@ -9,9 +9,12 @@
 /// its name. An extern annotated with `binding` needs none: the build
 /// writes its function.
 import ambient.build;
+import ambient.iterator;
+import ambient.tree;
 import ambient.build.{Annotation, Compiled, Extern, File, Files, Word};
 import ambient.errors.{fail, throw};
-import ambient.tree.{Reference};
+import ambient.tree.{Reference, Type};
+import pkg.types;
 import ambient.Error;
 
 /// The world of a program a JavaScript host runs, before anything is
@@ -28,7 +31,7 @@ pub tag binding;
 pub tag unwritable;
 
 /// An extern whose function the build writes: a call of `calls`.
-type Bound = { native: Extern, calls: string };
+type Bound = { on: Reference, calls: string };
 
 /// Whether `path` is names with dots between, which is all that is
 /// written into a build as code.
@@ -48,20 +51,39 @@ fn calls(value: unknown): string with throw {
 }
 
 /// The externs `from` reaches that are annotated with `binding`.
-fn bound(from: Reference): List<Bound> with build.annotations, build.identity, throw {
+fn bound(from: Reference): List<Bound> with build.annotations, throw {
     match build.annotations!(from, binding) {
         let error: Error => { return throw!(error); }
         let found: List<Annotation> => {
             return found.map(fn(found: Annotation): Bound =>
-                { native: build.identity!(found.on), calls: calls(found.value) });
+                { on: found.on, calls: calls(found.value) });
         }
     }
 }
 
 /// What the build writes for `native`, if it is bound.
 fn binding_of(bindings: List<Bound>, native: Extern): Bound | null =>
-    bindings.find(fn(bound: Bound): bool =>
-        bound.native.package == native.package && bound.native.path == native.path);
+    bindings.find(fn(bound: Bound): bool => bound.on == native.definition);
+
+/// What a function or an extern takes and gives.
+type Signature = { function: List<Type>, returns: Type, takes: List<tree.Ability> };
+
+fn signature(of: Reference): Signature with build.signature, throw {
+    match build.signature!(of) {
+        let function: Signature => { return function; }
+        let error: Error => { return throw!(error); }
+        _ => { return fail(unwritable, "`${of.name}` is no function"); }
+    }
+}
+
+/// The call of `calls` that stands for an extern of `arity`: what
+/// the extern takes is handed on, and nothing after it.
+fn glue(calls: string, arity: int): string {
+    let none: List<string> = [];
+    let given = iterator.range(0, arity).fold(none, fn(given: List<string>, at: int): List<string> =>
+        given.push("a${at}")).join_with(", ");
+    return "(${given}) => ${calls}(${given}) ?? null";
+}
 
 /// The files of the host that loads a module, which are this
 /// package's: see `host/host.js`.
@@ -130,15 +152,15 @@ fn constants(compiled: Compiled): string {
 
 /// `program.js`: what loads the module with the function of each
 /// extern it reaches, and no other. One that is bound is written
-/// here: it is handed what the extern takes and then the call, which
-/// the function it calls is not.
-fn loader(externs: List<Extern>, bindings: List<Bound>): string {
+/// here, from what the extern takes.
+fn loader(externs: List<Extern>, bindings: List<Bound>): string with build.signature, throw {
     let none: List<string> = [];
     let imports = externs.fold(none, fn(lines: List<string>, native: Extern): List<string> {
         let position = lines.length();
         match binding_of(bindings, native) {
             let bound: Bound => {
-                return lines.push("const e${position} = (...given) => ${bound.calls}(...given.slice(0, -1)) ?? null;");
+                let arity = signature(native.definition).function.length();
+                return lines.push("const e${position} = ${glue(bound.calls, arity)};");
             }
             null => {
                 return lines.push("import { ${name_of(native)} as e${position} } from \"./${kept(native)}\";");
@@ -178,11 +200,47 @@ fn loader(externs: List<Extern>, bindings: List<Bound>): string {
     return lines.join_with("\n") ++ "\n";
 }
 
+/// `program.d.ts`: the types of what `program.js` exports, for a host
+/// written in TypeScript. The program's `run` takes what its entry
+/// takes, and each extern says what its JavaScript is handed.
+fn declarations(entry: Reference, externs: List<Extern>): string with build.signature, throw {
+    let main = signature(entry);
+    let natives = externs.map(fn(native: Extern): string {
+        let takes = signature(native.definition);
+        return "  /** `${native.path}` of package `${native.package}`. */\n"
+            ++ "  \"${native.package}/${native.path}\": (${types.taken(takes.function)}) => ${types.written(takes.returns)};";
+    });
+    let lines = [
+        "// Written by the build of this program.",
+        "",
+        "/** The program, loaded: `run` runs its entry. */",
+        "export interface Program {",
+        "  run(${types.taken(main.function)}): Promise<${types.written(main.returns)}>;",
+        "}",
+        "",
+        "/** What the JavaScript of each extern the program reaches is handed, and gives. */",
+        "export interface Externs {",
+    ]
+        .join(natives)
+        .join([
+            "}",
+            "",
+            "/** Native code by package and path, to use in place of the program's own. */",
+            "export type Natives = { [pkg: string]: { [path: string]: (...given: any[]) => unknown } };",
+            "",
+            "export function start(",
+            "  source?: BufferSource | Response | Promise<Response>,",
+            "  over?: Natives,",
+            "): Promise<Program>;",
+        ]);
+    return lines.join_with("\n") ++ "\n";
+}
+
 /// A program for a JavaScript host: the module, the host that loads
 /// it, the JavaScript of each extern it reaches, and `program.js`,
 /// which puts them together.
 pub fn bundle(entry: Reference, target: Reference): Files
-    with build.compile, build.host_code, build.read, build.annotations, build.identity, throw
+    with build.compile, build.host_code, build.read, build.annotations, build.signature, throw
 {
     match build.compile!(entry, target) {
         let error: Error => { return throw!(error); }
@@ -193,6 +251,7 @@ pub fn bundle(entry: Reference, target: Reference): Files
             let host = runtime().map(fn(name: string): File => file("runtime/" ++ name, read("host/" ++ name)));
             return [{ path: "program.wasm", bytes: compiled.module }]
                 .push(file("program.js", loader(compiled.externs, bindings)))
+                .push(file("program.d.ts", declarations(entry, compiled.externs)))
                 .push(file("runtime/constants.js", constants(compiled)))
                 .join(host)
                 .join(sources(compiled.externs.filter(written)));

@@ -6,7 +6,8 @@ The JavaScript target: an Ambient package whose tool builds a program for a Java
 
 - `src/lib.ab` is the tool (`bundle`) and the target it builds (`host`), which binds nothing. A browser's target or Node's extends it; neither is here yet.
 - A build is the module, `program.js`, the host under `runtime/`, and the host code of each module that declares an extern the program reaches, under `externs/<package id>/`. `program.js` imports a function for each of those externs by name and no other.
-- An extern annotated with `binding` has no host code: `program.js` holds a function for it that calls the global the annotation names. Only a path of names is written into a build as code.
+- An extern annotated with `binding` has no host code: `program.js` holds a function for it that calls the global the annotation names, with as many arguments as the extern's signature takes.
+- `program.d.ts` is written from signatures (`src/types.ab`): what `run` takes and gives, and what each extern's JavaScript is handed. A type is written as `host/values.js` makes its values; change the two together. Only a path of names is written into a build as code.
 - A package keeps its host code in a directory `js` its manifest lists: a file at each module's path that exports a function for each extern, by its name.
 - `host/` is ES modules with no dependencies, which know of no browser and no Node. Install nothing from a registry.
 - `constants.js` is written by the tool from what `build.compile` says the runtime defines, into the build. It is no file of the package; restate no constant in JavaScript.

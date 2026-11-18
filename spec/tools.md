@@ -57,5 +57,5 @@ A tool is a function a build runs to make something other than a program's defin
 
 ## Unbuilt
 
-- TODO: a tool reads its package's files, compiles an entry, reads host code, and asks for the annotations a definition reaches and for a definition's identity, and nothing else: no tree or interface of a definition, no reach, nested run, or fetch. Only a target's tool runs: there are no build steps, lints, or selections.
+- TODO: a tool reads its package's files, compiles an entry, reads host code, and asks for the annotations a definition reaches and for the type of a function or an extern, and nothing else: no tree of a definition, no reach but of annotations and of the externs compiled, nested run, or fetch. Only a target's tool runs: there are no build steps, lints, or selections.
 - TODO: [testing](packages.md#testing) is not a tool: its harness is the command line's, so no package replaces it.

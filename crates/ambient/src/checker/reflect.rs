@@ -142,7 +142,7 @@ fn abilities(env: &Env, row: &[Reference]) -> Option<Value> {
 /// A normalized type as a `tree.Type`, if it has a tree: a type with
 /// arguments that refers to itself, a method, and what is held under a
 /// key that is not a field have none yet.
-fn type_tree(env: &Env, ty: &Ty) -> Option<Value> {
+pub(crate) fn type_tree(env: &Env, ty: &Ty) -> Option<Value> {
     Some(match ty {
         Ty::Never => tag("none"),
         Ty::Unknown => tag("any"),

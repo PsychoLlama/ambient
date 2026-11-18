@@ -69,7 +69,7 @@ pub(super) fn natives() -> Natives {
     Natives::new()
         .asking(FAULT_PACKAGE, "build.compiling", "compile")
         .asking(FAULT_PACKAGE, "build.annotating", "annotations")
-        .asking(FAULT_PACKAGE, "build.identifying", "identity")
+        .asking(FAULT_PACKAGE, "build.signing", "signature")
         .verifiable(FAULT_PACKAGE, "build.thrown", thrown)
 }
 
@@ -122,7 +122,10 @@ impl Questions for Engine<'_> {
                 let found = self.annotations(&from, package, tag);
                 Ok(found.unwrap_or_else(|error| refused("failed", error.to_string())))
             }
-            "identity" => Ok(self.identity_of(&definition(args, 0)?)),
+            "signature" => {
+                let tree = self.signature_tree(&definition(args, 0)?);
+                Ok(tree.unwrap_or_else(|error| refused("failed", error.to_string())))
+            }
             _ => Err(format!("a build has no answer to `{question}`")),
         }
     }
@@ -218,10 +221,17 @@ impl Engine<'_> {
             symbol: entry.clone(),
             message,
         })?;
+        let declared = self.externs(&root)?;
         let externs = parts.natives.iter().map(|native| {
+            let declared = declared.get(&(native.package.clone(), native.path.clone()));
             record([
                 ("package", Value::String(native.package.clone())),
                 ("path", Value::String(native.path.clone())),
+                // What is imported is declared by something reached.
+                (
+                    "definition",
+                    declared.map_or(Value::Null, checker::reference),
+                ),
             ])
         });
         Ok(record([

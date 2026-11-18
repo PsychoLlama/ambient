@@ -37,6 +37,7 @@ import js.{binding};
 
 - `program.wasm`: the program.
 - `program.js`: what loads it, with a function for each extern the program reaches and no other.
+- `program.d.ts`: its types for TypeScript: what `run` takes and gives, and what the JavaScript of each extern is handed.
 - `runtime/`: the host (`host/` here), and the constants the compiler that made the module says it must agree with.
 - `externs/`: the JavaScript of each module that declares an extern the program reaches.
 

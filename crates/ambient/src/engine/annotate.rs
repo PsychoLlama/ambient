@@ -1,17 +1,20 @@
 //! Annotations: what a definition says to a build, and what a build
-//! is told of them. See `spec/annotations.md`.
+//! is told of them and of the definitions they are on. See
+//! `spec/annotations.md` and "Build abilities" in `spec/tools.md`.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::Engine;
 use super::asked::record;
 use crate::checker;
-use crate::core::Annotation;
+use crate::core::{Annotation, Tree};
 use crate::error::Error;
 use crate::exchange;
+use crate::hash::Hasher;
 use crate::literal::Literal;
 use crate::surface::{DefinitionKind, Expr, Key, Reference, Type};
 use crate::symbol::Symbol;
+use crate::types::Ty;
 use crate::value::Value;
 
 /// The value an expression of plain data is, if it is one: a literal,
@@ -118,14 +121,58 @@ impl Engine<'_> {
         Ok(Value::List(found))
     }
 
-    /// What tells `symbol` from every other definition, as a
-    /// `build.Identity`: the ID of its package, and its module path
-    /// and name as one text.
-    pub(super) fn identity_of(&self, symbol: &Symbol) -> Value {
-        let package = self.sources.identity(&symbol.module.package);
-        record([
-            ("package", Value::String(package)),
-            ("path", Value::String(symbol.identity())),
-        ])
+    /// The type a function or an extern has, as a `tree.Type`: what it
+    /// takes, what it gives, and its row.
+    ///
+    /// # Errors
+    ///
+    /// Fails if `symbol` is neither, or its type has no tree, as that
+    /// of a function with type parameters has none.
+    pub(super) fn signature_tree(&self, symbol: &Symbol) -> Result<Value, Error> {
+        let no_tree = || Error::NoTree {
+            symbol: symbol.clone(),
+            found: format!("`{symbol}`"),
+        };
+        let (signature, named) = self.signature(symbol)?.ok_or_else(no_tree)?;
+        if !signature.type_params.is_empty() {
+            return Err(no_tree());
+        }
+        let env = self.environment(named, &[], &mut Hasher::new("signature"))?;
+        let ty = Ty::Function {
+            params: signature
+                .params
+                .iter()
+                .map(|ty| env.normalize(ty))
+                .collect(),
+            ret: Box::new(env.normalize(&signature.ret)),
+            row: signature
+                .row
+                .into_iter()
+                .map(Reference::Definition)
+                .collect(),
+        };
+        checker::type_tree(&env, &ty).ok_or_else(no_tree)
+    }
+
+    /// The externs `root` reaches, by the package and path native code
+    /// is found by.
+    pub(super) fn externs(
+        &self,
+        root: &Symbol,
+    ) -> Result<HashMap<(String, String), Symbol>, Error> {
+        let mut found = HashMap::new();
+        let mut seen = HashSet::new();
+        let mut pending = vec![root.clone()];
+        while let Some(symbol) = pending.pop() {
+            if !seen.insert(symbol.clone()) {
+                continue;
+            }
+            let open = self.check(&symbol)?;
+            if let Tree::Extern { package, path, .. } = &open.tree {
+                found.insert((package.clone(), path.clone()), symbol);
+            }
+            pending.extend(open.slots.iter().cloned());
+        }
+        Ok(found)
     }
 }

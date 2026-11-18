@@ -1,6 +1,6 @@
 import pkg.errors;
 import pkg.Error;
-import pkg.tree.{Reference};
+import pkg.tree.{Reference, Type};
 
 /// Nothing of the package is at the path.
 pub tag not_found;
@@ -30,8 +30,9 @@ pub type File = { path: string, bytes: bytes };
 pub type Files = List<File>;
 
 /// An extern a compiled program imports: the ID of the package that
-/// declares it, and its module path and name.
-pub type Extern = { package: string, path: string };
+/// declares it, its module path and name, which are what a host finds
+/// its native code by, and its definition.
+pub type Extern = { package: string, path: string, definition: Reference };
 
 /// A number the runtime gives a meaning, by a name for it.
 pub type Word = { name: string, word: int };
@@ -62,14 +63,14 @@ pub type Annotation = { on: Reference, value: unknown };
 /// walk from it first meets them, which is the same on every build.
 pub ability annotations(from: Reference, key: Tag): List<Annotation> | Error;
 
-/// What tells a definition from every other: the ID of the package
-/// that declares it, and its module path and name as one text. It is
-/// how an extern a compiled program imports is known.
-pub ability identity(of: Reference): Extern;
+/// The type a function or an extern has: what it takes, what it
+/// gives, and the abilities of its row. One with type parameters has
+/// none to give.
+pub ability signature(of: Reference): Type | Error;
 
 extern handler compiling for compile;
+extern handler signing for signature;
 extern handler annotating for annotations;
-extern handler identifying for identity;
 extern handler hosting for host_code;
 extern handler thrown for errors.throw;
 extern handler reading for read;
@@ -83,7 +84,7 @@ extern handler listing for list;
 pub target world {
     compile: compiling,
     annotations: annotating,
-    identity: identifying,
+    signature: signing,
     host_code: hosting,
     errors.throw: thrown,
     read: reading,

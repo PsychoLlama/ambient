@@ -1,0 +1,56 @@
+/// TypeScript for what a JavaScript host sees of a program: the types
+/// of the values that cross to it, as `host/values.js` makes them.
+import ambient.tree;
+import ambient.tree.{Field, Type};
+
+/// What no type here says more of.
+fn opaque(): string => "unknown";
+
+fn each(types: List<Type>, between: string): string => types.map(written).join_with(between);
+
+/// The type of one value.
+fn literal(of: bool | int | float | string | bytes | Tag): string {
+    match of {
+        let text: string => { return "\"${text}\""; }
+        let whole: int => { return "${whole}"; }
+        let truth: bool => { return truth ? "true" : "false"; }
+        _ => { return opaque(); }
+    }
+}
+
+/// A type as JavaScript has its values. An integer that a number
+/// holds exactly crosses as one, and any other as a `bigint`.
+pub fn written(of: Type): string {
+    match of {
+        let one: { literal: bool | int | float | string | bytes | Tag } => { return literal(one.literal); }
+        let list: { list: Type } => { return "Array<${written(list.list)}>"; }
+        let tuple: { tuple: List<Type> } => { return "[${each(tuple.tuple, ", ")}]"; }
+        let union: { union: List<Type> } => { return each(union.union, " | "); }
+        let record: { record: List<Field> } => {
+            let fields = record.record.map(fn(field: Field): string => "${field.name}: ${written(field.holds)}");
+            return "{ ${fields.join_with("; ")} }";
+        }
+        let function: { function: List<Type>, returns: Type, takes: List<tree.Ability> } => {
+            return "((${taken(function.function)}) => ${written(function.returns)})";
+        }
+        _ => {
+            return of == tree.nil ? "null"
+                : of == tree.boolean ? "boolean"
+                : of == tree.integer ? "number | bigint"
+                : of == tree.number ? "number"
+                : of == tree.text ? "string"
+                : of == tree.binary ? "Uint8Array"
+                : of == tree.none ? "never"
+                : opaque();
+        }
+    }
+}
+
+/// The parameters of a function that takes `types`, which have no
+/// names where they are only types.
+pub fn taken(types: List<Type>): string {
+    let none: List<string> = [];
+    let params = types.fold(none, fn(params: List<string>, of: Type): List<string> =>
+        params.push("a${params.length()}: ${written(of)}"));
+    return params.join_with(", ");
+}

@@ -216,3 +216,45 @@ fn a_file_a_build_gives_is_under_its_directory() {
     );
     assert!(built.files.is_empty());
 }
+
+/// A tool that says what its entry takes and gives, as far as counting
+/// what it takes.
+const SIGNED: &str = r#"
+    import ambient.build;
+    import ambient.build.{Files};
+    import ambient.tree;
+    import ambient.tree.{Reference, Type, Ability};
+    import ambient.Error;
+
+    target page built by describe {}
+
+    fn main(left: int, right: string): bool => left > 0;
+    fn generic<T>(of: T): T => of;
+
+    fn said(of: Reference): string with build.signature {
+        match build.signature!(of) {
+            let function: { function: List<Type>, returns: Type, takes: List<Ability> } => {
+                return "${of.name} takes ${function.function.length()}";
+            }
+            let error: Error => { return error.message; }
+            _ => { return "no function"; }
+        }
+    }
+
+    fn describe(entry: Reference, target: Reference): Files with build.signature {
+        let lines = [said(entry), said(comptime tree.reference(generic))];
+        return [{ path: "signature.txt", bytes: lines.join_with("\n").to_bytes() }];
+    }
+"#;
+
+#[test]
+fn a_tool_is_told_the_type_of_a_function_that_has_one_to_give() {
+    let granted = "grants = [\"ambient.build.signature\"]";
+    let built = build(&package(SIGNED, granted), Scripted::default());
+
+    assert_eq!(built.err, "");
+    let said = text(&built, "out/signature.txt");
+    let (entry, generic) = said.split_once('\n').unwrap();
+    assert_eq!(entry, "main takes 2");
+    assert!(generic.contains("generic"), "{generic}");
+}

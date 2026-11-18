@@ -78,6 +78,16 @@ test("an extern bound to a function of JavaScript's calls it", async () => {
   assert.equal(await program.run(1), 0);
 });
 
+test("a build declares the types of its program for TypeScript", async () => {
+  const declared = await readFile(join(built, "program.d.ts"), "utf8");
+
+  assert.match(
+    declared,
+    /run\(a0: number \| bigint\): Promise<number \| bigint>/,
+  );
+  assert.match(declared, /main\.said": \(a0: string\) => null/);
+});
+
 test("native code handed to a build's loader is used over its own", async () => {
   const said = [];
   const over = { [PACKAGE]: { "main.said": (line) => void said.push(line) } };
