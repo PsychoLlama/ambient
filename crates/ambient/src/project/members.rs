@@ -144,6 +144,16 @@ impl Members {
         Ok(&self.found[&written])
     }
 
+    /// Every member found so far.
+    pub fn all(&self) -> impl Iterator<Item = &Member> {
+        self.found.values()
+    }
+
+    /// Whether the package at `directory` is a member already.
+    pub fn holds(&self, files: &dyn Files, directory: &Path) -> bool {
+        self.found.contains_key(&key(files, directory))
+    }
+
     /// The member that stands in for a dependency on the package `id`
     /// in `line`.
     pub fn standing(&self, id: &str, line: Line) -> Option<&Member> {

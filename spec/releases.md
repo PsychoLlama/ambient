@@ -87,4 +87,3 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 - TODO: git dependencies, the lock, fetching, and vendoring are built, and what [packages](packages.md) says of members. There are no releases, publishers, or registries, so nothing is selected, and no closure is recorded.
 - TODO: a build grant is taken as soon as it is declared, by a fetched package as by a member.
 - TODO: a git dependency names only a whole commit, and nothing updates one.
-- TODO: a lock keeps an entry nothing declares any longer.

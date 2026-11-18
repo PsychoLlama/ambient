@@ -131,7 +131,7 @@ fn what_is_kept_must_be_what_was_locked() {
 }
 
 #[test]
-fn a_pin_that_changes_is_fetched_and_locked_beside_the_old_one() {
+fn a_pin_that_changes_is_fetched_and_locked_in_place_of_the_old_one() {
     let two = package("two", "n").library("pub fn seven(): int => 70;");
     let mut files = locked(&files(None, [app(&rev('1')), numbers("one"), two]));
     let moved = app(&rev('2')).manifest;
@@ -140,7 +140,27 @@ fn a_pin_that_changes_is_fetched_and_locked_beside_the_old_one() {
 
     assert_eq!(ran(&remote(&after)), Ok(70));
     let lock = &after[&PathBuf::from("app/ambient.lock")];
-    assert_eq!(lock.matches("[[snapshot]]").count(), 2, "{lock}");
+    assert_eq!(lock.matches("[[snapshot]]").count(), 1, "{lock}");
+    assert!(lock.contains(&rev('2')), "{lock}");
+}
+
+#[test]
+fn a_lock_holds_what_every_member_declares_and_nothing_else() {
+    // `app` pins one commit and `tool`, which it never opens, another.
+    let two = package("two", "n").library(SEVEN);
+    let tool = package("tool", "tool").on("numbers", "n", &pinned(GIT, &rev('2')));
+    let members = Some(&["app", "tool"][..]);
+    let files = files(members, [app(&rev('1')), tool, numbers("one"), two]);
+    let both = remote(&files).written(&run()).unwrap();
+    let lock = |files: &Files| files[&PathBuf::from("ambient.lock")].clone();
+    assert_eq!(lock(&both).matches("[[snapshot]]").count(), 2);
+
+    // Once `tool` declares nothing, what was locked for it goes.
+    let mut one = both.clone();
+    one.insert("tool/ambient.toml".into(), package("tool", "tool").manifest);
+    let one = remote(&one).written(&run()).unwrap();
+    assert_eq!(lock(&one).matches("[[snapshot]]").count(), 1);
+    assert!(lock(&one).contains(&rev('1')));
 }
 
 #[test]

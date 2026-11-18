@@ -15,6 +15,7 @@ mod locked;
 mod manifest;
 mod members;
 mod pinned;
+mod settle;
 mod vendor;
 mod version;
 
@@ -63,7 +64,7 @@ pub struct Project {
     /// one that lists its members.
     pub above: Option<PathBuf>,
     /// The workspace's lock and what it is to say from now on, if
-    /// opening locked a snapshot it did not hold.
+    /// that is not what it says.
     pub locked: Option<(PathBuf, String)>,
     /// The files of each package that was opened, by its name.
     pub packages: BTreeMap<String, Contents>,
@@ -158,11 +159,13 @@ pub fn open_from(
         })?,
         Err(_) => Lock::default(),
     };
+    let (members, settled) = settle::settled(files, snapshots, members, &held)?;
+    let locked = (settled != held).then(|| (lock, settled.written()));
     let mut opening = Opening {
         files,
         snapshots,
         members,
-        lock: held.clone(),
+        lock: settled,
         workspace: Workspace::new(),
         opened: BTreeMap::new(),
         modules: Vec::new(),
@@ -170,7 +173,6 @@ pub fn open_from(
     crate::library::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
     crate::system::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
     let root = opening.member(&directory)?;
-    let locked = (opening.lock != held).then(|| (lock, opening.lock.written()));
     Ok(Project {
         above: opening.members.root,
         locked,
@@ -186,7 +188,7 @@ struct Opening<'a> {
     snapshots: &'a dyn Snapshots,
     /// The packages of the workspace, opened or not.
     members: Members,
-    /// What the workspace has locked, and what opening locks.
+    /// What the workspace locks, settled.
     lock: Lock,
     workspace: Workspace,
     /// The files of each package opened so far.

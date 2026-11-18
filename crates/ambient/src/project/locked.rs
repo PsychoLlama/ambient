@@ -65,10 +65,16 @@ struct Written {
     snapshot: Vec<Locked>,
 }
 
-/// What a workspace has locked.
+/// What a workspace has locked, in the order it is written in.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Lock {
     snapshots: Vec<Locked>,
+}
+
+/// What a lock is in the order of: one that does not depend on when
+/// each entry was locked, so that changes made apart merge.
+fn order(one: &Locked, other: &Locked) -> std::cmp::Ordering {
+    (&one.id, &one.pin).cmp(&(&other.id, &other.pin))
 }
 
 impl Lock {
@@ -79,18 +85,15 @@ impl Lock {
     /// The text is not a lock, and why.
     pub fn read(text: &str) -> Result<Self, String> {
         let written: Written = toml::from_str(text).map_err(|error| error.message().to_owned())?;
-        Ok(Self {
-            snapshots: written.snapshot,
-        })
+        let mut snapshots = written.snapshot;
+        snapshots.sort_by(order);
+        Ok(Self { snapshots })
     }
 
-    /// The lock as text: one entry to a snapshot, in an order that
-    /// does not depend on when each was locked, so that changes made
-    /// apart merge.
+    /// The lock as text, one entry to a snapshot.
     #[must_use]
     pub fn written(&self) -> String {
-        let mut snapshot = self.snapshots.clone();
-        snapshot.sort_by(|one, other| (&one.id, &one.pin).cmp(&(&other.id, &other.pin)));
+        let snapshot = self.snapshots.clone();
         toml::to_string(&Written { snapshot }).unwrap_or_default()
     }
 
@@ -102,8 +105,11 @@ impl Lock {
         self.snapshots.iter().find(pinned)
     }
 
+    /// Locks `locked`, if it is not locked already.
     pub fn insert(&mut self, locked: Locked) {
-        self.snapshots.push(locked);
+        if let Err(place) = self.snapshots.binary_search_by(|held| order(held, &locked)) {
+            self.snapshots.insert(place, locked);
+        }
     }
 }
 
