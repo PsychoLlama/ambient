@@ -7,7 +7,7 @@ A tool is a function a build runs to make something other than a program's defin
 - A tool is an ordinary function whose [row](abilities.md) is of the [build abilities](#build-abilities). It runs under the build [target](targets.md), as a comptime call does.
 - A tool is a [memoized run](memoization.md): it runs again only when something it asked is answered differently.
 - A tool gives a value of a standard shape and writes nothing. Whatever ran it decides what becomes of the value.
-- A tool is handed what it is to work on as arguments, a target included, so all of it is in the run's key.
+- A tool is handed what it is to work on as its argument, a target included, so all of it is in the run's key.
 - A pipeline is a function that calls others. Nothing is matched by a file's name or its content, so no step can be fed what it gave.
 - A part of a tool is cached on its own only where the tool asks for it as a run of its own.
 - A library function a tool calls performs through the tool's bindings, so it reads the files of the tool's package, under that package's grants.
@@ -30,10 +30,11 @@ A tool is a function a build runs to make something other than a program's defin
 
 ## Builds
 
-- A [target](targets.md) names the tool that builds a program under it. That tool is handed the entry and the target, and gives files: each a path and its bytes.
+- A [target](targets.md) names the tool that builds a program under it. That tool is handed a build and gives files: each a path and its bytes.
+- A build is a record of the entry, the target, and the files the build steps gave. What a build comes to hold is added as a field, so no tool written before is changed by it.
 - A target that names none has the tool of the target it extends. One with none at all is built as its module alone.
 - The command line writes the files into a directory it owns, and removes from it what the build no longer gives.
-- A build step is a tool that adds files to a build: it is handed the entry and the target, and gives files.
+- A build step is a tool that adds files to a build: it is handed the build, with no files, and gives files.
 - A package declares its build steps in its manifest, each for a target. One runs in a build whose target is that target or extends it, and whose entry reaches the package.
 - A package that owns an annotation's key therefore owns the one step that collects it, from every package of the program. No dependent declares or runs a step for it.
 - An entry reaches a package through a definition of it, or through an annotation under a key of it.

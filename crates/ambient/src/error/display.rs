@@ -76,7 +76,6 @@ impl fmt::Display for Error {
             | Self::GenericEntry(_) => self.fmt_world(f),
             Self::ToolConflict(_)
             | Self::NotTool(_)
-            | Self::NotStep(_)
             | Self::BuiltTwice { .. }
             | Self::NotAnnotation { .. }
             | Self::ToolUngranted { .. } => self.fmt_build(f),
@@ -260,13 +259,7 @@ impl Error {
             ),
             Self::NotTool(symbol) => write!(
                 f,
-                "{symbol}: what builds a program takes a `tree.Reference` to its entry, one to its \
-                 target, and the `build.Files` its build steps gave, and gives `build.Files`"
-            ),
-            Self::NotStep(symbol) => write!(
-                f,
-                "{symbol}: a build step takes a `tree.Reference` to an entry and one to its \
-                 target, and gives `build.Files`"
+                "{symbol}: a tool that builds takes a `build.Build` and gives `build.Files`"
             ),
             Self::BuiltTwice { symbol, path } => {
                 write!(f, "{symbol}: its build was given two files for `{path}`")

@@ -26,8 +26,12 @@ pub tag failed;
 pub type File = { path: string, bytes: bytes };
 
 /// What a tool that builds a program gives: the files of the build.
-/// Such a tool takes a reference to the entry and one to the target.
 pub type Files = List<File>;
+
+/// What a tool that builds a program is handed: the entry, the target
+/// it is built under, and the files the build steps gave. A build
+/// step is handed the same, with no files: it sees no other's.
+pub type Build = { entry: Reference, target: Reference, files: Files };
 
 /// An extern a compiled program imports: the ID of the package that
 /// declares it, its module path and name, which are what a host finds

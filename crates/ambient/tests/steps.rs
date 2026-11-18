@@ -14,13 +14,13 @@ use support::scripted::Scripted;
 /// A target, and the tool it is built by: a list of what the build
 /// steps gave it.
 const WEB: &str = r#"
-    import ambient.build.{File, Files};
+    import ambient.build.{Build, File, Files};
     import ambient.tree.{Reference};
 
     pub target page built by bundle {}
 
-    pub fn bundle(entry: Reference, target: Reference, steps: Files): Files {
-        let paths = steps.map(fn(file: File): string => file.path);
+    pub fn bundle(of: Build): Files {
+        let paths = of.files.map(fn(file: File): string => file.path);
         return [{ path: "index.txt", bytes: paths.join_with(",").to_bytes() }];
     }
 "#;
@@ -29,13 +29,13 @@ const WEB: &str = r#"
 /// that gathers every rule a program reaches into one file.
 const STYLES: &str = r#"
     import ambient.build;
-    import ambient.build.{Annotation, Files};
+    import ambient.build.{Build, Annotation, Files};
     import ambient.tree.{Reference};
 
     pub tag rule;
 
-    pub fn collect(entry: Reference, target: Reference): Files with build.annotations {
-        let found = build.annotations!(entry, rule) as List<Annotation> else [];
+    pub fn collect(of: Build): Files with build.annotations {
+        let found = build.annotations!(of.entry, rule) as List<Annotation> else [];
         let rules = found.map(fn(found: Annotation): string => found.value as string else "");
         return [{ path: "styles.css", bytes: rules.join_with(" ").to_bytes() }];
     }

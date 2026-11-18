@@ -11,7 +11,7 @@
 import ambient.build;
 import ambient.iterator;
 import ambient.tree;
-import ambient.build.{Annotation, Compiled, Extern, File, Files, Word};
+import ambient.build.{Build, Annotation, Compiled, Extern, File, Files, Word};
 import ambient.errors.{fail, throw};
 import ambient.tree.{Reference, Type};
 import pkg.types;
@@ -239,19 +239,19 @@ fn declarations(entry: Reference, externs: List<Extern>): string with build.sign
 /// A program for a JavaScript host: the module, the host that loads
 /// it, the JavaScript of each extern it reaches, and `program.js`,
 /// which puts them together.
-pub fn bundle(entry: Reference, target: Reference, steps: Files): Files
+pub fn bundle(of: Build): Files
     with build.compile, build.host_code, build.read, build.annotations, build.signature, throw
 {
-    match build.compile!(entry, target) {
+    match build.compile!(of.entry, of.target) {
         let error: Error => { return throw!(error); }
         let compiled: Compiled => {
             // An extern is reached from the entry, or bound by the target.
-            let bindings = bound(target).join(bound(entry));
+            let bindings = bound(of.target).join(bound(of.entry));
             let written = fn(native: Extern): bool => binding_of(bindings, native) == null;
             let host = runtime().map(fn(name: string): File => file("runtime/" ++ name, read("host/" ++ name)));
             return [{ path: "program.wasm", bytes: compiled.module }]
                 .push(file("program.js", loader(compiled.externs, bindings)))
-                .push(file("program.d.ts", declarations(entry, compiled.externs)))
+                .push(file("program.d.ts", declarations(of.entry, compiled.externs)))
                 .push(file("runtime/constants.js", constants(compiled)))
                 .join(host)
                 .join(sources(compiled.externs.filter(written)));

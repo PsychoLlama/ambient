@@ -20,7 +20,7 @@ use support::{program, value};
 /// order the build gives them.
 const TOOL: &str = r#"
     import ambient.build;
-    import ambient.build.{Annotation, Files};
+    import ambient.build.{Build, Annotation, Files};
     import ambient.tree.{Reference};
     import ambient.Error;
 
@@ -31,8 +31,8 @@ const TOOL: &str = r#"
 
     fn line(found: Annotation): string => "${found.on.name}=${found.value as string else "?"}";
 
-    fn notes(entry: Reference, target: Reference, steps: Files): Files with build.annotations {
-        match build.annotations!(entry, note) {
+    fn notes(of: Build): Files with build.annotations {
+        match build.annotations!(of.entry, note) {
             let error: Error => { return [{ path: "notes.txt", bytes: error.message.to_bytes() }]; }
             let found: List<Annotation> => {
                 return [{ path: "notes.txt", bytes: found.map(line).join_with(" ").to_bytes() }];

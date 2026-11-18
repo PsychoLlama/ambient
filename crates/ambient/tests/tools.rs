@@ -18,7 +18,7 @@ type Files = BTreeMap<PathBuf, String>;
 /// module, and a line for each extern it imports with its host code.
 const PAGE: &str = r#"
     import ambient.build;
-    import ambient.build.{Compiled, Extern, Files};
+    import ambient.build.{Build, Compiled, Extern, Files};
     import ambient.tree.{Reference};
     import ambient.Error;
 
@@ -36,8 +36,8 @@ const PAGE: &str = r#"
         return "${native.path}: ${code}";
     }
 
-    fn bundle(entry: Reference, target: Reference, steps: Files): Files with build.compile, build.host_code {
-        match build.compile!(entry, target) {
+    fn bundle(of: Build): Files with build.compile, build.host_code {
+        match build.compile!(of.entry, of.target) {
             let error: Error => {
                 return [{ path: "error.txt", bytes: error.message.to_bytes() }];
             }
@@ -171,7 +171,7 @@ fn a_tool_takes_only_what_its_package_is_granted() {
 }
 
 #[test]
-fn what_a_target_is_built_by_takes_an_entry_and_a_target_and_gives_files() {
+fn what_a_target_is_built_by_takes_a_build_and_gives_files() {
     let source = PAGE.replace("built by bundle", "built by hosted");
 
     let built = build(&package(&source, GRANTED), Scripted::default());
@@ -179,7 +179,7 @@ fn what_a_target_is_built_by_takes_an_entry_and_a_target_and_gives_files() {
     assert!(
         built
             .err
-            .contains("app:main.hosted: what builds a program takes"),
+            .contains("app:main.hosted: a tool that builds takes a `build.Build`"),
         "{}",
         built.err
     );
@@ -221,7 +221,7 @@ fn a_file_a_build_gives_is_under_its_directory() {
 /// what it takes.
 const SIGNED: &str = r#"
     import ambient.build;
-    import ambient.build.{Files};
+    import ambient.build.{Build, Files};
     import ambient.tree;
     import ambient.tree.{Reference, Type, Ability};
     import ambient.Error;
@@ -241,8 +241,8 @@ const SIGNED: &str = r#"
         }
     }
 
-    fn describe(entry: Reference, target: Reference, steps: Files): Files with build.signature {
-        let lines = [said(entry), said(comptime tree.reference(generic))];
+    fn describe(of: Build): Files with build.signature {
+        let lines = [said(of.entry), said(comptime tree.reference(generic))];
         return [{ path: "signature.txt", bytes: lines.join_with("\n").to_bytes() }];
     }
 "#;

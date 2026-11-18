@@ -164,12 +164,9 @@ pub enum Error {
     /// A definition is annotated under a key that is no tag, or with
     /// a value that is not plain data: `key` says which.
     NotAnnotation { symbol: Symbol, key: bool },
-    /// What a target is built by is not a tool: it does not take an
-    /// entry and a target and give the files of a build.
+    /// What a target is built by, or a build step, is not a tool: it
+    /// does not take a `build.Build` and give `build.Files`.
     NotTool(Symbol),
-    /// A build step is not typed as one: it does not take an entry and
-    /// a target and give files.
-    NotStep(Symbol),
     /// A build under a target was given two files for one path.
     BuiltTwice { symbol: Symbol, path: String },
     /// Two targets a target extends are built by different tools, and
@@ -242,7 +239,6 @@ impl Error {
             | Self::GenericEntry(symbol)
             | Self::ToolConflict(symbol)
             | Self::NotTool(symbol)
-            | Self::NotStep(symbol)
             | Self::BuiltTwice { symbol, .. }
             | Self::NotAnnotation { symbol, .. }
             | Self::ToolUngranted { symbol, .. }

@@ -57,26 +57,30 @@ impl Engine<'_> {
     ///
     /// # Errors
     ///
-    /// Fails if what the target is built by is not a tool, a step is
-    /// not one, two files are given for one path, or as [`Self::tool`]
+    /// Fails if what the target is built by, or a step, is not a tool, two files are given for one path, or as [`Self::tool`]
     /// does.
     pub fn built(&self, entry: &Symbol, target: &Symbol) -> Result<Option<Files>, Error> {
         let Some(tool) = self.builder(target)? else {
             return Ok(None);
         };
-        if !self.takes(&tool, true)? {
+        if !self.takes(&tool)? {
             return Err(Error::NotTool(tool));
         }
-        let args = [checker::reference(entry), checker::reference(target)];
+        let build = |files: &Files| {
+            record([
+                ("entry", checker::reference(entry)),
+                ("target", checker::reference(target)),
+                ("files", handed(files)),
+            ])
+        };
         let mut files = Files::new();
         for step in self.steps(entry, target)? {
-            if !self.takes(&step, false)? {
-                return Err(Error::NotStep(step));
+            if !self.takes(&step)? {
+                return Err(Error::NotTool(step));
             }
-            files.extend(files_of(&self.tool(&step, &args)?));
+            files.extend(files_of(&self.tool(&step, &[build(&Files::new())])?));
         }
-        let [entered, under] = args;
-        let given = self.tool(&tool, &[entered, under, handed(&files)])?;
+        let given = self.tool(&tool, &[build(&files)])?;
         files.extend(files_of(&given));
 
         let mut paths = BTreeSet::new();
@@ -90,18 +94,16 @@ impl Engine<'_> {
     }
 
     /// Whether `tool` is typed as what a build runs: it takes a
-    /// reference to an entry and one to a target, and the files the
-    /// steps gave if it is a target's (`last`), and gives files.
-    fn takes(&self, tool: &Symbol, last: bool) -> Result<bool, Error> {
-        let library = |module: &str, name: &str| {
-            let named = ModuleId::new(FAULT_PACKAGE, module).ty(name);
+    /// `build.Build` and gives `build.Files`.
+    fn takes(&self, tool: &Symbol) -> Result<bool, Error> {
+        let library = |name: &str| {
+            let named = ModuleId::new(FAULT_PACKAGE, MODULE).ty(name);
             Ty::Named(Reference::Definition(named), Vec::new())
         };
-        let (reference, files) = (library("tree", "Reference"), library(MODULE, "Files"));
-        let mut params = vec![reference.clone(), reference];
-        params.extend(last.then(|| files.clone()));
         Ok(self.signature(tool)?.is_some_and(|(signature, _)| {
-            signature.type_params.is_empty() && signature.params == params && signature.ret == files
+            signature.type_params.is_empty()
+                && signature.params == [library("Build")]
+                && signature.ret == library("Files")
         }))
     }
 
