@@ -31,7 +31,7 @@ use crate::host::{self, World};
 use crate::project::{self, Files, Project, Snapshots, Update};
 use crate::store::Store;
 use crate::surface::DefinitionKind;
-use crate::symbol::{ModuleId, Symbol};
+use crate::symbol::{ModuleId, PackageId, Symbol};
 use crate::workspace::Sources;
 
 /// The Ambient programming language.
@@ -262,6 +262,13 @@ impl Session<'_> {
             for symbol in made.unwrap_or_default() {
                 engine.check(&symbol).map_err(&mut report).ok();
             }
+        }
+        // A lint is run over what checks: it asks the build about
+        // definitions, and is told nothing of one that is wrong.
+        if problems.is_empty() {
+            let root = PackageId(project.root.clone());
+            let found = engine.linted(&root, "").unwrap_or_else(|error| vec![error]);
+            problems.extend(found.iter().map(|error| report(&project, &engine, error)));
         }
         if problems.is_empty() {
             Ok(())

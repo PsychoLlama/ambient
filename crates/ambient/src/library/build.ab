@@ -72,6 +72,21 @@ pub ability annotations(from: Reference, key: Tag): List<Annotation> | Error;
 /// none to give.
 pub ability signature(of: Reference): Type | Error;
 
+/// A module: the package it is of, named as a reference names it, and
+/// its path.
+pub type Module = { package: string, path: List<string> };
+
+/// What a command covers, which it hands the tool behind it: the
+/// packages, their modules, and text a name must hold to be covered.
+pub type Selection = { packages: List<string>, modules: List<Module>, name: string };
+
+/// Something wrong with a definition, in words for whoever wrote it.
+pub type Diagnostic = { on: Reference, message: string };
+
+/// What a lint gives: a function of the build that takes a `Selection`.
+/// A package's manifest lists the lints checking it runs.
+pub type Diagnostics = List<Diagnostic>;
+
 /// The modules of a package, each by its path: the package is named
 /// as a reference names it.
 pub ability modules(package: string): List<List<string>>;

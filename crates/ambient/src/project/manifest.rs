@@ -42,6 +42,9 @@ pub struct Package {
     /// The build steps the package adds to builds under a target. See
     /// "Builds" in `spec/tools.md`.
     pub steps: Vec<Step>,
+    /// The lints checking the package runs, each a path as a
+    /// prelude's is, to a function. See "Commands" in `spec/tools.md`.
+    pub lints: Vec<String>,
 }
 
 /// A package another depends on: which it is, and where to find it.
@@ -138,6 +141,8 @@ struct Written {
     files: Vec<PathBuf>,
     #[serde(default)]
     steps: Vec<Step>,
+    #[serde(default)]
+    lints: Vec<String>,
     members: Option<Vec<PathBuf>>,
     #[serde(default)]
     vendored: BTreeMap<PathBuf, String>,
@@ -174,6 +179,7 @@ impl Manifest {
                 grants: written.grants,
                 files: written.files,
                 steps: written.steps,
+                lints: written.lints,
             }),
             (None, None, None) if members.is_some() => None,
             (name, id, _) => {

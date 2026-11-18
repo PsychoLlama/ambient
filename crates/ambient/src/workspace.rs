@@ -38,6 +38,10 @@ pub trait Sources {
     /// the tool it runs, in an order that is the same on every build.
     /// See "Builds" in `spec/tools.md`.
     fn steps(&self) -> Vec<(Symbol, Symbol)>;
+
+    /// The lints checking `package` runs, as its manifest lists them.
+    /// See "Commands" in `spec/tools.md`.
+    fn lints(&self, package: &PackageId) -> Vec<Symbol>;
 }
 
 /// Why a workspace refused a change.
@@ -73,6 +77,7 @@ pub struct Workspace {
     identities: BTreeMap<PackageId, String>,
     grants: BTreeMap<PackageId, Vec<Symbol>>,
     steps: BTreeMap<PackageId, Vec<(Symbol, Symbol)>>,
+    lints: BTreeMap<PackageId, Vec<Symbol>>,
     /// The preludes of a package that lists none.
     shared: Vec<ModuleId>,
     /// The standard library's preludes, for when `shared` is empty too.
@@ -149,6 +154,12 @@ impl Workspace {
             .push(ability);
     }
 
+    /// Declares a lint of `package`: checking it runs `tool`.
+    pub fn lint(&mut self, package: &str, tool: Symbol) {
+        let package = PackageId(package.to_owned());
+        self.lints.entry(package).or_default().push(tool);
+    }
+
     /// Declares a build step of `package`: `tool` adds files to a
     /// build under `target`, or under a target that extends it.
     pub fn step(&mut self, package: &str, target: Symbol, tool: Symbol) {
@@ -215,6 +226,10 @@ impl Sources for Workspace {
 
     fn identity(&self, package: &PackageId) -> String {
         self.identities.get(package).unwrap_or(&package.0).clone()
+    }
+
+    fn lints(&self, package: &PackageId) -> Vec<Symbol> {
+        self.lints.get(package).cloned().unwrap_or_default()
     }
 
     fn grants(&self, package: &PackageId) -> Vec<Symbol> {

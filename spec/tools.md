@@ -57,9 +57,11 @@ A tool is a function a build runs to make something other than a program's defin
 - A command hands a tool a selection: the packages and modules to cover, and text a name must hold. What is selected is the command's to decide, so every tool honours the same flags.
 - The standard library defines the shapes tools give: files, a selection, and a diagnostic, which is what [checking](packages.md#running) reports with.
 - A lint is a function of a standard type that gives diagnostics, over one definition or over a package. A package's manifest lists the lints it wants beside the standard ones.
+- Checking a package runs its lints over what checks, and reports each diagnostic as it reports an error: at the definition it is on.
 - A package that names nothing gets the standard tools, so none is written to check, test, or build.
 
 ## Unbuilt
 
-- TODO: a tool is told no tree of a definition, and no docs. It runs a function only under the build target, and no command hands a tool a selection: there are no lints.
+- TODO: a tool is told no tree of a definition, and no docs, and it runs a function only under the build target.
+- TODO: only checking hands a tool a selection, and the standard library holds no lints. A lint is over a selection alone, not over one definition.
 - TODO: [testing](packages.md#testing) is not a tool: its harness is the command line's, so no package replaces it.

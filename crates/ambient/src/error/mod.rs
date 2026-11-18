@@ -167,6 +167,15 @@ pub enum Error {
     /// What a target is built by, or a build step, is not a tool: it
     /// does not take a `build.Build` and give `build.Files`.
     NotTool(Symbol),
+    /// What a manifest lists as a lint is not one: it does not take a
+    /// `build.Selection` and give `build.Diagnostics`.
+    NotLint(Symbol),
+    /// What a lint found wrong with a definition.
+    Lint {
+        symbol: Symbol,
+        lint: Symbol,
+        message: String,
+    },
     /// A build under a target was given two files for one path.
     BuiltTwice { symbol: Symbol, path: String },
     /// Two targets a target extends are built by different tools, and
@@ -239,6 +248,8 @@ impl Error {
             | Self::GenericEntry(symbol)
             | Self::ToolConflict(symbol)
             | Self::NotTool(symbol)
+            | Self::NotLint(symbol)
+            | Self::Lint { symbol, .. }
             | Self::BuiltTwice { symbol, .. }
             | Self::NotAnnotation { symbol, .. }
             | Self::ToolUngranted { symbol, .. }

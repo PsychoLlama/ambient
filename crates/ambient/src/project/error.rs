@@ -45,9 +45,11 @@ pub enum ProjectError {
         package: String,
         grant: String,
     },
-    /// A build step names a target or a tool the package cannot reach.
+    /// A build step or a lint, as `kind` says, names a target or a
+    /// function the package cannot reach.
     Step {
         package: String,
+        kind: &'static str,
         step: String,
         names: String,
     },
@@ -130,11 +132,12 @@ impl fmt::Display for ProjectError {
             }
             Self::Step {
                 package,
+                kind,
                 step,
                 names,
             } => write!(
                 f,
-                "{package}: the build step `{step}` names `{names}`, which is no function or \
+                "{package}: the {kind} `{step}` names `{names}`, which is no function or \
                  target it can reach"
             ),
             Self::Rivals {

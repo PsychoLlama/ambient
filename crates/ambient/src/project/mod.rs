@@ -326,9 +326,13 @@ impl Opening<'_> {
             self.workspace.grant(&name, ability);
         }
         for step in &manifest.steps {
-            let named = |path| self.value(&name, path, &step.tool);
+            let named = |path| self.value(&name, path, "build step", &step.tool);
             let (target, tool) = (named(&step.target)?, named(&step.tool)?);
             self.workspace.step(&name, target, tool);
+        }
+        for lint in &manifest.lints {
+            let tool = self.value(&name, lint, "lint", lint)?;
+            self.workspace.lint(&name, tool);
         }
         Ok(name)
     }
@@ -422,11 +426,19 @@ impl Opening<'_> {
         declared.then(|| module.ability(name)).ok_or_else(unknown)
     }
 
-    /// The function or the target a build step names at `path`, which
-    /// is one some module that was opened declares.
-    fn value(&self, package: &str, path: &str, step: &str) -> Result<Symbol, ProjectError> {
+    /// The function or the target that the build step or the lint
+    /// `step`, which is a `kind`, names at `path`: one some module that
+    /// was opened declares.
+    fn value(
+        &self,
+        package: &str,
+        path: &str,
+        kind: &'static str,
+        step: &str,
+    ) -> Result<Symbol, ProjectError> {
         let unknown = || ProjectError::Step {
             package: package.to_owned(),
+            kind,
             step: step.to_owned(),
             names: path.to_owned(),
         };

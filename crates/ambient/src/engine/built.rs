@@ -93,18 +93,24 @@ impl Engine<'_> {
         }
     }
 
-    /// Whether `tool` is typed as what a build runs: it takes a
-    /// `build.Build` and gives `build.Files`.
-    fn takes(&self, tool: &Symbol) -> Result<bool, Error> {
+    /// Whether `tool` is typed as taking the type of the build library
+    /// `takes` names and giving the one `gives` names.
+    pub(super) fn typed(&self, tool: &Symbol, takes: &str, gives: &str) -> Result<bool, Error> {
         let library = |name: &str| {
             let named = ModuleId::new(FAULT_PACKAGE, MODULE).ty(name);
             Ty::Named(Reference::Definition(named), Vec::new())
         };
         Ok(self.signature(tool)?.is_some_and(|(signature, _)| {
             signature.type_params.is_empty()
-                && signature.params == [library("Build")]
-                && signature.ret == library("Files")
+                && signature.params == [library(takes)]
+                && signature.ret == library(gives)
         }))
+    }
+
+    /// Whether `tool` is typed as what a build runs: it takes a
+    /// `build.Build` and gives `build.Files`.
+    fn takes(&self, tool: &Symbol) -> Result<bool, Error> {
+        self.typed(tool, "Build", "Files")
     }
 
     /// The build steps that run in a build of `entry` under `target`:

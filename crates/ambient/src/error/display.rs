@@ -76,6 +76,8 @@ impl fmt::Display for Error {
             | Self::GenericEntry(_) => self.fmt_world(f),
             Self::ToolConflict(_)
             | Self::NotTool(_)
+            | Self::NotLint(_)
+            | Self::Lint { .. }
             | Self::BuiltTwice { .. }
             | Self::NotAnnotation { .. }
             | Self::ToolUngranted { .. } => self.fmt_build(f),
@@ -261,6 +263,15 @@ impl Error {
                 f,
                 "{symbol}: a tool that builds takes a `build.Build` and gives `build.Files`"
             ),
+            Self::NotLint(symbol) => write!(
+                f,
+                "{symbol}: a lint takes a `build.Selection` and gives `build.Diagnostics`"
+            ),
+            Self::Lint {
+                symbol,
+                lint,
+                message,
+            } => write!(f, "{symbol}: {message} ({lint})"),
             Self::BuiltTwice { symbol, path } => {
                 write!(f, "{symbol}: its build was given two files for `{path}`")
             }

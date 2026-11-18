@@ -32,6 +32,7 @@ mod generate;
 mod group;
 mod handed;
 mod link;
+mod lint;
 mod pack;
 mod program;
 mod read;
