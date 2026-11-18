@@ -1,6 +1,6 @@
 # A program in a page
 
-A package with a target of its own: `src/main.ab` declares two abilities and binds them to externs, `js/main.js` is the JavaScript of each, and the target extends the JavaScript target (`packages/js`), which says how a program under it is built.
+A package with a target of its own, which extends the JavaScript target (`packages/js`): that says how a program under it is built. `src/main.ab` reaches the page through two externs bound to what JavaScript already has (`document.getElementById`, and `append` of what that gives), whose JavaScript the build writes. Waiting answers later, so it is the one function written by hand (`js/main.js`).
 
 From the root of the repository:
 

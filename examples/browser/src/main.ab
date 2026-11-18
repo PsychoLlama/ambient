@@ -1,5 +1,5 @@
 import ambient.iterator;
-import js.{host};
+import js.{binding, host};
 
 /// Writes a line where a page can show it.
 pub ability say(text: string): null;
@@ -7,16 +7,31 @@ pub ability say(text: string): null;
 /// Waits a number of milliseconds.
 pub ability sleep(milliseconds: int): null;
 
-extern handler said for say;
+/// Something of a page's, which only the page can use: the program
+/// holds it and hands it back.
+brand Element;
+
+/// The page's own, by what JavaScript calls each. The build writes
+/// their JavaScript from these lines, so the package holds none.
+@binding("document.getElementById") extern fn element(id: string): Element;
+@binding({ method: "append" }) extern fn append(to: Element, text: string): null;
+
+/// Waiting is JavaScript of this package's (`js/main.js`), since it
+/// answers later.
 extern suspending handler slept for sleep;
 
-/// What a page offers this program. Its native side is JavaScript
-/// (`js/main.js`), and `host` says how a program under it is
-/// built: the module, and the JavaScript that loads it.
-pub target page extends host { say: said, sleep: slept }
+/// What a page offers this program, and `host` says how a program
+/// under it is built: the module, and the JavaScript that loads it.
+pub target page extends host { sleep: slept }
 
-/// Counts aloud, slowly, beside a task that says it is waiting.
-pub fn main(): int with say, sleep {
+/// Counts aloud, slowly, beside a task that says it is waiting. What
+/// is said goes to the element of the page that shows it.
+pub fn main(): int with sleep {
+    let shown = element("said");
+    return provide { [say](text) => append(shown, "${text}\n") } => counting();
+}
+
+fn counting(): int with say, sleep {
     let (counted, waited) = all(fn() => count(3), fn() => linger());
     return counted + waited;
 }
