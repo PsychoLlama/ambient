@@ -6,16 +6,62 @@
 /// A package keeps the JavaScript of its externs in a directory `js`
 /// that its manifest lists: a file for each module that declares one,
 /// at the module's path, which exports a function for each extern by
-/// its name.
+/// its name. An extern annotated with `binding` needs none: the build
+/// writes its function.
 import ambient.build;
-import ambient.build.{Compiled, Extern, File, Files, Word};
-import ambient.errors.{throw};
+import ambient.build.{Annotation, Compiled, Extern, File, Files, Word};
+import ambient.errors.{fail, throw};
 import ambient.tree.{Reference};
 import ambient.Error;
 
 /// The world of a program a JavaScript host runs, before anything is
 /// bound in it.
 pub target host built by bundle {}
+
+/// The key of an annotation on an extern whose native side is a
+/// function JavaScript already has: the value is the path of that
+/// function from the global object, as `"console.log"` is. The extern
+/// is called with what it takes, and needs no JavaScript of its own.
+pub tag binding;
+
+/// A build was asked for JavaScript it cannot write.
+pub tag unwritable;
+
+/// An extern whose function the build writes: a call of `calls`.
+type Bound = { native: Extern, calls: string };
+
+/// Whether `path` is names with dots between, which is all that is
+/// written into a build as code.
+fn is_path(path: string): bool {
+    let named = fn(part: string): bool => !part.is_empty() && part.chars().every(fn(char: string): bool {
+        let code = char.code() as int else 0;
+        return (code >= 97 && code <= 122) || (code >= 65 && code <= 90)
+            || (code >= 48 && code <= 57) || char == "_" || char == "$";
+    });
+    return path.split(".").every(named);
+}
+
+/// The function a binding's value names.
+fn calls(value: unknown): string with throw {
+    let path = value as string else "";
+    return is_path(path) ? path : fail(unwritable, "a `js.binding` is the path of a global function, as \"console.log\" is");
+}
+
+/// The externs `from` reaches that are annotated with `binding`.
+fn bound(from: Reference): List<Bound> with build.annotations, build.identity, throw {
+    match build.annotations!(from, binding) {
+        let error: Error => { return throw!(error); }
+        let found: List<Annotation> => {
+            return found.map(fn(found: Annotation): Bound =>
+                { native: build.identity!(found.on), calls: calls(found.value) });
+        }
+    }
+}
+
+/// What the build writes for `native`, if it is bound.
+fn binding_of(bindings: List<Bound>, native: Extern): Bound | null =>
+    bindings.find(fn(bound: Bound): bool =>
+        bound.native.package == native.package && bound.native.path == native.path);
 
 /// The files of the host that loads a module, which are this
 /// package's: see `host/host.js`.
@@ -83,12 +129,21 @@ fn constants(compiled: Compiled): string {
 }
 
 /// `program.js`: what loads the module with the function of each
-/// extern it reaches, and no other.
-fn loader(externs: List<Extern>): string {
+/// extern it reaches, and no other. One that is bound is written
+/// here: it is handed what the extern takes and then the call, which
+/// the function it calls is not.
+fn loader(externs: List<Extern>, bindings: List<Bound>): string {
     let none: List<string> = [];
     let imports = externs.fold(none, fn(lines: List<string>, native: Extern): List<string> {
-        let name = name_of(native);
-        return lines.push("import { ${name} as e${lines.length()} } from \"./${kept(native)}\";");
+        let position = lines.length();
+        match binding_of(bindings, native) {
+            let bound: Bound => {
+                return lines.push("const e${position} = (...given) => ${bound.calls}(...given.slice(0, -1)) ?? null;");
+            }
+            null => {
+                return lines.push("import { ${name_of(native)} as e${position} } from \"./${kept(native)}\";");
+            }
+        }
     });
     let supplies = externs.fold(none, fn(lines: List<string>, native: Extern): List<string> =>
         lines.push("supply(\"${native.package}\", \"${native.path}\", e${lines.length()});"));
@@ -127,17 +182,20 @@ fn loader(externs: List<Extern>): string {
 /// it, the JavaScript of each extern it reaches, and `program.js`,
 /// which puts them together.
 pub fn bundle(entry: Reference, target: Reference): Files
-    with build.compile, build.host_code, build.read, throw
+    with build.compile, build.host_code, build.read, build.annotations, build.identity, throw
 {
     match build.compile!(entry, target) {
         let error: Error => { return throw!(error); }
         let compiled: Compiled => {
+            // An extern is reached from the entry, or bound by the target.
+            let bindings = bound(target).join(bound(entry));
+            let written = fn(native: Extern): bool => binding_of(bindings, native) == null;
             let host = runtime().map(fn(name: string): File => file("runtime/" ++ name, read("host/" ++ name)));
             return [{ path: "program.wasm", bytes: compiled.module }]
-                .push(file("program.js", loader(compiled.externs)))
+                .push(file("program.js", loader(compiled.externs, bindings)))
                 .push(file("runtime/constants.js", constants(compiled)))
                 .join(host)
-                .join(sources(compiled.externs));
+                .join(sources(compiled.externs.filter(written)));
         }
     }
 }

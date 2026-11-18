@@ -61,7 +61,7 @@ async function page(natives = {}) {
     "main.echoed": (line, call) => call.perform(PACKAGE, "main.say", line),
     ...natives,
   };
-  const program = await load(await readFile(module), { [PACKAGE]: offered });
+  const program = await start(await readFile(module), { [PACKAGE]: offered });
   return { program, said };
 }
 
@@ -69,6 +69,13 @@ test("a build loads its program with the native code of its package", async () =
   const program = await start(await readFile(module));
 
   assert.equal(await program.run(PATIENT), 4);
+});
+
+test("an extern bound to a function of JavaScript's calls it", async () => {
+  const program = await start(await readFile(module));
+
+  // Giving up is what the larger of zero and less gives.
+  assert.equal(await program.run(1), 0);
 });
 
 test("native code handed to a build's loader is used over its own", async () => {
@@ -176,14 +183,7 @@ test("a module is loaded from the response that carries it", async () => {
   const response = Promise.resolve(
     new Response(await readFile(module), { headers }),
   );
-  const program = await load(response, {
-    [PACKAGE]: {
-      "main.said": () => null,
-      "main.slept": clock(),
-      "main.applied": (work, to) => work(to),
-      "main.echoed": () => null,
-    },
-  });
+  const program = await start(response);
 
   assert.equal(await program.run(PATIENT), 4);
 });

@@ -25,6 +25,14 @@ export const echoed = (line, call) =>
   call.perform("<package id>", "main.say", line);
 ```
 
+An extern whose native side is a function JavaScript already has needs no file. It is annotated with the path of that function from the global object, and the build writes the call:
+
+```
+import js.{binding};
+
+@binding("Math.max") extern fn larger(one: int, other: int): int;
+```
+
 `ambient build <package> --target main.page` writes a directory:
 
 - `program.wasm`: the program.

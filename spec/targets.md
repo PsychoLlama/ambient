@@ -101,7 +101,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - A loaded function the host holds keeps its code; answering with it hands it to the program, and code nothing holds is dropped.
 - A handle minted there stands for a JavaScript object. The host keeps the object by the handle and lets it go when the handle is reclaimed.
 - An event of a page is a [call from the world](#calls-from-the-world), so a handler that cancels one does so before it next waits.
-- TODO: one package is the base of such targets, and none is a browser's or Node's. Its tool writes no function for an extern: each is the declaring package's own, taken whole with the file it is in, and every value is converted as it crosses.
+- TODO: one package is the base of such targets, and none is a browser's or Node's. Its tool writes a function only for an extern annotated as a call of a global function, and from no signature: any other is the declaring package's own, taken whole with the file it is in. Every value is converted as it crosses, and no type declarations are given.
 - TODO: how JavaScript sees a value is undecided. Converting each at the call copies it, so a value is more likely held as it is and read through the program, with converting asked for.
 
 ## Network

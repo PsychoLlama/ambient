@@ -26,12 +26,14 @@ use ambient::workspace::Workspace;
 /// The package the tests run: its ID, and its one module. Its target
 /// binds an ability that answers at once and one that answers later.
 /// What it is handed is how long it waits before it gives up, and gives
-/// zero. Two externs are functions: one calls a function it is handed,
-/// and one performs an ability of its row.
+/// zero. Three externs are functions: one calls a function it is handed,
+/// one performs an ability of its row, and one has no JavaScript of the
+/// package's: it is bound to a function JavaScript has, so the build
+/// writes it.
 const PACKAGE: &str = "app";
 const PROGRAM: &str = r#"
     import ambient.iterator;
-    import js.{host};
+    import js.{binding, host};
 
     ability say(text: string): null;
     ability sleep(milliseconds: int): null;
@@ -41,6 +43,7 @@ const PROGRAM: &str = r#"
 
     extern fn applied(work: fn(int): int, to: int): int;
     extern fn echoed(text: string): null with say;
+    @binding("Math.max") extern fn larger(one: int, other: int): int;
 
     target page extends host { say: said, sleep: slept }
 
@@ -55,7 +58,7 @@ const PROGRAM: &str = r#"
 
     fn gives_up(after: int): int with sleep {
         sleep!(after);
-        return 0;
+        return larger(0, -1);
     }
 
     fn count(to: int): int with say, sleep {
