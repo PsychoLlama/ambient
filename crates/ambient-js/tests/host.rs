@@ -26,10 +26,10 @@ use ambient::workspace::Workspace;
 /// The package the tests run: its ID, and its one module. Its target
 /// binds an ability that answers at once and one that answers later.
 /// What it is handed is how long it waits before it gives up, and gives
-/// zero. Three externs are functions: one calls a function it is handed,
-/// one performs an ability of its row, and one has no JavaScript of the
-/// package's: it is bound to a function JavaScript has, so the build
-/// writes it.
+/// zero. Two externs are functions of the package's JavaScript: one
+/// calls a function it is handed, and one performs an ability of its
+/// row. The rest have none: each is bound to something JavaScript has,
+/// so the build writes it, and one gives a handle another takes.
 const PACKAGE: &str = "app";
 const PROGRAM: &str = r#"
     import ambient.iterator;
@@ -45,6 +45,11 @@ const PROGRAM: &str = r#"
     extern fn echoed(text: string): null with say;
     @binding("Math.max") extern fn larger(one: int, other: int): int;
 
+    brand Address;
+    @binding({ new: "URL" }) extern fn address(text: string): Address;
+    @binding({ property: "hostname" }) extern fn host_of(address: Address): string;
+    @binding({ method: "toString" }) extern fn written(address: Address): string;
+
     target page extends host { say: said, sleep: slept }
 
     fn main(patience: int): int with say, sleep {
@@ -58,7 +63,8 @@ const PROGRAM: &str = r#"
 
     fn gives_up(after: int): int with sleep {
         sleep!(after);
-        return larger(0, -1);
+        let home = address("https://example.com/path");
+        return larger(0, -1) + host_of(home).length() + written(home).length() - 35;
     }
 
     fn count(to: int): int with say, sleep {

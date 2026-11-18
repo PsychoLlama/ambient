@@ -74,7 +74,8 @@ test("a build loads its program with the native code of its package", async () =
 test("an extern bound to a function of JavaScript's calls it", async () => {
   const program = await start(await readFile(module));
 
-  // Giving up is what the larger of zero and less gives.
+  // Giving up is what the larger of zero and less gives, and what is
+  // left of an address's lengths once they are taken away.
   assert.equal(await program.run(1), 0);
 });
 

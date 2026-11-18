@@ -9,11 +9,12 @@
 /// its name. An extern annotated with `binding` needs none: the build
 /// writes its function.
 import ambient.build;
-import ambient.iterator;
 import ambient.tree;
 import ambient.build.{Build, Annotation, Compiled, Extern, File, Files, Word};
 import ambient.errors.{fail, throw};
 import ambient.tree.{Reference, Type};
+import pkg.glue;
+import pkg.glue.{Signature};
 import pkg.types;
 import ambient.Error;
 
@@ -21,34 +22,30 @@ import ambient.Error;
 /// bound in it.
 pub target host built by bundle {}
 
-/// The key of an annotation on an extern whose native side is a
-/// function JavaScript already has: the value is the path of that
-/// function from the global object, as `"console.log"` is. The extern
-/// is called with what it takes, and needs no JavaScript of its own.
+/// The key of an annotation on an extern whose native side is
+/// something JavaScript already has, so that it needs no JavaScript of
+/// its own: the build writes its function from what it takes. The
+/// value says what the extern is:
+///
+/// - `"console.log"`: a call of a function, by its path from the
+///   global object.
+/// - `{ get: "document.title" }`: what is at such a path.
+/// - `{ new: "URL" }`: a new object of the class at such a path.
+/// - `{ method: "append" }`: a call of a method of the first thing the
+///   extern takes, with the rest.
+/// - `{ property: "href" }`: a property of the first thing it takes,
+///   and `{ set: "href" }` the same put to the second.
+///
+/// An extern that gives a handle gives what JavaScript gave, held by
+/// the host under the handle's brand.
 pub tag binding;
 
 /// A build was asked for JavaScript it cannot write.
 pub tag unwritable;
 
-/// An extern whose function the build writes: a call of `calls`.
-type Bound = { on: Reference, calls: string };
-
-/// Whether `path` is names with dots between, which is all that is
-/// written into a build as code.
-fn is_path(path: string): bool {
-    let named = fn(part: string): bool => !part.is_empty() && part.chars().every(fn(char: string): bool {
-        let code = char.code() as int else 0;
-        return (code >= 97 && code <= 122) || (code >= 65 && code <= 90)
-            || (code >= 48 && code <= 57) || char == "_" || char == "$";
-    });
-    return path.split(".").every(named);
-}
-
-/// The function a binding's value names.
-fn calls(value: unknown): string with throw {
-    let path = value as string else "";
-    return is_path(path) ? path : fail(unwritable, "a `js.binding` is the path of a global function, as \"console.log\" is");
-}
+/// An extern whose function the build writes, and what its binding
+/// says it is.
+type Bound = { on: Reference, says: unknown };
 
 /// The externs `from` reaches that are annotated with `binding`.
 fn bound(from: Reference): List<Bound> with build.annotations, throw {
@@ -56,7 +53,7 @@ fn bound(from: Reference): List<Bound> with build.annotations, throw {
         let error: Error => { return throw!(error); }
         let found: List<Annotation> => {
             return found.map(fn(found: Annotation): Bound =>
-                { on: found.on, calls: calls(found.value) });
+                { on: found.on, says: found.value });
         }
     }
 }
@@ -65,24 +62,12 @@ fn bound(from: Reference): List<Bound> with build.annotations, throw {
 fn binding_of(bindings: List<Bound>, native: Extern): Bound | null =>
     bindings.find(fn(bound: Bound): bool => bound.on == native.definition);
 
-/// What a function or an extern takes and gives.
-type Signature = { function: List<Type>, returns: Type, takes: List<tree.Ability> };
-
 fn signature(of: Reference): Signature with build.signature, throw {
     match build.signature!(of) {
         let function: Signature => { return function; }
         let error: Error => { return throw!(error); }
         _ => { return fail(unwritable, "`${of.name}` is no function"); }
     }
-}
-
-/// The call of `calls` that stands for an extern of `arity`: what
-/// the extern takes is handed on, and nothing after it.
-fn glue(calls: string, arity: int): string {
-    let none: List<string> = [];
-    let given = iterator.range(0, arity).fold(none, fn(given: List<string>, at: int): List<string> =>
-        given.push("a${at}")).join_with(", ");
-    return "(${given}) => ${calls}(${given}) ?? null";
 }
 
 /// The files of the host that loads a module, which are this
@@ -159,8 +144,8 @@ fn loader(externs: List<Extern>, bindings: List<Bound>): string with build.signa
         let position = lines.length();
         match binding_of(bindings, native) {
             let bound: Bound => {
-                let arity = signature(native.definition).function.length();
-                return lines.push("const e${position} = ${glue(bound.calls, arity)};");
+                let written = glue.written(bound.says, signature(native.definition));
+                return lines.push("const e${position} = ${written};");
             }
             null => {
                 return lines.push("import { ${name_of(native)} as e${position} } from \"./${kept(native)}\";");
@@ -169,7 +154,7 @@ fn loader(externs: List<Extern>, bindings: List<Bound>): string with build.signa
     });
     let supplies = externs.fold(none, fn(lines: List<string>, native: Extern): List<string> =>
         lines.push("supply(\"${native.package}\", \"${native.path}\", e${lines.length()});"));
-    let lines = ["// Written by the build of this program.", "import { load } from \"./runtime/host.js\";"]
+    let lines = ["// Written by the build of this program.", "import { Handle, load } from \"./runtime/host.js\";"]
         .join(imports)
         .join([
             "",

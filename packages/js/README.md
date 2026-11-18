@@ -25,13 +25,20 @@ export const echoed = (line, call) =>
   call.perform("<package id>", "main.say", line);
 ```
 
-An extern whose native side is a function JavaScript already has needs no file. It is annotated with the path of that function from the global object, and the build writes the call:
+An extern whose native side is something JavaScript already has needs no file. It is annotated with what it is, and the build writes its function:
 
 ```
 import js.{binding};
 
 @binding("Math.max") extern fn larger(one: int, other: int): int;
+
+brand Address;
+@binding({ new: "URL" }) extern fn address(text: string): Address;
+@binding({ property: "hostname" }) extern fn host_of(address: Address): string;
+@binding({ method: "toString" }) extern fn written(address: Address): string;
 ```
+
+A path is a call of a global function; `get` reads one; `new` makes an object; `method`, `property`, and `set` are of the first thing the extern takes. An extern that gives a handle, as `address` does, gives the JavaScript object, which the host holds until the program lets the handle go.
 
 `ambient build <package> --target main.page` writes a directory:
 
