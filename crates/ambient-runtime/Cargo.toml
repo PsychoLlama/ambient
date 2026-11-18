@@ -4,11 +4,6 @@ version.workspace = true
 edition.workspace = true
 description = "The part of Ambient that is not compiled from core trees"
 
-[lib]
-# `rlib` to link into the compiler, which runs native code in process;
-# `cdylib` to build the WebAssembly module that runs beside emitted code.
-crate-type = ["rlib", "cdylib"]
-
 [dev-dependencies]
 proptest.workspace = true
 
