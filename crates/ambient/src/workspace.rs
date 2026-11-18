@@ -33,6 +33,11 @@ pub trait Sources {
     /// calls may take from the build target. See "Authority" in
     /// `spec/comptime.md`.
     fn grants(&self, package: &PackageId) -> Vec<Symbol>;
+
+    /// Every build step a package declares: the target it is for and
+    /// the tool it runs, in an order that is the same on every build.
+    /// See "Builds" in `spec/tools.md`.
+    fn steps(&self) -> Vec<(Symbol, Symbol)>;
 }
 
 /// Why a workspace refused a change.
@@ -67,6 +72,7 @@ pub struct Workspace {
     preludes: BTreeMap<PackageId, Vec<ModuleId>>,
     identities: BTreeMap<PackageId, String>,
     grants: BTreeMap<PackageId, Vec<Symbol>>,
+    steps: BTreeMap<PackageId, Vec<(Symbol, Symbol)>>,
     /// The preludes of a package that lists none.
     shared: Vec<ModuleId>,
     /// The standard library's preludes, for when `shared` is empty too.
@@ -143,6 +149,15 @@ impl Workspace {
             .push(ability);
     }
 
+    /// Declares a build step of `package`: `tool` adds files to a
+    /// build under `target`, or under a target that extends it.
+    pub fn step(&mut self, package: &str, target: Symbol, tool: Symbol) {
+        self.steps
+            .entry(PackageId(package.to_owned()))
+            .or_default()
+            .push((target, tool));
+    }
+
     /// Adds `module` to the end of the workspace's own preludes, which a
     /// package that lists none takes.
     pub fn shared_prelude(&mut self, module: ModuleId) {
@@ -204,5 +219,14 @@ impl Sources for Workspace {
 
     fn grants(&self, package: &PackageId) -> Vec<Symbol> {
         self.grants.get(package).cloned().unwrap_or_default()
+    }
+
+    fn steps(&self) -> Vec<(Symbol, Symbol)> {
+        // By the ID of the package, which no workspace's names change,
+        // and then as its manifest lists them.
+        let mut packages: Vec<_> = self.steps.iter().collect();
+        packages.sort_by_key(|(package, _)| self.identity(package));
+        let steps = packages.into_iter().flat_map(|(_, steps)| steps);
+        steps.cloned().collect()
     }
 }

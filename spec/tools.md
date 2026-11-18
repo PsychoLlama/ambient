@@ -36,6 +36,8 @@ A tool is a function a build runs to make something other than a program's defin
 - A build step is a tool that adds files to a build: it is handed the entry and the target, and gives files.
 - A package declares its build steps in its manifest, each for a target. One runs in a build whose target is that target or extends it, and whose entry reaches the package.
 - A package that owns an annotation's key therefore owns the one step that collects it, from every package of the program. No dependent declares or runs a step for it.
+- An entry reaches a package through a definition of it, or through an annotation under a key of it.
+- Steps run in the order of their packages' IDs, and a package's in the order it declares them.
 - No step sees what another gave. The target's tool runs after them and is handed what they gave, so it is what ties the files together.
 - Two files given for one path are an error.
 - A step is run for the target it declares and for no other, so a package that supports several targets costs a build only the one it is for.
@@ -57,5 +59,5 @@ A tool is a function a build runs to make something other than a program's defin
 
 ## Unbuilt
 
-- TODO: a tool reads its package's files, compiles an entry, reads host code, and asks for the annotations a definition reaches and for the type of a function or an extern, and nothing else: no tree of a definition, no reach but of annotations and of the externs compiled, nested run, or fetch. Only a target's tool runs: there are no build steps, lints, or selections.
+- TODO: a tool reads its package's files, compiles an entry, reads host code, and asks for the annotations a definition reaches and for the type of a function or an extern, and nothing else: no tree of a definition, no reach but of annotations and of the externs compiled, nested run, or fetch. There are no lints and no selections, and a command hands no tool anything but a build.
 - TODO: [testing](packages.md#testing) is not a tool: its harness is the command line's, so no package replaces it.

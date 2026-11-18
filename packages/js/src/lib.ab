@@ -239,7 +239,7 @@ fn declarations(entry: Reference, externs: List<Extern>): string with build.sign
 /// A program for a JavaScript host: the module, the host that loads
 /// it, the JavaScript of each extern it reaches, and `program.js`,
 /// which puts them together.
-pub fn bundle(entry: Reference, target: Reference): Files
+pub fn bundle(entry: Reference, target: Reference, steps: Files): Files
     with build.compile, build.host_code, build.read, build.annotations, build.signature, throw
 {
     match build.compile!(entry, target) {

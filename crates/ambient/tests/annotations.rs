@@ -31,7 +31,7 @@ const TOOL: &str = r#"
 
     fn line(found: Annotation): string => "${found.on.name}=${found.value as string else "?"}";
 
-    fn notes(entry: Reference, target: Reference): Files with build.annotations {
+    fn notes(entry: Reference, target: Reference, steps: Files): Files with build.annotations {
         match build.annotations!(entry, note) {
             let error: Error => { return [{ path: "notes.txt", bytes: error.message.to_bytes() }]; }
             let found: List<Annotation> => {

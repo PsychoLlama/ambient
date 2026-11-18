@@ -20,17 +20,12 @@ use crate::backend::wasm::{self, Wasm};
 use crate::checker;
 use crate::engine::Parts;
 use crate::error::Error;
-use crate::surface::Reference;
 use crate::symbol::{ModuleId, Namespace, Symbol};
-use crate::types::Ty;
 use crate::value::Value;
-
-/// The files of a build: each a path and what the file holds.
-pub type Files = Vec<(String, Vec<u8>)>;
 
 /// The module of the standard library that declares the build
 /// abilities.
-const MODULE: &str = "build";
+pub(super) const MODULE: &str = "build";
 
 /// A record of `fields`.
 pub(crate) fn record<const N: usize>(fields: [(&str, Value); N]) -> Value {
@@ -240,74 +235,5 @@ impl Engine<'_> {
             ("words", words()),
             ("kinds", kinds()),
         ]))
-    }
-
-    /// The files `entry` is built as under `target`, each a path and
-    /// what it holds, if the target is built by a tool: what the tool
-    /// gives for the two. See "Builds" in `spec/tools.md`.
-    ///
-    /// # Errors
-    ///
-    /// Fails if what the target is built by is not a tool, or as
-    /// [`Self::tool`] does.
-    pub fn built(&self, entry: &Symbol, target: &Symbol) -> Result<Option<Files>, Error> {
-        let Some(tool) = self.builder(target)? else {
-            return Ok(None);
-        };
-        let library = |module: &str, name: &str| {
-            let named = ModuleId::new(FAULT_PACKAGE, module).ty(name);
-            Ty::Named(Reference::Definition(named), Vec::new())
-        };
-        let reference = library("tree", "Reference");
-        let fits = self.signature(&tool)?.is_some_and(|(signature, _)| {
-            signature.type_params.is_empty()
-                && signature.params == [reference.clone(), reference]
-                && signature.ret == library(MODULE, "Files")
-        });
-        if !fits {
-            return Err(Error::NotTool(tool));
-        }
-        let args = [checker::reference(entry), checker::reference(target)];
-        // What a checked tool gives is files, whatever it did.
-        let given = self.tool(&tool, &args)?;
-        let Value::List(given) = &given else {
-            return Ok(Some(Vec::new()));
-        };
-        let file = |file: &Value| {
-            let Value::Record(fields) = file else {
-                return None;
-            };
-            match (fields.get("path"), fields.get("bytes")) {
-                (Some(Value::String(path)), Some(Value::Bytes(bytes))) => {
-                    Some((path.clone(), bytes.clone()))
-                }
-                _ => None,
-            }
-        };
-        Ok(Some(given.iter().filter_map(file).collect()))
-    }
-
-    /// Runs `tool` with `args` under the build target, and gives what
-    /// it gives. See "Tools" in `spec/tools.md`.
-    ///
-    /// # Errors
-    ///
-    /// Fails if the tool takes an ability its package is not granted,
-    /// does not compile for this machine, or faults.
-    pub fn tool(&self, tool: &Symbol, args: &[Value]) -> Result<Value, Error> {
-        let package = &tool.module.package;
-        let granted = self.sources.grants(package);
-        let row = self.signature(tool)?.map(|(signature, _)| signature.row);
-        if let Some(ability) = row
-            .iter()
-            .flatten()
-            .find(|ability| !granted.contains(ability))
-        {
-            return Err(Error::ToolUngranted {
-                symbol: tool.clone(),
-                ability: ability.clone(),
-            });
-        }
-        self.run(package, tool, args)
     }
 }

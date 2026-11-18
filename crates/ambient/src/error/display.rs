@@ -46,12 +46,6 @@ impl fmt::Display for Error {
             | Self::NoMethod { .. }
             | Self::Method { .. }
             | Self::Receiver { .. } => self.fmt_method(f),
-            Self::NotExhaustive { symbol, remaining } => {
-                write!(f, "{symbol}: match does not handle `{remaining}`")
-            }
-            Self::UnreachableArm { symbol, arm } => {
-                write!(f, "{symbol}: match arm {arm} can never be taken")
-            }
             Self::TypeArguments {
                 symbol,
                 expected,
@@ -79,11 +73,13 @@ impl fmt::Display for Error {
             | Self::TargetCycle(_)
             | Self::NativeRow(_)
             | Self::TargetConflict { .. }
-            | Self::ToolConflict(_)
-            | Self::NotTool(_)
-            | Self::NotAnnotation { .. }
-            | Self::ToolUngranted { .. }
             | Self::GenericEntry(_) => self.fmt_world(f),
+            Self::ToolConflict(_)
+            | Self::NotTool(_)
+            | Self::NotStep(_)
+            | Self::BuiltTwice { .. }
+            | Self::NotAnnotation { .. }
+            | Self::ToolUngranted { .. } => self.fmt_build(f),
             Self::NotBundle { .. }
             | Self::DuplicateHandler { .. }
             | Self::Unbound { .. }
@@ -95,7 +91,10 @@ impl fmt::Display for Error {
             Self::UntypedParameter { symbol, name } => {
                 write!(f, "{symbol}: parameter `{name}` needs a type")
             }
-            Self::Untestable { .. } | Self::Uncontractive(_) => self.fmt_type(f),
+            Self::Untestable { .. }
+            | Self::Uncontractive(_)
+            | Self::NotExhaustive { .. }
+            | Self::UnreachableArm { .. } => self.fmt_type(f),
             Self::Nesting(symbol) => write!(
                 f,
                 "{symbol}: nests more than {} levels deep",
@@ -113,6 +112,12 @@ impl Error {
     /// The errors about what a type may be.
     fn fmt_type(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NotExhaustive { symbol, remaining } => {
+                write!(f, "{symbol}: match does not handle `{remaining}`")
+            }
+            Self::UnreachableArm { symbol, arm } => {
+                write!(f, "{symbol}: match arm {arm} can never be taken")
+            }
             Self::Untestable { symbol, found } => write!(
                 f,
                 "{symbol}: no value can be tested for `{found}`: a function type in it mentions a type parameter"
@@ -235,6 +240,16 @@ impl Error {
                 f,
                 "{symbol}: the targets it extends bind `{ability}` differently"
             ),
+            Self::GenericEntry(symbol) => {
+                write!(f, "{symbol}: an entry cannot have type parameters")
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// What is wrong with an annotation, a tool, or a build.
+    fn fmt_build(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
             Self::NotAnnotation { symbol, key: true } => {
                 write!(f, "{symbol}: the key of an annotation is a tag")
             }
@@ -245,9 +260,17 @@ impl Error {
             ),
             Self::NotTool(symbol) => write!(
                 f,
-                "{symbol}: what builds a program takes a `tree.Reference` to its entry and one to \
-                 its target, and gives `build.Files`"
+                "{symbol}: what builds a program takes a `tree.Reference` to its entry, one to its \
+                 target, and the `build.Files` its build steps gave, and gives `build.Files`"
             ),
+            Self::NotStep(symbol) => write!(
+                f,
+                "{symbol}: a build step takes a `tree.Reference` to an entry and one to its \
+                 target, and gives `build.Files`"
+            ),
+            Self::BuiltTwice { symbol, path } => {
+                write!(f, "{symbol}: its build was given two files for `{path}`")
+            }
             Self::ToolConflict(symbol) => write!(
                 f,
                 "{symbol}: the targets it extends are built by different tools"
@@ -256,9 +279,6 @@ impl Error {
                 f,
                 "{symbol}: the tool takes `{ability}`, which its package is not granted"
             ),
-            Self::GenericEntry(symbol) => {
-                write!(f, "{symbol}: an entry cannot have type parameters")
-            }
             _ => Ok(()),
         }
     }

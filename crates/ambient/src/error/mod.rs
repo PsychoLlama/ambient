@@ -167,6 +167,11 @@ pub enum Error {
     /// What a target is built by is not a tool: it does not take an
     /// entry and a target and give the files of a build.
     NotTool(Symbol),
+    /// A build step is not typed as one: it does not take an entry and
+    /// a target and give files.
+    NotStep(Symbol),
+    /// A build under a target was given two files for one path.
+    BuiltTwice { symbol: Symbol, path: String },
     /// Two targets a target extends are built by different tools, and
     /// it does not name its own.
     ToolConflict(Symbol),
@@ -237,6 +242,8 @@ impl Error {
             | Self::GenericEntry(symbol)
             | Self::ToolConflict(symbol)
             | Self::NotTool(symbol)
+            | Self::NotStep(symbol)
+            | Self::BuiltTwice { symbol, .. }
             | Self::NotAnnotation { symbol, .. }
             | Self::ToolUngranted { symbol, .. }
             | Self::SpawnOutsideGroup(symbol)

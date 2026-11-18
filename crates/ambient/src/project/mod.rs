@@ -325,6 +325,11 @@ impl Opening<'_> {
             let ability = self.grant(&name, grant)?;
             self.workspace.grant(&name, ability);
         }
+        for step in &manifest.steps {
+            let named = |path| self.value(&name, path, &step.tool);
+            let (target, tool) = (named(&step.target)?, named(&step.tool)?);
+            self.workspace.step(&name, target, tool);
+        }
         Ok(name)
     }
 
@@ -415,6 +420,25 @@ impl Opening<'_> {
             module.definitions().iter().any(ability)
         });
         declared.then(|| module.ability(name)).ok_or_else(unknown)
+    }
+
+    /// The function or the target a build step names at `path`, which
+    /// is one some module that was opened declares.
+    fn value(&self, package: &str, path: &str, step: &str) -> Result<Symbol, ProjectError> {
+        let unknown = || ProjectError::Step {
+            package: package.to_owned(),
+            step: step.to_owned(),
+            names: path.to_owned(),
+        };
+        let (module, name) = path.rsplit_once('.').ok_or_else(unknown)?;
+        let module = self.prelude(package, module).map_err(|_| unknown())?;
+        let declared = self.workspace.module(&module).is_some_and(|module| {
+            let named = |definition: &Definition| {
+                definition.name == name && definition.kind.namespace() == Namespace::Value
+            };
+            module.definitions().iter().any(named)
+        });
+        declared.then(|| module.value(name)).ok_or_else(unknown)
     }
 
     /// The module a prelude written in a manifest names: a path that

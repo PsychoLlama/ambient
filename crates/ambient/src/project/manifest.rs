@@ -9,6 +9,15 @@ use serde::Deserialize;
 use super::locked::Source;
 use super::version::Version;
 
+/// A build step: a tool of the package, and the target it adds files
+/// to builds under. Each is a path as a prelude's is, to a definition.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Step {
+    pub target: String,
+    pub tool: String,
+}
+
 /// What a package says of itself.
 #[derive(Clone, Debug)]
 pub struct Package {
@@ -30,6 +39,9 @@ pub struct Package {
     /// The files and directories beside the sources that are part of
     /// the package, each a path from the manifest's directory.
     pub files: Vec<PathBuf>,
+    /// The build steps the package adds to builds under a target. See
+    /// "Builds" in `spec/tools.md`.
+    pub steps: Vec<Step>,
 }
 
 /// A package another depends on: which it is, and where to find it.
@@ -124,6 +136,8 @@ struct Written {
     grants: Vec<String>,
     #[serde(default)]
     files: Vec<PathBuf>,
+    #[serde(default)]
+    steps: Vec<Step>,
     members: Option<Vec<PathBuf>>,
     #[serde(default)]
     vendored: BTreeMap<PathBuf, String>,
@@ -159,6 +173,7 @@ impl Manifest {
                 dependencies: written.dependencies,
                 grants: written.grants,
                 files: written.files,
+                steps: written.steps,
             }),
             (None, None, None) if members.is_some() => None,
             (name, id, _) => {

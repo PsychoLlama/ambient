@@ -23,6 +23,7 @@
 mod annotate;
 mod asked;
 mod blame;
+mod built;
 mod check;
 mod compile;
 mod environment;
@@ -55,7 +56,8 @@ use crate::symbol::{ModuleId, Symbol};
 use crate::workspace::Sources;
 
 pub use ambient_host::parts::{Artifact, Body, Native, Part, Parts, Unloadable};
-pub use asked::{Files, refused};
+pub use asked::refused;
+pub use built::Files;
 pub use check::Interface;
 pub use compile::Backend;
 pub use read::{Entry, Read, Table};

@@ -36,7 +36,7 @@ const PAGE: &str = r#"
         return "${native.path}: ${code}";
     }
 
-    fn bundle(entry: Reference, target: Reference): Files with build.compile, build.host_code {
+    fn bundle(entry: Reference, target: Reference, steps: Files): Files with build.compile, build.host_code {
         match build.compile!(entry, target) {
             let error: Error => {
                 return [{ path: "error.txt", bytes: error.message.to_bytes() }];
@@ -241,7 +241,7 @@ const SIGNED: &str = r#"
         }
     }
 
-    fn describe(entry: Reference, target: Reference): Files with build.signature {
+    fn describe(entry: Reference, target: Reference, steps: Files): Files with build.signature {
         let lines = [said(entry), said(comptime tree.reference(generic))];
         return [{ path: "signature.txt", bytes: lines.join_with("\n").to_bytes() }];
     }

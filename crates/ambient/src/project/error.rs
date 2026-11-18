@@ -45,6 +45,12 @@ pub enum ProjectError {
         package: String,
         grant: String,
     },
+    /// A build step names a target or a tool the package cannot reach.
+    Step {
+        package: String,
+        step: String,
+        names: String,
+    },
     /// Two members of a workspace are one package in one line of versions.
     Rivals {
         id: String,
@@ -122,6 +128,15 @@ impl fmt::Display for ProjectError {
                     "{package}: the grant `{grant}` names no ability it can reach"
                 )
             }
+            Self::Step {
+                package,
+                step,
+                names,
+            } => write!(
+                f,
+                "{package}: the build step `{step}` names `{names}`, which is no function or \
+                 target it can reach"
+            ),
             Self::Rivals {
                 id,
                 line,

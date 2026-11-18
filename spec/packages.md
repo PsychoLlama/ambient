@@ -44,7 +44,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 - A package is a directory: a manifest, and its modules as source files under one directory of sources.
 - A source file is the [module](modules.md) its path under the sources names, and the file named `lib` at their top is the library module.
-- The manifest says the package's name, its ID, and its version, and lists its dependencies, its preludes, its [build grants](comptime.md), each the path of an ability, and its other files.
+- The manifest says the package's name, its ID, and its version, and lists its dependencies, its preludes, its [build grants](comptime.md), each the path of an ability, its [build steps](tools.md#builds), each the paths of a target and of a tool, and its other files.
 - A dependency is listed by its local name, with the ID of the package and where it is: a directory, or what [selects](releases.md#selection) a release.
 - A dependency at a directory is on the package there, whose ID must be the one declared. It states no version: the package there is a member, as it is.
 - A file of the package is one under its sources or one its manifest lists. Nothing else in its directory is part of it, and no [comptime](comptime.md) call reads anything else.
