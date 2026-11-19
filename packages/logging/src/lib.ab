@@ -1,0 +1,136 @@
+/// Structured logs. Code that has something to say performs `log`,
+/// and never knows where it goes: whatever provides `log` decides, so
+/// a program chooses in one place what is written, how, and to where.
+///
+/// A handler of `log` is an ordinary function, so one is built from
+/// others: `at_least` and `pattern.matching` choose what is handed on,
+/// and `each` hands on to several. `ansi` and `ndjson` write a log as
+/// a line, for a handler to put wherever its program keeps lines.
+pub mod ansi;
+pub mod level;
+pub mod ndjson;
+pub mod pattern;
+
+use ambient.json.{Json};
+use ambient.map.{self, Map};
+use ambient.test.{check};
+use pkg.level.{self, Level};
+
+/// What a log carries beside its message: values by name, where a
+/// message would otherwise have them written into it.
+pub type Context = Map<Json>;
+
+/// A context of each name and its value: `context([("port", 8080)])`,
+/// and `context([])` for a log that carries nothing.
+pub fn context(entries: List<(key: string, value: Json)>): Context => map.of::<Json>(entries);
+
+/// A message, with what it would say of the program kept as data.
+pub type Log = {
+    level: Level,
+    // The message as it was written, with no values in it.
+    message: string,
+    // Where it came from, outermost first: a program, then a part of it.
+    origin: List<string>,
+    context: Context,
+};
+
+/// Says something of what the program is doing, to whoever is
+/// listening. When it was said is for them to note.
+pub ability log(entry: Log): null;
+
+/// Does something with a log: writes it, keeps it, or hands it on.
+pub type Handler = fn(entry: Log): null;
+
+/// Extremely detailed progress, usually hidden.
+pub fn trace(message: string, context: Context): null with log => say(level.trace, message, context);
+
+/// Events and control flow, usually hidden.
+pub fn debug(message: string, context: Context): null with log => say(level.debug, message, context);
+
+/// High-level progress.
+pub fn info(message: string, context: Context): null with log => say(level.info, message, context);
+
+/// Cause for concern, though the program goes on.
+pub fn warn(message: string, context: Context): null with log => say(level.warn, message, context);
+
+/// Something failed, though the program goes on.
+pub fn error(message: string, context: Context): null with log => say(level.error, message, context);
+
+/// A failure the program cannot go on from.
+pub fn fatal(message: string, context: Context): null with log => say(level.fatal, message, context);
+
+fn say(level: Level, message: string, context: Context): null with log =>
+    log!({ level, message, origin: [], context });
+
+/// What `body` gives, with every log it makes marked as coming from
+/// `name`, under wherever this was called from.
+pub fn within<T>(name: string, body: fn(): T with log): T with log =>
+    provide { [log](entry: Log) => log!({ ...entry, origin: [name] + entry.origin }) } => body();
+
+/// What `body` gives, and every log it made, oldest first.
+pub fn collect<T>(body: fn(): T with log): (result: T, logs: List<Log>) {
+    let kept = cell::<List<Log>>([]);
+    let result = provide { [log]: keeping(kept) } => body();
+    return (result, kept.read());
+}
+
+/// A handler that keeps each log in a cell, after those it holds.
+pub fn keeping(kept: Cell<List<Log>>): Handler =>
+    fn(entry: Log): null {
+        kept.update(fn(logs: List<Log>): List<Log> => logs.push(entry));
+        return null;
+    };
+
+/// Hands on to `next` the logs `keep` takes, and drops the others.
+pub fn filter(keep: fn(entry: Log): bool, next: Handler): Handler =>
+    fn(entry: Log): null {
+        if keep(entry) {
+            next(entry);
+        }
+        return null;
+    };
+
+/// Hands on to `next` the logs at least as severe as `least`.
+pub fn at_least(least: Level, next: Handler): Handler =>
+    filter(fn(entry: Log): bool => level.rank(entry.level) >= level.rank(least), next);
+
+/// Hands each log to every one of `handlers`, in order.
+pub fn each(handlers: List<Handler>): Handler =>
+    fn(entry: Log): null => handlers.each(fn(handler: Handler) => handler(entry));
+
+/// What a program might log as it serves a request.
+fn session(): int with log =>
+    within("app", fn() {
+        info("listening", context([("port", 8080)]));
+        within("http", fn() {
+            debug("request", context([("path", "/users/7")]));
+            within("db", fn() => trace("query", context([])));
+            return warn("slow response", context([("seconds", 1.25)]));
+        });
+        error("lost the database", context([]));
+        return 503;
+    });
+
+/// Where each of `logs` came from, as one text.
+fn origins(logs: List<Log>): List<string> => logs.map(fn(entry: Log): string => entry.origin.join_with(":"));
+
+fn test_a_log_is_marked_with_where_it_was_made(): null with check {
+    let (status, logs) = collect(session);
+    check!(status == 503, "what the body gave is given");
+    check!(origins(logs) == ["app", "app:http", "app:http:db", "app:http", "app"], "outermost first");
+    check!(logs.map(fn(entry: Log): string => entry.message).first() == "listening", "oldest first");
+}
+
+fn test_a_handler_hands_on_only_what_is_severe_enough(): null with check {
+    let kept = cell::<List<Log>>([]);
+    provide { [log]: at_least(level.warn, keeping(kept)) } => session();
+    let levels = kept.read().map(fn(entry: Log): string => level.label(entry.level));
+    check!(levels == ["warn", "error"], "a warning and what is worse");
+}
+
+fn test_each_handler_of_several_is_handed_a_log(): null with check {
+    let (all, severe) = (cell::<List<Log>>([]), cell::<List<Log>>([]));
+    provide { [log]: each([keeping(all), at_least(level.error, keeping(severe))]) } => session();
+    check!(all.read().length() == 5, "one takes every log");
+    check!(origins(severe.read()) == ["app"], "while another chooses among them");
+}

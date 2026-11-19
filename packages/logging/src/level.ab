@@ -1,0 +1,42 @@
+/// Extremely detailed progress, usually hidden.
+pub tag trace;
+
+/// Events and control flow, usually hidden.
+pub tag debug;
+
+/// High-level progress.
+pub tag info;
+
+/// Cause for concern, though the program goes on.
+pub tag warn;
+
+/// Something failed, though the program goes on.
+pub tag error;
+
+/// A failure the program cannot go on from.
+pub tag fatal;
+
+/// How severe a log is.
+pub type Level = trace | debug | info | warn | error | fatal;
+
+/// Where a level stands among the others: a more severe one is more.
+pub fn rank(of: Level): int =>
+    match of {
+        trace => 10,
+        debug => 20,
+        info => 30,
+        warn => 40,
+        error => 50,
+        fatal => 60,
+    };
+
+/// What a level is called.
+pub fn label(of: Level): string =>
+    match of {
+        trace => "trace",
+        debug => "debug",
+        info => "info",
+        warn => "warn",
+        error => "error",
+        fatal => "fatal",
+    };

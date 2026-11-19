@@ -1,0 +1,30 @@
+use ambient.json.{self, Json};
+use ambient.test.{check};
+use ambient.time;
+use pkg.{Log, context};
+use pkg.level;
+
+/// A log made at the moment `at` as one line of JSON, for a file of
+/// them. Its members are in an order that is easy to skim: the level
+/// by its name, the time as text, and then the rest.
+pub fn line(entry: Log, at: int): string {
+    // Written member by member: a map would put them in the order of
+    // their names.
+    let members: List<(name: string, value: Json)> = [
+        ("level", level.label(entry.level)),
+        ("timestamp", time.write(at)),
+        ("message", entry.message),
+        ("origin", entry.origin),
+        ("context", entry.context),
+    ];
+    let written = members.map(fn((name, value): (name: string, value: Json)): string =>
+        json.write(name) + ":" + json.write(value));
+    return "{" + written.join_with(",") + "}\n";
+}
+
+fn test_a_log_is_a_line_of_json(): null with check {
+    let entry = { level: level.info, message: "said \"hi\"", origin: ["app", "http"], context: context([("user", 7)]) };
+    let expected = "{\"level\":\"info\",\"timestamp\":\"2008-01-01T00:00:00.000Z\","
+        + "\"message\":\"said \\\"hi\\\"\",\"origin\":[\"app\",\"http\"],\"context\":{\"user\":7}}\n";
+    check!(line(entry, 1199145600000) == expected, "members are in order, and text is quoted");
+}

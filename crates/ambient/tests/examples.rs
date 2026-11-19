@@ -46,6 +46,14 @@ fn every_test_of_an_example_passes() {
 }
 
 #[test]
+fn the_logging_package_passes_its_tests() {
+    let path = example("../packages/logging");
+    let (code, world) = Scripted::default().execute(&Disk, &Command::Test { path, only: None });
+
+    assert_eq!((code, world.err.as_str()), (0, ""), "{}", world.out);
+}
+
+#[test]
 fn the_tally_counts_the_words_of_a_file() {
     let world = Scripted {
         files: [("notes".to_owned(), "the cat and the hat\nthe end".into())].into(),

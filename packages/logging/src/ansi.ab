@@ -1,0 +1,48 @@
+use ambient.json;
+use ambient.test.{check};
+use ambient.time;
+use pkg.{Log, context};
+use pkg.level.{self, Level};
+
+/// A log made at the moment `at` as a terminal that has the eight ANSI
+/// colors shows it: when, how severe, the message, its context if it
+/// has any, and where it came from if anywhere. Whether what it is
+/// written to is such a terminal is for the program to find out.
+pub fn line(entry: Log, at: int): string {
+    let stamp = paint("2", clock(at));
+    // A message of several lines keeps its later ones under its first.
+    let message = entry.message.replace("\n", "\n${stamp}       ");
+    let context = entry.context.size() > 0 ? [json.write(entry.context)] : [];
+    let origin = entry.origin.is_empty() ? [] : [paint("2", entry.origin.join_with(":"))];
+    return ([stamp, label(entry.level), message] + context + origin).join_with(" ");
+}
+
+/// The time of day of a moment, in UTC. Someone watching a terminal
+/// knows what day it is.
+fn clock(moment: int): string {
+    let at = time.date(moment);
+    let wide = fn(value: int, width: int): string => value.to_text().pad_start(width, "0");
+    return "[${wide(at.hour, 2)}:${wide(at.minute, 2)}:${wide(at.second, 2)}.${wide(at.millisecond, 3)}]";
+}
+
+/// A level in its color, as wide as the widest so that messages line up.
+fn label(of: Level): string =>
+    match of {
+        level.trace => paint("97", "TRACE"),
+        level.debug => paint("34", "DEBUG"),
+        level.info => paint("32", "INFO") + " ",
+        level.warn => paint("33", "WARN") + " ",
+        level.error => paint("31", "ERROR"),
+        level.fatal => paint("1;31", "FATAL"),
+    };
+
+/// `text` as a terminal writes it under a code: `2` is dim, `1` bold,
+/// and the thirties are colors. What follows is written plainly again.
+fn paint(code: string, text: string): string => "\u{1b}[0m\u{1b}[${code}m${text}\u{1b}[0m";
+
+fn test_a_log_is_a_line_for_a_terminal(): null with check {
+    let entry = { level: level.warn, message: "up\nand running", origin: ["app"], context: context([]) };
+    let stamp = paint("2", "[01:02:03.004]");
+    let expected = "${stamp} ${paint("33", "WARN")}  up\n${stamp}       and running ${paint("2", "app")}";
+    check!(line(entry, 3723004) == expected, "a later line of a message is under the first");
+}
