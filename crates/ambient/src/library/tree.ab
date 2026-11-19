@@ -33,7 +33,7 @@ pub type Reference =
     | { beside: null, name: string, kind: Kind };
 
 /// What kind of definition a reference is to.
-pub type Kind = "type" | "value" | "ability" | "key";
+pub type Kind = "type" | "value" | "ability" | "contract";
 
 /// A brand, as a type's tree refers to it: where it is declared.
 pub type Brand = { package: string, identity: string };

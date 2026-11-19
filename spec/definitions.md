@@ -4,7 +4,7 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 
 ## Kinds
 
-- Types, functions, abilities, row aliases, externs, targets, [keys](methods.md), and tags are definitions.
+- Types, functions, abilities, row aliases, externs, targets, [contracts](methods.md), and tags are definitions.
 - Functions are the only definitions with a body.
 - A lambda or nested function is its own definition once checked: it is hashed separately and its encloser refers to it by hash.
 - There are no top-level values; a constant is a function with no parameters.
@@ -52,7 +52,7 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 
 ## Identity
 
-- Some definitions are told apart by where they are declared, since structure cannot tell them apart: [brands](types.md), [keys](methods.md), [abilities](abilities.md), [externs](externs.md), and tags.
+- Some definitions are told apart by where they are declared, since structure cannot tell them apart: [brands](types.md), [contracts](methods.md), [abilities](abilities.md), [externs](externs.md), and tags.
 - The identity of one is its package's [ID](packages.md), its module path, and its name. Nothing else in the language is nominal.
 - An identity is written nowhere: it is read from the declaration, so no second name can drift from the first or collide with another by accident.
 - An identity is content. It is the one place a name reaches a hash.

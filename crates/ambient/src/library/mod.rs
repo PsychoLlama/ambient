@@ -46,7 +46,7 @@ pub fn build() -> crate::symbol::Symbol {
 /// The key a value holds what releases it under, which a using reads.
 #[must_use]
 pub fn dispose() -> crate::symbol::Symbol {
-    ModuleId::new(FAULT_PACKAGE, "cleanup").key("dispose")
+    ModuleId::new(FAULT_PACKAGE, "cleanup").contract("dispose")
 }
 
 /// The library module: `Error`, and a tag for the kind of each fault,

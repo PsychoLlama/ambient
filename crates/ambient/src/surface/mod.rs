@@ -101,7 +101,7 @@ pub enum DefinitionKind<N = Path> {
     Module(Expr<N>),
     Function(Function<N>),
     Ability(Ability<N>),
-    Key(KeyDefinition<N>),
+    Contract(ContractDefinition<N>),
     /// A tag: a name for one value, told from every other by where it
     /// is declared. See "Tags" in `spec/definitions.md`.
     Tag,
@@ -131,7 +131,7 @@ impl<N> DefinitionKind<N> {
             | Self::Intrinsic
             | Self::Target(_) => Namespace::Value,
             Self::Ability(_) => Namespace::Ability,
-            Self::Key(_) => Namespace::Key,
+            Self::Contract(_) => Namespace::Contract,
         }
     }
 }
@@ -181,11 +181,12 @@ pub struct Ability<N = Path> {
     pub ret: Type<N>,
 }
 
-/// A key: what a record holds a value under without reserving a name.
+/// A contract: what a record holds a value under without reserving a
+/// name.
 /// See `spec/methods.md`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct KeyDefinition<N = Path> {
-    /// The type of what a record holds under the key.
+pub struct ContractDefinition<N = Path> {
+    /// The type of what a record holds under the contract.
     pub ty: Type<N>,
 }
 
@@ -223,7 +224,7 @@ pub struct Param<N = Path> {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Key<N = Path> {
     Field(String),
-    /// A definition: an ability, for its handler, or a key. A record
+    /// A definition: an ability, for its handler, or a contract. A record
     /// keyed only by abilities is a bundle.
     Ability(N),
 }
@@ -407,7 +408,7 @@ pub enum Expr<N = Path> {
     /// Evaluates `body`, and then `cleanup`, however `body` ended. Is what
     /// `body` gave. See `spec/cleanup.md`.
     /// Binds a value that carries its own cleanup, as a let does, and
-    /// calls what the value holds under the standard library's key
+    /// calls what the value holds under the standard library's contract
     /// when `body` exits.
     Using {
         name: String,

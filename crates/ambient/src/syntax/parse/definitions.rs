@@ -4,8 +4,8 @@ use super::super::lex::Token;
 use super::{Parsed, Parser};
 use crate::builder::{self as b, ModuleBuilder};
 use crate::surface::{
-    Ability, Annotation, Definition, DefinitionKind, Expr, Extern, ExternKind, Function, GENERATOR,
-    KeyDefinition, Param, Path, Target, Type, TypeDefinition,
+    Ability, Annotation, ContractDefinition, Definition, DefinitionKind, Expr, Extern, ExternKind,
+    Function, GENERATOR, Param, Path, Target, Type, TypeDefinition,
 };
 use crate::syntax::{Placed, SyntaxError, place};
 
@@ -179,7 +179,7 @@ impl Parser {
             return Ok((name, DefinitionKind::Ability(ability)));
         }
         if self.eat_word("contract") {
-            return self.key();
+            return self.contract();
         }
         if self.eat_word("tag") {
             let name = self.name()?;
@@ -285,9 +285,9 @@ impl Parser {
         Ok((name, DefinitionKind::Type(TypeDefinition { params, ty })))
     }
 
-    /// `contract name: Type;`, or `contract name(params): Type;` for a key that
-    /// holds a function.
-    fn key(&mut self) -> Parsed<(String, DefinitionKind)> {
+    /// `contract name: Type;`, or `contract name(params): Type;` for
+    /// one that holds a function.
+    fn contract(&mut self) -> Parsed<(String, DefinitionKind)> {
         let name = self.name()?;
         let ty = if self.eat(":") {
             self.ty()?
@@ -300,7 +300,7 @@ impl Parser {
             }
         };
         self.expect(";")?;
-        Ok((name, DefinitionKind::Key(KeyDefinition { ty })))
+        Ok((name, DefinitionKind::Contract(ContractDefinition { ty })))
     }
 
     /// `extern fn name(params): Type with row;` or

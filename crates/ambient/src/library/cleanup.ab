@@ -1,3 +1,3 @@
 /// What a value holds to be released by: a `using` reads the function a
-/// record holds under this key, and calls it when its block exits.
+/// record holds under this contract, and calls it when its block exits.
 pub contract dispose(): null;

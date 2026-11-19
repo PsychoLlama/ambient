@@ -179,7 +179,7 @@ impl Resolver<'_> {
             // A key is named where an ability is: an ability if there
             // is one of that name, and a key if not.
             Key::Ability(path) => Key::Ability(self.ability(path).or_else(|unknown| {
-                let key = self.lookup(Namespace::Key, path);
+                let key = self.lookup(Namespace::Contract, path);
                 key.map(Reference::Definition).map_err(|_| unknown)
             })?),
         })

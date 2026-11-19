@@ -53,7 +53,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - A function named in a block is a local that holds it, and its body may call it by that name; one that does states its types, as a [method](methods.md) does.
 - A record is members between braces: a field, a field named for a local of the same name, a function or method written with its parameters, or `...` and a record to [merge](methods.md) over.
 - A member whose first parameter is `self` is a [method](methods.md); with any other first parameter it is a function.
-- A record names a [key](methods.md) or an [ability](handlers.md) in square brackets, where it would name a field, and indexing by one in square brackets reads it.
+- A record names a [contract](methods.md) or an [ability](handlers.md) in square brackets, where it would name a field, and indexing by one in square brackets reads it.
 - `${` and `}` in a string hold a value, and the string is its pieces [joined](operations.md) with each value's `to_text` [method](methods.md) called; `\$` writes the sign itself.
 - A condition, `?`, a value, `:`, and another value is a match of the condition that gives the first where it is true.
 - A parameter of a function written in place may be a pattern: the argument is matched against it where the body begins.

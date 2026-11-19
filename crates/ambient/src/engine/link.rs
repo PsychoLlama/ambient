@@ -208,7 +208,7 @@ impl Engine<'_> {
                     params, ret, row, ..
                 } => function(&[], params, ret, row)?,
                 Tree::Type { ty, .. } => Body::Type(ty.clone()),
-                Tree::Ability { .. } | Tree::Key { .. } | Tree::Target { .. } => Body::Inert,
+                Tree::Ability { .. } | Tree::Contract { .. } | Tree::Target { .. } => Body::Inert,
             };
             let native = match &open.tree {
                 Tree::Extern {

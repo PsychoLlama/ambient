@@ -174,7 +174,7 @@ pub(super) fn definition(home: Home, reference: &Expr, kinds: &[&str]) -> Read<R
         "type" => Namespace::Type,
         "value" => Namespace::Value,
         "ability" => Namespace::Ability,
-        "key" => Namespace::Key,
+        "contract" => Namespace::Contract,
         _ => return shapeless("a reference"),
     };
     if !kinds.contains(&kind) {

@@ -1,4 +1,4 @@
-//! Keys: what a record holds a value under without reserving a name,
+//! Contracts: what a record holds a value under without reserving a name,
 //! run on every backend. See `spec/methods.md`.
 
 #![allow(clippy::unwrap_used)]
@@ -13,12 +13,12 @@ use ambient::surface::{Definition, Expr, Type};
 use ambient::value::Value;
 use support::{run, value, workspace};
 
-/// `Label`, a key that holds a string, and `Area`, one that holds a
+/// `Label`, a contract that holds a string, and `Area`, one that holds a
 /// function giving an integer.
-fn keys() -> [Definition; 2] {
+fn contracts() -> [Definition; 2] {
     [
-        b::key("Label", ty::string()),
-        b::key("Area", ty::function([], ty::int())),
+        b::contract("Label", ty::string()),
+        b::contract("Area", ty::function([], ty::int())),
     ]
 }
 
@@ -27,13 +27,13 @@ fn main(body: Expr) -> Definition {
 }
 
 fn evaluates(body: Expr) -> Value {
-    let [label, area] = keys();
+    let [label, area] = contracts();
     run([label, area, main(body)], &[]).unwrap()
 }
 
-/// The error checking `definition` gives beside the keys.
+/// The error checking `definition` gives beside the contracts.
 fn refused(definition: Definition) -> Error {
-    let [label, area] = keys();
+    let [label, area] = contracts();
     let module = b::module().define(label).define(area).define(definition);
     let workspace = workspace([("app", "main", module)]);
     let store = MemoryStore::new();
@@ -58,7 +58,7 @@ fn labels(ty: Type) -> Type {
 }
 
 #[test]
-fn a_record_holds_a_value_under_a_key_beside_a_field_of_that_name() {
+fn a_record_holds_a_value_under_a_contract_beside_a_field_of_that_name() {
     let record = || labelled(b::string("one"));
     let both = b::tuple([b::at(record(), "Label"), b::field(record(), "label")]);
     let expected = Value::Tuple(vec![Value::String("one".into()), Value::Int(1)]);
@@ -66,27 +66,27 @@ fn a_record_holds_a_value_under_a_key_beside_a_field_of_that_name() {
 }
 
 #[test]
-fn a_record_holds_under_a_key_only_a_value_of_the_keys_type() {
+fn a_record_holds_under_a_contract_only_a_value_of_its_type() {
     let error = refused(main(labelled(b::int(2))));
-    assert!(matches!(error, Error::KeyType { name, .. } if name == "[Label]"));
+    assert!(matches!(error, Error::ContractType { name, .. } if name == "[Label]"));
 }
 
 #[test]
-fn a_record_type_holds_under_a_key_only_the_keys_type() {
+fn a_record_type_holds_under_a_contract_only_its_type() {
     let takes = b::function("main")
         .param("record", labels(ty::int()))
         .returns(ty::int())
         .body(b::int(0));
-    assert!(matches!(refused(takes), Error::KeyType { .. }));
+    assert!(matches!(refused(takes), Error::ContractType { .. }));
 }
 
 #[test]
-fn a_function_asks_for_a_key_of_any_record() {
+fn a_function_asks_for_a_contract_of_any_record() {
     let label = b::function("label")
         .param("record", labels(ty::string()))
         .returns(ty::string())
         .body(b::at(b::name("record"), "Label"));
-    let [key, area] = keys();
+    let [key, area] = contracts();
     let body = b::call(b::name("label"), [labelled(b::string("one"))]);
     assert_eq!(
         run([key, area, label, main(body)], &[]).unwrap(),
@@ -95,7 +95,7 @@ fn a_function_asks_for_a_key_of_any_record() {
 }
 
 #[test]
-fn a_method_under_a_key_receives_its_record() {
+fn a_method_under_a_contract_receives_its_record() {
     let side = || b::field(b::name("self"), "side");
     let area = b::lambda([("self", None)], b::multiply(side(), side()));
     let square = b::keyed(b::record([("side", b::int(3))]), "Area", b::method(area));
@@ -103,7 +103,7 @@ fn a_method_under_a_key_receives_its_record() {
 }
 
 #[test]
-fn a_key_is_not_an_ability() {
+fn a_contract_is_not_an_ability() {
     let performs = main(b::perform("Label", []));
     assert!(matches!(refused(performs), Error::UnknownName { .. }));
 }

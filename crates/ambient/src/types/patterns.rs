@@ -244,14 +244,14 @@ impl Env {
     }
 
     /// Whether a value of type `held` may be held under `key`: always
-    /// under a name or an ability, and under a key if reading it gives
-    /// the key's type.
+    /// under a name or an ability, and under a contract if reading it
+    /// gives the contract's type.
     #[must_use]
     pub fn holds(&self, key: &TyKey, held: &Ty) -> bool {
         let Key::Ability(Reference::Definition(named)) = key else {
             return true;
         };
-        let Some(info) = self.keys.get(named) else {
+        let Some(info) = self.contracts.get(named) else {
             return true;
         };
         self.subtype(&self.normalize(&held.read()), &info.ty)

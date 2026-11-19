@@ -8,8 +8,8 @@ use super::validate::{
 };
 use super::{BuildError, null, ty};
 use crate::surface::{
-    Ability, Annotation, Definition, DefinitionKind, Expr, Function, Import, KeyDefinition, Module,
-    Param, Path, TypeDefinition, TypeParam,
+    Ability, Annotation, ContractDefinition, Definition, DefinitionKind, Expr, Function, Import,
+    Module, Param, Path, TypeDefinition, TypeParam,
 };
 use crate::symbol::Namespace;
 
@@ -160,15 +160,15 @@ pub fn derived(name: &str, call: crate::surface::Expr) -> Definition {
     }
 }
 
-/// A private key: what a record holds a value of type `ty` under.
+/// A private contract: what a record holds a value of type `ty` under.
 #[must_use]
-pub fn key(name: &str, ty: crate::surface::Type) -> Definition {
+pub fn contract(name: &str, ty: crate::surface::Type) -> Definition {
     Definition {
         name: name.to_owned(),
         public: false,
         doc: None,
         annotations: Vec::new(),
-        kind: DefinitionKind::Key(KeyDefinition { ty }),
+        kind: DefinitionKind::Contract(ContractDefinition { ty }),
     }
 }
 
@@ -442,9 +442,9 @@ impl ModuleBuilder {
                     check_type(&ability.ret)?;
                     Namespace::Ability
                 }
-                DefinitionKind::Key(key) => {
-                    check_type(&key.ty)?;
-                    Namespace::Key
+                DefinitionKind::Contract(contract) => {
+                    check_type(&contract.ty)?;
+                    Namespace::Contract
                 }
                 // A tag is named as a type and as a value, and a brand
                 // as a type and as what brands a value.

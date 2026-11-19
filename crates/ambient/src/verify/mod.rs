@@ -32,7 +32,7 @@ use crate::checker::generic_type;
 use crate::core::{self, Open, Slot, Tree};
 use crate::surface::Reference;
 use crate::symbol::Symbol;
-use crate::types::{AbilityInfo, Env, KeyInfo, Signature, Ty, TypeInfo, layers};
+use crate::types::{AbilityInfo, ContractInfo, Env, Signature, Ty, TypeInfo, layers};
 
 /// Why a core tree is not one checking could have made.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,7 +144,7 @@ pub fn verify(open: &Open, root: bool, lookup: Lookup<'_>) -> Result<(), Invalid
             }
             Ok(())
         }
-        Tree::Key { ty, .. } => verifier.sound(ty).map(drop),
+        Tree::Contract { ty, .. } => verifier.sound(ty).map(drop),
         Tree::Extern {
             params,
             ret,
@@ -248,13 +248,13 @@ impl Verifier<'_> {
                     header.push(info.ret.clone());
                     self.env.abilities.insert(symbol, info);
                 }
-                Tree::Key { package, path, ty } => {
-                    let info = KeyInfo {
+                Tree::Contract { package, path, ty } => {
+                    let info = ContractInfo {
                         identity: (package.clone(), path.clone()),
                         ty: raise(ty)?,
                     };
                     header.push(info.ty.clone());
-                    self.env.keys.insert(symbol, info);
+                    self.env.contracts.insert(symbol, info);
                 }
                 Tree::Extern {
                     params,
@@ -341,16 +341,16 @@ impl Verifier<'_> {
                 (symbol.clone(), signature)
             })
             .collect();
-        let keys = env.keys.iter().map(|(symbol, info)| {
+        let keys = env.contracts.iter().map(|(symbol, info)| {
             let ty = env.normalize(&info.ty);
             let identity = info.identity.clone();
-            (symbol.clone(), KeyInfo { identity, ty })
+            (symbol.clone(), ContractInfo { identity, ty })
         });
         let keys = keys.collect();
         for held in self.held.values_mut() {
             held.captures = all(&held.captures);
         }
-        self.env.keys = keys;
+        self.env.contracts = keys;
         self.env.abilities = abilities;
         self.env.functions = functions;
     }

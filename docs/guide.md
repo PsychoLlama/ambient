@@ -494,7 +494,7 @@ pub fn main(): string {
 ## What will trip you up
 
 - A type error is reported at its line and column, and so is each function a fault or an uncaught error left: `in app:main.divide at src/main.ab:2:39`. A frame inside the standard library has a name and no place.
-- A record type that names a key says its type again: `{ [dispose](): null }`.
+- A record type that names a contract says its type again: `{ [dispose](): null }`.
 - A record with methods, such as a `Map`, can be tested for only where the value's type leaves no doubt: a `Json` can be cast to `Map<Json>`, an `unknown` cannot.
 - Only a function that captured nothing is packed: one written at the top of a module, not one written inside another that uses what is around it.
 - A function written inside another may call itself, and then says its parameter and return types.

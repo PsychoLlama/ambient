@@ -21,7 +21,7 @@ impl Env {
         let identity = |key: &TyKey| match key {
             Key::Ability(Reference::Definition(named)) => {
                 let ability = self.abilities.get(named).map(|info| &info.identity);
-                ability.or_else(|| self.keys.get(named).map(|info| &info.identity))
+                ability.or_else(|| self.contracts.get(named).map(|info| &info.identity))
             }
             _ => None,
         };

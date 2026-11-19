@@ -135,7 +135,7 @@ impl Tree {
                 encode_types(params, out);
                 encode_type(ret, out);
             }
-            Self::Key { package, path, ty } => {
+            Self::Contract { package, path, ty } => {
                 out.push(5);
                 text(package, out);
                 text(path, out);

@@ -103,7 +103,7 @@ impl Body<'_, '_> {
             core::Key::Ability(slot) => {
                 let named = self.verifier.symbol(*slot)?;
                 let env = &self.verifier.env;
-                if !env.abilities.contains_key(named) && !env.keys.contains_key(named) {
+                if !env.abilities.contains_key(named) && !env.contracts.contains_key(named) {
                     return Err(Invalid::Slot);
                 }
                 Key::Ability(Reference::Definition(named.clone()))

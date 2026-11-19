@@ -30,7 +30,7 @@ impl Engine<'_> {
         let mut roots = Vec::new();
         for used in used {
             match used.namespace {
-                Namespace::Type | Namespace::Ability | Namespace::Key => {
+                Namespace::Type | Namespace::Ability | Namespace::Contract => {
                     key.hash(&self.hash(&used)?);
                     roots.push(used);
                 }

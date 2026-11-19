@@ -176,7 +176,7 @@ fn a_type_is_written_as_its_values_are() {
 
     assert_eq!(
         parse(source).unwrap(),
-        built([shape, b::key("label", ty::string())])
+        built([shape, b::contract("label", ty::string())])
     );
 }
 

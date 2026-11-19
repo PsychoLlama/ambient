@@ -17,8 +17,8 @@ use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest};
 use crate::surface::{
-    Ability, Annotation, Definition, DefinitionKind, Expr, Extern, ExternKind, Function,
-    KeyDefinition, Param, Path, Reference, Target, Type, TypeDefinition, TypeParam,
+    Ability, Annotation, ContractDefinition, Definition, DefinitionKind, Expr, Extern, ExternKind,
+    Function, Param, Path, Reference, Target, Type, TypeDefinition, TypeParam,
 };
 use crate::symbol::{ModuleId, Namespace, Symbol};
 
@@ -294,7 +294,7 @@ impl<'a> Resolver<'a> {
             // And a brand the type of what is minted under it.
             DefinitionKind::Brand => brand(self.package, self.symbol),
             DefinitionKind::Intrinsic => DefinitionKind::Intrinsic,
-            DefinitionKind::Key(key) => DefinitionKind::Key(KeyDefinition {
+            DefinitionKind::Contract(key) => DefinitionKind::Contract(ContractDefinition {
                 ty: self.ty(&key.ty)?,
             }),
             DefinitionKind::Extern(native) => DefinitionKind::Extern(Extern {

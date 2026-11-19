@@ -396,9 +396,9 @@ pub enum Tree {
         params: Vec<Type>,
         ret: Type,
     },
-    /// A key of records: its identity, as an ability's, and the type
-    /// of what a record holds under it.
-    Key {
+    /// A contract of records: its identity, as an ability's, and the
+    /// type of what a record holds under it.
+    Contract {
         package: String,
         path: String,
         ty: Type,

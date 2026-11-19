@@ -17,7 +17,7 @@ use crate::hash::{Hash, Hasher, encode};
 use crate::lower::deep;
 use crate::surface::{DefinitionKind, Function, Reference, TypeDefinition};
 use crate::symbol::{Namespace, Symbol};
-use crate::types::{AbilityInfo, Env, KeyInfo, Ty, TypeInfo};
+use crate::types::{AbilityInfo, ContractInfo, Env, Ty, TypeInfo};
 
 /// What dependents check against.
 #[derive(Debug)]
@@ -129,29 +129,29 @@ impl Engine<'_> {
                     };
                     env.abilities.insert(symbol, info);
                 }
-                Namespace::Key if !env.keys.contains_key(&symbol) => {
+                Namespace::Contract if !env.contracts.contains_key(&symbol) => {
                     let resolved = self.resolve(&symbol)?;
-                    let DefinitionKind::Key(key) = &resolved.definition.kind else {
+                    let DefinitionKind::Contract(key) = &resolved.definition.kind else {
                         return Err(Error::UnknownSymbol(symbol.clone()));
                     };
                     pending.extend(type_definitions(&key.ty));
                     let package = self.sources.identity(&symbol.module.package);
-                    let info = KeyInfo {
+                    let info = ContractInfo {
                         identity: (package, symbol.identity()),
                         ty: key.ty.clone(),
                     };
-                    env.keys.insert(symbol, info);
+                    env.contracts.insert(symbol, info);
                 }
                 _ => {}
             }
         }
         env.settle();
-        let keys = std::mem::take(&mut env.keys);
-        env.keys = keys
+        let keys = std::mem::take(&mut env.contracts);
+        env.contracts = keys
             .into_iter()
             .map(|(symbol, info)| {
                 let ty = env.normalize(&info.ty);
-                (symbol, KeyInfo { ty, ..info })
+                (symbol, ContractInfo { ty, ..info })
             })
             .collect();
         // Signatures are read in normal form everywhere.
@@ -175,7 +175,7 @@ impl Engine<'_> {
     /// type or an ability reads.
     fn reachable(&self, env: &Env, key: &mut Hasher) -> Result<(), Error> {
         let named = env.types.keys().chain(env.abilities.keys());
-        for reachable in named.chain(env.keys.keys()) {
+        for reachable in named.chain(env.contracts.keys()) {
             key.hash(&self.resolve(reachable)?.digest);
         }
         Ok(())
@@ -210,7 +210,7 @@ impl Engine<'_> {
                 | DefinitionKind::Brand
                 | DefinitionKind::Intrinsic
                 | DefinitionKind::Ability(_)
-                | DefinitionKind::Key(_)
+                | DefinitionKind::Contract(_)
                 | DefinitionKind::Extern(_)
                 | DefinitionKind::Target(_) => self.hash(symbol)?,
                 // The call of a generated module is no definition of it.
@@ -326,11 +326,11 @@ impl Engine<'_> {
         let mut key = Hasher::new("check");
         key.hash(&resolved.digest).bytes(package.as_bytes());
         let used = definitions(|visit| resolved.definition.names(&mut |name| visit(name)));
-        // An ability, a key, and an extern are told apart by where they
+        // An ability, a contract, and an extern are told apart by where they
         // are declared, which is no part of what was resolved.
         if matches!(
             &resolved.definition.kind,
-            DefinitionKind::Ability(_) | DefinitionKind::Key(_) | DefinitionKind::Extern(_)
+            DefinitionKind::Ability(_) | DefinitionKind::Contract(_) | DefinitionKind::Extern(_)
         ) {
             key.bytes(symbol.identity().as_bytes());
         }
@@ -367,7 +367,7 @@ impl Engine<'_> {
                     checker::check_ability(symbol, ability, &package, &env)
                 })
             }
-            DefinitionKind::Key(definition) => {
+            DefinitionKind::Contract(definition) => {
                 self.gather(vec![symbol.clone()], &mut env)?;
                 self.reachable(&env, &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {

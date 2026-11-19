@@ -114,7 +114,7 @@ impl Verifier<'_> {
     fn well_formed(&self, ty: &Ty) -> Result<(), Invalid> {
         let ability = |name: &Reference| match name {
             Reference::Definition(symbol) if self.env.abilities.contains_key(symbol) => Ok(()),
-            Reference::Definition(symbol) if self.env.keys.contains_key(symbol) => Ok(()),
+            Reference::Definition(symbol) if self.env.contracts.contains_key(symbol) => Ok(()),
             _ => Err(Invalid::Slot),
         };
         let all = |types: &[Ty]| types.iter().try_for_each(|ty| self.well_formed(ty));

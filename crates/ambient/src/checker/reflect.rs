@@ -67,7 +67,7 @@ pub(crate) fn reference(symbol: &Symbol) -> Value {
         Namespace::Type => "type",
         Namespace::Value => "value",
         Namespace::Ability => "ability",
-        Namespace::Key => "key",
+        Namespace::Contract => "contract",
     };
     record([
         ("package", text(&symbol.module.package.0)),

@@ -123,7 +123,7 @@ impl Engine<'_> {
             let namespace = match tree {
                 Tree::Type { .. } => Namespace::Type,
                 Tree::Ability { .. } => Namespace::Ability,
-                Tree::Key { .. } => Namespace::Key,
+                Tree::Contract { .. } => Namespace::Contract,
                 _ => Namespace::Value,
             };
             module.symbol(namespace, &format!("{batch}.{position}"))

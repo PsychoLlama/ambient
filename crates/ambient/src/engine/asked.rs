@@ -176,7 +176,7 @@ pub(super) fn definition(args: &[Value], position: usize) -> Result<Symbol, Stri
         "type" => Namespace::Type,
         "value" => Namespace::Value,
         "ability" => Namespace::Ability,
-        "key" => Namespace::Key,
+        "contract" => Namespace::Contract,
         _ => return Err(wrong()),
     };
     let module = ModuleId::new(text("package")?, &path.join("."));

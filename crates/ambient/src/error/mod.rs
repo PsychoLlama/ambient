@@ -68,9 +68,9 @@ pub enum Error {
         ty: String,
         name: String,
     },
-    /// A record holds under a key a value that is not of the key's
+    /// A record holds under a contract a value that is not of its
     /// type.
-    KeyType {
+    ContractType {
         symbol: Symbol,
         name: String,
         found: String,
@@ -277,7 +277,7 @@ impl Error {
             | Self::Mismatch { symbol, .. }
             | Self::NotCallable { symbol, .. }
             | Self::NoField { symbol, .. }
-            | Self::KeyType { symbol, .. }
+            | Self::ContractType { symbol, .. }
             | Self::NoMethod { symbol, .. }
             | Self::Method { symbol, .. }
             | Self::Receiver { symbol, .. }

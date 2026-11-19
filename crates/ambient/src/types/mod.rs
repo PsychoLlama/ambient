@@ -67,9 +67,9 @@ pub struct AbilityInfo {
     pub ret: Ty,
 }
 
-/// A key, as a record that holds a value under it sees it.
+/// A contract, as a record that holds a value under it sees it.
 #[derive(Clone, Debug)]
-pub struct KeyInfo {
+pub struct ContractInfo {
     /// As an ability's: what tells it apart besides its type, and what
     /// a record's keys are ordered by.
     pub identity: (String, String),
@@ -86,8 +86,8 @@ pub struct Env {
     pub functions: BTreeMap<Symbol, Signature>,
     /// Every ability it refers to, or that a type it reaches does.
     pub abilities: BTreeMap<Symbol, AbilityInfo>,
-    /// Every key it refers to, or that a type it reaches does.
-    pub keys: BTreeMap<Symbol, KeyInfo>,
+    /// Every contract it refers to, or that a type it reaches does.
+    pub contracts: BTreeMap<Symbol, ContractInfo>,
     /// The function each method it may call by name means, for each
     /// built-in shape that has one of that name.
     pub methods: BTreeMap<(Shape, String), Symbol>,

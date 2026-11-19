@@ -37,7 +37,7 @@ impl Checker<'_> {
         if self.env.holds(key, ty) {
             return Ok(());
         }
-        Err(Error::KeyType {
+        Err(Error::ContractType {
             symbol: self.symbol.clone(),
             name: Self::key_name(key),
             found: self.env.show(ty),

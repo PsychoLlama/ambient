@@ -7,7 +7,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - Primitives: `null`, `bool`, `int` (64-bit signed), `float` (64-bit), `string` (UTF-8), `bytes`.
 - Literal types: a single `bool`, `int`, `float`, `string`, or `bytes` value, or a single [tag](definitions.md).
 - `Tag`, the type of every tag value.
-- Records: a set of keys, each with a type; a key is a field name, a declared [key](methods.md), or an [ability](handlers.md).
+- Records: a set of keys, each with a type; a key is a field name, a [contract](methods.md), or an [ability](handlers.md).
 - A record's key may hold a [method](methods.md), whose type also says what it needs of its receiver.
 - Tuples: a fixed sequence of two or more types. Nothing to group is null, and one value grouped is that value.
 - Collections: `List<T>`, `Set<T>`, and `Map<E>`, where `E` is the type of the map's entries.

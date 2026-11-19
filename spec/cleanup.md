@@ -4,7 +4,7 @@ A cleanup is code registered in a block to run when that block exits, by any rou
 
 ## Registering
 
-- A value carries its own cleanup: it is a record that holds a function under a [key](methods.md) of the standard library.
+- A value carries its own cleanup: it is a record that holds a function under a [contract](methods.md) of the standard library.
 - A using binds such a value for the rest of its block and registers that function as a cleanup of the block.
 - Whoever makes the value decides how it is released, and whoever binds it cannot forget to.
 - A using may bind by a pattern. The value is released whole; the pattern only names its parts.

@@ -138,7 +138,7 @@ impl Tree {
     #[must_use]
     pub fn depth(&self) -> usize {
         match self {
-            Self::Type { ty, .. } | Self::Key { ty, .. } => ty.depth(),
+            Self::Type { ty, .. } | Self::Contract { ty, .. } => ty.depth(),
             Self::Function(Function {
                 type_params,
                 captures,

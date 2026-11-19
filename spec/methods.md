@@ -44,16 +44,16 @@ A method is a function reached through a value it then receives. A record's meth
 - A method the checker cannot check stays bound to the record it had: one its type lists as a function, or does not list.
 - A merge never gives a method a receiver it was not checked against.
 
-## Keys
+## Contracts
 
-- A key is a [definition](definitions.md) with an [identity](definitions.md), and the type of what a record holds under it.
-- A record may hold a field or a method under a key as it does under a name, and its type says so.
-- A record names a key where it names an [ability](handlers.md) it handles; a name that is both means the ability.
-- Two keys are the same only if they are the same definition, so a key collides with no name and with no other package's key.
-- A record holds under a key only a value of the key's type; holding another is a type error where the record is made.
-- A key is how a protocol names what it expects of a record without reserving a name.
-- Only a record holds a key: what the other [shapes](values.md) do is the language's to say, so no protocol reaches them.
-- A key has no fallback: a record that does not hold one does not meet the protocol, and reading it there is a type error.
+- A contract is a [definition](definitions.md) with an [identity](definitions.md), and the type of what a record holds under it.
+- A record may hold a field or a method under a contract as it does under a name, and its type says so.
+- A record names a contract where it names an [ability](handlers.md) it handles; a name that is both means the ability.
+- Two contracts are the same only if they are the same definition, so one collides with no name and with no other package's contract.
+- A record holds under a contract only a value of the contract's type; holding another is a type error where the record is made.
+- A contract is how a protocol names what it expects of a record without reserving a name.
+- Only a record holds a contract: what the other [shapes](values.md) do is the language's to say, so no protocol reaches them.
+- A contract has no fallback: a record that does not hold one does not meet the protocol, and reading it there is a type error.
 
 ## Built-in methods
 

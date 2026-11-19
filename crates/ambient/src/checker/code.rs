@@ -83,7 +83,7 @@ impl Checker<'_> {
             Namespace::Value => self.env.functions.contains_key(symbol),
             Namespace::Type => self.env.types.contains_key(symbol),
             Namespace::Ability => self.env.abilities.contains_key(symbol),
-            Namespace::Key => self.env.keys.contains_key(symbol),
+            Namespace::Contract => self.env.contracts.contains_key(symbol),
         }
     }
 }

@@ -37,7 +37,7 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - [symbols](symbols.md): canonical names, aliases, and the index.
 - [types](types.md): structural types, subtyping, brands, generics.
 - [values](values.md): runtime shapes, serialization, handles, faults.
-- [methods](methods.md): record methods, merging and override, keys, methods of built-in shapes.
+- [methods](methods.md): record methods, merging and override, contracts, methods of built-in shapes.
 - [operations](operations.md): arithmetic, comparison, strings, lists.
 - [iteration](iteration.md): iterators, sources, loops.
 - [maps](maps.md): values by key, in the standard library.

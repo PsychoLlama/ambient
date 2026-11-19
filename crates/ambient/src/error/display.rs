@@ -43,7 +43,7 @@ impl fmt::Display for Error {
             }
             Self::NotCallable { .. }
             | Self::NoField { .. }
-            | Self::KeyType { .. }
+            | Self::ContractType { .. }
             | Self::NoMethod { .. }
             | Self::Method { .. }
             | Self::Receiver { .. } => self.fmt_method(f),
@@ -319,11 +319,14 @@ impl Error {
             Self::NoField { symbol, ty, name } => {
                 write!(f, "{symbol}: `{ty}` may have no field `{name}`")
             }
-            Self::KeyType {
+            Self::ContractType {
                 symbol,
                 name,
                 found,
-            } => write!(f, "{symbol}: `{found}` is not what the key `{name}` holds"),
+            } => write!(
+                f,
+                "{symbol}: `{found}` is not what the contract `{name}` holds"
+            ),
             Self::NoMethod { symbol, ty, name } => {
                 write!(f, "{symbol}: `{ty}` has no method `{name}`")
             }
