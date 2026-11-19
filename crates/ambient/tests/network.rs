@@ -41,9 +41,9 @@ fn a_request_is_sent_and_its_response_read() {
             match http.post("http://example.test/items", "milk".to_bytes()) {
                 let error: Error => { return error.message; }
                 let response: http.Response => {
-                    let kind = http.header(response.headers, "content-type") as string else "none";
+                    let kind = http.header(response.headers, "content-type") ?? "none";
                     let ok = http.ok(response) ? "ok" : "not ok";
-                    let body = response.body.to_text() as string else "not text";
+                    let body = response.body.to_text() ?? "not text";
                     return "${response.status} ${kind} ${body} ${ok}";
                 }
             }
@@ -74,7 +74,7 @@ fn a_body_that_is_not_text_is_sent_and_read() {
         use ambient.bytes;
 
         fn main(): string with http.send {
-            let sent = bytes.of([0, 255]) as bytes else "".to_bytes();
+            let sent = bytes.of([0, 255]) ?? "".to_bytes();
             match http.post("http://example.test/blob", sent) {
                 let error: Error => { return error.message; }
                 let response: http.Response => { return response.body.hex(); }
@@ -163,7 +163,7 @@ const SERVER: &str = r#"
         if request.url == "/fault" {
             return http.text(200, (1 / (request.body.length())).to_text());
         }
-        let body = request.body.to_text() as string else "not text";
+        let body = request.body.to_text() ?? "not text";
         return http.text(200, "${request.method} ${request.url} ${body}");
     }
 "#;
@@ -262,7 +262,7 @@ fn a_program_serves_and_sends_over_a_real_socket() {
         fn asked(port: int): string with http.send {{
             match http.post(\"http://127.0.0.1:${{port}}/hello?x=1\", \"there\".to_bytes()) {{
                 let response: http.Response => {{
-                    let body = response.body.to_text() as string else \"not text\";
+                    let body = response.body.to_text() ?? \"not text\";
                     return \"${{response.status}} ${{body}}\";
                 }}
                 let error: Error => {{ return error.message; }}

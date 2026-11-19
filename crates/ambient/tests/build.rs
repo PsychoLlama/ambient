@@ -54,7 +54,7 @@ const GREETS: &str = r#"
     use system.env;
 
     fn main(): int with console.print, env.args {
-        console.print!("hello, " ++ env.args!().join_with(" and "));
+        console.print!("hello, " + env.args!().join_with(" and "));
         return 3;
     }
 "#;
@@ -105,10 +105,10 @@ const PACKS: &str = r#"
         fn greet(name: string): string => "hello, ${name}";
 
         fn main(): null with code, console.print {
-            match code.unpack(code.pack!(greet) as bytes else 0x[]) {
+            match code.unpack(cast::<bytes>(code.pack!(greet)) ?? 0x[]) {
                 let error: Error => { console.print!(error.message); }
                 let loaded: unknown => {
-                    let greet = loaded as fn(string): string else other;
+                    let greet = cast::<fn(string): string>(loaded) ?? other;
                     console.print!(greet("ada"));
                 }
             }

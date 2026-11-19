@@ -16,17 +16,17 @@ pub fn decode(text: string): bytes | null {
     if digits.contains(null) || digits.length() % 4 == 1 {
         return null;
     }
-    let digit = fn(at: int): int => digits.get(at) as int else 0;
+    let digit = fn(at: int): int => digits.get(at) ?? 0;
     // The last character of a group that is not whole holds bits of a
     // byte that is not there, which writing leaves zero.
-    let spare = [1, 1, 16, 4].get(digits.length() % 4) as int else 1;
+    let spare = [1, 1, 16, 4].get(digits.length() % 4) ?? 1;
     if digit(digits.length() - 1) % spare != 0 {
         return null;
     }
     let byte = fn(at: int): int {
         let from = at / 3 * 4;
         let held = digit(from) * 262144 + digit(from + 1) * 4096 + digit(from + 2) * 64 + digit(from + 3);
-        return [held / 65536, held / 256 % 256, held % 256].get(at % 3) as int else 0;
+        return [held / 65536, held / 256 % 256, held % 256].get(at % 3) ?? 0;
     };
     return intrinsics.to_bytes(intrinsics.range(0, digits.length() * 3 / 4).map(byte).to_list());
 }
@@ -34,22 +34,22 @@ pub fn decode(text: string): bytes | null {
 /// `data` with `last` as the characters for 62 and 63, and each
 /// character the data does not reach written as `pad`.
 fn written(data: bytes, last: string, pad: string): string {
-    let symbols = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" ++ last;
-    let symbol = fn(digit: int): string => symbols.slice(digit, digit + 1) as string else "";
-    let byte = fn(at: int): int => data.get(at) as int else 0;
+    let symbols = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" + last;
+    let symbol = fn(digit: int): string => symbols.slice(digit, digit + 1) ?? "";
+    let byte = fn(at: int): int => data.get(at) ?? 0;
     let quad = fn(at: int): string {
         let held = byte(at) * 65536 + byte(at + 1) * 256 + byte(at + 2);
         let left = data.length() - at;
         let third = left > 1 ? symbol(held / 64 % 64) : pad;
         let fourth = left > 2 ? symbol(held % 64) : pad;
-        return symbol(held / 262144) ++ symbol(held / 4096 % 64) ++ third ++ fourth;
+        return symbol(held / 262144) + symbol(held / 4096 % 64) + third + fourth;
     };
     return intrinsics.range(0, (data.length() + 2) / 3).map(fn(at: int): string => quad(at * 3)).to_list().join_with("");
 }
 
 /// The text without the padding it ends with.
 fn unpadded(text: string): string =>
-    text.ends_with("=") ? unpadded(text.slice(0, text.length() - 1) as string else "") : text;
+    text.ends_with("=") ? unpadded(text.slice(0, text.length() - 1) ?? "") : text;
 
 /// The number a character of either form stands for, by its code.
 fn value(code: int): int | null {

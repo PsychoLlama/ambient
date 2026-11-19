@@ -63,14 +63,14 @@ pub fn write(moment: int): string {
     let wide = fn(value: int, width: int): string => value.to_text().pad_start(width, "0");
     let day = [wide(at.year, 4), wide(at.month, 2), wide(at.day, 2)].join_with("-");
     let clock = [wide(at.hour, 2), wide(at.minute, 2), wide(at.second, 2)].join_with(":");
-    return day ++ "T" ++ clock ++ "." ++ wide(at.millisecond, 3) ++ "Z";
+    return day + "T" + clock + "." + wide(at.millisecond, 3) + "Z";
 }
 
 /// The moment RFC 3339 text says, or null if it says none. A date
 /// alone is its first moment, and text with no offset is in UTC.
 pub fn read(text: string): int | null {
-    let day = text.slice(0, 10) as string else "";
-    let rest = text.slice(10, text.length()) as string else "";
+    let day = text.slice(0, 10) ?? "";
+    let rest = text.slice(10, text.length()) ?? "";
     match (calendar(day), clock(rest)) {
         (let whole: int, let within: int) => { return whole * 86400000 + within; }
         _ => { return null; }
@@ -112,7 +112,7 @@ fn day_number(year: int, month: int, day: int): int {
 /// The number the digits between two positions say, or null if they
 /// are not all digits.
 fn number(text: string, start: int, end: int): int | null {
-    let part = text.slice(start, end) as string else "";
+    let part = text.slice(start, end) ?? "";
     let digit = fn(code: int): bool => 47 < code && code < 58;
     return part != "" && part.to_bytes().iter().every(digit) ? part.to_int() : null;
 }
@@ -137,10 +137,10 @@ fn clock(rest: string): int | null {
     if rest == "" {
         return 0;
     }
-    if !"Tt ".contains(rest.slice(0, 1) as string else "") || rest.slice(3, 4) != ":" {
+    if !"Tt ".contains(rest.slice(0, 1) ?? "") || rest.slice(3, 4) != ":" {
         return null;
     }
-    let (extra, tail) = second_part(rest.slice(6, rest.length()) as string else "");
+    let (extra, tail) = second_part(rest.slice(6, rest.length()) ?? "");
     match (number(rest, 1, 3), number(rest, 4, 6), extra, offset(tail)) {
         (let hour: int, let minute: int, let more: int, let ahead: int) => {
             let within = hour < 24 && minute < 60 && more < 60000;
@@ -156,15 +156,15 @@ fn second_part(after: string): (int | null, string) {
     if !after.starts_with(":") {
         return (0, after);
     }
-    let tail = after.slice(3, after.length()) as string else "";
-    let whole = number(after, 1, 3) as int else 60;
+    let tail = after.slice(3, after.length()) ?? "";
+    let whole = number(after, 1, 3) ?? 60;
     if !tail.starts_with(".") {
         return (whole * 1000, tail);
     }
     let count = digits(tail, 1) - 1;
-    let fraction = number((tail.slice(1, 1 + count.min(3)) as string else "").pad_end(3, "0"), 0, 3);
-    let rest = tail.slice(1 + count, tail.length()) as string else "";
-    return (count == 0 || fraction == null ? null : whole * 1000 + (fraction as int else 0), rest);
+    let fraction = number((tail.slice(1, 1 + count.min(3)) ?? "").pad_end(3, "0"), 0, 3);
+    let rest = tail.slice(1 + count, tail.length()) ?? "";
+    return (count == 0 || fraction == null ? null : whole * 1000 + (fraction ?? 0), rest);
 }
 
 /// The first position from `at` that holds no digit.

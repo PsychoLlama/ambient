@@ -24,12 +24,12 @@ fn a_program_reads_its_input_as_bytes() {
         fn rest(read: bytes): bytes with console.read =>
             match console.read!(4) {
                 null => read,
-                let more: bytes => rest(read ++ more),
+                let more: bytes => rest(read + more),
             };
 
         fn main(): string with console.read, console.read_line {
-            let first = console.read_line!() as string else "";
-            return first ++ ":" ++ rest("".to_bytes()).hex();
+            let first = console.read_line!() ?? "";
+            return first + ":" + rest("".to_bytes()).hex();
         }
     "#;
     let mut world = Scripted::default();
@@ -48,7 +48,7 @@ fn a_program_reads_and_writes_its_streams() {
             console.write!("name? ");
             match console.read_line!() {
                 null => { console.warn!("no input"); }
-                let name: string => { console.print!("hello, " ++ name); }
+                let name: string => { console.print!("hello, " + name); }
             }
         }
     "#;
@@ -71,12 +71,12 @@ fn a_file_that_is_missing_is_an_error_a_program_matches_on() {
 
         fn main(): string with fs.read, fs.write {
             fs.write!("notes.txt", "kept");
-            let found = fs.read!("notes.txt") as string else "";
+            let found = cast::<string>(fs.read!("notes.txt")) ?? "";
             match fs.read!("missing.txt") {
                 let text: string => { return text; }
                 let error: Error => {
                     match error.kind {
-                        fs.not_found => { return found ++ ": " ++ error.message; }
+                        fs.not_found => { return found + ": " + error.message; }
                         _ => { return "other"; }
                     }
                 }
@@ -128,17 +128,17 @@ fn a_command_is_run_and_what_it_gave_is_read() {
             match process.run!(process.command(command, ["status", "--short"])) {
                 let error: Error => {
                     match error.kind {
-                        process.not_found => { return "none: " ++ error.message; }
+                        process.not_found => { return "none: " + error.message; }
                         _ => { return error.message; }
                     }
                 }
                 let output: Output => {
-                    let out = output.out.to_text() as string else "not text";
+                    let out = output.out.to_text() ?? "not text";
                     return "${output.code}: ${out.trim()}";
                 }
             }
         }
-        fn main(): string with process.run => ran("git") ++ ", " ++ ran("hg");
+        fn main(): string with process.run => ran("git") + ", " + ran("hg");
     "#;
     let gave = Ran {
         code: 1,
@@ -200,7 +200,7 @@ fn a_program_is_told_how_it_was_started_and_what_time_it_is() {
         fn main(): int with env.args, env.variable, clock.now, clock.sleep {
             let before = clock.now!();
             clock.sleep!(time.milliseconds(env.args!().length() * 10));
-            let home = env.variable!("HOME") as string else "";
+            let home = env.variable!("HOME") ?? "";
             return clock.now!() - before + home.length();
         }
     "#;
@@ -271,7 +271,7 @@ fn a_sleep_is_a_limit_on_how_long_to_wait() {
 
         fn main(): string with clock.sleep, console.read_line {
             return tasks.first(
-                fn() => console.read_line!() as string else "nothing",
+                fn() => console.read_line!() ?? "nothing",
                 fn() => late(),
             );
         }
@@ -345,7 +345,7 @@ fn a_program_reads_its_whole_environment() {
                 let (name, value) = variable;
                 return "${name}=${value}";
             };
-            let directory = env.directory!() as string else "nowhere";
+            let directory = env.directory!() ?? "nowhere";
             return env.variables!().map(named).push(directory).join_with(" ");
         }
     "#;
@@ -368,10 +368,10 @@ fn a_file_that_is_not_text_is_read_and_written_as_bytes() {
         use ambient.bytes;
 
         fn main(): string with fs {
-            let image = bytes.of([137, 80, 78, 71]) as bytes else "".to_bytes();
+            let image = bytes.of([137, 80, 78, 71]) ?? "".to_bytes();
             let _ = fs.write_bytes!("logo.png", image);
             let _ = fs.append_bytes!("logo.png", "!".to_bytes());
-            let held = fs.read_bytes!("logo.png") as bytes else "".to_bytes();
+            let held = cast::<bytes>(fs.read_bytes!("logo.png")) ?? "".to_bytes();
             match fs.read!("logo.png") {
                 let text: string => { return text; }
                 let error: Error => {

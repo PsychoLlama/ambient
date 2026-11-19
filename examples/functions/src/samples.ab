@@ -3,17 +3,17 @@ use system.http;
 
 /// Greets whoever the path names: `/<hash>/ada`.
 pub fn hello(request: http.Request): http.Response with throw =>
-    http.text(200, "hello, ${request.url.slice(1, request.url.length()) as string else "you"}\n");
+    http.text(200, "hello, ${request.url.slice(1, request.url.length()) ?? "you"}\n");
 
 /// Gives back what it was sent, and says how it was asked.
 pub fn echo(request: http.Request): http.Response with throw =>
-    http.text(200, "${request.method} ${request.url}\n${request.body.to_text() as string else ""}");
+    http.text(200, "${request.method} ${request.url}\n${request.body.to_text() ?? ""}");
 
 /// Adds up a JSON array of numbers. Anything else throws, which the
 /// server answers for it.
 pub fn sum(request: http.Request): http.Response with throw {
-    let numbers = json.parse(request.body.to_text() as string else "") as List<json.Json> else [];
-    let add = fn(total: int, number: json.Json): int => total + (number as int else 0);
+    let numbers = cast::<List<json.Json>>(json.parse(request.body.to_text() ?? "")) ?? [];
+    let add = fn(total: int, number: json.Json): int => total + (cast::<int>(number) ?? 0);
     return http.json(200, numbers.fold(0, add));
 }
 

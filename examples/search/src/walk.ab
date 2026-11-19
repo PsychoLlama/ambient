@@ -8,7 +8,7 @@ pub fn files(root: string): List<string> with fs.list {
         let error: Error => { return [root]; }
         let names: List<string> => {
             return names.fold([], fn(found: List<string>, name: string): List<string> =>
-                found ++ files(root ++ "/" ++ name));
+                found + files(root + "/" + name));
         }
     }
 }

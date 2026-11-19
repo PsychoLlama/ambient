@@ -35,8 +35,8 @@ const STYLES: &str = r#"
     pub tag rule;
 
     pub fn collect(of: Build): Files with build.annotations {
-        let found = build.annotations!(of.entry, rule) as List<Annotation> else [];
-        let rules = found.map(fn(found: Annotation): string => found.value as string else "");
+        let found = cast::<List<Annotation>>(build.annotations!(of.entry, rule)) ?? [];
+        let rules = found.map(fn(found: Annotation): string => cast::<string>(found.value) ?? "");
         return [{ path: "styles.css", bytes: rules.join_with(" ").to_bytes() }];
     }
 "#;

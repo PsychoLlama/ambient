@@ -129,15 +129,15 @@ fn a_member_is_reached_by_name_and_by_position() {
         use ambient.json;
         use ambient.{catch, throw};
 
-        fn main(): int => catch(sum) as int else 0;
+        fn main(): int => cast::<int>(catch(sum)) ?? 0;
 
         fn sum(): int with throw {
             let read = json.parse("{\"ports\": [80, 443], \"name\": \"web\"}");
-            let second = json.at(json.get(read, "ports"), 1) as int else 0;
+            let second = cast::<int>(json.at(json.get(read, "ports"), 1)) ?? 0;
             // Nothing is there, and what is there is no object or array.
-            let missing = json.get(read, "host") as int else 1;
-            let scalar = json.get(json.get(read, "name"), "x") as int else 2;
-            let past = json.at(json.get(read, "ports"), 2) as int else 4;
+            let missing = cast::<int>(json.get(read, "host")) ?? 1;
+            let scalar = cast::<int>(json.get(json.get(read, "name"), "x")) ?? 2;
+            let past = cast::<int>(json.at(json.get(read, "ports"), 2)) ?? 4;
             return second + missing + scalar + past;
         }
     "#;
@@ -211,11 +211,11 @@ fn a_value_is_told_apart_by_the_type_it_is_asked_for() {
         }
         fn read(): string with throw {
             let value = json.parse("{\"a\": [1, 2], \"b\": 3}");
-            let inner = json.get(value, "a") as List<Json> else [];
-            let none = json.get(value, "b") as Map<Json> else null;
+            let inner = cast::<List<Json>>(json.get(value, "a")) ?? [];
+            let none = cast::<Map<Json>>(json.get(value, "b")) ?? null;
             return "${kind(value)}, ${kind(inner)}, ${kind(none)}";
         }
-        fn main(): string => catch(read) as string else "threw";
+        fn main(): string => cast::<string>(catch(read)) ?? "threw";
     "#;
 
     assert_eq!(text(source), "object of 2, array of 2, scalar");
@@ -228,7 +228,7 @@ fn a_cast_that_every_value_passes_tests_nothing() {
     let source = r"
         use ambient.json.{Json, write};
 
-        fn kept(value: Json): Json => value as Json else null;
+        fn kept(value: Json): Json => cast::<Json>(value) ?? null;
         fn main(): string => write(kept([1, 2]));
     ";
     assert_eq!(text(source), "[1,2]");

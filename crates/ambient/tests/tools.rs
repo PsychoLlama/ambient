@@ -32,7 +32,7 @@ const PAGE: &str = r#"
     }
 
     fn hosted(native: Extern): string with build.host_code {
-        let code = build.host_code!(native.package, "js", "main.js") as string else "nothing";
+        let code = cast::<string>(build.host_code!(native.package, "js", "main.js")) ?? "nothing";
         return "${native.path}: ${code}";
     }
 

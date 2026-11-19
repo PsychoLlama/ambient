@@ -15,7 +15,7 @@ pub fn load(path: string): List<Item> | Error with fs.read, fs.exists {
 
 /// Makes a file keep `items`.
 pub fn save(path: string, items: List<Item>): null | Error with fs.write =>
-    fs.write!(path, items.map(item.write).join_with("\n") ++ "\n");
+    fs.write!(path, items.map(item.write).join_with("\n") + "\n");
 
 /// The items of a file's text. A line that keeps no item is passed over.
 pub fn parse(text: string): List<Item> =>

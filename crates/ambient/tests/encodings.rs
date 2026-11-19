@@ -23,7 +23,7 @@ fn decoded(written: &str) -> String {
     gives(&format!(
         r#"match base64.decode("{written}") {{
             null => "not base64",
-            let read: bytes => read.to_text() as string else "not text",
+            let read: bytes => read.to_text() ?? "not text",
         }}"#
     ))
 }
@@ -48,7 +48,7 @@ fn base64_pads_what_three_bytes_do_not_fill() {
 
 #[test]
 fn the_url_form_differs_in_two_characters_and_pads_nothing() {
-    let data = "(bytes.of([251, 255, 254]) as bytes else \"\".to_bytes())";
+    let data = "(bytes.of([251, 255, 254]) ?? \"\".to_bytes())";
     assert_eq!(gives(&format!("base64.encode({data})")), "+//+");
     assert_eq!(gives(&format!("base64.encode_url({data})")), "-__-");
     assert_eq!(gives(r#"base64.encode_url("fo".to_bytes())"#), "Zm8");
@@ -59,7 +59,7 @@ fn base64_is_read_in_either_form_padded_or_not() {
     assert_eq!(decoded("Zm8"), "fo");
     let hex = |written: &str| {
         gives(&format!(
-            r#"(base64.decode("{written}") as bytes else "".to_bytes()).hex()"#
+            r#"(cast::<bytes>(base64.decode("{written}")) ?? "".to_bytes()).hex()"#
         ))
     };
     assert_eq!(
@@ -99,7 +99,7 @@ fn every_byte_is_written_and_read_back() {
         use ambient.iterator.{range};
 
         fn main(): bool {
-            let all = bytes.of(range(0, 256).to_list()) as bytes else "".to_bytes();
+            let all = cast::<bytes>(bytes.of(range(0, 256).to_list())) ?? "".to_bytes();
             let same = fn(read: bytes | null): bool => read == all;
             return same(base64.decode(base64.encode(all)))
                 && same(base64.decode(base64.encode_url(all)))

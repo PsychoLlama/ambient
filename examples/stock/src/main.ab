@@ -8,7 +8,7 @@ use pkg.ledger;
 /// <count>`, `take <name> <count>`, and `list`, which is what no command
 /// means.
 pub fn main(): int with console, env, fs {
-    let path = env.variable!("STOCK_FILE") as string else "stock.json";
+    let path = env.variable!("STOCK_FILE") ?? "stock.json";
     let done = catch(fn() {
         let counts = ledger.change(ledger.read(load(path)), env.args!());
         for (name, count) in counts.entries() {

@@ -56,7 +56,9 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - `${` and `}` in a string hold a value, and the string is its pieces [joined](operations.md) with each value's `to_text` [method](methods.md) called; `\$` writes the sign itself.
 - A condition, `?`, a value, `:`, and another value is a match of the condition that gives the first where it is true.
 - A parameter of a function written in place may be a pattern: the argument is matched against it where the body begins.
-- A [cast](types.md) is a value, `as`, a type, `else`, and what it is otherwise.
+- A [cast](types.md) is a call of the [intrinsic](definitions.md#intrinsics) `cast` with its type written out, and gives the value at that type, or `null`.
+- A value, `??`, and another value is a match of the first: the first where it is not `null`, and the second where it is, evaluated only then.
+- `??` binds looser than every operator and tighter than `?`. A first value that is never `null` is an error, as an arm that is never taken is.
 - A [comptime](comptime.md) call is `comptime` before the call.
 - A derived type is a type definition with a comptime call where its type would be.
 - A generated function is `fn`, its name, `=`, and a comptime call.
@@ -66,6 +68,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - Operators are those of [operations](operations.md) and, built from them, the other comparisons, `&&`, `||`, and `!`; the last three evaluate only the operands they need.
 - A brand is declared `brand Name;`, a type and a brand are intersected with `&`, which binds tighter than `|`, and `Name(value)` brands a value.
 - Bytes are written `0x[` and `]` around pairs of hexadecimal digits, a byte each, with any space between pairs: `0x[89 50 4E 47]`, and `0x[]` for none.
+- `+` between two strings, two lists, or two bytes values joins them, as between two numbers it adds; nothing else is joined, and nothing converts.
 - `-` before a value is a call of its `negate` [method](methods.md), which the standard library gives the numbers; before a number written out it is part of the literal.
 - `if` is a statement, and a match is the conditional that has a value.
 - A condition is matched like any other subject, so one whose type is a single literal has a branch that can never be taken, which is an error.

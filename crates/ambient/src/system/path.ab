@@ -16,11 +16,11 @@ pub fn join(paths: List<string>): string =>
         if next.is_empty() {
             return joined;
         }
-        return joined.ends_with("/") ? joined ++ next : joined ++ "/" ++ next;
+        return joined.ends_with("/") ? joined + next : joined + "/" + next;
     });
 
 /// The last part of a path, which is empty if it has none.
-pub fn name(path: string): string => parts(path).last() as string else "";
+pub fn name(path: string): string => parts(path).last() ?? "";
 
 /// The path of what a path is inside, or null if it is inside nothing
 /// the path names.
@@ -30,7 +30,7 @@ pub fn parent(path: string): string | null {
         return is_absolute(path) && inside.length() == 1 ? "/" : null;
     }
     let outer = inside.take(inside.length() - 1).join_with("/");
-    return is_absolute(path) ? "/" ++ outer : outer;
+    return is_absolute(path) ? "/" + outer : outer;
 }
 
 /// A name as what is before its last `.` and what is after. A name

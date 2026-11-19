@@ -7,14 +7,14 @@ use pkg.site;
 /// Sends `site.answer`, as it is written now, to a server that is
 /// running: `ambient run . --entry deploy.main -- [url]`.
 pub fn main(): int with code.pack, console, env, http.send {
-    let url = env.args!().first() as string else "http://127.0.0.1:8080/deploy";
+    let url = env.args!().first() ?? "http://127.0.0.1:8080/deploy";
     match code.pack!(site.answer) {
         let error: Error => { return failed(error.message); }
         let packed: bytes => {
             match http.post(url, packed) {
                 let error: Error => { return failed(error.message); }
                 let response: http.Response => {
-                    console.write!(response.body.to_text() as string else "");
+                    console.write!(response.body.to_text() ?? "");
                     return http.ok(response) ? 0 : 1;
                 }
             }

@@ -21,7 +21,7 @@ pub(super) enum Token {
 
 /// Every mark, longest first, so the first that fits is the one meant.
 const MARKS: [&str; 33] = [
-    "...", "=>", "==", "!=", "<=", ">=", "&&", "||", "++", "::", "(", ")", "{", "}", "[", "]", "<",
+    "...", "=>", "==", "!=", "<=", ">=", "&&", "||", "::", "??", "(", ")", "{", "}", "[", "]", "<",
     ">", ",", ";", ":", ".", "=", "+", "-", "*", "/", "%", "!", "|", "&", "?", "#",
 ];
 
@@ -244,7 +244,7 @@ impl Lexer<'_> {
         if self.out.tokens.len() == before {
             self.push(Token::Mark("("), start);
         } else if text.is_some() {
-            self.push(Token::Mark("++"), start);
+            self.push(Token::Mark("+"), start);
         }
         if let Some(text) = text {
             self.push(Token::Text(text), start);
@@ -258,7 +258,7 @@ impl Lexer<'_> {
         self.take(2);
         // Something is already there, if only the opening bracket.
         if self.out.tokens.len() > before + 1 {
-            self.push(Token::Mark("++"), at);
+            self.push(Token::Mark("+"), at);
         }
         self.push(Token::Mark("("), at);
         let first = self.out.tokens.len();

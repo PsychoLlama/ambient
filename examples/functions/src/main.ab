@@ -24,7 +24,7 @@ type Function = fn(Request): Response with throw;
 /// requests however many functions there are. See `publish.main` to
 /// send one.
 pub fn main(): int with console, env, fs, http, code.compile, code.load {
-    let port = (env.args!().first() as string else "8080").to_int() as int else 8080;
+    let port = (env.args!().first() ?? "8080").to_int() ?? 8080;
     match http.listen!("127.0.0.1", port) {
         let error: Error => {
             console.warn!("functions: ${error.message}");
@@ -47,7 +47,7 @@ fn loaded(compiled: bytes): Function | Error with code.load {
     match code.load!(compiled) {
         let error: Error => { return error; }
         let loaded: unknown => {
-            let function = loaded as Function else unfit;
+            let function = cast::<Function>(loaded) ?? unfit;
             return function == unfit ? unsuited() : function;
         }
     }
@@ -107,9 +107,9 @@ fn found(name: string): Function | Error | null with fs, code.compile, code.load
 /// Answers a request to `/<hash>/<rest>` with what the function kept
 /// under the hash makes of it.
 fn called(request: Request): Response with fs, code.compile, code.load {
-    let after = request.url.slice(1, request.url.length()) as string else "";
-    let name = after.split("/").first() as string else "";
-    let rest = after.slice(name.length(), after.length()) as string else "";
+    let after = request.url.slice(1, request.url.length()) ?? "";
+    let name = after.split("/").first() ?? "";
+    let rest = after.slice(name.length(), after.length()) ?? "";
     match found(name) {
         null => { return http.text(404, "no function is called that\n"); }
         let error: Error => { return http.text(500, "${error.message}\n"); }

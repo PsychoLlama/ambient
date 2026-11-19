@@ -11,7 +11,7 @@ fn answering<T>(body: fn(): T with invoke, throw): T with throw =>
         [invoke](name, arguments) =>
             match name {
                 "now" => 1700,
-                "add" => (arguments.get(0) as int else 0) + (arguments.get(1) as int else 0),
+                "add" => (cast::<int>(arguments.get(0)) ?? 0) + (cast::<int>(arguments.get(1)) ?? 0),
                 "confirm" => true,
                 "title" => 404,
                 _ => null,

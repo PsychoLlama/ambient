@@ -98,7 +98,7 @@ fn a_match_tests_what_is_under_a_brand() {
                 let said: string => { return said; }
             }
         }
-        fn main(): string => shown(Meters(5)) ++ \", \" ++ shown(\"far\");
+        fn main(): string => shown(Meters(5)) + \", \" + shown(\"far\");
     ";
     assert_eq!(text(source), "5 m, far");
 }
@@ -118,7 +118,7 @@ fn a_match_cannot_brand_what_was_not() {
     ";
     let cast = "
         brand Meters;
-        fn main(): int => (5 as int & Meters else Meters(0)) + 0;
+        fn main(): int => (cast::<int & Meters>(5) ?? Meters(0)) + 0;
     ";
     for (source, function) in [(source, "meters"), (cast, "main")] {
         let wrong = wrong(source, function);

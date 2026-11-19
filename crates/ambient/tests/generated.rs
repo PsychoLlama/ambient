@@ -62,11 +62,11 @@ fn a_generated_function_has_the_hash_of_the_function_written_out() {
 const FIRST: &str = "
     use ambient.code;
     use ambient.tree;
-    fn at(of: List<tree.Type>): tree.Type => of.get(0) as tree.Type else tree.none;
+    fn at(of: List<tree.Type>): tree.Type => of.get(0) ?? tree.none;
     fn chooser(): tree.Function =>
         code.generic([null], fn(types: List<tree.Type>): tree.Function =>
             code.define([at(types), at(types)], at(types), [], fn(given: List<code.Code>): code.Code =>
-                given.get(0) as code.Code else code.literal(null)));
+                given.get(0) ?? code.literal(null)));
     fn former = comptime chooser();
     fn written<T>(left: T, right: T): T => left;
 ";
@@ -123,7 +123,7 @@ fn a_generated_body_nests_as_deep_as_a_written_one_may() {
     let main = "
         fn nested(): tree.Function =>
             code.define([tree.integer], tree.integer, [], fn(given: List<code.Code>): code.Code =>
-                iterator.range(0, 300).fold(given.first() as code.Code else code.literal(0), fn(inner: code.Code, at: int): code.Code =>
+                iterator.range(0, 300).fold(given.first() ?? code.literal(0), fn(inner: code.Code, at: int): code.Code =>
                     code.call(code.definition(comptime tree.reference(times)), [inner, code.literal(1)])));
         fn deep = comptime nested();
         fn main(): int => deep(7);
@@ -139,7 +139,7 @@ fn of_seven(returns: &str, body: &str) -> String {
         "use ambient.code;
         use ambient.tree;
         fn at(codes: List<code.Code>, place: int): code.Code =>
-            codes.get(place) as code.Code else code.literal(null);
+            codes.get(place) ?? code.literal(null);
         fn make(): tree.Function =>
             code.define([tree.integer], tree.{returns}, [], fn(given: List<code.Code>): code.Code {{
                 let x = at(given, 0);

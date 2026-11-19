@@ -9,14 +9,14 @@ use pkg.samples;
 /// `ambient run . --entry publish.main -- <name> [server]`.
 pub fn main(): int with code.pack, console, env.args, http.send {
     let args = env.args!();
-    let server = args.get(1) as string else "http://127.0.0.1:8080";
-    match packed(args.first() as string else "") {
+    let server = args.get(1) ?? "http://127.0.0.1:8080";
+    match packed(args.first() ?? "") {
         let error: Error => { return failed(error.message); }
         let packed: bytes => {
             match http.post("${server}/", packed) {
                 let error: Error => { return failed(error.message); }
                 let response: http.Response => {
-                    let said = (response.body.to_text() as string else "").trim();
+                    let said = (response.body.to_text() ?? "").trim();
                     if !http.ok(response) {
                         return failed(said);
                     }

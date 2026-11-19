@@ -4,8 +4,8 @@
 //!
 //! The node has fewer nodes inside it than the call that was written:
 //! the name is gone, and so is the function a body was written as. So
-//! each node that is left out is noted, which is how a node of the
-//! resolved tree is still found in the text.
+//! each node that is left out is noted, and the one a cast adds, which
+//! is how a node of the resolved tree is still found in the text.
 
 use ambient_runtime::FAULT_PACKAGE;
 
@@ -24,7 +24,7 @@ pub(super) fn intrinsic_of(symbol: &Symbol) -> Option<Intrinsic> {
 
 /// The number of each node of `body` that is one of `nodes`, as
 /// [`Expr::children`] walks them, in order.
-pub(super) fn numbered(body: &Expr, nodes: &[*const Expr]) -> Vec<u32> {
+pub(super) fn numbered<N>(body: &Expr<N>, nodes: &[*const Expr<N>]) -> Vec<u32> {
     let mut found = Vec::new();
     let mut passed = 0;
     let mut pending = vec![body];
@@ -96,7 +96,10 @@ impl Resolver<'_> {
 
     fn node_of(&mut self, written: &Written) -> Result<Expr<Reference>, Error> {
         let Written { path, args, .. } = *written;
-        let typed = matches!(written.intrinsic, Intrinsic::Cell(CellOp::New));
+        let typed = matches!(
+            written.intrinsic,
+            Intrinsic::Cell(CellOp::New) | Intrinsic::Cast
+        );
         if !typed && !written.types.is_empty() {
             return Err(self.misused(path, "takes no type"));
         }
@@ -120,6 +123,20 @@ impl Resolver<'_> {
                 };
                 self.dropped.push(std::ptr::from_ref(named));
                 Expr::AbilityId(self.ability(ability)?)
+            }
+            Intrinsic::Cast => {
+                let ([ty], [value]) = (written.types, args) else {
+                    return Err(self.misused(path, "is written `cast::<T>(value)`"));
+                };
+                // A cast that is written gives null where the type
+                // does not describe the value: a node nothing wrote.
+                let otherwise = Box::new(Expr::Null);
+                self.added.push(std::ptr::from_ref(&*otherwise));
+                Expr::Cast {
+                    value: Box::new(self.expr(value)?),
+                    ty: self.ty(ty)?,
+                    otherwise,
+                }
             }
             Intrinsic::Contain => Expr::Boundary(Box::new(self.only_body(path, args)?)),
             Intrinsic::Group => Expr::Group(Box::new(self.only_body(path, args)?)),

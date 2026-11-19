@@ -25,7 +25,7 @@ fn parts(source: &str) -> String {
                 let read: url.Url => {{
                     let port = match read.port {{ null => "-", let port: int => port.to_text() }};
                     let query = read.query.map(pair).join_with("&");
-                    let fragment = read.fragment as string else "-";
+                    let fragment = cast::<string>(read.fragment) ?? "-";
                     return [read.scheme, read.host, port, read.path, query, fragment].join_with(" | ");
                 }}
             }}
@@ -75,7 +75,7 @@ fn a_url_is_written_as_it_was_read() {
 
 #[test]
 fn text_is_encoded_and_read_back() {
-    let round = "url.decode(url.encode(\"a b/c?d=é&🙂\")) as string else \"lost\"";
+    let round = "url.decode(url.encode(\"a b/c?d=é&🙂\")) ?? \"lost\"";
 
     assert_eq!(url("url.encode(\"a b/c?d=é\")"), "a%20b%2Fc%3Fd%3D%C3%A9");
     assert_eq!(url(round), "a b/c?d=é&🙂");

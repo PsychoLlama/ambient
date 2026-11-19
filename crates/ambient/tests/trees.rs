@@ -351,7 +351,7 @@ fn a_tree_of_code_is_spliced_as_the_code_it_is() {
 #[test]
 fn spliced_code_is_checked_as_code_written_there() {
     let main = "
-        fn shout(text: string): string => text ++ \"!\";
+        fn shout(text: string): string => text + \"!\";
         fn main(): string {
             let wrong = comptime twice(shout);
             return wrong(\"hey\");

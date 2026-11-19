@@ -45,7 +45,7 @@ fn every_item_is_worked_on_at_once_and_the_results_keep_their_order() {
 fn the_first_to_be_over_is_what_a_race_gives_and_the_rest_are_stopped() {
     let body = r"
         let naps = [50, 10, 30].map(fn(length: int): fn(): int => fn(): int => nap(length));
-        return (tasks.race(naps) as int else 0).to_text();
+        return (cast::<int>(tasks.race(naps)) ?? 0).to_text();
     ";
     assert_eq!(timed(body), ("10".to_owned(), 10));
 }

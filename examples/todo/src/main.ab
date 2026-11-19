@@ -9,7 +9,7 @@ use pkg.store;
 /// Keeps a list of things to do in a file: `add <text>`, `done <number>`,
 /// and `list`, which is what no command means.
 pub fn main(): int with console, env, fs {
-    let path = env.variable!("TODO_FILE") as string else "todo.txt";
+    let path = env.variable!("TODO_FILE") ?? "todo.txt";
     let items: List<Item> = store.load(path) else {
         let error => { return fail(error); }
     };

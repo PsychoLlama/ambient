@@ -21,16 +21,16 @@ pub fn to_text(self: bytes): string | null => intrinsics.to_text(self);
 
 /// Each byte, in order.
 pub fn iter(self: bytes): Iterator<int> =>
-    intrinsics.range(0, intrinsics.length(self)).map(fn(at: int): int => intrinsics.get(self, at) as int else 0);
+    intrinsics.range(0, intrinsics.length(self)).map(fn(at: int): int => intrinsics.get(self, at) ?? 0);
 
 /// Each byte as a member of a list.
 pub fn to_list(self: bytes): List<int> => iter(self).to_list();
 
 /// Each byte as two hexadecimal digits, in lower case.
 pub fn hex(self: bytes): string =>
-    iter(self).map(fn(byte: int): string => digit(byte / 16) ++ digit(byte % 16)).to_list().join_with("");
+    iter(self).map(fn(byte: int): string => digit(byte / 16) + digit(byte % 16)).to_list().join_with("");
 
-fn digit(value: int): string => intrinsics.slice("0123456789abcdef", value, value + 1) as string else "";
+fn digit(value: int): string => intrinsics.slice("0123456789abcdef", value, value + 1) ?? "";
 
 /// The bytes a list holds, or null if a member is not from 0 to 255.
 pub fn of(members: List<int>): bytes | null => intrinsics.to_bytes(members);
@@ -42,7 +42,7 @@ pub fn from_hex(text: string): bytes | null {
     if digits.contains(null) || digits.length() % 2 == 1 {
         return null;
     }
-    let digit = fn(at: int): int => digits.get(at) as int else 0;
+    let digit = fn(at: int): int => digits.get(at) ?? 0;
     let byte = fn(at: int): int => digit(at * 2) * 16 + digit(at * 2 + 1);
     return intrinsics.to_bytes(intrinsics.range(0, digits.length() / 2).map(byte).to_list());
 }

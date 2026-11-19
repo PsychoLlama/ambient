@@ -29,11 +29,11 @@ pub fn write(value: Json): string {
         let number: float => { return number - number == 0.0 ? number.to_text() : "null"; }
         let text: string => { return quote(text); }
         let items: List<Json> => {
-            return "[" ++ items.map(write).join_with(",") ++ "]";
+            return "[" + items.map(write).join_with(",") + "]";
         }
         let members: Map<Json> => {
-            let each = fn((name, member): (string, Json)): string => quote(name) ++ ":" ++ write(member);
-            return "{" ++ members.entries().map(each).join_with(",") ++ "}";
+            let each = fn((name, member): (string, Json)): string => quote(name) + ":" + write(member);
+            return "{" + members.entries().map(each).join_with(",") + "}";
         }
     }
 }
@@ -58,17 +58,17 @@ pub fn at(value: Json, position: int): Json {
 
 /// Leaves, saying what was expected at a position of the text.
 fn wrong(text: string, at: int, expected: string): never with throw {
-    let before = (text.slice(0, at) as string else text).split("\n");
-    let column = (before.last() as string else "").length() + 1;
+    let before = (text.slice(0, at) ?? text).split("\n");
+    let column = (before.last() ?? "").length() + 1;
     return fail(malformed, "${expected} at line ${before.length()}, column ${column}");
 }
 
 /// The character at a position, if it is one byte: nothing at the end
 /// of the text or inside a longer character.
-fn peek(text: string, at: int): string => text.slice(at, at + 1) as string else "";
+fn peek(text: string, at: int): string => text.slice(at, at + 1) ?? "";
 
 /// The text between two positions, which are not inside a character.
-fn between(text: string, start: int, end: int): string => text.slice(start, end) as string else "";
+fn between(text: string, start: int, end: int): string => text.slice(start, end) ?? "";
 
 /// The first position from `at` on that holds no space.
 fn blank(text: string, at: int): int {
@@ -172,13 +172,13 @@ fn pieces(text: string, from: int, at: int, read: string): (string, int) with th
     }
     let here = peek(text, at);
     if here == "\"" {
-        return (read ++ between(text, from, at), at + 1);
+        return (read + between(text, from, at), at + 1);
     }
     if here == "\\" {
         let (meant, after) = escape(text, at + 1);
-        return pieces(text, after, after, read ++ between(text, from, at) ++ meant);
+        return pieces(text, after, after, read + between(text, from, at) + meant);
     }
-    if (here.code() as int else 32) < 32 {
+    if (here.code() ?? 32) < 32 {
         wrong(text, at, "expected a character that is not a control");
     }
     return pieces(text, from, at + 1, read);
@@ -234,7 +234,7 @@ fn hex(text: string, at: int, count: int, read: int): int with throw {
     if count == 0 {
         return read;
     }
-    let digit = peek(text, at).code() as int else 0;
+    let digit = peek(text, at).code() ?? 0;
     if digit >= 48 && digit < 58 {
         return hex(text, at + 1, count - 1, read * 16 + digit - 48);
     }
@@ -249,7 +249,7 @@ fn hex(text: string, at: int, count: int, read: int): int with throw {
 
 /// The first position from `at` on that holds no digit.
 fn digits(text: string, at: int): int {
-    let digit = peek(text, at).code() as int else 0;
+    let digit = peek(text, at).code() ?? 0;
     if digit >= 48 && digit < 58 {
         return digits(text, at + 1);
     }
@@ -307,11 +307,11 @@ fn exponent(text: string, at: int): int with throw {
 /// A string as JSON writes it: between quotes, with what cannot be
 /// written as itself escaped.
 fn quote(text: string): string =>
-    "\"" ++ text.chars().map(escaped).to_list().join_with("") ++ "\"";
+    "\"" + text.chars().map(escaped).to_list().join_with("") + "\"";
 
 fn escaped(character: string): string {
     if character == "\"" || character == "\\" {
-        return "\\" ++ character;
+        return "\\" + character;
     }
     if character == "\n" {
         return "\\n";
@@ -322,11 +322,11 @@ fn escaped(character: string): string {
     if character == "\r" {
         return "\\r";
     }
-    let scalar = character.code() as int else 32;
+    let scalar = character.code() ?? 32;
     if scalar < 32 {
         let digits = "0123456789abcdef";
-        return "\\u00" ++ between(digits, scalar / 16, scalar / 16 + 1)
-            ++ between(digits, scalar % 16, scalar % 16 + 1);
+        return "\\u00" + between(digits, scalar / 16, scalar / 16 + 1)
+            + between(digits, scalar % 16, scalar % 16 + 1);
     }
     return character;
 }

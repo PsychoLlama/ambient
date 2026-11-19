@@ -87,13 +87,13 @@ fn reached(entry: (string, Json)): tree.Ability {
 /// into what the manifest says.
 fn hosting(entries: List<(string, Json)>): tree.Function =>
     code.generic([null], fn(types: List<tree.Type>): tree.Function {
-        let result = types.get(0) as tree.Type else tree.none;
+        let result = types.get(0) ?? tree.none;
         let body: tree.Type = { function: [], returns: result, takes: entries.map(reached) };
         let needs = [comptime tree.reference(invoke), comptime tree.reference(throw)];
         return code.define([body], result, needs, fn(given: List<code.Code>): code.Code =>
             code.providing(
                 code.handlers(entries.map(asking)),
-                code.call(given.get(0) as code.Code else code.literal(null), []),
+                code.call(given.get(0) ?? code.literal(null), []),
             ));
     });
 

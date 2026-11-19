@@ -57,7 +57,7 @@ pub fn main(): string => describe(3);
 
 - The values are `null`, booleans, integers, floats, strings, tags, tuples `(1, "a")`, lists `[1, 2]`, records `{ name: "tea", price: 450 }`, and functions.
 - Nothing is changed in place. `list.push(x)` gives another list; a record is copied with `{ ...old, price: 500 }`.
-- `++` joins strings and lists, and `"${count} left"` writes a value into a string by its `to_text`. Arithmetic on integers faults on overflow and division by zero instead of wrapping.
+- `+` joins two strings, two lists, or two bytes values, and `"${count} left"` writes a value into a string by its `to_text`. Arithmetic on integers faults on overflow and division by zero instead of wrapping.
 - There are no loops. A list or an iterator has `map`, `filter`, `fold`, `each`, and the rest; anything else is a function that calls itself, and a call in tail position takes no stack.
 - `if` is a statement. The expressions that choose are `match` and `condition ? this : that`.
 
@@ -84,13 +84,13 @@ fn first_word(text: string): string {
     }
 }
 
-pub fn main(): string => first_word("tea for two") ++ area({ kind: circle, radius: 1.0 }).to_text();
+pub fn main(): string => first_word("tea for two") + area({ kind: circle, radius: 1.0 }).to_text();
 ```
 
 - In a pattern a bare name is a type or a tag to test for, and `let name` binds. After `let` in a statement, bare names bind: `let (a, b) = pair;`.
 - A match used as a value has expressions for arms; used as a statement it has blocks.
-- Absence is `null` in a union (`string | null`), and there is no exception to catch: an operation that can fail gives a union with `Error`.
-- `value as int else 0` narrows by a type and says what to give otherwise. It binds loosest of all, so parenthesise it inside a larger expression.
+- Absence is `null` in a union (`string | null`), and there is no exception to catch: cast::<int>(an operation that can fail gives a union with `Error`.
+- `value) ?? 0` narrows by a type and says what to give otherwise. It binds loosest of all, so parenthesise it inside a larger expression.
 - Literals have their own types: `1` is of type `1`, which is why a condition that is always `true` is an error. This rarely shows; where it does, say the wider type.
 
 A tag is a named value with a type of its own, for the cases of a union:
@@ -179,7 +179,7 @@ fn greet(name: string): null with console.print {
 pub fn main(): string {
     let said = cell::<string>("");
     let quiet = {
-        [console.print](text) { said.update(fn(so_far) => so_far ++ text); },
+        [console.print](text) { said.update(fn(so_far) => so_far + text); },
     };
     provide quiet {
         greet("you");
@@ -372,13 +372,13 @@ fn curt(name: string): string => "hi ${name}";
 /// Answers with what was packed from now on, if it is a way to answer.
 fn deploy(current: Cell<Answer>, packed: bytes): null with code.compile, code.load {
     let loaded = code.unpack(packed);
-    let _ = current.update(fn(now: Answer): Answer => loaded as Answer else now);
+    let _ = current.update(fn(now: Answer): Answer => cast::<Answer>(loaded) ?? now);
 }
 
 pub fn main(): null with code, console.print {
     let current = cell::<Answer>(polite);
     console.print!(current.read()("ada"));
-    deploy(current, code.pack!(curt) as bytes else 0x[]);
+    deploy(current, cast::<bytes>(code.pack!(curt)) ?? 0x[]);
     console.print!(current.read()("ada"));
 }
 ```
@@ -387,7 +387,7 @@ Here the bytes never leave the program. They are as good read from a file or the
 
 Compiled code can be kept, in a file or anywhere bytes go, and loaded later without compiling again. Nothing checks it then, so load only what the program compiled itself; a pack is what to accept from anyone else.
 
-`examples/hot` is a whole one: a server that takes a deploy at `/deploy`, and an entry that packs what the site answers, as it is written now, and sends it. `examples/functions` compiles each function it is posted, keeps it in a file, and calls it at a path named for its hash: loaded for the request and let go. The type it casts to has `throw` for a row, so what it runs can do nothing else to the machine.
+`examples/hot` is a whole one: a server that takes a deploy at `/deploy`, and an entry that packs what the site answers, cast::<it is written now, and sends it. `examples/functions` compiles each function it is posted, keeps it in a file, and calls it at a path named for its hash: loaded for the request and let go. The type it casts to has `throw` for a row, so what it runs can do nothing>() ?? to the machine.
 
 ## Bytes, hashes, and time
 
@@ -468,8 +468,8 @@ use ambient.map;
 
 pub fn main(): string {
     let stock = map.of([("tea", 3), ("milk", 1)]);
-    let more = stock.update("tea", fn(have) => (have as int else 0) + 2);
-    return "${more.keys().join_with(", ")}: ${more.get("tea") as int else 0}";
+    let more = stock.update("tea", fn(have) => (cast::<int>(have) ?? 0) + 2);
+    return "${more.keys().join_with(", ")}: ${more.get("tea") ?? 0}";
 }
 ```
 
@@ -484,8 +484,8 @@ pub fn main(): string {
     match read {
         let error: Error => { return error.message; }
         let config => {
-            let port = json.at(json.get(config, "ports"), 1) as int else 0;
-            return "${json.get(config, "name") as string else "?"} on ${port}: ${json.write(config)}";
+            let port = cast::<int>(json.at(json.get(config, "ports"), 1)) ?? 0;
+            return "${cast::<string>(json.get(config, "name")) ?? "?"} on ${port}: ${json.write(config)}";
         }
     }
 }
@@ -495,7 +495,7 @@ pub fn main(): string {
 
 - A type error is reported at its line and column, and so is each function a fault or an uncaught error left: `in app:main.divide at src/main.ab:2:39`. A frame inside the standard library has a name and no place.
 - A record type that names a key says its type again: `{ [dispose](): null }`.
-- A record with methods, such as a `Map`, can be tested for only where the value's type leaves no doubt: a `Json` can be asked `as Map<Json>`, an `unknown` cannot.
+- A record with methods, such as a `Map`, can be tested for only where the value's type leaves no doubt: a `Json` can be cast to `Map<Json>`, an `unknown` cannot.
 - Only a function that captured nothing is packed: one written at the top of a module, not one written inside another that uses what is around it.
 - A function written inside another may call itself, and then says its parameter and return types.
 - A package is depended on by its ID: at a path (`ambient add ../text` writes it), as a member of the workspace, or in a git repository: `text = { id = "…", git = "…", branch = "main" }`, or a `tag`, or a whole commit as `rev`. `ambient.lock` holds the commit that led to, and only `ambient update` reads the branch again. There are no releases to depend on yet.

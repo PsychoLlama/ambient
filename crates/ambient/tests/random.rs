@@ -71,8 +71,8 @@ fn a_shuffled_list_has_the_members_it_had() {
 fn a_member_is_picked_from_a_list_that_has_one() {
     let body = "
         let none: List<int> = [];
-        let picked = random.pick([4, 4, 4]) as int else 0;
-        return picked + (random.pick(none) as int else 100);";
+        let picked = random.pick([4, 4, 4]) ?? 0;
+        return picked + (random.pick(none) ?? 100);";
 
     assert_eq!(int(&seeded("int", body)), 104);
 }

@@ -10,14 +10,14 @@ pub fn name(packed: bytes): string => crypto.hash(crypto.sha256, packed).hex();
 /// code, if it is a name at all. Only a hash written out is one, so a
 /// name never leads out of the directory.
 fn file(name: string, kind: string): string | null {
-    let hash = bytes.from_hex(name) as bytes else 0x[];
+    let hash = bytes.from_hex(name) ?? 0x[];
     return hash.length() == 32 ? path.join([".cache", "${hash.hex()}.${kind}"]) : null;
 }
 
 fn read(name: string, kind: string): bytes | null with fs.read_bytes {
     match file(name, kind) {
         null => { return null; }
-        let file: string => { return fs.read_bytes!(file) as bytes else null; }
+        let file: string => { return cast::<bytes>(fs.read_bytes!(file)) ?? null; }
     }
 }
 
@@ -26,7 +26,7 @@ fn read(name: string, kind: string): bytes | null with fs.read_bytes {
 pub fn keep(packed: bytes, compiled: bytes): string | Error with fs.make_directory, fs.write_bytes {
     let name = name(packed);
     let _ = fs.make_directory!(".cache");
-    match fs.write_bytes!(file(name, "pack") as string else "", packed) {
+    match fs.write_bytes!(file(name, "pack") ?? "", packed) {
         let error: Error => { return error; }
         null => {
             compile(name, compiled);
@@ -38,7 +38,7 @@ pub fn keep(packed: bytes, compiled: bytes): string | Error with fs.make_directo
 /// Keeps what a function compiled to. It is only ever a copy of what
 /// the pack says, so one that cannot be written is done without.
 pub fn compile(name: string, compiled: bytes): null with fs.write_bytes {
-    let _ = fs.write_bytes!(file(name, "code") as string else "", compiled);
+    let _ = fs.write_bytes!(file(name, "code") ?? "", compiled);
     return null;
 }
 

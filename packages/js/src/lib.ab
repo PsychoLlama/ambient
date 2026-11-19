@@ -93,15 +93,15 @@ fn module_of(native: Extern): string {
 }
 
 /// The name an extern is declared by, which its host code exports.
-fn name_of(native: Extern): string => native.path.split(".").last() as string else "";
+fn name_of(native: Extern): string => native.path.split(".").last() ?? "";
 
 /// Where a build keeps the host code an extern's function is in.
-fn kept(native: Extern): string => "externs/" ++ native.package ++ "/" ++ module_of(native) ++ ".js";
+fn kept(native: Extern): string => "externs/" + native.package + "/" + module_of(native) + ".js";
 
 /// The host code of the module an extern is declared in, as its
 /// package keeps it.
 fn hosted(native: Extern): File with build.host_code, throw {
-    match build.host_code!(native.package, "js", module_of(native) ++ ".js") {
+    match build.host_code!(native.package, "js", module_of(native) + ".js") {
         let error: Error => { return throw!(error); }
         let text: string => { return file(kept(native), text); }
     }
@@ -132,7 +132,7 @@ fn constants(compiled: Compiled): string {
         .push("export const Kind = {")
         .join(compiled.kinds.map(kind))
         .push("};");
-    return lines.join_with("\n") ++ "\n";
+    return lines.join_with("\n") + "\n";
 }
 
 /// `program.js`: what loads the module with the function of each
@@ -182,7 +182,7 @@ fn loader(externs: List<Extern>, bindings: List<Bound>, built: Built): string wi
             "  return load(module, offered);",
             "}",
         ]);
-    return lines.join_with("\n") ++ "\n";
+    return lines.join_with("\n") + "\n";
 }
 
 /// `program.d.ts`: the types of what `program.js` exports, for a host
@@ -191,11 +191,11 @@ fn loader(externs: List<Extern>, bindings: List<Bound>, built: Built): string wi
 fn declarations(entry: Reference, externs: List<Extern>): string with build.signature, build.doc, throw {
     let main = signature(entry);
     // The entry's doc comment is what its `run` is, to whoever calls it.
-    let about = build.doc!(entry) as string else "Runs the program's entry.";
+    let about = cast::<string>(build.doc!(entry)) ?? "Runs the program's entry.";
     let natives = externs.map(fn(native: Extern): string {
         let takes = signature(native.definition);
         return "  /** `${native.path}` of package `${native.package}`. */\n"
-            ++ "  \"${native.package}/${native.path}\": (${types.taken(takes.function)}) => ${types.written(takes.returns)};";
+            + "  \"${native.package}/${native.path}\": (${types.taken(takes.function)}) => ${types.written(takes.returns)};";
     });
     let lines = [
         "// Written by the build of this program.",
@@ -221,7 +221,7 @@ fn declarations(entry: Reference, externs: List<Extern>): string with build.sign
             "  over?: Natives,",
             "): Promise<Program>;",
         ]);
-    return lines.join_with("\n") ++ "\n";
+    return lines.join_with("\n") + "\n";
 }
 
 /// A program for a JavaScript host: the module, the host that loads
@@ -236,7 +236,7 @@ pub fn bundle(of: Build): Files
             // An extern is reached from the entry, or bound by the target.
             let bindings = bound(of.target).join(bound(of.entry));
             let written = fn(native: Extern): bool => binding_of(bindings, native) == null;
-            let host = runtime().map(fn(name: string): File => file("runtime/" ++ name, read("host/" ++ name)));
+            let host = runtime().map(fn(name: string): File => file("runtime/" + name, read("host/" + name)));
             return [{ path: "program.wasm", bytes: compiled.module }]
                 .push(file("program.js", loader(compiled.externs, bindings, { digest: build.digest!(compiled.module) })))
                 .push(file("program.d.ts", declarations(of.entry, compiled.externs)))

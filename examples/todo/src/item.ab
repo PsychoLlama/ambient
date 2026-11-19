@@ -16,4 +16,4 @@ pub fn read(line: string): Item | null {
 }
 
 /// A line after its mark.
-fn rest(line: string): string => line.slice(4, line.length()) as string else "";
+fn rest(line: string): string => line.slice(4, line.length()) ?? "";

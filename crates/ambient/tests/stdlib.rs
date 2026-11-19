@@ -17,13 +17,10 @@ fn pieces(expr: &str) -> String {
 #[test]
 fn a_string_is_searched() {
     assert_eq!(
-        int(r#"fn main(): int => "a needle".find("need") as int else 0 - 1;"#),
+        int(r#"fn main(): int => "a needle".find("need") ?? 0 - 1;"#),
         2
     );
-    assert_eq!(
-        int(r#"fn main(): int => "héllo".find("llo") as int else 0 - 1;"#),
-        3
-    );
+    assert_eq!(int(r#"fn main(): int => "héllo".find("llo") ?? 0 - 1;"#), 3);
     assert_eq!(
         evaluates(
             r#"match ("abc".contains("bc"), "abc".contains("cb")) { (true, false) => "yes", _ => "no" }"#
@@ -54,7 +51,7 @@ fn lines_leave_out_their_endings() {
 #[test]
 fn a_string_is_trimmed_and_repeated() {
     assert_eq!(evaluates(r#""  \t padded\n ".trim()"#), "padded");
-    assert_eq!(evaluates(r#""   ".trim() ++ "ab".repeat(3)"#), "ababab");
+    assert_eq!(evaluates(r#""   ".trim() + "ab".repeat(3)"#), "ababab");
 }
 
 // Lists
@@ -85,7 +82,7 @@ fn a_list_is_sorted_by_what_comes_before_what() {
 fn a_list_is_reversed_and_summed() {
     assert_eq!(pieces(r#"["a", "b", "c"].reverse()"#), "c|b|a");
     assert_eq!(
-        int("fn main(): int => [1, 2, 3].sum() + ([4].first() as int else 0);"),
+        int("fn main(): int => [1, 2, 3].sum() + ([4].first() ?? 0);"),
         10
     );
 }
@@ -108,7 +105,7 @@ fn an_iterator_is_walked_for_what_a_function_does() {
 
 #[test]
 fn iterators_are_numbered_chained_and_skipped() {
-    let numbered = r#"["a", "b"].iter().enumerate().map(fn(pair) => match pair { (let n, let item) => n.to_text() ++ item }).to_list()"#;
+    let numbered = r#"["a", "b"].iter().enumerate().map(fn(pair) => match pair { (let n, let item) => n.to_text() + item }).to_list()"#;
     assert_eq!(pieces(numbered), "0a|1b");
 
     let chained = r#"["a", "b", "c"].iter().skip(1).chain(["z"].iter()).to_list()"#;
@@ -121,7 +118,7 @@ fn an_iterator_is_asked_about_its_items() {
         use ambient.iterator.range;
 
         fn main(): int {
-            let found = range(1, 100).find(fn(n) => n * n > 50) as int else 0;
+            let found = range(1, 100).find(fn(n) => n * n > 50) ?? 0;
             let any = match range(0, 3).some(fn(n) => n == 2) { true => 10, false => 0 };
             let each = match range(0, 3).every(fn(n) => n < 2) { true => 100, false => 0 };
             return found + any + each + range(0, 7).count() * 1000;
@@ -133,9 +130,8 @@ fn an_iterator_is_asked_about_its_items() {
 
 #[test]
 fn a_character_and_its_scalar_value_convert_both_ways() {
-    let code = |text: &str| evaluates(&format!("({text}.code() as int else -1).to_text()"));
-    let character =
-        |code: &str| evaluates(&format!(r#"{code}.to_character() as string else "none""#));
+    let code = |text: &str| evaluates(&format!("({text}.code() ?? -1).to_text()"));
+    let character = |code: &str| evaluates(&format!(r#"{code}.to_character() ?? "none""#));
 
     assert_eq!(code(r#""a""#), "97");
     assert_eq!(code(r#""é""#), "233");
@@ -155,11 +151,11 @@ fn a_string_is_replaced_in_and_padded() {
     assert_eq!(evaluates(r#""a-b-c".replace("-", ", ")"#), "a, b, c");
     assert_eq!(evaluates(r#""abc".replace("", "x")"#), "abc");
     assert_eq!(
-        evaluates(r#""7".pad_start(3, "0") ++ "|" ++ "é".pad_end(3, ".")"#),
+        evaluates(r#""7".pad_start(3, "0") + "|" + "é".pad_end(3, ".")"#),
         "007|é.."
     );
     assert_eq!(
-        evaluates(r#""wide".pad_start(2, " ") ++ "héllo".count().to_text()"#),
+        evaluates(r#""wide".pad_start(2, " ") + "héllo".count().to_text()"#),
         "wide5"
     );
 }
@@ -178,7 +174,7 @@ fn a_float_is_rounded_to_a_whole_number() {
     // Too large to have a fraction.
     assert_eq!(rounded("1e300"), "1e300 1e300 1e300 1e300");
     assert_eq!(
-        evaluates("1.5.min(2.5).to_text() ++ 1.5.max(2.5).to_text()"),
+        evaluates("1.5.min(2.5).to_text() + 1.5.max(2.5).to_text()"),
         "1.52.5"
     );
 }
@@ -189,7 +185,7 @@ fn a_list_is_asked_about_its_members() {
         fn main(): int {
             let words = ["a", "bb", "ccc"];
             let has = words.contains("bb") && !words.contains("z") ? 1 : 0;
-            let found = (words.find(fn(word) => word.length() > 1) as string else "").length() * 10;
+            let found = (cast::<string>(words.find(fn(word) => word.length() > 1)) ?? "").length() * 10;
             let asked = words.some(fn(word) => word == "a") && !words.every(fn(word) => word == "a") ? 100 : 0;
             return has + found + asked + words.take(2).length() * 1000 + words.skip(2).length() * 10000;
         }
@@ -201,7 +197,7 @@ fn a_list_is_asked_about_its_members() {
 #[test]
 fn a_string_changes_the_case_of_plain_letters_only() {
     assert_eq!(
-        evaluates(r#""Héllo, World 42".to_upper() ++ " " ++ "ÀBC def".to_lower()"#),
+        evaluates(r#""Héllo, World 42".to_upper() + " " + "ÀBC def".to_lower()"#),
         "HéLLO, WORLD 42 Àbc def"
     );
 }

@@ -16,7 +16,7 @@ fn cut(text: string, separator: string): (string, string | null) {
     match text.find(separator) {
         null => { return (text, null); }
         let at: int => {
-            let before = text.slice(0, at) as string else text;
+            let before = text.slice(0, at) ?? text;
             return (before, text.slice(at + separator.length(), text.length()));
         }
     }
@@ -28,9 +28,9 @@ fn digit(character: string): int | null => "0123456789abcdef".find(character.to_
 /// A number from 0 to 255 as `%` and two hexadecimal digits.
 fn escaped(byte: int): string {
     let digits = "0123456789ABCDEF";
-    let high = digits.slice(byte / 16, byte / 16 + 1) as string else "0";
-    let low = digits.slice(byte % 16, byte % 16 + 1) as string else "0";
-    return "%" ++ high ++ low;
+    let high = digits.slice(byte / 16, byte / 16 + 1) ?? "0";
+    let low = digits.slice(byte % 16, byte % 16 + 1) ?? "0";
+    return "%" + high + low;
 }
 
 /// The bytes of a character's UTF-8 encoding.
@@ -59,7 +59,7 @@ pub fn encode(text: string): string {
         if plain(character) {
             return character;
         }
-        return bytes(character.code() as int else 0).map(escaped).join_with("");
+        return bytes(character.code() ?? 0).map(escaped).join_with("");
     };
     return text.chars().map(written).to_list().join_with("");
 }
@@ -67,7 +67,7 @@ pub fn encode(text: string): string {
 /// The scalar value the first bytes of a list encode, and how many
 /// bytes that took, or null if they are not UTF-8.
 fn scalar(bytes: List<int>): (int, int) | null {
-    let at = fn(position: int): int => bytes.get(position) as int else 0;
+    let at = fn(position: int): int => bytes.get(position) ?? 0;
     let more = fn(count: int): bool =>
         bytes.skip(1).take(count).filter(fn(byte: int): bool => 127 < byte && byte < 192).length() == count;
     let lead = at(0);
@@ -97,7 +97,7 @@ fn decoded(bytes: List<int>, text: string): string | null {
         (let code: int, let took: int) => {
             match code.to_character() {
                 null => { return null; }
-                let character: string => { return decoded(bytes.skip(took), text ++ character); }
+                let character: string => { return decoded(bytes.skip(took), text + character); }
             }
         }
     }
@@ -109,8 +109,8 @@ fn unescape(characters: List<string>, at: int, pending: List<int>, text: string)
     match characters.get(at) {
         null => { return decoded(pending, text); }
         "%" => {
-            let high = digit(characters.get(at + 1) as string else "?");
-            let low = digit(characters.get(at + 2) as string else "?");
+            let high = digit(characters.get(at + 1) ?? "?");
+            let low = digit(characters.get(at + 2) ?? "?");
             match (high, low) {
                 (let high: int, let low: int) => {
                     return unescape(characters, at + 3, pending.push(high * 16 + low), text);
@@ -121,7 +121,7 @@ fn unescape(characters: List<string>, at: int, pending: List<int>, text: string)
         let character: string => {
             match decoded(pending, text) {
                 null => { return null; }
-                let text: string => { return unescape(characters, at + 1, [], text ++ character); }
+                let text: string => { return unescape(characters, at + 1, [], text + character); }
             }
         }
     }
@@ -137,7 +137,7 @@ pub fn query(text: string): List<(string, string)> | null {
     let pairs = text.split("&").filter(fn(pair: string): bool => !pair.is_empty());
     return pairs.fold([], fn(read: List<(string, string)> | null, pair: string): List<(string, string)> | null {
         let (name, value) = cut(pair.replace("+", " "), "=");
-        match (read, decode(name), decode(value as string else "")) {
+        match (read, decode(name), decode(value ?? "")) {
             (let read: List<(string, string)>, let name: string, let value: string) => {
                 return read.push((name, value));
             }
@@ -150,7 +150,7 @@ pub fn query(text: string): List<(string, string)> | null {
 pub fn write_query(pairs: List<(string, string)>): string {
     let written = fn(pair: (string, string)): string {
         let (name, value) = pair;
-        return encode(name) ++ "=" ++ encode(value);
+        return encode(name) + "=" + encode(value);
     };
     return pairs.map(written).join_with("&");
 }
@@ -165,7 +165,7 @@ fn authority(text: string): (string, int | null) | null {
         let port: string => {
             match port.to_int() {
                 null => { return null; }
-                let port: int => { return (text.starts_with("[") ? host ++ "]" : host, port); }
+                let port: int => { return (text.starts_with("[") ? host + "]" : host, port); }
             }
         }
     }
@@ -181,11 +181,11 @@ pub fn parse(text: string): Url | null {
     let (named, path) = match after {
         null => ("", rest),
         let after: string => match cut(after, "/") {
-            (let named, let path: string) => (named, "/" ++ path),
+            (let named, let path: string) => (named, "/" + path),
             (let named, null) => (named, "/"),
         },
     };
-    match (authority(named), query(asked as string else "")) {
+    match (authority(named), query(asked ?? "")) {
         ((let host: string, let port), let query: List<(string, string)>) => {
             return { scheme: after == null ? "" : scheme, host, port, path, query, fragment };
         }
@@ -199,13 +199,13 @@ pub fn write(url: Url): string {
         null => "",
         let port: int => ":${port}",
     };
-    let origin = url.scheme.is_empty() ? "" : url.scheme ++ "://" ++ url.host ++ port;
-    let query = url.query.is_empty() ? "" : "?" ++ write_query(url.query);
+    let origin = url.scheme.is_empty() ? "" : url.scheme + "://" + url.host + port;
+    let query = url.query.is_empty() ? "" : "?" + write_query(url.query);
     let fragment = match url.fragment {
         null => "",
-        let fragment: string => "#" ++ fragment,
+        let fragment: string => "#" + fragment,
     };
-    return origin ++ url.path ++ query ++ fragment;
+    return origin + url.path + query + fragment;
 }
 
 /// A path with no `.` or `..` in it: each `..` takes away the part
@@ -223,7 +223,7 @@ fn undotted(path: string): string {
     });
     // A path that ends in one names a directory, as one that ends in
     // `/` does.
-    let last = parts.last() as string else "";
+    let last = parts.last() ?? "";
     return (last == "." || last == ".." ? kept.push("") : kept).join_with("/");
 }
 

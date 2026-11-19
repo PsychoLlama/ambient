@@ -9,8 +9,8 @@ use pkg.routes;
 /// Serves notes over HTTP, kept in a file of JSON: `notes [port]`. See
 /// `routes.answer` for what it answers.
 pub fn main(): int with console, env, fs, http {
-    let port = (env.args!().first() as string else "8080").to_int() as int else 8080;
-    let path = env.variable!("NOTES_FILE") as string else "notes.json";
+    let port = (env.args!().first() ?? "8080").to_int() ?? 8080;
+    let path = env.variable!("NOTES_FILE") ?? "notes.json";
     match http.listen!("127.0.0.1", port) {
         let error: Error => {
             console.warn!("notes: ${error.message}");
@@ -32,7 +32,7 @@ pub fn main(): int with console, env, fs, http {
 /// The notes a file keeps: a JSON array of strings. A file that is
 /// missing, or holds something else, keeps none.
 fn kept(path: string): List<string> with fs.read {
-    let text = fs.read!(path) as string else "[]";
+    let text = cast::<string>(fs.read!(path)) ?? "[]";
     match catch(fn() => json.parse(text)) {
         let notes: List<json.Json> => {
             return notes.fold([], fn(found: List<string>, note: json.Json): List<string> =>

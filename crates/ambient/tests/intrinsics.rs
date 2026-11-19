@@ -87,7 +87,7 @@ fn a_cell_holds_what_its_first_value_is_unless_it_says() {
             let either = cell::<int | null>(null);
             count.update(fn(held) => held + 1);
             either.update(fn(_) => 40);
-            return count.read() + (either.read() as int else 0);
+            return count.read() + (cast::<int>(either.read()) ?? 0);
         }
     ";
 
@@ -114,4 +114,18 @@ fn a_task_is_still_started_only_in_a_group() {
         refused(source),
         "app:main.main: a spawn must be written in the body of a group"
     );
+}
+
+#[test]
+fn a_plus_takes_two_of_one_shape() {
+    let refused = refused("fn main(): unknown => [1] + 0x[02];");
+
+    assert!(refused.contains("`+` is not defined for"), "{refused}");
+}
+
+#[test]
+fn what_is_never_null_has_nothing_to_fall_back_from() {
+    let refused = refused("fn main(): int => 1 ?? 2;");
+
+    assert!(refused.contains("can never be taken"), "{refused}");
 }

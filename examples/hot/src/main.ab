@@ -12,7 +12,7 @@ type Answer = fn(http.Request): http.Response with throw;
 /// `deploy.main`. Whoever can post there decides what the server runs,
 /// so a real one would ask who is posting.
 pub fn main(): int with console, env, http, code.compile, code.load {
-    let port = (env.args!().first() as string else "8080").to_int() as int else 8080;
+    let port = (env.args!().first() ?? "8080").to_int() ?? 8080;
     match http.listen!("127.0.0.1", port) {
         let error: Error => {
             console.warn!("hot: ${error.message}");
@@ -40,7 +40,7 @@ fn deployed(current: Cell<Answer>, request: http.Request): http.Response with co
     match code.unpack(request.body) {
         let error: Error => { return http.text(400, "${error.message}\n"); }
         let loaded: unknown => {
-            let next = loaded as Answer else unfit;
+            let next = cast::<Answer>(loaded) ?? unfit;
             if next == unfit {
                 return http.text(400, "not a way to answer a request\n");
             }

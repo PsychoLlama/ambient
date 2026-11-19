@@ -47,7 +47,7 @@ fn a_package_is_its_manifest_and_a_module_for_each_file() {
         ),
         (
             "lib/src/lib.ab",
-            r#"pub fn loud(text: string): string => text ++ "!";"#,
+            r#"pub fn loud(text: string): string => text + "!";"#,
         ),
     ]);
 
@@ -121,9 +121,9 @@ fn an_error_is_reported_at_the_expression_that_is_wrong() {
     // A test that cannot tell what it is asked: any record passes it.
     assert_eq!(
         wrong_at(
-            "use ambient.map.{Map};\nfn f(v: unknown): int =>\n  (v as Map<int> else null) as int else 0;"
+            "use ambient.map.{Map};\nfn f(v: unknown): int =>\n  cast::<int>(cast::<Map<int>>(v)) ?? 0;"
         ),
-        "3:6"
+        "3:15"
     );
     // A method the value lacks, at its name.
     assert_eq!(wrong_at("fn f(): int => 1\n  .missing();"), "2:4");
@@ -159,7 +159,7 @@ fn what_a_block_gives_is_wrong_at_the_return_that_gives_it() {
 
 #[test]
 fn an_error_inside_a_lambda_is_at_its_place_in_the_definition() {
-    let source = "fn f(): List<int> =>\n  [1].map(fn(n) =>\n    n ++ 1);";
+    let source = "fn f(): List<int> =>\n  [1].map(fn(n) =>\n    n + \"a\");";
 
     assert_eq!(wrong_at(source), "3:7");
 }
@@ -230,7 +230,7 @@ in the code the call gave:
 
 #[test]
 fn a_frame_in_generated_code_is_where_the_call_is() {
-    let quotient = "code.operate(\"divide\", [code.literal(10), given.first() as code.Code else code.literal(1)])";
+    let quotient = "code.operate(\"divide\", [code.literal(10), given.first() ?? code.literal(1)])";
 
     let (_, world) = run(&app(&generating(quotient, "fn main(): int => made(0);")));
     assert_eq!(
@@ -251,7 +251,7 @@ fn an_error_nothing_catches_ends_the_program_and_is_reported() {
         }
         fn main(): int with throw {
             let caught = catch(fn() => small(10));
-            let first = caught as int else small(3);
+            let first = cast::<int>(caught) ?? small(3);
             return first + small(12);
         }
     "#;

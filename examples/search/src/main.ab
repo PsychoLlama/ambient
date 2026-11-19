@@ -25,7 +25,7 @@ fn search(word: string, root: string): int with console, fs.read, fs.list {
                 console.warn!("${path}: ${error.message}");
                 return found;
             }
-            let text: string => { return found ++ matches(path, text, word); }
+            let text: string => { return found + matches(path, text, word); }
         }
     });
     found.each(fn(each) => console.print!(describe(each)));

@@ -172,7 +172,7 @@ const LOADER: &str = r"
     target page { fetch: fetched }
 
     fn main(number: int): int with fetch {
-        let fetched = fetch!() as fn(int): int else fn(number: int) => 0 - 1;
+        let fetched = cast::<fn(int): int>(fetch!()) ?? fn(number: int) => 0 - 1;
         return fetched(number);
     }
 ";

@@ -113,7 +113,13 @@ impl Checker<'_> {
 fn meanings(operator: Operator) -> &'static [Primitive] {
     use Primitive as P;
     match operator {
-        Operator::Add => &[P::IntAdd, P::FloatAdd],
+        Operator::Add => &[
+            P::IntAdd,
+            P::FloatAdd,
+            P::StringJoin,
+            P::BytesJoin,
+            P::ListJoin,
+        ],
         Operator::Subtract => &[P::IntSubtract, P::FloatSubtract],
         Operator::Multiply => &[P::IntMultiply, P::FloatMultiply],
         Operator::Divide => &[P::IntDivide, P::FloatDivide],

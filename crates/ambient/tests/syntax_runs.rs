@@ -44,7 +44,7 @@ fn statements_run_in_order_and_a_let_scopes_over_the_rest() {
             let greeting = "hello";
             let (name, count) = ("world", 2);
             let { mark } = { mark: "!" };
-            return greeting ++ " " ++ name ++ mark ++ count.to_text();
+            return greeting + " " + name + mark + count.to_text();
         }
     "#;
 
@@ -87,10 +87,10 @@ fn a_match_narrows_and_binds() {
             small => "small",
             large => "large",
             let n: int => n.to_text(),
-            (let n, let unit) => n.to_text() ++ unit,
+            (let n, let unit) => n.to_text() + unit,
         };
 
-        fn main(): string => show(size(3)) ++ show(size(30)) ++ show(7) ++ show((2, "kg"));
+        fn main(): string => show(size(3)) + show(size(30)) + show(7) + show((2, "kg"));
     "#;
 
     assert_eq!(text(source), "smalllarge72kg");
@@ -159,7 +159,7 @@ fn a_return_in_a_scope_gives_the_scope_its_value() {
             let bounded = contain(fn() {
                 return caught * 2;
             });
-            return bounded as int else 0;
+            return cast::<int>(bounded) ?? 0;
         }
     ";
 
@@ -188,7 +188,7 @@ fn a_cast_narrows_unknown_or_gives_what_it_is_otherwise() {
     let source = r#"
         type Item = { name: string, qty: int };
 
-        fn parse(value: unknown): Item => value as Item else { name: "?", qty: 0 };
+        fn parse(value: unknown): Item => cast::<Item>(value) ?? { name: "?", qty: 0 };
 
         fn main(): int => parse({ name: "tea", qty: 2 }).qty + parse(7).qty;
     "#;
@@ -224,7 +224,7 @@ fn a_key_names_what_a_record_holds_without_a_field() {
         fn show(value: Display): string => value[display]();
 
         fn main(): string {
-            let point = { x: 1, [display](self) => "x=" ++ self.x.to_text() };
+            let point = { x: 1, [display](self) => "x=" + self.x.to_text() };
             return show(point);
         }
     "#;
@@ -238,16 +238,16 @@ fn a_using_releases_what_it_binds_when_its_block_ends() {
         use ambient.cleanup.{dispose};
 
         fn noting(log: Cell<string>, name: string): { name: string, [dispose](): null } {
-            return { name, [dispose]() { log.update(fn(text) => text ++ name); } };
+            return { name, [dispose]() { log.update(fn(text) => text + name); } };
         }
         fn main(): string {
             let log = cell::<string>("");
             let seen = contain(fn() {
                 using first = noting(log, "a");
                 using { name } = noting(log, "b");
-                return first.name ++ name ++ log.read();
+                return first.name + name + log.read();
             });
-            return (seen as string else "?") ++ ":" ++ log.read();
+            return (cast::<string>(seen) ?? "?") + ":" + log.read();
         }
     "#;
 
@@ -274,7 +274,7 @@ fn a_minus_before_a_value_asks_it_for_its_negative() {
     let source = r"
         fn main(): int {
             let (n, x) = (3, 1.5);
-            return -n * 10 + ((-x * 2.0).to_int() as int else 0);
+            return -n * 10 + ((-x * 2.0).to_int() ?? 0);
         }
     ";
 
@@ -304,7 +304,7 @@ fn a_module_in_a_row_is_every_ability_of_it() {
         }
         fn main(): string {
             let said = cell::<string>("");
-            let note = fn(text: string) { said.update(fn(so_far) => so_far ++ text); };
+            let note = fn(text: string) { said.update(fn(so_far) => so_far + text); };
             let quiet = {
                 [console.print](text) { note(text); },
                 [console.warn](text) { note(text); },
@@ -396,7 +396,7 @@ fn a_let_that_states_a_type_holds_its_value_to_it_and_tests_nothing() {
             let add: fn(int): int = fn(n) => n + 1;
             let none: List<int> = [];
             let wide: int | null = 2;
-            return add(none.length()) + (wide as int else 0);
+            return add(none.length()) + (cast::<int>(wide) ?? 0);
         }
     ";
 
@@ -444,4 +444,43 @@ fn a_let_that_states_a_type_holds_that_type_and_no_less() {
         }
     "#;
     assert_eq!(support::text::run(source), Ok(Value::Bool(true)));
+}
+
+#[test]
+fn a_plus_joins_two_lists_or_two_bytes_values() {
+    let joined = r#"
+        fn main(): string {
+            let list = [1] + [2, 3];
+            let bytes = 0x[01] + 0x[02 03];
+            return "${list.length()}" + "${bytes.length()}";
+        }
+    "#;
+
+    assert_eq!(text(joined), "33");
+}
+
+#[test]
+fn what_follows_a_miss_runs_only_on_a_miss() {
+    let source = "
+        fn main(): int {
+            let runs = cell(0);
+            let other = fn(): int { runs.update(fn(n) => n + 1); return 10; };
+            let found = [1].get(0) ?? other();
+            let missed = [1].get(5) ?? other();
+            return found + missed + runs.read() * 100;
+        }
+    ";
+
+    assert_eq!(int(source), 111);
+}
+
+#[test]
+fn a_cast_is_null_where_the_type_does_not_describe_the_value() {
+    let source = r#"
+        fn seen(value: unknown): string =>
+            cast::<string>(value) ?? "${cast::<int>(value) ?? -1}";
+        fn main(): string => seen("text") + seen(7) + seen(null);
+    "#;
+
+    assert_eq!(text(source), "text7-1");
 }

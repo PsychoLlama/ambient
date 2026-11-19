@@ -17,6 +17,8 @@ pub enum Intrinsic {
     Cell(CellOp),
     /// What an observer is told an ability is.
     AbilityId,
+    /// A value at a type, or null if the type does not describe it.
+    Cast,
     /// A boundary around a body.
     Contain,
     /// A recording of a body, for an observer.
@@ -32,12 +34,13 @@ pub enum Intrinsic {
 }
 
 /// The intrinsics that are no operation, by name.
-const NAMED: [(&str, Intrinsic); 11] = [
+const NAMED: [(&str, Intrinsic); 12] = [
     ("cell", Intrinsic::Cell(CellOp::New)),
     ("read", Intrinsic::Cell(CellOp::Read)),
     ("replace", Intrinsic::Cell(CellOp::Replace)),
     ("wait", Intrinsic::Cell(CellOp::Wait)),
     ("ability_id", Intrinsic::AbilityId),
+    ("cast", Intrinsic::Cast),
     ("contain", Intrinsic::Contain),
     ("observe", Intrinsic::Observe),
     ("group", Intrinsic::Group),

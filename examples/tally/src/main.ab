@@ -32,12 +32,12 @@ fn report(path: string): int with console.print, console.warn, fs.read {
 /// How often each word of `text` is in it.
 fn count(text: string): Map<int> =>
     words(text).fold(map.empty::<int>(), fn(seen: Map<int>, word: string): Map<int> =>
-        seen.update(word, fn(times) => (times as int else 0) + 1));
+        seen.update(word, fn(times) => (times ?? 0) + 1));
 
 /// The words of `text`: what its spaces and line endings separate.
 fn words(text: string): List<string> =>
     text.lines().fold([], fn(found: List<string>, line: string): List<string> =>
-        found ++ line.split(" ").filter(fn(word) => !word.is_empty()));
+        found + line.split(" ").filter(fn(word) => !word.is_empty()));
 
 /// The `limit` entries counted most, the most first. Entries counted
 /// alike stay in the order of their words.

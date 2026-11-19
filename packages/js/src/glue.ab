@@ -11,7 +11,7 @@ pub type Signature = { function: List<Type>, returns: Type, takes: List<tree.Abi
 /// binding that is written into a build as code.
 fn is_path(path: string): bool {
     let named = fn(part: string): bool => !part.is_empty() && part.chars().every(fn(char: string): bool {
-        let code = char.code() as int else 0;
+        let code = char.code() ?? 0;
         return (code >= 97 && code <= 122) || (code >= 65 && code <= 90)
             || (code >= 48 && code <= 57) || char == "_" || char == "$";
     });
@@ -29,7 +29,7 @@ pub type Built = { digest: string };
 /// of what the extern takes.
 fn does(says: unknown, given: List<string>, built: Built): string with throw {
     let all = given.join_with(", ");
-    let on = given.get(0) as string else "undefined";
+    let on = given.get(0) ?? "undefined";
     let rest = given.skip(1).join_with(", ");
     match says {
         let path: string => { return "${named(path)}(${all})"; }

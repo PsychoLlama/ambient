@@ -201,11 +201,11 @@ pub fn pad_end(self: string, width: int, fill: string): string =>
 /// `high` moved `by` that many values.
 fn shifted(text: string, low: int, high: int, by: int): string {
     let moved = fn(character: string): string {
-        let code = character.code() as int else 0;
+        let code = character.code() ?? 0;
         if code < low || high < code {
             return character;
         }
-        return (code + by).to_character() as string else character;
+        return (code + by).to_character() ?? character;
     };
     return intrinsics.iterate(text).map(moved).to_list().join_with("");
 }

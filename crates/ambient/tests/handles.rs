@@ -115,7 +115,7 @@ fn a_handle_is_tested_for_by_its_brand() {
             _ => { return \"neither\"; }
         }
     }
-    fn main(): string => kind(open(1)) ++ \" \" ++ kind(1);");
+    fn main(): string => kind(open(1)) + \" \" + kind(1);");
     assert_eq!(gave, Value::String("file neither".to_owned()));
 }
 

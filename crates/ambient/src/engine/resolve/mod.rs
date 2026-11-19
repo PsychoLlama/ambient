@@ -31,6 +31,9 @@ pub struct Resolved {
     /// resolved one, each by its number there, in order: what a call
     /// of an intrinsic leaves out. See [`Self::written`].
     pub skipped: Vec<u32>,
+    /// The nodes of the resolved body that nothing wrote, each by its
+    /// number there, in order: what a call of an intrinsic adds.
+    pub added: Vec<u32>,
 }
 
 impl Resolved {
@@ -38,9 +41,11 @@ impl Resolved {
     /// `resolved` of the resolved body was made from.
     #[must_use]
     pub fn written(&self, resolved: usize) -> usize {
-        let before = |skipped: &&u32| usize::try_from(**skipped).unwrap_or(usize::MAX);
-        let mut written = resolved;
-        for skipped in self.skipped.iter().map(|skipped| before(&skipped)) {
+        let number = |node: &u32| usize::try_from(*node).unwrap_or(usize::MAX);
+        // A node nothing wrote is where the node before it is.
+        let added = self.added.iter().map(number);
+        let mut written = resolved - added.filter(|added| *added <= resolved).count();
+        for skipped in self.skipped.iter().map(number) {
             if skipped > written {
                 break;
             }
@@ -90,11 +95,15 @@ impl Engine<'_> {
                 let skipped = body_of(written)
                     .map(|body| intrinsic::numbered(body, &resolver.dropped))
                     .unwrap_or_default();
+                let added = body_of(&definition)
+                    .map(|body| intrinsic::numbered(body, &resolver.added))
+                    .unwrap_or_default();
                 let digest = digest("resolved", &definition);
                 Ok(Resolved {
                     definition,
                     digest,
                     skipped,
+                    added,
                 })
             })
         })
@@ -148,6 +157,7 @@ impl Engine<'_> {
             definition: definition.clone(),
             digest: digest("resolved", definition),
             skipped: Vec::new(),
+            added: Vec::new(),
         }))
     }
 
@@ -176,7 +186,7 @@ impl Engine<'_> {
 
 /// The body of a definition whose nodes are numbered: a function's, or
 /// the call a definition is whatever it gives.
-fn body_of(definition: &Definition) -> Option<&Expr> {
+fn body_of<N>(definition: &Definition<N>) -> Option<&Expr<N>> {
     match &definition.kind {
         DefinitionKind::Function(function) => Some(&function.body),
         DefinitionKind::Derived(call)
@@ -225,6 +235,8 @@ struct Resolver<'a> {
     blamed: Option<*const Expr>,
     /// The nodes as written that the resolved tree has no node for.
     dropped: Vec<*const Expr>,
+    /// The nodes of the resolved tree that nothing wrote.
+    added: Vec<*const Expr<Reference>>,
     /// The members of the generated modules the definition names
     /// something through, as far as they have been asked for.
     given: Given,
@@ -247,6 +259,7 @@ impl<'a> Resolver<'a> {
             next: 0,
             blamed: None,
             dropped: Vec::new(),
+            added: Vec::new(),
             given: Given::new(),
             wanted: RefCell::default(),
         }

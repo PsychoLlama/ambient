@@ -128,7 +128,7 @@ impl Operator {
             Self::Remainder => "%",
             Self::Less => "<",
             Self::Equal => "==",
-            Self::Join => "++",
+            Self::Join => "intrinsics.join",
             Self::Length => "intrinsics.length",
             Self::Get => "intrinsics.get",
             Self::Push => "intrinsics.push",

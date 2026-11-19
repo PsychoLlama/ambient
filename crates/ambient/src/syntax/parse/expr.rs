@@ -8,11 +8,10 @@ use crate::surface::{Arm, Expr, Key, Operator, Path, Pattern, Type, TypeParam};
 
 /// The binary operators, loosest first. Each level binds to the left,
 /// but comparison, which does not chain.
-const LEVELS: [&[&str]; 6] = [
+const LEVELS: [&[&str]; 5] = [
     &["||"],
     &["&&"],
     &["==", "!=", "<=", ">=", "<", ">"],
-    &["++"],
     &["+", "-"],
     &["*", "/", "%"],
 ];
@@ -64,6 +63,24 @@ pub(super) fn choose(subject: Expr, when_true: Expr, when_false: Expr) -> Expr {
     }
 }
 
+/// `value` where it is not null, and `otherwise` where it is: a match
+/// that binds what is left under a name `kept`, which the reader made
+/// up.
+fn coalesce(value: Expr, kept: &str, otherwise: Expr) -> Expr {
+    let missed = Arm {
+        pattern: Pattern::Is(Type::Null),
+        body: otherwise,
+    };
+    let found = Arm {
+        pattern: Pattern::Bind(kept.to_owned(), Box::new(Pattern::Wildcard)),
+        body: name(kept),
+    };
+    Expr::Match {
+        subject: Box::new(value),
+        arms: vec![missed, found],
+    }
+}
+
 fn not(value: Expr) -> Expr {
     choose(value, boolean(false), boolean(true))
 }
@@ -74,7 +91,15 @@ fn operation(operator: Operator, operands: Vec<Expr>) -> Expr {
 
 impl Parser {
     pub(super) fn expr(&mut self) -> Parsed<Expr> {
-        let value = self.binary(0)?;
+        let mut value = self.binary(0)?;
+        // `value ?? otherwise`, which is a match of what may be null.
+        while self.at("??") {
+            let at = self.index;
+            self.advance();
+            let otherwise = self.binary(0)?;
+            let kept = self.made_up("kept");
+            value = self.mark(at, coalesce(value, &kept, otherwise));
+        }
         let at = self.index;
         // `condition ? this : that`, which is a match of a boolean.
         if self.eat("?") {
@@ -83,17 +108,7 @@ impl Parser {
             let chosen = choose(value, when_true, self.expr()?);
             return Ok(self.mark(at, chosen));
         }
-        if !self.eat_word("as") {
-            return Ok(value);
-        }
-        let ty = self.ty()?;
-        self.expect_word("else")?;
-        let cast = Expr::Cast {
-            value: Box::new(value),
-            ty,
-            otherwise: Box::new(self.expr()?),
-        };
-        Ok(self.mark(at, cast))
+        Ok(value)
     }
 
     fn binary(&mut self, level: usize) -> Parsed<Expr> {
@@ -122,7 +137,6 @@ impl Parser {
             "*" => Some(Operator::Multiply),
             "/" => Some(Operator::Divide),
             "%" => Some(Operator::Remainder),
-            "++" => Some(Operator::Join),
             "==" => Some(Operator::Equal),
             "<" => Some(Operator::Less),
             _ => None,

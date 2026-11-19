@@ -23,8 +23,8 @@ fn over(ret: &str, body: &str) -> String {
 
 #[test]
 fn a_map_gives_what_is_under_a_key() {
-    assert_eq!(int(&over("int", r#"return d.get("b") as int else 0;"#)), 2);
-    assert_eq!(int(&over("int", r#"return d.get("z") as int else 0;"#)), 0);
+    assert_eq!(int(&over("int", r#"return d.get("b") ?? 0;"#)), 2);
+    assert_eq!(int(&over("int", r#"return d.get("z") ?? 0;"#)), 0);
     assert_eq!(int(&over("int", "return d.size();")), 3);
 }
 
@@ -38,7 +38,7 @@ fn an_entry_tells_a_null_value_from_no_value() {
                 let d = map.of::<int | null>([("none", null)]);
                 match d.entry("{key}") {{
                     null => {{ return "absent"; }}
-                    (let key, let value) => {{ return key ++ (value == null ? " is null" : ""); }}
+                    (let key, let value) => {{ return key + (value == null ? " is null" : ""); }}
                 }}
             }}
             "#
@@ -50,7 +50,7 @@ fn an_entry_tells_a_null_value_from_no_value() {
 
 #[test]
 fn a_map_is_read_in_the_order_of_its_keys() {
-    let keys = r#"return d.keys().join_with("") ++ d.values().iter().fold(0, fn(a, b) => a + b).to_text();"#;
+    let keys = r#"return d.keys().join_with("") + d.values().iter().fold(0, fn(a, b) => a + b).to_text();"#;
 
     assert_eq!(text(&over("string", keys)), "abc6");
 }
@@ -58,8 +58,8 @@ fn a_map_is_read_in_the_order_of_its_keys() {
 #[test]
 fn changing_a_map_leaves_the_one_changed_as_it_was() {
     let body = r#"
-        let more = d.set("a", 10).remove("b").update("n", fn(seen) => (seen as int else 0) + 1);
-        return more.keys().join_with("") ++ d.keys().join_with("");
+        let more = d.set("a", 10).remove("b").update("n", fn(seen) => (cast::<int>(seen) ?? 0) + 1);
+        return more.keys().join_with("") + d.keys().join_with("");
     "#;
 
     assert_eq!(text(&over("string", body)), "acnabc");
@@ -77,7 +77,7 @@ fn edits(sets: &[u8], removes: &[u8]) -> String {
         fn main(): string => map.empty::<int>(){edits}
             .entries().iter().fold("", fn(text: string, entry: (string, int)): string {{
                 let (key, value) = entry;
-                return text ++ key ++ "=" ++ value.to_text() ++ ",";
+                return text + key + "=" + value.to_text() + ",";
             }});
         "#
     )

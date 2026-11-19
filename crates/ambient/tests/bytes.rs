@@ -15,7 +15,7 @@ fn a_string_is_its_encoding_and_back() {
     assert_eq!(evaluates(r#""héllo".to_bytes().length().to_text()"#), "6");
     assert_eq!(evaluates(r#""héllo".to_bytes().hex()"#), "68c3a96c6c6f");
     assert_eq!(
-        evaluates(r#""héllo".to_bytes().to_text() as string else "none""#),
+        evaluates(r#""héllo".to_bytes().to_text() ?? "none""#),
         "héllo"
     );
 }
@@ -25,12 +25,12 @@ fn bytes_that_encode_no_string_miss() {
     // The first byte of a two-byte character, alone.
     let cut = r#""é".to_bytes().slice(0, 1)"#;
     assert_eq!(
-        evaluates(&format!(r#"({cut} as bytes else "".to_bytes()).hex()"#)),
+        evaluates(&format!(r#"(cast::<bytes>({cut}) ?? "".to_bytes()).hex()"#)),
         "c3"
     );
     assert_eq!(
         evaluates(&format!(
-            r#"({cut} as bytes else "".to_bytes()).to_text() as string else "none""#
+            r#"(cast::<bytes>({cut}) ?? "".to_bytes()).to_text() ?? "none""#
         )),
         "none"
     );
@@ -38,7 +38,7 @@ fn bytes_that_encode_no_string_miss() {
 
 #[test]
 fn bytes_are_read_joined_and_sliced_as_a_list_is() {
-    let made = r#"(bytes.of([1, 2, 255]) as bytes else "".to_bytes())"#;
+    let made = r#"(bytes.of([1, 2, 255]) ?? "".to_bytes())"#;
     let source = |expr: &str| format!("use ambient.bytes;\nfn main(): string => {expr};");
     let gives = |expr: &str| run(&source(expr)).unwrap();
     let text = |text: &str| Value::String(text.to_owned());
@@ -54,13 +54,13 @@ fn bytes_are_read_joined_and_sliced_as_a_list_is() {
     );
     assert_eq!(
         gives(&format!(
-            "({made}.get(2) as int else -1).to_text() ++ ({made}.get(3) as int else -1).to_text()"
+            "({made}.get(2) ?? -1).to_text() + ({made}.get(3) ?? -1).to_text()"
         )),
         text("255-1")
     );
     assert_eq!(
         gives(&format!(
-            "({made}.slice(2, 1) as bytes else \"gone\".to_bytes()).to_text() as string else \"\""
+            "({made}.slice(2, 1) ?? \"gone\".to_bytes()).to_text() ?? \"\""
         )),
         text("gone")
     );
@@ -127,7 +127,7 @@ fn bytes_written_out_are_a_pattern_and_a_type() {
                 _ => { return "unknown"; }
             }
         }
-        fn png(value: unknown): bool => (value as Png else null) != null;
+        fn png(value: unknown): bool => (cast::<Png>(value) ?? null) != null;
 
         fn main(): string {
             let found = [kind(0x[89 50]), kind(0x[FF D8]), kind("P".to_bytes())].join_with(" ");

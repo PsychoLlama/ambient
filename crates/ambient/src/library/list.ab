@@ -90,7 +90,7 @@ pub fn join_with(self: List<string>, separator: string): string {
     match intrinsics.step(intrinsics.iterate(self)) {
         null => { return ""; }
         (let head, let rest) => {
-            return rest.fold(head, fn(joined: string, piece: string): string => joined ++ separator ++ piece);
+            return rest.fold(head, fn(joined: string, piece: string): string => joined + separator + piece);
         }
     }
 }

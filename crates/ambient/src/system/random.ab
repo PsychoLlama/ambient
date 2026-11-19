@@ -46,7 +46,7 @@ fn drawn<T>(left: List<T>, out: List<T>): List<T> with bits {
 }
 
 /// This many bytes nothing could have guessed: a key, a token, a salt.
-pub fn bytes(count: int): bytes with bits => of(filled(count, [])) as bytes else "".to_bytes();
+pub fn bytes(count: int): bytes with bits => of(filled(count, [])) ?? "".to_bytes();
 
 /// `held`, with draws added until it holds `count` bytes.
 fn filled(count: int, held: List<int>): List<int> with bits {
