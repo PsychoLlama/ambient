@@ -37,7 +37,7 @@ fn int_to_int() -> Type {
     ty::function([ty::int()], ty::int())
 }
 
-/// `fn(x) x + 1`, with or without a type on `x`.
+/// `fn(x) => x + 1`, with or without a type on `x`.
 fn increment(typed: bool) -> Expr {
     b::lambda(
         [("x", typed.then(ty::int))],

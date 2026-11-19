@@ -147,7 +147,7 @@ fn a_union_without_a_bare_parameter_is_read_member_by_member() {
 
 #[test]
 fn a_literal_is_widened_where_the_result_holds_it_to_more_than_reading() {
-    // `fn keeper<T>(v: T): fn(T): T`
+    // `fn keeper<T>(v: T): fn(value: T): T`
     let keeper = b::function("keeper")
         .type_param("T")
         .param("v", t())
@@ -333,7 +333,7 @@ fn a_generic_function_builds_a_recursive_generic_type() {
     assert!(check([items(), cons, returning(items_of(ty::string()), two)]).is_err());
 }
 
-/// `type Pairs<T> = null | {head: T, next: Pairs<(T, T)>}`: each one
+/// `type Pairs<T> = null | {head: T, next: Pairs<(left: T, right: T)>}`: each one
 /// further in holds pairs of what the one before held.
 fn pairs() -> Definition {
     let deeper = ty::apply("Pairs", [ty::tuple([t(), t()])]);

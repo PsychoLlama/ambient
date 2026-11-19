@@ -242,7 +242,7 @@ fn a_lambda_in_a_generic_function_knows_its_type_arguments() {
     assert!(!passed(&[later], at(b::string("a"))));
 }
 
-/// `fn fresh<T>(v: T): cell<T>`
+/// `fn fresh<T>(v: T): Cell<T>`
 fn fresh() -> Definition {
     b::function("fresh")
         .type_param("T")

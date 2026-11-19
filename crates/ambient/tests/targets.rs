@@ -145,7 +145,7 @@ fn a_native_handler_implements_an_ability() {
 
 #[test]
 fn native_code_is_given_the_arguments_and_gives_back_any_value() {
-    // `ability pair(a: int, b: string): (string, int)`
+    // `ability pair(a: int, b: string): (text: string, number: int)`
     let pair = b::ability("pair")
         .param("a", ty::int())
         .param("b", ty::string())

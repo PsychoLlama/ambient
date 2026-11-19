@@ -89,8 +89,9 @@ pub fn main(): string => first_word("tea for two") + area({ kind: circle, radius
 
 - In a pattern a bare name is a type or a tag to test for, and `let name` binds. After `let` in a statement, bare names bind: `let (a, b) = pair;`.
 - A match used as a value has expressions for arms; used as a statement it has blocks.
-- Absence is `null` in a union (`string | null`), and there is no exception to catch: cast::<int>(an operation that can fail gives a union with `Error`.
-- `value) ?? 0` narrows by a type and says what to give otherwise. It binds loosest of all, so parenthesise it inside a larger expression.
+- Absence is `null` in a union (`string | null`), and there is no exception to catch: an operation that can fail gives a union with `Error`.
+- `value ?? 0` is the value, or `0` where it is null. `cast::<int>(value)` is the value if it is an `int`, and null if not, so `cast::<int>(value) ?? 0` narrows by a type and says what to give otherwise.
+- `??` binds looser than every operator, so parenthesise it inside a larger expression.
 - Literals have their own types: `1` is of type `1`, which is why a condition that is always `true` is an error. This rarely shows; where it does, say the wider type.
 
 A tag is a named value with a type of its own, for the cases of a union:
@@ -387,7 +388,7 @@ Here the bytes never leave the program. They are as good read from a file or the
 
 Compiled code can be kept, in a file or anywhere bytes go, and loaded later without compiling again. Nothing checks it then, so load only what the program compiled itself; a pack is what to accept from anyone else.
 
-`examples/hot` is a whole one: a server that takes a deploy at `/deploy`, and an entry that packs what the site answers, cast::<it is written now, and sends it. `examples/functions` compiles each function it is posted, keeps it in a file, and calls it at a path named for its hash: loaded for the request and let go. The type it casts to has `throw` for a row, so what it runs can do nothing>() ?? to the machine.
+`examples/hot` is a whole one: a server that takes a deploy at `/deploy`, and an entry that packs what the site answers, as it is written now, and sends it. `examples/functions` compiles each function it is posted, keeps it in a file, and calls it at a path named for its hash: loaded for the request and let go. The type it casts to has `throw` for a row, so what it runs can do nothing>() ?? to the machine.
 
 ## Bytes, hashes, and time
 
@@ -468,7 +469,7 @@ use ambient.map;
 
 pub fn main(): string {
     let stock = map.of([("tea", 3), ("milk", 1)]);
-    let more = stock.update("tea", fn(have) => (cast::<int>(have) ?? 0) + 2);
+    let more = stock.update("tea", fn(have) => (have ?? 0) + 2);
     return "${more.keys().join_with(", ")}: ${more.get("tea") ?? 0}";
 }
 ```

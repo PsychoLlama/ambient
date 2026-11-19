@@ -199,7 +199,7 @@ fn a_task_spawned_outside_every_group_is_refused() {
 
 #[test]
 fn a_task_that_takes_what_is_bound_inside_its_group_is_refused() {
-    // `provide ask { group { spawn(ask()) } }`: the task takes `ask`
+    // `provide ask { tasks.group(fn() { tasks.spawn(fn() => ask()) }) }`: the task takes `ask`
     // from outside its group.
     let task = b::group(b::spawn(b::perform("ask", [])));
     let body = b::provide([("ask", b::lambda([], b::int(7)))], task);
