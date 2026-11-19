@@ -54,6 +54,20 @@ fn the_logging_package_passes_its_tests() {
 }
 
 #[test]
+fn the_logs_are_written_for_a_terminal_but_for_what_is_too_detailed() {
+    let world = entry_saying("logs", "main.main", Scripted::default());
+    let said: Vec<&str> = world.err.lines().collect();
+
+    // Dim, the time, and plain again; the level in its color; then
+    // the message, its context, and where it was said.
+    let first = "\u{1b}[0m\u{1b}[2m[00:00:00.000]\u{1b}[0m \u{1b}[0m\u{1b}[32mINFO\u{1b}[0m  \
+                 listening {\"port\":8080} \u{1b}[0m\u{1b}[2mshop\u{1b}[0m";
+    assert_eq!(said[0], first);
+    assert_eq!(said.len(), 6);
+    assert!(!world.err.contains("query"));
+}
+
+#[test]
 fn the_tally_counts_the_words_of_a_file() {
     let world = Scripted {
         files: [("notes".to_owned(), "the cat and the hat\nthe end".into())].into(),
@@ -127,6 +141,19 @@ fn the_notes_are_served_and_kept_in_a_file_of_json() {
         expected.map(|(status, body)| (status, body.into()))
     );
     assert_eq!(world.file("notes.json"), "[\"eggs\"]");
+}
+
+/// Runs an entry of an example in a world. It must end well, whatever
+/// it wrote to standard error.
+fn entry_saying(name: &str, entry: &str, world: Scripted) -> Scripted {
+    let command = Command::Run {
+        path: example(name),
+        entry: entry.to_owned(),
+        args: Vec::new(),
+    };
+    let (code, world) = world.execute(&Disk, &command);
+    assert_eq!(code, 0, "{}", world.err);
+    world
 }
 
 /// Runs an entry of an example in a world, which must not fail.

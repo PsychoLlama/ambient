@@ -1,0 +1,29 @@
+use system.clock;
+use system.console;
+use logging.{Log, at_least, context, debug, error, info, log, trace, warn, within};
+use logging.ansi;
+use logging.level;
+
+/// Serves a request that goes badly, and says so as it goes. What is
+/// said is written to standard error for a terminal, but for what is
+/// too detailed to show: that is decided here and nowhere else.
+pub fn main(): null with console.warn, clock.now {
+    let shown = fn(entry: Log): null => console.warn!(ansi.line(entry, clock.now!()));
+    return provide { [log]: at_least(level.debug, shown) } => within("shop", serve);
+}
+
+/// What the program does. It reaches no terminal and no clock: all it
+/// can do with a log is make one.
+fn serve(): null with log {
+    info("listening", context([("port", 8080)]));
+    within("http", order);
+    return info("stopped", context([]));
+}
+
+/// Answers a request for an order, badly.
+fn order(): null with log {
+    debug("request", context([("method", "GET"), ("path", "/orders/7")]));
+    within("db", fn() => trace("query", context([("table", "orders"), ("rows", 1)])));
+    warn("slow response", context([("seconds", 1.25)]));
+    return error("lost the database\nthe order was not read", context([("attempts", 3)]));
+}
