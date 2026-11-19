@@ -4,7 +4,7 @@ use super::super::lex::Token;
 use super::patterns::Mode;
 use super::{Parsed, Parser};
 use crate::literal::Literal;
-use crate::surface::{Arm, Expr, Key, Operator, Path, Pattern, Type, TypeParam};
+use crate::surface::{Arm, Expr, Key, Operator, Path, Pattern, Type, TypeParam, fallback};
 
 /// The binary operators, loosest first. Each level binds to the left,
 /// but comparison, which does not chain.
@@ -63,24 +63,6 @@ pub(super) fn choose(subject: Expr, when_true: Expr, when_false: Expr) -> Expr {
     }
 }
 
-/// `value` where it is not null, and `otherwise` where it is: a match
-/// that binds what is left under a name `kept`, which the reader made
-/// up.
-fn coalesce(value: Expr, kept: &str, otherwise: Expr) -> Expr {
-    let missed = Arm {
-        pattern: Pattern::Is(Type::Null),
-        body: otherwise,
-    };
-    let found = Arm {
-        pattern: Pattern::Bind(kept.to_owned(), Box::new(Pattern::Wildcard)),
-        body: name(kept),
-    };
-    Expr::Match {
-        subject: Box::new(value),
-        arms: vec![missed, found],
-    }
-}
-
 fn not(value: Expr) -> Expr {
     choose(value, boolean(false), boolean(true))
 }
@@ -97,8 +79,8 @@ impl Parser {
             let at = self.index;
             self.advance();
             let otherwise = self.binary(0)?;
-            let kept = self.made_up("kept");
-            value = self.mark(at, coalesce(value, &kept, otherwise));
+            self.made += 1;
+            value = self.mark(at, fallback(value, self.made, otherwise));
         }
         let at = self.index;
         // `condition ? this : that`, which is a match of a boolean.

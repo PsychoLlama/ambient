@@ -102,6 +102,9 @@ pub enum Error {
     NotExhaustive { symbol: Symbol, remaining: String },
     /// A match arm can never be taken.
     UnreachableArm { symbol: Symbol, arm: usize },
+    /// A `??` follows a value that is never null, or with `always`
+    /// one that is nothing else.
+    NoFallback { symbol: Symbol, always: bool },
     /// A type or function is given the wrong number of type arguments.
     TypeArguments {
         symbol: Symbol,
@@ -284,6 +287,7 @@ impl Error {
             | Self::Operands { symbol, .. }
             | Self::NotExhaustive { symbol, .. }
             | Self::UnreachableArm { symbol, .. }
+            | Self::NoFallback { symbol, .. }
             | Self::TypeArguments { symbol, .. }
             | Self::CannotInfer { symbol, .. }
             | Self::NotComptime { symbol, .. }

@@ -94,7 +94,8 @@ impl fmt::Display for Error {
             | Self::Untestable { .. }
             | Self::Uncontractive(_)
             | Self::NotExhaustive { .. }
-            | Self::UnreachableArm { .. } => self.fmt_type(f),
+            | Self::UnreachableArm { .. }
+            | Self::NoFallback { .. } => self.fmt_type(f),
             Self::Nesting(symbol) => write!(
                 f,
                 "{symbol}: nests more than {} levels deep",
@@ -120,6 +121,10 @@ impl Error {
             }
             Self::UnreachableArm { symbol, arm } => {
                 write!(f, "{symbol}: match arm {arm} can never be taken")
+            }
+            Self::NoFallback { symbol, always } => {
+                let is = if *always { "always" } else { "never" };
+                write!(f, "{symbol}: `??` follows a value that is {is} null")
             }
             Self::Untestable { symbol, found } => write!(
                 f,

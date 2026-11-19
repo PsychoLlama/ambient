@@ -8,6 +8,7 @@
 //! be made by a [`crate::builder`], which is what rejects ill-formed trees.
 
 mod data;
+mod fallback;
 pub mod intrinsic;
 mod name;
 mod operator;
@@ -18,6 +19,7 @@ mod visit;
 use serde::{Deserialize, Serialize};
 
 pub use data::data;
+pub use fallback::{fallback, is_fallback};
 pub use name::{Path, Reference};
 pub use operator::Operator;
 pub use shape::Shape;

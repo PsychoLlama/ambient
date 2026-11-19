@@ -125,7 +125,15 @@ fn a_plus_takes_two_of_one_shape() {
 
 #[test]
 fn what_is_never_null_has_nothing_to_fall_back_from() {
-    let refused = refused("fn main(): int => 1 ?? 2;");
+    let never = refused("fn main(): int => 1 ?? 2;");
+    let always = refused("fn main(): int => null ?? 2;");
 
-    assert!(refused.contains("can never be taken"), "{refused}");
+    assert!(
+        never.ends_with("`??` follows a value that is never null"),
+        "{never}"
+    );
+    assert!(
+        always.ends_with("`??` follows a value that is always null"),
+        "{always}"
+    );
 }

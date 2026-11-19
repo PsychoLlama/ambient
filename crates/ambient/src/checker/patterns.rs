@@ -4,7 +4,7 @@
 use super::Checker;
 use crate::core;
 use crate::error::Error;
-use crate::surface::{Arm, Expr, Key, Pattern, Reference};
+use crate::surface::{Arm, Expr, Key, Pattern, Reference, is_fallback};
 use crate::types::Ty;
 
 type Pat = Pattern<Reference>;
@@ -29,9 +29,17 @@ impl Checker<'_> {
             // An arm sees only what earlier arms let through.
             let asked = self.asked(&remaining, &arm.pattern)?;
             let Some(matched) = self.env.narrow(&remaining, &asked) else {
-                return Err(Error::UnreachableArm {
-                    symbol: self.symbol.clone(),
-                    arm: index,
+                let symbol = self.symbol.clone();
+                // A fallback was written with no arm: the first is
+                // never taken if the value is never null, and the
+                // second if it always is.
+                return Err(if is_fallback(arms) {
+                    Error::NoFallback {
+                        symbol,
+                        always: index == 1,
+                    }
+                } else {
+                    Error::UnreachableArm { symbol, arm: index }
                 });
             };
             let pattern = self.bind(&matched, &asked);
