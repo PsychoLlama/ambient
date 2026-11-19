@@ -96,7 +96,7 @@ fn a_list_is_reversed_and_summed() {
 fn an_iterator_is_walked_for_what_a_function_does() {
     let source = "
         fn main(): int {
-            let seen = cell<int>(0);
+            let seen = cell::<int>(0);
             range(0, 5).each(fn(n) => seen.update(fn(total) => total + n));
             return seen.read();
         }

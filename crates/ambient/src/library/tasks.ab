@@ -1,5 +1,8 @@
 use pkg.intrinsics;
 
+/// What a group is written with, and a join: see `spec/tasks.md`.
+pub use pkg.intrinsics.{all, first, group, spawn};
+
 /// What each of `work` gives, in order, with every one run as a task
 /// at once. If one fails the rest are cancelled, and the failure goes
 /// on from here.

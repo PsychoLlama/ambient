@@ -22,7 +22,7 @@ pub fn main(): int with console, env, http, code.compile, code.load {
             console.print!("serving http://127.0.0.1:${server.port}/");
             // Each request is answered by what the cell holds then, so
             // one being answered finishes with the code it began with.
-            let current = cell<Answer>(site.answer);
+            let current = cell::<Answer>(site.answer);
             http.serve(server, 16, fn(request: http.Request): http.Response with throw =>
                 request.url == "/deploy" ? deployed(current, request) : current.read()(request));
             return 0;

@@ -409,7 +409,7 @@ fn a_test_reaches_no_world_it_is_not_given() {
 
         fn test_reaches(): null with console.print { greet(); }
         fn test_provides(): null with check {
-            let said = cell<string>("");
+            let said = cell::<string>("");
             provide { [console.print](text) { said.update(fn(_) => text); } } { greet(); }
             check!(said.read() == "hello", "it greets");
         }

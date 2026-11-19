@@ -13,7 +13,7 @@ pub type Source = Cell<int>;
 pub tag unsupported;
 
 /// A source that begins at `seed`.
-pub fn seeded(seed: int): Source => cell<int>((seed * 48271 + 1) % 2147483648);
+pub fn seeded(seed: int): Source => cell::<int>((seed * 48271 + 1) % 2147483648);
 
 /// The next number of a source, which is none in particular.
 pub fn draw(source: Source): int {

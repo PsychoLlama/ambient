@@ -122,6 +122,7 @@ fn requests_are_sent_together() {
     let source = r#"
         use system.clock;
         use system.http;
+        use ambient.tasks;
 
         fn status(url: string): int with http.send {
             match http.get(url) {
@@ -131,7 +132,7 @@ fn requests_are_sent_together() {
         }
 
         fn main(): int with http.send {
-            let (a, b) = all(fn() => status("http://a.test/"), fn() => status("http://b.test/"));
+            let (a, b) = tasks.all(fn() => status("http://a.test/"), fn() => status("http://b.test/"));
             return a + b;
         }
     "#;
@@ -257,6 +258,7 @@ fn a_program_serves_and_sends_over_a_real_socket() {
     // One task serves a single request and closes; the other sends it.
     let source = format!(
         "{SERVER}
+        use ambient.tasks;
         fn asked(port: int): string with http.send {{
             match http.post(\"http://127.0.0.1:${{port}}/hello?x=1\", \"there\".to_bytes()) {{
                 let response: http.Response => {{
@@ -276,7 +278,7 @@ fn a_program_serves_and_sends_over_a_real_socket() {
         fn main(): string with http {{
             match http.listen!(\"127.0.0.1\", 0) {{
                 let server: http.Server => {{
-                    let (_, answer) = all(
+                    let (_, answer) = tasks.all(
                         fn() => http.serve(server, 1, once(server)),
                         fn() => asked(server.port),
                     );

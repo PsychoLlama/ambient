@@ -156,9 +156,9 @@ fn a_return_in_a_scope_gives_the_scope_its_value() {
                 stop!(reached + 6);
                 return 0;
             };
-            let bounded = try {
+            let bounded = contain(fn() {
                 return caught * 2;
-            };
+            });
             return bounded as int else 0;
         }
     ";
@@ -169,12 +169,13 @@ fn a_return_in_a_scope_gives_the_scope_its_value() {
 #[test]
 fn tasks_are_functions_and_cells_are_shared() {
     let source = r"
+        use ambient.tasks;
         fn main(): int {
-            let total = cell<int>(1);
-            let (a, b) = all(fn() => 2, fn() { return 3; });
-            group {
-                spawn { total.replace(total.read(), a + b); }
-            }
+            let total = cell::<int>(1);
+            let (a, b) = tasks.all(fn() => 2, fn() { return 3; });
+            tasks.group(fn() {
+                tasks.spawn(fn() { total.replace(total.read(), a + b); });
+            });
             return total.read();
         }
     ";
@@ -240,12 +241,12 @@ fn a_using_releases_what_it_binds_when_its_block_ends() {
             return { name, [dispose]() { log.update(fn(text) => text ++ name); } };
         }
         fn main(): string {
-            let log = cell<string>("");
-            let seen = try {
+            let log = cell::<string>("");
+            let seen = contain(fn() {
                 using first = noting(log, "a");
                 using { name } = noting(log, "b");
                 return first.name ++ name ++ log.read();
-            };
+            });
             return (seen as string else "?") ++ ":" ++ log.read();
         }
     "#;
@@ -302,7 +303,7 @@ fn a_module_in_a_row_is_every_ability_of_it() {
             console.warn!("b");
         }
         fn main(): string {
-            let said = cell<string>("");
+            let said = cell::<string>("");
             let note = fn(text: string) { said.update(fn(so_far) => so_far ++ text); };
             let quiet = {
                 [console.print](text) { note(text); },
@@ -408,7 +409,7 @@ fn a_for_runs_its_block_for_every_item() {
         use ambient.iterator.range;
 
         fn main(): int {
-            let total = cell<int>(0);
+            let total = cell::<int>(0);
             for n in range(0, 4) {
                 total.update(fn(have) => have + n);
             }

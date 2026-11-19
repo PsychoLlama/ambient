@@ -19,7 +19,7 @@ pub tag diverged;
 pub fn blank(): Tape => holding([]);
 
 /// A tape that holds what was recorded before, none of it played.
-pub fn holding(events: List<Event>): Tape => { events: cell<List<Event>>(events), played: cell<int>(0) };
+pub fn holding(events: List<Event>): Tape => { events: cell::<List<Event>>(events), played: cell::<int>(0) };
 
 /// The observer that puts each event on a tape: what `observe` is
 /// given to record a body.
@@ -90,7 +90,7 @@ fn game(): int with roll, say {
 fn recorded(): (int, Tape) {
     let tape = blank();
     let world = { [roll](sides) => sides - 1, [say](text) => null };
-    let total = provide world => observe recorder(tape) => game();
+    let total = provide world => observe(recorder(tape), fn() => game());
     return (total, tape);
 }
 

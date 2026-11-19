@@ -68,8 +68,11 @@ pub fn module() -> ModuleBuilder {
     let module = paths.fold(b::module(), ModuleBuilder::expose);
     // What is thrown is reached where `Error` is.
     let shared = ["throw", "fail", "catch"].map(|name| format!("pkg.errors.{name}"));
+    // And so are the intrinsics a program calls by a name of their own.
+    let known = ["cell", "contain", "observe"].map(|name| format!("pkg.intrinsics.{name}"));
     let module = shared
         .iter()
+        .chain(&known)
         .fold(module, |module, path| module.export(path));
     let module = module
         .define(b::type_("Frame", frame).public())

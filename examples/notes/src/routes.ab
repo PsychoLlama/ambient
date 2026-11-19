@@ -66,7 +66,7 @@ fn forget(_: string, position: int): Response with load, save {
 /// What a run of requests is answered with, as `status body` each,
 /// when the notes are kept in memory and start as `kept`.
 fn answers(kept: List<string>, requests: List<(string, string, string)>): List<string> {
-    let notes = cell<List<string>>(kept);
+    let notes = cell::<List<string>>(kept);
     // The row says the notes are whoever calls this one's, not the ones
     // in scope here, where none are kept yet.
     let asked = fn((method, url, body): (string, string, string)): string with load, save {

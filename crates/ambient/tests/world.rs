@@ -238,6 +238,7 @@ fn tasks_that_sleep_do_so_together() {
     let source = r"
         use ambient.time;
         use system.clock;
+        use ambient.tasks;
 
         fn nap(length: int): int with clock.sleep {
             clock.sleep!(time.milliseconds(length));
@@ -245,7 +246,7 @@ fn tasks_that_sleep_do_so_together() {
         }
 
         fn main(): int with clock.sleep, clock.now {
-            let (a, b) = all(fn() => nap(30), fn() => nap(50));
+            let (a, b) = tasks.all(fn() => nap(30), fn() => nap(50));
             return clock.now!() * 1000 + a + b;
         }
     ";
@@ -261,6 +262,7 @@ fn a_sleep_is_a_limit_on_how_long_to_wait() {
         use ambient.time;
         use system.clock;
         use system.console;
+        use ambient.tasks;
 
         fn late(): string with clock.sleep {
             clock.sleep!(time.milliseconds(100));
@@ -268,7 +270,7 @@ fn a_sleep_is_a_limit_on_how_long_to_wait() {
         }
 
         fn main(): string with clock.sleep, console.read_line {
-            return first(
+            return tasks.first(
                 fn() => console.read_line!() as string else "nothing",
                 fn() => late(),
             );

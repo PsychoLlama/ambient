@@ -40,7 +40,7 @@ pub fn main(): int with console.print, console.warn, env.args, fs.exists, fs.rea
                 return 0;
             }
             let tape = replay.blank();
-            let total = observe replay.recorder(tape) => game();
+            let total = observe(replay.recorder(tape), fn() => game());
             let encoded = exchange.encode(tape.events.read()) as bytes else fail(unreadable, "the game cannot be kept");
             fs.write_bytes!(path, encoded);
             console.print!("recorded a game of ${total}");

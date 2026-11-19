@@ -122,9 +122,7 @@ fn called(request: Request): Response with fs, code.compile, code.load {
 /// What a function makes of a request. One that throws or faults is
 /// answered for; nothing ends one that runs on.
 fn run(function: Function, request: Request): Response {
-    let outcome = try {
-        return catch(fn() => function(request));
-    };
+    let outcome = contain(fn() => catch(fn() => function(request)));
     match outcome {
         let response: Response => { return response; }
         let error: Error => { return http.text(500, "the function failed: ${error.message}\n"); }

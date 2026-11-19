@@ -154,7 +154,7 @@ fn a_program_goes_on_with_the_code_it_was_last_given() {
         }
 
         fn main(): string with code {
-            let current = cell<Answer>(first);
+            let current = cell::<Answer>(first);
             let before = current.read()("ada");
             deploy(current, 0x[00]);
             let kept = current.read()("ada");

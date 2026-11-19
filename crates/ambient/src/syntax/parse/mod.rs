@@ -17,10 +17,9 @@ pub(super) type Parsed<T> = Result<T, SyntaxError>;
 /// Words that never name anything. A word that only begins a definition
 /// (`key`, `tag`, `ability`, `target`, `extern`, `use`, `mod`) is
 /// not one: nothing else begins where a definition does.
-const RESERVED: [&str; 25] = [
-    "fn", "let", "return", "if", "else", "for", "match", "type", "pub", "with", "as", "try",
-    "provide", "only", "observe", "group", "spawn", "cell", "comptime", "using", "true", "false",
-    "null", "never", "unknown",
+const RESERVED: [&str; 20] = [
+    "fn", "let", "return", "if", "else", "for", "match", "type", "pub", "with", "as", "provide",
+    "only", "comptime", "using", "true", "false", "null", "never", "unknown",
 ];
 
 /// A function in a block, while its body is read. A use of its name

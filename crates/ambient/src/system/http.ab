@@ -122,7 +122,7 @@ fn answer(server: Server, handle: fn(Request): Response with throw): null with a
 
 /// What `handle` makes of a request, or a 500 if it fails.
 fn answered(handle: fn(Request): Response with throw, request: Request): Response {
-    let outcome = try => catch(fn() => handle(request));
+    let outcome = contain(fn() => catch(fn() => handle(request)));
     match outcome {
         let _: Error => { return text(500, "the server failed to answer"); }
         let response: Response => { return response; }

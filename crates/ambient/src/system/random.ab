@@ -73,7 +73,7 @@ fn low_bytes(value: int, count: int): List<int> {
 /// a secret.
 pub fn seeded<T>(seed: int, body: fn(): T with bits): T {
     // Lehmer's generator: thirty-one bits a step, and never zero.
-    let state = cell<int>(1 + seed.abs() % 2147483646);
+    let state = cell::<int>(1 + seed.abs() % 2147483646);
     let step = fn(): int => state.update(fn(last: int): int => last * 48271 % 2147483647);
     return provide { [bits]() => step() * 2147483648 + step() } => body();
 }

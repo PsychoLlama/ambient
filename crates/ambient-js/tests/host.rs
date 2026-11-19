@@ -36,6 +36,7 @@ const PROGRAM: &str = r#"
     use ambient.iterator;
     use js.{binding, host};
     use pkg.web;
+    use ambient.tasks;
 
     ability say(text: string): null;
     ability sleep(milliseconds: int): null;
@@ -61,11 +62,11 @@ const PROGRAM: &str = r#"
 
     /// Counts what is left once every wait is over.
     fn main(patience: int): int with say, sleep {
-        return first(fn() => together(), fn() => gives_up(patience));
+        return tasks.first(fn() => together(), fn() => gives_up(patience));
     }
 
     fn together(): int with say, sleep {
-        let (counted, waited) = all(fn() => count(3), fn() => linger());
+        let (counted, waited) = tasks.all(fn() => count(3), fn() => linger());
         return applied(fn(count: int) => count + waited, counted);
     }
 

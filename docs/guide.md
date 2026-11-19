@@ -177,7 +177,7 @@ fn greet(name: string): null with console.print {
 
 /// What `greet` prints, without printing it.
 pub fn main(): string {
-    let said = cell<string>("");
+    let said = cell::<string>("");
     let quiet = {
         [console.print](text) { said.update(fn(so_far) => so_far ++ text); },
     };
@@ -188,7 +188,7 @@ pub fn main(): string {
 }
 ```
 
-A cell is the one thing that changes: `cell<T>(value)` makes one, with `read`, `update`, and `replace`.
+A cell is the one thing that changes: `cell::<T>(value)` makes one, with `read`, `update`, and `replace`.
 
 ## Declaring your own
 
@@ -211,7 +211,7 @@ pub fn main(): string {
 
 ## Failing
 
-- A fault (dividing by zero, overflow) unwinds. `try` stops it and gives an `Error` value instead, with `kind`, `message`, and `trace`.
+- A fault (dividing by zero, overflow) unwinds. `contain(fn() { ... })` stops it and gives an `Error` value instead, with `kind`, `message`, and `trace`.
 - `using name = value;` binds a value that carries its own cleanup, which runs when the block ends however it ends.
 
 ```ab
@@ -225,10 +225,10 @@ fn noisy(name: string): { [dispose](): null } with console.print =>
     { [dispose]() { console.print!("closed ${name}"); } };
 
 pub fn main(): string with console.print {
-    let outcome = try {
+    let outcome = contain(fn() {
         using _ = noisy("the file");
         return risky(0);
-    };
+    });
     match outcome {
         let error: Error => { return "failed: ${error.message}"; }
         let answer: int => { return answer.to_text(); }
@@ -236,7 +236,7 @@ pub fn main(): string with console.print {
 }
 ```
 
-Inside `try`, `provide`, and the other scopes, `return` gives that scope its value; it does not leave the function.
+The body `contain` takes is a function, so `return` gives the body its value. The body of a `provide` is the same: `return` there gives the provide its value, and does not leave the function.
 
 A failure the caller is not expected to deal with is thrown. `fail` throws an error of a kind, `catch` gives what a function gives or the error it threw, and an error nothing catches ends the program with its trace.
 
@@ -285,15 +285,17 @@ pub fn main(): string {
 Tasks are structured: each finishes or is cancelled before the construct that started it gives a value.
 
 ```ab
+use ambient.tasks;
+
 fn slow(n: int): int => n * n;
 
 pub fn main(): int {
-    let (a, b) = all(fn() => slow(3), fn() => slow(4));
+    let (a, b) = tasks.all(fn() => slow(3), fn() => slow(4));
     return a + b;
 }
 ```
 
-`first(...)` gives whichever finishes first and cancels the rest. A `group { ... }` holds tasks started with `spawn`.
+`tasks.first(...)` gives whichever finishes first and cancels the rest. `tasks.group(fn() { ... })` holds tasks started in its body with `tasks.spawn(fn() { ... })`.
 
 Those are written out, one task each. For as many tasks as a list has members, `ambient.tasks` runs a list of functions: `tasks.map` works on every item at once, `tasks.gather` gives what each function of a list gives, and `tasks.race` what the first one does.
 
@@ -305,12 +307,13 @@ fn slow(n: int): int => n * n;
 pub fn main(): int => tasks.map([1, 2, 3, 4], slow).sum();
 ```
 
-Whatever waits on the world suspends its task and blocks nothing: sleeping, running a command, reading a line, sending a request. So tasks wait together, and a sleep beside other work in a `first` is a limit on it. Nothing takes a timeout.
+Whatever waits on the world suspends its task and blocks nothing: sleeping, running a command, reading a line, sending a request. So tasks wait together, and a sleep beside other work in a `tasks.first` is a limit on it. Nothing takes a timeout.
 
 ```ab
 use ambient.time;
 use system.clock;
 use system.http;
+use ambient.tasks;
 
 fn status(url: string): string with http.send =>
     match http.get(url) {
@@ -324,7 +327,7 @@ fn late(): string with clock.sleep {
 }
 
 pub fn main(): string with http.send, clock.sleep =>
-    first(fn() => status("http://example.test/"), fn() => late());
+    tasks.first(fn() => status("http://example.test/"), fn() => late());
 ```
 
 ## Serving
@@ -373,7 +376,7 @@ fn deploy(current: Cell<Answer>, packed: bytes): null with code.compile, code.lo
 }
 
 pub fn main(): null with code, console.print {
-    let current = cell<Answer>(polite);
+    let current = cell::<Answer>(polite);
     console.print!(current.read()("ada"));
     deploy(current, code.pack!(curt) as bytes else 0x[]);
     console.print!(current.read()("ada"));
@@ -418,7 +421,7 @@ fn greet(name: string): null with console.print {
 }
 
 fn test_greets_by_name(): null with check {
-    let said = cell<string>("");
+    let said = cell::<string>("");
     provide { [console.print](text) { said.update(fn(_) => text); } } {
         greet("you");
     }
@@ -491,7 +494,6 @@ pub fn main(): string {
 ## What will trip you up
 
 - A type error is reported at its line and column, and so is each function a fault or an uncaught error left: `in app:main.divide at src/main.ab:2:39`. A frame inside the standard library has a name and no place.
-- `all` and `first` followed by `(` always start tasks, so a function cannot be called by those names.
 - A record type that names a key says its type again: `{ [dispose](): null }`.
 - A record with methods, such as a `Map`, can be tested for only where the value's type leaves no doubt: a `Json` can be asked `as Map<Json>`, an `unknown` cannot.
 - Only a function that captured nothing is packed: one written at the top of a module, not one written inside another that uses what is around it.

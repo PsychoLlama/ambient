@@ -21,7 +21,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - A `let` may be followed by `else` and arms: the value is matched, the rest of the block is what happens where it fits the pattern, and each arm is what happens where it does not. Every such arm ends in a `return`.
 - A name bound by a `let` may say what it binds, as `items: List<int>`; a value that may not be that needs an `else`.
 - A `let` of one name that says what it binds, with no `else`, tests nothing: the value is held to that type, takes from it what it leaves out, and is bound as it.
-- The bodies of a boundary, a provide, a recording, a group, and a task are bodies like a function's: `return` gives that construct its value.
+- The body of a provide is a body like a function's: `return` gives the provide its value. The body of any other construct is a function.
 - Nothing returns across one of those, since nothing but an [abort](handlers.md) leaves one early.
 
 ## Definitions
@@ -79,11 +79,11 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 
 ## Scopes
 
-- A [boundary](values.md) is `try` and a [provide](handlers.md) is `provide` and a bundle, each followed by a body.
-- `provide only` is a provide in only-mode, and `observe` and an observer is a [recording](handlers.md).
+- A [provide](handlers.md) is `provide`, a bundle, and a body; `provide only` is one in only-mode.
 - `using` and a binding registers a [cleanup](cleanup.md).
-- A [group](tasks.md) is `group` and a body, in which `spawn` and a body starts a task.
-- An all and a first take their branches as functions of no parameters, so nothing written in one reads as running in order.
+- Every other construct that takes a body is a call of an [intrinsic](definitions.md#intrinsics): `contain` for a [boundary](values.md), `observe` for a [recording](handlers.md), and `group`, `spawn`, `all`, and `first` of the standard library's `tasks` module for [tasks](tasks.md).
+- Each takes its body, or each of its branches, as a function of no parameters, so nothing written in one reads as running in order with what is around it. A recording takes its observer before its body.
+- A [cell](cells.md) is made by a call of the intrinsic `cell`, which holds what its first value is, as widely as a literal is read, unless a type is written out for it.
 
 ## Types
 

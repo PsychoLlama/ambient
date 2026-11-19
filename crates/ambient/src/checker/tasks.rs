@@ -165,6 +165,17 @@ impl Checker<'_> {
             };
             return Ok((node, Ty::Cell(Box::new(held))));
         }
+        // A cell that states no type holds what its first value is, as
+        // widely as a literal is read.
+        if let (CellOp::New, None, [value]) = (operation, ty, args) {
+            let (value, found) = self.infer(value)?;
+            let held = self.widened(&found);
+            let node = core::Expr::Cell {
+                ty: self.lower(&held),
+                value: Box::new(value),
+            };
+            return Ok((node, Ty::Cell(Box::new(held))));
+        }
         // Every other operation takes a cell, and then values it could
         // hold.
         let Some((cell, values)) = args.split_first() else {

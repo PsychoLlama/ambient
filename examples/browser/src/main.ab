@@ -1,5 +1,6 @@
 use ambient.iterator;
 use js.{binding, host};
+use ambient.tasks;
 
 /// Writes a line where a page can show it.
 pub ability say(text: string): null;
@@ -34,7 +35,7 @@ pub fn main(): int with sleep {
 }
 
 fn counting(): int with say, sleep {
-    let (counted, waited) = all(fn() => count(3), fn() => linger());
+    let (counted, waited) = tasks.all(fn() => count(3), fn() => linger());
     return counted + waited;
 }
 

@@ -63,7 +63,7 @@ fn no_work_is_done_at_once_and_has_no_first() {
 fn one_task_that_fails_stops_the_rest_and_fails_the_whole() {
     let body = r#"
         let work = fn(length: int): int => length == 10 ? 1 / (length - 10) : nap(length);
-        let outcome = try => tasks.map([50, 10], work);
+        let outcome = contain(fn() => tasks.map([50, 10], work));
         match outcome {
             let error: Error => { return error.message; }
             _ => { return "finished"; }
