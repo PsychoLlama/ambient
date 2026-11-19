@@ -214,6 +214,16 @@ fn a_group_of_imports_nests_and_names_what_it_is_under() {
 }
 
 #[test]
+fn an_annotation_is_a_key_and_a_value_or_a_key_alone() {
+    let source = r#"#[note("a")] #[pkg.flag] fn main(): int => 1;"#;
+    let main = main(b::int(1))
+        .annotated("note", b::string("a"))
+        .annotated("pkg.flag", Expr::Null);
+
+    assert_eq!(parse(source).unwrap(), built([main]));
+}
+
+#[test]
 fn the_world_is_declared_as_externs_and_a_target() {
     let source = "
         extern fn size(text: string): int;

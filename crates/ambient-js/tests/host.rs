@@ -46,12 +46,16 @@ const PROGRAM: &str = r#"
     extern fn applied(work: fn(int): int, to: int): int;
     extern fn echoed(text: string): null with say;
 
-    @binding({ build: "digest" }) extern fn version(): string;
+    #[binding({ build: "digest" })]
+    extern fn version(): string;
 
     brand Address;
-    @binding({ new: "URL" }) extern fn address(text: string): Address;
-    @binding({ property: "hostname" }) extern fn host_of(address: Address): string;
-    @binding({ method: "toString" }) extern fn written(address: Address): string;
+    #[binding({ new: "URL" })]
+    extern fn address(text: string): Address;
+    #[binding({ property: "hostname" })]
+    extern fn host_of(address: Address): string;
+    #[binding({ method: "toString" })]
+    extern fn written(address: Address): string;
 
     target page extends host { say: said, sleep: slept }
 

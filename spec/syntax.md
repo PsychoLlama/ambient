@@ -31,7 +31,9 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - An extern says what it performs as a function does: `with` and a row, after what it gives or the ability it handles.
 - A word that only begins a definition is not reserved: `key`, `tag`, `ability`, `target`, `extern`, `use`, and `mod` may name anything, since nothing else begins where a definition does.
 - `pub` before one makes it public, and a `///` comment before one is its doc comment.
-- An [annotation](annotations.md) is written before a definition, after its doc comment: `@`, the key, and the value in parentheses. A definition may have several.
+- An [annotation](annotations.md) is written before a definition, after its doc comment: `#[`, the key, the value in parentheses, and `]`. A definition may have several.
+- An annotation written with no value holds `null`.
+- The brackets close an annotation wherever one is written, so one before an expression needs no other mark.
 - No definition is given a string to be known by: [identity](definitions.md) is read from where it is declared.
 - An import is `use` and a path, or a path and a group in braces of what is taken under it; `as` and a name after one takes it under that name.
 - A group nests, and `self` in one is the path the group is under.

@@ -13,8 +13,10 @@ brand Element;
 
 /// The page's own, by what JavaScript calls each. The build writes
 /// their JavaScript from these lines, so the package holds none.
-@binding("document.getElementById") extern fn element(id: string): Element;
-@binding({ method: "append" }) extern fn append(to: Element, text: string): null;
+#[binding("document.getElementById")]
+extern fn element(id: string): Element;
+#[binding({ method: "append" })]
+extern fn append(to: Element, text: string): null;
 
 /// Waiting is JavaScript of this package's (`js/main.js`), since it
 /// answers later.

@@ -80,11 +80,11 @@ fn notes(built: &Scripted) -> String {
 fn a_tool_is_given_the_annotations_reached_in_the_order_they_are_met() {
     let built = build(
         r#"
-        @note("entry") fn main(): int => later() + sooner();
-        @note("b") @other("unasked") fn sooner(): int => shared();
-        @note("a") fn later(): int => shared();
-        @note("both") fn shared(): int => 1;
-        @note("unreached") fn apart(): int => 2;
+        #[note("entry")] fn main(): int => later() + sooner();
+        #[note("b")] #[other("unasked")] fn sooner(): int => shared();
+        #[note("a")] fn later(): int => shared();
+        #[note("both")] fn shared(): int => 1;
+        #[note("unreached")] fn apart(): int => 2;
         "#,
     );
 
@@ -99,8 +99,8 @@ fn what_a_comptime_call_says_in_the_code_it_gives_is_met_where_the_code_is() {
             code.build(code.annotated(comptime tree.reference(note), "inside", code.literal(1)));
 
         fn main(): int => later() + (comptime marked()) + sooner();
-        @note("b") fn sooner(): int => 1;
-        @note("a") fn later(): int => 1;
+        #[note("b")] fn sooner(): int => 1;
+        #[note("a")] fn later(): int => 1;
         "#,
     );
 
@@ -111,8 +111,8 @@ fn what_a_comptime_call_says_in_the_code_it_gives_is_met_where_the_code_is() {
 fn an_extern_and_an_ability_are_annotated_though_neither_has_a_body() {
     let built = build(
         r#"
-        @note("asks") ability say(text: string): null;
-        @note("answers") extern handler said for say;
+        #[note("asks")] ability say(text: string): null;
+        #[note("answers")] extern handler said for say;
         fn main(): null with say => say!("hello");
         "#,
     );
@@ -124,8 +124,8 @@ fn an_extern_and_an_ability_are_annotated_though_neither_has_a_body() {
 fn a_value_names_a_tag_or_refers_to_a_definition() {
     let built = build(
         r"
-        @note(other) fn main(): int => helper();
-        @note(main) fn helper(): int => 1;
+        #[note(other)] fn main(): int => helper();
+        #[note(main)] fn helper(): int => 1;
         ",
     );
 
@@ -134,14 +134,14 @@ fn a_value_names_a_tag_or_refers_to_a_definition() {
 
 #[test]
 fn a_key_that_is_no_tag_is_refused() {
-    let built = build("type Plain = int;\n@Plain(1) fn main(): int => 1;");
+    let built = build("type Plain = int;\n#[Plain(1)] fn main(): int => 1;");
 
     assert!(notes(&built).ends_with("the key of an annotation is a tag"));
 }
 
 #[test]
 fn a_value_that_is_not_plain_data_is_refused() {
-    let built = build("@note(1 + 1) fn main(): int => 1;");
+    let built = build("#[note(1 + 1)] fn main(): int => 1;");
 
     assert!(notes(&built).contains("the value of an annotation is plain data"));
 }

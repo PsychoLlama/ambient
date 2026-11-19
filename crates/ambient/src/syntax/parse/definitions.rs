@@ -4,7 +4,7 @@ use super::super::lex::Token;
 use super::{Parsed, Parser};
 use crate::builder::{self as b, ModuleBuilder};
 use crate::surface::{
-    Ability, Annotation, Definition, DefinitionKind, Extern, ExternKind, Function, GENERATOR,
+    Ability, Annotation, Definition, DefinitionKind, Expr, Extern, ExternKind, Function, GENERATOR,
     KeyDefinition, Param, Path, Target, Type, TypeDefinition,
 };
 use crate::syntax::{Placed, SyntaxError, place};
@@ -81,14 +81,21 @@ impl Parser {
         }))
     }
 
-    /// The annotations before a definition: each `@key(value)`.
+    /// The annotations before a definition: each `#[key(value)]`, or
+    /// `#[key]` for one whose value is null.
     fn annotations(&mut self) -> Parsed<Vec<Annotation>> {
         let mut annotations = Vec::new();
-        while self.eat("@") {
+        while self.eat("#") {
+            self.expect("[")?;
             let key = self.path()?;
-            self.expect("(")?;
-            let value = self.expr()?;
-            self.expect(")")?;
+            let value = if self.eat("(") {
+                let value = self.expr()?;
+                self.expect(")")?;
+                value
+            } else {
+                Expr::Null
+            };
+            self.expect("]")?;
             annotations.push(Annotation { key, value });
         }
         Ok(annotations)

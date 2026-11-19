@@ -91,8 +91,8 @@ const STYLED: &str = r#"
 
     target mine extends page {}
 
-    @rule("a { color: red }") fn main(): int => more();
-    @rule("b { color: blue }") fn more(): int => 1;
+    #[rule("a { color: red }")] fn main(): int => more();
+    #[rule("b { color: blue }")] fn more(): int => 1;
 "#;
 
 #[test]
@@ -111,8 +111,8 @@ fn a_step_adds_files_to_a_build_under_a_target_that_extends_its_own() {
 #[test]
 fn a_step_runs_for_no_program_that_does_not_reach_its_package() {
     let plain = STYLED
-        .replace("@rule(\"a { color: red }\")", "")
-        .replace("@rule(\"b { color: blue }\")", "");
+        .replace("#[rule(\"a { color: red }\")]", "")
+        .replace("#[rule(\"b { color: blue }\")]", "");
     let built = build(&workspace(STEP, &plain));
 
     assert_eq!(built.err, "");
