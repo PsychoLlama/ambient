@@ -6,10 +6,10 @@ A target defines the world a program runs in: a root binding for every ability t
 
 - A target is a definition that maps abilities to handlers; each handler is a [native handler](externs.md) or an Ambient function.
 - A program is an entry function and a target.
-- A program runs as its entry under an only-mode [provide](handlers.md) of its target.
+- A program runs as its entry under a restricted [provide](handlers.md) of its target.
 - The entry's row must be covered by the target.
 - A root handler's own row is satisfied by the target's other bindings; a cycle among them is an error.
-- Root handlers are therefore provided in layers, each over the handlers its rows need, and only the outermost is only-mode.
+- Root handlers are therefore provided in layers, each over the handlers its rows need, and only the outermost is restricted.
 - A root handler for an ability that does not return ends the program, and its result is the program's.
 - An entry has no type parameters; its parameters are the program's.
 - No ability has an implementation outside a provide; a target is only the outermost one.

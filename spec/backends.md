@@ -76,8 +76,8 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 
 - A call hands the callee the caller's [bindings](abilities.md) whole, as one value; the callee reads the abilities in its row from them.
 - Passing bindings therefore costs one word per call, whatever the row, and a perform costs one lookup and a call.
-- A [provide](handlers.md) makes new bindings for its body: the enclosing ones overlaid with its bundle, or in only-mode the bundle alone.
-- Code under an only-mode provide is therefore never handed anything outside the bundle, checked or not.
+- A [provide](handlers.md) makes new bindings for its body: the enclosing ones overlaid with its bundle, or for a restricted provide the bundle alone.
+- Code under a restricted provide is therefore never handed anything outside the bundle, checked or not.
 - A closure holds exactly the bindings it captured, never the whole set they were taken from, so a function value's content does not depend on where it was made.
 - A handler for a returning ability is called with no bindings; what it needs was bound where it was provided.
 

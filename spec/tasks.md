@@ -10,7 +10,7 @@ A task is an independent execution of an expression. Tasks exist only inside the
 - A spawned task yields no value and no handle; nothing can refer to a running task.
 - A callee cannot add tasks to its caller's group; code that needs tasks opens its own group.
 - A spawn may use any handler bound outside its group, and none bound inside it, since that provide could exit first.
-- A spawn under a [recording](handlers.md) or an only-mode provide written inside its group may use no handler at all, since either stands between it and what is bound outside.
+- A spawn under a [recording](handlers.md) or a restricted provide written inside its group may use no handler at all, since either stands between it and what is bound outside.
 - A task that fails disturbs its group's body: the body unwinds from its current or next suspension as if cancelled, and the group then unwinds as the task did.
 - A program's entry runs as its root task.
 

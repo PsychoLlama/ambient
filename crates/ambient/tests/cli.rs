@@ -229,6 +229,22 @@ in the code the call gave:
 }
 
 #[test]
+fn generated_code_is_written_out_as_it_would_be_read() {
+    let cast = "code.cast(code.literal(1), tree.integer, code.literal(0))";
+    let joined = format!("code.operate(\"join\", [{cast}, code.literal(\"two\")])");
+
+    let (_, world) = check(&app(&generating(&joined, "")));
+    assert_eq!(
+        world.err,
+        "error: app/src/main.ab:6:1: app:main.made: `intrinsics.join` is not defined for `int, \"two\"`
+in the code the call gave:
+    fn made(_0: int): int => intrinsics.join(cast::<int>(1) ?? 0, \"two\")
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+"
+    );
+}
+
+#[test]
 fn a_frame_in_generated_code_is_where_the_call_is() {
     let quotient = "code.operate(\"divide\", [code.literal(10), given.first() ?? code.literal(1)])";
 

@@ -83,7 +83,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 
 ## Scopes
 
-- A [provide](handlers.md) is `provide`, a bundle, and a body; `provide(restricted)` is one in only-mode.
+- A [provide](handlers.md) is `provide`, a bundle, and a body; `provide(restricted)` is a restricted one.
 - `restricted` is reserved, so those parentheses are never a bundle of that name.
 - `using` and a binding registers a [cleanup](cleanup.md).
 - Every other construct that takes a body is a call of an [intrinsic](definitions.md#intrinsics): `contain` for a [boundary](values.md), `observe` for a [recording](handlers.md), and `group`, `spawn`, `all`, and `first` of the standard library's `tasks` module for [tasks](tasks.md).

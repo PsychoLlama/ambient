@@ -117,34 +117,27 @@ impl Operator {
             .find(|operator| operator.name() == word)
     }
 
-    /// The operator as source text writes it.
+    /// The mark the operator is written as between its operands, if
+    /// it has one.
     #[must_use]
-    pub fn written(self) -> &'static str {
+    pub fn mark(self) -> Option<&'static str> {
         match self {
-            Self::Add => "+",
-            Self::Subtract => "-",
-            Self::Multiply => "*",
-            Self::Divide => "/",
-            Self::Remainder => "%",
-            Self::Less => "<",
-            Self::Equal => "==",
-            Self::Join => "intrinsics.join",
-            Self::Length => "intrinsics.length",
-            Self::Get => "intrinsics.get",
-            Self::Push => "intrinsics.push",
-            Self::Slice => "intrinsics.slice",
-            Self::ToInt => "intrinsics.to_int",
-            Self::ToFloat => "intrinsics.to_float",
-            Self::ToText => "intrinsics.to_text",
-            Self::ToBytes => "intrinsics.to_bytes",
-            Self::Code => "intrinsics.code",
-            Self::Character => "intrinsics.character",
-            Self::Iterator => "intrinsics.iterator",
-            Self::Iterate => "intrinsics.iterate",
-            Self::Range => "intrinsics.range",
-            Self::Step => "intrinsics.step",
-            Self::Gather => "intrinsics.gather",
-            Self::Race => "intrinsics.race",
+            Self::Add => Some("+"),
+            Self::Subtract => Some("-"),
+            Self::Multiply => Some("*"),
+            Self::Divide => Some("/"),
+            Self::Remainder => Some("%"),
+            Self::Less => Some("<"),
+            Self::Equal => Some("=="),
+            _ => None,
         }
+    }
+
+    /// The operator as source text writes it: its mark, or a call of
+    /// its intrinsic.
+    #[must_use]
+    pub fn written(self) -> String {
+        self.mark()
+            .map_or_else(|| format!("intrinsics.{}", self.name()), str::to_owned)
     }
 }

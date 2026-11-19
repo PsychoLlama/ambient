@@ -194,13 +194,23 @@ impl<'a> Writer<'a> {
                 ty,
                 otherwise,
             } => {
-                let to = text(format!(" as {} else ", type_shown(ty)));
-                Doc::Row(vec![self.atom(value), to, self.atom(otherwise)])
+                let cast = text(format!("cast::<{}>", type_shown(ty)));
+                let mut row = vec![cast, list("(", vec![self.expr(value)], ")")];
+                // Null is what a cast gives with nothing after it.
+                if !matches!(**otherwise, Expr::Null) {
+                    row.extend([text(" ?? "), self.atom(otherwise)]);
+                }
+                Doc::Row(row)
             }
             Expr::Operation { operator, operands } => self.operation(*operator, operands),
-            Expr::Provide { bundle, body, .. } => {
+            Expr::Provide { bundle, only, body } => {
+                let provide = text(if *only {
+                    "provide(restricted) "
+                } else {
+                    "provide "
+                });
                 let body = Doc::Body(Box::new(self.expr(body)));
-                Doc::Row(vec![text("provide "), self.atom(bundle), text(" =>"), body])
+                Doc::Row(vec![provide, self.atom(bundle), text(" =>"), body])
             }
             Expr::Merge { left, right } => {
                 let under = Doc::Row(vec![text("..."), self.atom(left)]);
@@ -229,8 +239,8 @@ impl<'a> Writer<'a> {
     /// An operation: between its operands if it has an operator, and
     /// by its word if not.
     fn operation(&mut self, operator: Operator, operands: &'a [Expr<Reference>]) -> Doc {
-        if let Some((left, right)) = infix(operator, operands) {
-            let operator = text(format!(" {} ", operator.written()));
+        if let Some((mark, left, right)) = infix(operator, operands) {
+            let operator = text(format!(" {mark} "));
             return Doc::Row(vec![self.atom(left), operator, self.atom(right)]);
         }
         let word = text(format!("intrinsics.{}", operator.name()));
@@ -302,9 +312,9 @@ impl<'a> Writer<'a> {
 fn infix(
     operator: Operator,
     operands: &[Expr<Reference>],
-) -> Option<(&Expr<Reference>, &Expr<Reference>)> {
+) -> Option<(&'static str, &Expr<Reference>, &Expr<Reference>)> {
     match operands {
-        [left, right] if !operator.written().starts_with('@') => Some((left, right)),
+        [left, right] => Some((operator.mark()?, left, right)),
         _ => None,
     }
 }

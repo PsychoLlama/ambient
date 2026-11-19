@@ -13,8 +13,8 @@ A handler is an ordinary function value bound to an [ability](abilities.md) by a
 ## Provide
 
 - A provide takes a bundle and a body, and binds the bundle's handlers for the dynamic extent of the body.
-- A provide extends the bindings in scope; in only-mode it replaces them, so the body sees exactly the bundle.
-- What the body's row needs beyond the bundle is required of the enclosing scope; in only-mode nothing may be left over.
+- A provide extends the bindings in scope; a restricted one replaces them, so the body sees exactly the bundle.
+- What the body's row needs beyond the bundle is required of the enclosing scope; of a restricted provide nothing may be left over.
 - A handler's own row is bound at the provide, outside the bundle, by the [capture](abilities.md) rule.
 - A handler that performs the ability it handles therefore reaches the binding it replaced.
 - What a handler needs is charged to the scope that provides it.
@@ -41,7 +41,7 @@ A handler is an ordinary function value bound to an [ability](abilities.md) by a
 
 ## Sandboxing
 
-- An only-mode provide with an empty bundle restricts its body to pure evaluation.
+- A restricted provide with an empty bundle restricts its body to pure evaluation.
 - Isolation follows from [how performs work](abilities.md), not from a check, so it holds for code this compiler never typed.
 - A sandbox bounds abilities, not arguments: function values and handles passed into it carry their own authority.
 

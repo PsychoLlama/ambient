@@ -101,7 +101,7 @@ impl Checker<'_> {
             let found: Vec<String> = types.iter().map(|ty| self.env.show(ty)).collect();
             return Err(Error::Operands {
                 symbol: self.symbol.clone(),
-                operator: operator.written().to_owned(),
+                operator: operator.written(),
                 found: found.join(", "),
             });
         };
