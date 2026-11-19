@@ -98,7 +98,7 @@ impl Checker<'_> {
         Ok(if first {
             (core::Expr::First(thunks), self.env.union(results))
         } else {
-            (core::Expr::All(thunks), Ty::Tuple(results))
+            (core::Expr::All(thunks), Ty::Tuple(results.into()))
         })
     }
 

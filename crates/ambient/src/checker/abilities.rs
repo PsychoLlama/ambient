@@ -222,7 +222,7 @@ impl Checker<'_> {
     /// [`Env::abort_handler`].
     fn abort_handler(&mut self, found: &Ty, params: &[Ty]) -> Result<(Ty, bool), Error> {
         let expected = Ty::Function {
-            params: params.to_vec(),
+            params: params.to_vec().into(),
             ret: Box::new(Ty::Unknown),
             row: Vec::new(),
         };

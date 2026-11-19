@@ -95,7 +95,7 @@ impl Checker<'_> {
             .map(|position| Ty::Named(Reference::Parameter(position), Vec::new()))
             .collect();
         match self.env.normalize(&instantiate(function, &own)) {
-            Ty::Function { params, .. } => Some(params),
+            Ty::Function { params, .. } => Some(params.into()),
             _ => None,
         }
     }
@@ -194,7 +194,7 @@ impl Checker<'_> {
         row.sort();
         row.dedup();
         let ty = Ty::Function {
-            params: types,
+            params: types.into(),
             ret: Box::new(ret),
             row,
         };

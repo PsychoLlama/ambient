@@ -131,7 +131,7 @@ pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
                 .map(|(key, ty)| (key.clone(), substitute(ty, args)))
                 .collect(),
         ),
-        Ty::Tuple(members) => Ty::Tuple(all(members)),
+        Ty::Tuple(members) => Ty::Tuple(members.each(|member| substitute(member, args))),
         Ty::Union(members) => Ty::Union(all(members)),
         Ty::List(member) => Ty::List(Box::new(substitute(member, args))),
         Ty::Cell(member) => Ty::Cell(Box::new(substitute(member, args))),
@@ -141,7 +141,7 @@ pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
             function: Box::new(substitute(function, args)),
         },
         Ty::Function { params, ret, row } => Ty::Function {
-            params: all(params),
+            params: params.each(|param| substitute(param, args)),
             ret: Box::new(substitute(ret, args)),
             row: row.clone(),
         },
@@ -204,7 +204,8 @@ fn mentions_parameter(ty: &Ty) -> bool {
     match ty {
         Ty::Named(Reference::Parameter(_), _) => true,
         Ty::Record(fields) => fields.iter().any(|(_, ty)| mentions_parameter(ty)),
-        Ty::Tuple(members) | Ty::Union(members) | Ty::Named(_, members) => any(members),
+        Ty::Tuple(members) => any(members),
+        Ty::Union(members) | Ty::Named(_, members) => any(members),
         Ty::List(member) | Ty::Cell(member) | Ty::Iterator(member) | Ty::Branded(member, _) => {
             mentions_parameter(member)
         }
@@ -240,9 +241,8 @@ impl Env {
             // nothing of a brand on a type is there as a program runs.
             Ty::Method { .. } | Ty::Branded(..) => false,
             Ty::Record(fields) => fields.iter().all(|(_, ty)| self.tests(ty, seen)),
-            Ty::Tuple(members) | Ty::Union(members) => {
-                members.iter().all(|member| self.tests(member, seen))
-            }
+            Ty::Tuple(members) => members.iter().all(|member| self.tests(member, seen)),
+            Ty::Union(members) => members.iter().all(|member| self.tests(member, seen)),
             Ty::List(member) => self.tests(member, seen),
             Ty::Named(name, args) => {
                 let definition = match name {

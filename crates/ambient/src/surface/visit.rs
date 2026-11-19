@@ -32,7 +32,8 @@ impl<N> Type<N> {
                     ty.names(visit);
                 }
             }
-            Self::Tuple(members) | Self::Union(members) => {
+            Self::Tuple(members) => members.iter().for_each(|ty| ty.names(visit)),
+            Self::Union(members) => {
                 for ty in members {
                     ty.names(visit);
                 }
@@ -90,7 +91,7 @@ impl<N: Clone> Type<N> {
                 let field = |(key, ty): &(Key<N>, Self)| (key.clone(), ty.rewrite(depth, leaf));
                 Self::Record(fields.iter().map(field).collect())
             }
-            Self::Tuple(members) => Self::Tuple(all(members, depth)),
+            Self::Tuple(members) => Self::Tuple(members.each(|ty| ty.rewrite(depth, leaf))),
             Self::Union(members) => Self::Union(all(members, depth)),
             Self::List(member) => Self::List(one(member, depth)),
             Self::Cell(member) => Self::Cell(one(member, depth)),
@@ -100,7 +101,7 @@ impl<N: Clone> Type<N> {
                 function: one(function, depth),
             },
             Self::Function { params, ret, row } => Self::Function {
-                params: all(params, depth),
+                params: params.each(|ty| ty.rewrite(depth, leaf)),
                 ret: one(ret, depth),
                 row: row.clone(),
             },

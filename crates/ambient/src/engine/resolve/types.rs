@@ -30,7 +30,7 @@ impl Resolver<'_> {
                     .map(|(key, ty)| Ok((self.key(key)?, self.ty(ty)?)))
                     .collect::<Result<_, Error>>()?,
             ),
-            Type::Tuple(members) => Type::Tuple(self.types(members)?),
+            Type::Tuple(members) => Type::Tuple(members.try_each(|member| self.ty(member))?),
             Type::List(member) => Type::List(Box::new(self.ty(member)?)),
             Type::Cell(member) => Type::Cell(Box::new(self.ty(member)?)),
             Type::Iterator(member) => Type::Iterator(Box::new(self.ty(member)?)),
@@ -39,7 +39,7 @@ impl Resolver<'_> {
                 function: Box::new(self.ty(function)?),
             },
             Type::Function { params, ret, row } => Type::Function {
-                params: self.types(params)?,
+                params: params.try_each(|param| self.ty(param))?,
                 ret: Box::new(self.ty(ret)?),
                 row: self.row(row)?,
             },

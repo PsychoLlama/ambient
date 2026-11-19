@@ -96,6 +96,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - A member written with parameters whose first is `self` is a method type; a type after `self` is what it needs of its receiver.
 - A function type is `fn`, parameters, a return type, and a row after `with`.
 - A parameter in a type and a member of a tuple type are each a name, a colon, and a type, as `(name: string, count: int)`. The name is for a reader: it is no part of the type, and a tuple value is written without one.
+- A type is shown as it would be written, names and all. One that nothing wrote out, as a tuple value's is, is shown without names.
 - A union is its members separated by `|`.
 
 ## Files

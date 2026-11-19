@@ -15,7 +15,7 @@ impl Body<'_, '_> {
             Ty::Function { params, ret, row } if params.is_empty() && row.is_empty() => Ok(*ret),
             _ => {
                 let expected = Ty::Function {
-                    params: Vec::new(),
+                    params: Vec::new().into(),
                     ret: Box::new(Ty::Unknown),
                     row: Vec::new(),
                 };
@@ -65,7 +65,7 @@ impl Body<'_, '_> {
             Expr::All(branches) => {
                 let results: Result<Vec<Ty>, Invalid> =
                     branches.iter().map(|branch| self.thunk(branch)).collect();
-                Ty::Tuple(results?)
+                Ty::Tuple(results?.into())
             }
             Expr::First(branches) => {
                 let results: Result<Vec<Ty>, Invalid> =

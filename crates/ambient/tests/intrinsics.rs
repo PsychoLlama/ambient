@@ -137,3 +137,15 @@ fn what_is_never_null_has_nothing_to_fall_back_from() {
         "{always}"
     );
 }
+
+#[test]
+fn a_type_is_shown_with_the_names_it_was_written_with() {
+    let tuple = refused("fn main(): (name: string, count: int) => 1;");
+    let function = refused("fn main(): fn(note: string): null with throw | null => 1;");
+
+    assert!(tuple.contains("`(name: string, count: int)`"), "{tuple}");
+    assert!(
+        function.contains("`null | (fn(note: string): null with throw)`"),
+        "{function}"
+    );
+}

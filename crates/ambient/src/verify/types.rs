@@ -44,7 +44,7 @@ pub(super) fn raise(ty: &core::Type, slots: &[Symbol]) -> Result<Ty, Invalid> {
             }
             Ty::Record(raised)
         }
-        core::Type::Tuple(members) => Ty::Tuple(all(members)?),
+        core::Type::Tuple(members) => Ty::Tuple(all(members)?.into()),
         core::Type::Union(members) => Ty::Union(all(members)?),
         core::Type::List(member) => Ty::List(one(member)?),
         core::Type::Cell(member) => Ty::Cell(one(member)?),
@@ -54,7 +54,7 @@ pub(super) fn raise(ty: &core::Type, slots: &[Symbol]) -> Result<Ty, Invalid> {
             function: one(function)?,
         },
         core::Type::Function { params, ret, row } => Ty::Function {
-            params: all(params)?,
+            params: all(params)?.into(),
             ret: one(ret)?,
             row: row.iter().map(name).collect::<Result<_, _>>()?,
         },
@@ -158,7 +158,8 @@ impl Verifier<'_> {
                 }
                 self.well_formed(ty)
             }),
-            Ty::Tuple(members) | Ty::Union(members) => all(members),
+            Ty::Tuple(members) => all(members),
+            Ty::Union(members) => all(members),
             Ty::List(member) | Ty::Cell(member) | Ty::Iterator(member) => self.well_formed(member),
             Ty::Method { needs, function } => {
                 self.well_formed(needs)?;

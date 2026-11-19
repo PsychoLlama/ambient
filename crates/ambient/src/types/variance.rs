@@ -133,7 +133,8 @@ impl Env {
                     self.varies(ty, at, found);
                 }
             }
-            Ty::Tuple(members) | Ty::Union(members) => all(members, at),
+            Ty::Tuple(members) => all(members, at),
+            Ty::Union(members) => all(members, at),
             Ty::List(member) | Ty::Iterator(member) | Ty::Branded(member, _) => {
                 self.varies(member, at, found);
             }

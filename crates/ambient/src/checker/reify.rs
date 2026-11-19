@@ -222,7 +222,7 @@ fn record(home: Home, fields: &[(Key, Expr)]) -> Read<Ty> {
             ("list", member) => Ty::List(boxed(member)?),
             ("mutable", held) => Ty::Cell(boxed(held)?),
             ("iterator", member) => Ty::Iterator(boxed(member)?),
-            ("tuple", members) => Ty::Tuple(each(members, written)?),
+            ("tuple", members) => Ty::Tuple(each(members, written)?.into()),
             ("union", members) => Ty::Union(each(members, written)?),
             ("named", named) => Ty::Named(definition(home, named, &["type"])?, Vec::new()),
             ("parameter", Expr::Literal(Literal::Int(at))) => {
@@ -250,7 +250,7 @@ fn record(home: Home, fields: &[(Key, Expr)]) -> Read<Ty> {
             }
         }
         _ => Ty::Function {
-            params: each(need("function")?, written)?,
+            params: each(need("function")?, written)?.into(),
             ret: boxed(need("returns")?)?,
             row: each(need("takes")?, |ability| taken(home, ability))?,
         },

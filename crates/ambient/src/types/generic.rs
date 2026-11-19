@@ -39,7 +39,7 @@ impl AbilityInfo {
     #[must_use]
     pub fn handler(&self, ret: Ty, row: Vec<Reference>) -> Ty {
         let function = Ty::Function {
-            params: self.params.clone(),
+            params: self.params.clone().into(),
             ret: Box::new(ret),
             row,
         };

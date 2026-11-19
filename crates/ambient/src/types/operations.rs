@@ -29,7 +29,7 @@ impl Env {
     #[must_use]
     pub fn step(&self, item: &Ty) -> Ty {
         let rest = Ty::Iterator(Box::new(item.clone()));
-        self.union(vec![Ty::Null, Ty::Tuple(vec![item.clone(), rest])])
+        self.union(vec![Ty::Null, Ty::Tuple(vec![item.clone(), rest].into())])
     }
 
     /// The type of the items of an iterator: what `ty` is an iterator

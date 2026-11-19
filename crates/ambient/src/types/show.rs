@@ -1,9 +1,12 @@
-//! Types as error messages show them. This is not a syntax.
+//! Types as error messages show them: as the text writes them, where
+//! it has a way to. A type parameter and a method have no form of
+//! their own, and a type nothing wrote out, as a tuple value's is, has
+//! no names to show.
 
 use std::fmt::Write as _;
 
 use super::Ty;
-use crate::surface::{Key, Reference};
+use crate::surface::{Key, Members, Reference};
 
 fn ability_name(ability: &Reference) -> &str {
     match ability {
@@ -17,6 +20,31 @@ fn show_all(types: &[Ty], separator: &str, out: &mut String) {
         if index > 0 {
             out.push_str(separator);
         }
+        show(ty, out);
+    }
+}
+
+/// Members, each after the name it was written with if it has one.
+fn show_members(members: &Members<Reference>, out: &mut String) {
+    for (index, ty) in members.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        if let Some(name) = members.name(index) {
+            let _ = write!(out, "{name}: ");
+        }
+        show(ty, out);
+    }
+}
+
+/// A member of a union: a function type among others is in brackets,
+/// since what it gives and takes would otherwise run on into them.
+fn show_alternative(ty: &Ty, out: &mut String) {
+    if matches!(ty, Ty::Function { .. } | Ty::Generic { .. }) {
+        out.push('(');
+        show(ty, out);
+        out.push(')');
+    } else {
         show(ty, out);
     }
 }
@@ -59,7 +87,7 @@ fn show(ty: &Ty, out: &mut String) {
         }
         Ty::Tuple(members) => {
             out.push('(');
-            show_all(members, ", ", out);
+            show_members(members, out);
             out.push(')');
         }
         Ty::Cell(member) => {
@@ -92,16 +120,23 @@ fn show(ty: &Ty, out: &mut String) {
             out.push('>');
         }
         Ty::Function { params, ret, row } => {
-            out.push_str("Fn(");
-            show_all(params, ", ", out);
+            out.push_str("fn(");
+            show_members(params, out);
             out.push_str("): ");
+            show(ret, out);
             if !row.is_empty() {
                 let names: Vec<&str> = row.iter().map(ability_name).collect();
-                let _ = write!(out, "[{}] ", names.join(", "));
+                let _ = write!(out, " with {}", names.join(", "));
             }
-            show(ret, out);
         }
-        Ty::Union(members) => show_all(members, " | ", out),
+        Ty::Union(members) => {
+            for (index, member) in members.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(" | ");
+                }
+                show_alternative(member, out);
+            }
+        }
         Ty::Bound(index) => {
             let _ = write!(out, "G{index}");
         }

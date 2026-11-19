@@ -67,7 +67,7 @@ impl Checker<'_> {
         row.dedup();
         let function = Ty::Function {
             ret: Box::new(normal.remove(0)),
-            params: normal,
+            params: normal.into(),
             row,
         };
         // One with type parameters states a generic function type.
@@ -153,7 +153,7 @@ impl Checker<'_> {
         let closure = made.closure(vec![function, core::Expr::Null]);
 
         let function = Ty::Function {
-            params,
+            params: params.into(),
             ret: Box::new(ret),
             row,
         };

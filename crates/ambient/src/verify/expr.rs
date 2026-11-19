@@ -152,7 +152,7 @@ impl Body<'_, '_> {
                 self.receives(&record)?;
                 record
             }
-            Expr::Tuple(members) => Ty::Tuple(self.infer_all(members)?),
+            Expr::Tuple(members) => Ty::Tuple(self.infer_all(members)?.into()),
             Expr::List(members) => {
                 let members = self.infer_all(members)?;
                 Ty::List(Box::new(env.union(members)))

@@ -45,9 +45,7 @@ impl Env {
                 fields.sort_by(|(a, _), (b, _)| a.cmp(b));
                 Ty::Record(fields)
             }
-            Ty::Tuple(members) => {
-                Ty::Tuple(members.iter().map(|m| self.normal(m, absorb)).collect())
-            }
+            Ty::Tuple(members) => Ty::Tuple(members.each(|m| self.normal(m, absorb))),
             Ty::List(member) => Ty::List(Box::new(self.normal(member, absorb))),
             Ty::Cell(member) => Ty::Cell(Box::new(self.normal(member, absorb))),
             Ty::Iterator(member) => Ty::Iterator(Box::new(self.normal(member, absorb))),
@@ -60,7 +58,7 @@ impl Env {
                 row.sort();
                 row.dedup();
                 Ty::Function {
-                    params: params.iter().map(|p| self.normal(p, absorb)).collect(),
+                    params: params.each(|p| self.normal(p, absorb)),
                     ret: Box::new(self.normal(ret, absorb)),
                     row,
                 }

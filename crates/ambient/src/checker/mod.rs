@@ -294,7 +294,7 @@ impl<'a> Checker<'a> {
             _ => Vec::new(),
         };
         let hint = match (expected, expr) {
-            (Ty::Function { params, .. }, _) => Some(params),
+            (Ty::Function { params, .. }, _) => Some(Vec::from(params)),
             // A generic lambda takes them from a generic function type
             // with as many type parameters, each standing for its own.
             (Ty::Generic { bounds, function }, Expr::Lambda { type_params, .. })
@@ -420,7 +420,7 @@ impl<'a> Checker<'a> {
             Expr::Merge { left, right } => self.merge(left, right)?,
             Expr::Tuple(members) => {
                 let (cores, types) = self.infer_all(members)?;
-                (core::Expr::Tuple(cores), Ty::Tuple(types))
+                (core::Expr::Tuple(cores), Ty::Tuple(types.into()))
             }
             Expr::List(members) => {
                 let (cores, types) = self.infer_all(members)?;

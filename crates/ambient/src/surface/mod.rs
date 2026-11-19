@@ -10,6 +10,7 @@
 mod data;
 mod fallback;
 pub mod intrinsic;
+mod members;
 mod name;
 mod operator;
 mod shape;
@@ -20,6 +21,7 @@ use serde::{Deserialize, Serialize};
 
 pub use data::data;
 pub use fallback::{fallback, is_fallback};
+pub use members::Members;
 pub use name::{Path, Reference};
 pub use operator::Operator;
 pub use shape::Shape;
@@ -266,14 +268,14 @@ pub enum Type<N = Path> {
         needs: Box<Type<N>>,
         function: Box<Type<N>>,
     },
-    Tuple(Vec<Type<N>>),
+    Tuple(Members<N>),
     List(Box<Type<N>>),
     /// A cell that holds a value of the type.
     Cell(Box<Type<N>>),
     /// An iterator of items of the type. See `spec/iteration.md`.
     Iterator(Box<Type<N>>),
     Function {
-        params: Vec<Type<N>>,
+        params: Members<N>,
         ret: Box<Type<N>>,
         /// The abilities a caller must pass.
         row: Vec<N>,

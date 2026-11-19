@@ -4,7 +4,7 @@ use super::super::lex::Token;
 use super::{Parsed, Parser};
 use crate::builder::ty;
 use crate::literal::Literal;
-use crate::surface::{Key, Path, Type, TypeParam};
+use crate::surface::{Key, Members, Path, Type, TypeParam};
 
 /// What a record member written with parameters is: its parameter
 /// types, what it gives, its row, and what it needs of its receiver if
@@ -12,7 +12,7 @@ use crate::surface::{Key, Path, Type, TypeParam};
 struct Signature {
     type_params: Vec<TypeParam>,
     receiver: Receiver,
-    params: Vec<Type>,
+    params: Members,
     ret: Type,
     row: Vec<Path>,
 }
@@ -84,18 +84,15 @@ impl Parser {
             Token::Mark("(") => {
                 let at = self.position();
                 self.advance();
-                let members = self.list(")", |parser| {
-                    let named = parser.eat_label();
-                    Ok((named, parser.ty()?))
-                })?;
-                let unnamed = members.iter().any(|(named, _)| !named);
-                let members = members.into_iter().map(|(_, ty)| ty).collect();
-                match self.grouped(at, members)? {
-                    Ok(one) => Ok(one),
-                    Err(_) if unnamed => {
+                let members = self.list(")", |parser| Ok((parser.label(), parser.ty()?)))?;
+                let (names, types): (Vec<_>, Vec<_>) = members.into_iter().unzip();
+                let names: Option<Vec<String>> = names.into_iter().collect();
+                match (self.grouped(at, types)?, names) {
+                    (Ok(one), _) => Ok(one),
+                    (Err(types), Some(names)) => Ok(Type::Tuple(Members::named(names, types))),
+                    (Err(_), None) => {
                         self.fail_at(at, "a member of a tuple type is named, as `count: int`")
                     }
-                    Err(members) => Ok(Type::Tuple(members)),
                 }
             }
             Token::Mark("{") => self.record_type(),
@@ -104,16 +101,16 @@ impl Parser {
         }
     }
 
-    /// Takes a name and the colon after it, if they are next: what a
-    /// member of a tuple type and a parameter in a type are named, for
-    /// a reader. The name is no part of the type.
-    fn eat_label(&mut self) -> bool {
-        let named = self.at_name() && matches!(self.peek_at(1), Token::Mark(":"));
-        if named {
-            self.advance();
-            self.advance();
+    /// A name and the colon after it, if they are next: what a member
+    /// of a tuple type and a parameter in a type are named, for a
+    /// reader. The name is no part of the type.
+    fn label(&mut self) -> Option<String> {
+        if !(self.at_name() && matches!(self.peek_at(1), Token::Mark(":"))) {
+            return None;
         }
-        named
+        let name = self.name().ok()?;
+        self.advance();
+        Some(name)
     }
 
     /// The token before the one just taken.
@@ -203,11 +200,13 @@ impl Parser {
             }
         }
         let params = self.list(")", |parser| {
-            if !parser.eat_label() {
+            let Some(name) = parser.label() else {
                 return parser.fail("a parameter in a type is named, as `count: int`");
-            }
-            parser.ty()
+            };
+            Ok((name, parser.ty()?))
         })?;
+        let (names, types) = params.into_iter().unzip();
+        let params = Members::named(names, types);
         let ret = if self.eat(":") {
             self.ty()?
         } else {

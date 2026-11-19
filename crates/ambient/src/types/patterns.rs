@@ -103,8 +103,13 @@ impl Env {
                 Some(Ty::Record(fields))
             }
             Pattern::Tuple(patterns) => {
+                // What is narrowed keeps the names it was written with.
+                let written = match &ty {
+                    Ty::Tuple(members) => members.clone(),
+                    _ => Vec::new().into(),
+                };
                 let members: Vec<Ty> = match ty {
-                    Ty::Tuple(members) if members.len() == patterns.len() => members,
+                    Ty::Tuple(members) if members.len() == patterns.len() => members.into(),
                     // A list type describes tuples of every length.
                     Ty::List(member) => vec![*member; patterns.len()],
                     Ty::Unknown => vec![Ty::Unknown; patterns.len()],
@@ -115,7 +120,7 @@ impl Env {
                     .zip(patterns)
                     .map(|(member, pattern)| self.narrow(member, pattern))
                     .collect();
-                narrowed.map(Ty::Tuple)
+                narrowed.map(|narrowed| Ty::Tuple(written.with(narrowed)))
             }
         }
     }
@@ -202,8 +207,12 @@ impl Env {
                 let (Some(index), None) = (open.next(), open.next()) else {
                     return ty;
                 };
-                let mut members = members.clone();
-                members[index] = self.remainder(&members[index], &patterns[index]);
+                let left = self.remainder(&members[index], &patterns[index]);
+                let mut at = 0..;
+                let members = members.each(|member| match at.next() {
+                    Some(here) if here == index => left.clone(),
+                    _ => member.clone(),
+                });
                 uninhabited_if_member_is(Ty::Tuple(members))
             }
             _ => ty,

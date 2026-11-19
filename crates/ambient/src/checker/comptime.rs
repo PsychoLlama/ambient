@@ -233,7 +233,7 @@ fn splice(value: &Value) -> Option<(core::Expr, Ty)> {
         Value::Handle { .. } => return None,
         Value::Tuple(members) => {
             let (exprs, types) = all(members)?;
-            (core::Expr::Tuple(exprs), Ty::Tuple(types))
+            (core::Expr::Tuple(exprs), Ty::Tuple(types.into()))
         }
         Value::List(members) => {
             let (exprs, mut types) = all(members)?;

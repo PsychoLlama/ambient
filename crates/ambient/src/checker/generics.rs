@@ -81,7 +81,7 @@ impl Checker<'_> {
         let outer = std::iter::repeat_n(Ty::Unknown, own);
         let signature = Signature {
             type_params: outer.chain(bounds.iter().map(open)).collect(),
-            params,
+            params: params.into(),
             ret: *ret,
             row: abilities(&row),
             native: false,

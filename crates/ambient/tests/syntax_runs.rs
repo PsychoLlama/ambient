@@ -484,3 +484,17 @@ fn a_cast_is_null_where_the_type_does_not_describe_the_value() {
 
     assert_eq!(text(source), "text7-1");
 }
+
+#[test]
+fn two_types_that_differ_only_in_names_are_one_type() {
+    let source = "
+        type Point = (x: int, y: int);
+        fn flipped(pair: (left: int, right: int)): Point => pair;
+        fn main(): int {
+            let (x, y) = flipped((1, 2));
+            return x * 10 + y;
+        }
+    ";
+
+    assert_eq!(int(source), 12);
+}

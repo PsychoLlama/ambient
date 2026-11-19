@@ -31,7 +31,7 @@ impl Checker<'_> {
         // does.
         let ty = match (self.env.functions.get(symbol), self.env.types.get(symbol)) {
             (Some(function), _) if function.type_params.is_empty() => Ty::Function {
-                params: function.params.clone(),
+                params: function.params.clone().into(),
                 ret: Box::new(function.ret.clone()),
                 row: function
                     .row

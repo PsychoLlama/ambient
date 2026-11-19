@@ -91,7 +91,7 @@ fn a_lambda_cannot_capture_what_nothing_binds() {
 
 #[test]
 fn binding_in_place_needs_the_ability_bound_there() {
-    // `twice` takes `ask`; a `Fn(): int` takes nothing.
+    // `twice` takes `ask`; a `fn(): int` takes nothing.
     let pure = ty::function([], ty::int());
 
     assert_eq!(unbound(check(pure, b::name("twice"), [])), "ask");

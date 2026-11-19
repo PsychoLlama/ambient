@@ -169,7 +169,8 @@ pub(super) fn visit_types(ty: &Ty, visit: &mut impl FnMut(&Ty)) {
     visit(ty);
     match ty {
         Ty::Record(fields) => fields.iter().for_each(|(_, ty)| visit_types(ty, visit)),
-        Ty::Tuple(members) | Ty::Union(members) | Ty::Named(_, members) => {
+        Ty::Tuple(members) => members.iter().for_each(|member| visit_types(member, visit)),
+        Ty::Union(members) | Ty::Named(_, members) => {
             for member in members {
                 visit_types(member, visit);
             }

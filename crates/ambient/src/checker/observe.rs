@@ -33,7 +33,7 @@ impl Checker<'_> {
         // Whatever the observer takes it takes here, outside the
         // recording, so it never observes itself.
         let expected = Ty::Function {
-            params: vec![event()],
+            params: vec![event()].into(),
             ret: Box::new(Ty::Unknown),
             row: Vec::new(),
         };
