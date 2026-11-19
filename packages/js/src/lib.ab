@@ -191,8 +191,10 @@ fn loader(externs: List<Extern>, bindings: List<Bound>, built: Built): string wi
 /// `program.d.ts`: the types of what `program.js` exports, for a host
 /// written in TypeScript. The program's `run` takes what its entry
 /// takes, and each extern says what its JavaScript is handed.
-fn declarations(entry: Reference, externs: List<Extern>): string with build.signature, throw {
+fn declarations(entry: Reference, externs: List<Extern>): string with build.signature, build.doc, throw {
     let main = signature(entry);
+    // The entry's doc comment is what its `run` is, to whoever calls it.
+    let about = build.doc!(entry) as string else "Runs the program's entry.";
     let natives = externs.map(fn(native: Extern): string {
         let takes = signature(native.definition);
         return "  /** `${native.path}` of package `${native.package}`. */\n"
@@ -203,6 +205,7 @@ fn declarations(entry: Reference, externs: List<Extern>): string with build.sign
         "",
         "/** The program, loaded: `run` runs its entry. */",
         "export interface Program {",
+        "  /** ${about.trim().replace("*/", "* /")} */",
         "  run(${types.taken(main.function)}): Promise<${types.written(main.returns)}>;",
         "}",
         "",
@@ -228,7 +231,7 @@ fn declarations(entry: Reference, externs: List<Extern>): string with build.sign
 /// it, the JavaScript of each extern it reaches, and `program.js`,
 /// which puts them together.
 pub fn bundle(of: Build): Files
-    with build.compile, build.host_code, build.read, build.annotations, build.signature, build.digest, throw
+    with build.compile, build.host_code, build.read, build.annotations, build.signature, build.doc, build.digest, throw
 {
     match build.compile!(of.entry, of.target) {
         let error: Error => { return throw!(error); }

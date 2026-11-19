@@ -62,6 +62,6 @@ A tool is a function a build runs to make something other than a program's defin
 
 ## Unbuilt
 
-- TODO: a tool is told no tree of a definition, and no docs, and it runs a function only under the build target.
+- TODO: a tool is told no tree of a definition, and it runs a function only under the build target.
 - TODO: only checking hands a tool a selection, and the standard library holds no lints. A lint is over a selection alone, not over one definition.
 - TODO: [testing](packages.md#testing) is not a tool: its harness is the command line's, so no package replaces it.

@@ -55,6 +55,7 @@ const PROGRAM: &str = r#"
 
     target page extends host { say: said, sleep: slept }
 
+    /// Counts what is left once every wait is over.
     fn main(patience: int): int with say, sleep {
         return first(fn() => together(), fn() => gives_up(patience));
     }

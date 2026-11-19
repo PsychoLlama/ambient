@@ -59,6 +59,14 @@ impl<'a> Engine<'a> {
         Some(match question {
             "modules" => text(args, 0).map(|package| self.modules(package)),
             "definitions" => self.listed(args),
+            "doc" => super::asked::definition(args, 0).map(|of| match self.resolve(&of) {
+                Ok(resolved) => resolved
+                    .definition
+                    .doc
+                    .clone()
+                    .map_or(Value::Null, Value::String),
+                Err(error) => failed(error),
+            }),
             "reach" => super::asked::definition(args, 0)
                 .map(|from| self.reaches(&from).unwrap_or_else(failed)),
             "run" => super::asked::definition(args, 0).map(|function| {

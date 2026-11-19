@@ -27,6 +27,7 @@ const HEAD: &str = r#"
     target page built by report {}
 
     fn main(): int => helper() + 1;
+    /// Gives one.
     fn helper(): int => 1;
     fn unused(): int => 2;
 
@@ -208,4 +209,17 @@ fn a_tool_keeps_bytes_under_their_digest_and_is_given_them_back() {
     );
 
     assert_eq!(said, "hello");
+}
+
+#[test]
+fn a_tool_is_told_the_doc_comment_of_a_definition() {
+    let said = told(
+        r#"fn report(of: Build): Files with build.doc {
+            let doc = fn(of: Reference): string => build.doc!(of) as string else "none";
+            return file("${doc(comptime tree.reference(helper))}, ${doc(of.entry)}");
+        }"#,
+        "doc",
+    );
+
+    assert_eq!(said, "Gives one., none");
 }

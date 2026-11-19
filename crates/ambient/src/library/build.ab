@@ -95,6 +95,9 @@ pub ability modules(package: string): List<List<string>>;
 /// written.
 pub ability definitions(package: string, module: List<string>): List<Reference> | Error;
 
+/// The doc comment of a definition, if it has one.
+pub ability doc(of: Reference): string | null | Error;
+
 /// The definitions a definition reaches, itself first, in the order a
 /// walk from it first meets them.
 pub ability reach(from: Reference): List<Reference> | Error;
@@ -131,6 +134,7 @@ extern handler compiling for compile;
 extern handler moduling for modules;
 extern handler defining for definitions;
 extern handler reaching for reach;
+extern handler documenting for doc;
 extern handler running for run;
 extern handler fetching for fetch;
 extern handler keeping for keep;
@@ -156,6 +160,7 @@ pub target world {
     modules: moduling,
     definitions: defining,
     reach: reaching,
+    doc: documenting,
     run: running,
     fetch: fetching,
     keep: keeping,

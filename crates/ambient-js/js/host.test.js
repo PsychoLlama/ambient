@@ -87,6 +87,8 @@ test("a build declares the types of its program for TypeScript", async () => {
     /run\(a0: number \| bigint\): Promise<number \| bigint>/,
   );
   assert.match(declared, /main\.said": \(a0: string\) => null/);
+  // The entry's doc comment is the doc of `run`.
+  assert.match(declared, /\/\*\* Counts what is left .* \*\/\n  run\(/);
 });
 
 test("native code handed to a build's loader is used over its own", async () => {
