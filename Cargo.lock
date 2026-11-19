@@ -25,7 +25,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "ambient"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ambient-host",
  "ambient-runtime",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "ambient-host"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ambient-runtime",
  "blake3",
@@ -68,21 +68,21 @@ dependencies = [
 
 [[package]]
 name = "ambient-js"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ambient",
 ]
 
 [[package]]
 name = "ambient-launcher"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ambient-host",
 ]
 
 [[package]]
 name = "ambient-runtime"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proptest",
 ]
