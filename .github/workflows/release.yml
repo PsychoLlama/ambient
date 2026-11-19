@@ -1,0 +1,137 @@
+name: Release
+
+# Cut a release by pushing a tag of the workspace's version:
+# `git tag v1.2.3 && git push origin v1.2.3`. Run by hand, it builds and
+# tries each binary and publishes nothing.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linked statically: a binary linked in the devshell otherwise
+          # names a loader in the Nix store, and runs nowhere else. The
+          # launcher inside it is built the same way, so what `ambient
+          # build` makes is as portable.
+          - os: ubuntu-latest
+            name: x86_64-linux
+            target: x86_64-unknown-linux-musl
+          - os: macos-latest # Apple Silicon runner
+            name: aarch64-macos
+            target: aarch64-apple-darwin
+
+    # Every `run` step executes inside the flake devshell, matching ci.yml,
+    # but those that say otherwise.
+    defaults:
+      run:
+        shell: nix develop --command bash -eo pipefail {0}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the version
+        id: version
+        # Runs before Nix is installed, so use a plain shell to fail fast.
+        shell: bash
+        run: |
+          version="$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' Cargo.toml)"
+          if [[ -z "$version" ]]; then
+            echo "::error::Cargo.toml states no workspace version"
+            exit 1
+          fi
+          # The command says its version, so a tag must say the same one.
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::tag '$GITHUB_REF_NAME' is not the workspace's version, 'v$version'"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - uses: DeterminateSystems/magic-nix-cache-action@v14
+        with:
+          use-flakehub: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock', 'flake.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      # CI only runs on Linux, so this is the one place the other
+      # machines are tested.
+      - name: Test
+        run: cargo nextest run --workspace --show-progress=none --status-level=fail --cargo-quiet
+
+      - name: Build
+        run: |
+          cargo build --release --locked --package ambient --target ${{ matrix.target }}
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/ambient" \
+            "dist/ambient-${{ steps.version.outputs.version }}-${{ matrix.name }}"
+
+      - name: Try the binary
+        # Outside the devshell, as someone who downloads it has it: it
+        # makes a package, tests it, and builds a program that runs.
+        shell: bash
+        env:
+          AMBIENT: ${{ github.workspace }}/dist/ambient-${{ steps.version.outputs.version }}-${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          [[ "$("$AMBIENT" --version)" == "ambient ${{ steps.version.outputs.version }}" ]]
+          cd "$(mktemp -d)"
+          export XDG_CACHE_HOME="$PWD/cache"
+          "$AMBIENT" init tried
+          "$AMBIENT" test tried
+          "$AMBIENT" build tried --output tried/program
+          [[ "$(./tried/program)" == "hello, world" ]]
+
+      - name: Check that nothing is linked at run time
+        if: runner.os == 'Linux'
+        shell: bash
+        run: file dist/ambient-* | grep --quiet 'static-pie linked\|statically linked'
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.name }}
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+
+        # The tag already exists (this run was triggered by its push), so
+        # `gh release create` attaches to it rather than creating a new one.
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$REPO" \
+            --title "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --generate-notes \
+            dist/*

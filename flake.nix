@@ -29,19 +29,26 @@
       # rides along so the editor resolves against this exact toolchain.
       rustToolchainFor =
         pkgs:
-        pkgs.fenix.combine [
-          (pkgs.fenix.stable.withComponents [
-            "cargo"
-            "clippy"
-            "rust-analyzer"
-            "rust-src"
-            "rustc"
-            "rustfmt"
-          ])
-          # The runtime is also built for WebAssembly, to run beside the
-          # code the WebAssembly backend emits.
-          pkgs.fenix.targets.wasm32-unknown-unknown.stable.rust-std
-        ];
+        pkgs.fenix.combine (
+          [
+            (pkgs.fenix.stable.withComponents [
+              "cargo"
+              "clippy"
+              "rust-analyzer"
+              "rust-src"
+              "rustc"
+              "rustfmt"
+            ])
+            # The runtime is also built for WebAssembly, to run beside the
+            # code the WebAssembly backend emits.
+            pkgs.fenix.targets.wasm32-unknown-unknown.stable.rust-std
+          ]
+          # A release for Linux is linked statically, so that it runs on a
+          # machine with no Nix store: see `.github/workflows/release.yml`.
+          ++
+            lib.optional pkgs.stdenv.hostPlatform.isLinux
+              pkgs.fenix.targets."${pkgs.stdenv.hostPlatform.qemuArch}-unknown-linux-musl".stable.rust-std
+        );
 
       eachSystem = lib.flip lib.mapAttrs (
         lib.genAttrs (import systems) (

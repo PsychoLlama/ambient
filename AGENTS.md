@@ -34,3 +34,8 @@ Keep all of these passing:
 - `treefmt --ci` (`treefmt` to fix).
 - `cargo clippy --workspace --all-targets --quiet`. Lints live in `[workspace.lints]`; every crate opts in with `[lints] workspace = true`.
 - `cargo nextest run --workspace`.
+
+## Releasing
+
+- A release is a tag `v` and the workspace's version in `Cargo.toml`, pushed: `.github/workflows/release.yml` tests, builds, and tries the command on each machine, then attaches the binaries to a GitHub release.
+- Run by hand (`gh workflow run release.yml`), the workflow does all but publish. Do that before tagging when a machine CI does not cover may have broken.
