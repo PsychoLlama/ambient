@@ -67,12 +67,14 @@ impl Session<'_> {
         }
         // What is here already is someone's: only what is missing is made.
         let begun = world.exists(&main.to_string_lossy());
-        let made = identifier(&mut *world)
+        // The directories first: the package's own may not be there yet.
+        let made = world
+            .make_directory(&path.join("src").to_string_lossy())
+            .and_then(|()| identifier(&mut *world))
             .and_then(|id| {
                 let text = format!("name = \"{name}\"\nid = \"{id}\"\nversion = \"0.1.0\"\n");
                 world.store(&manifest.to_string_lossy(), text.as_bytes())
             })
-            .and_then(|()| world.make_directory(&path.join("src").to_string_lossy()))
             .and_then(|()| {
                 if begun {
                     return Ok(());
