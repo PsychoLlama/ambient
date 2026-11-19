@@ -77,7 +77,7 @@ fn a_call_needs_the_callees_row_bound() {
 
 #[test]
 fn an_only_provide_hides_what_is_bound_outside_it() {
-    let hidden = b::provide_only([("base", answers(b::int(1)))], b::perform("ask", []));
+    let hidden = b::provide_restricted([("base", answers(b::int(1)))], b::perform("ask", []));
 
     assert_eq!(unbound(check(ty::int(), asking(hidden), [])), "ask");
 }

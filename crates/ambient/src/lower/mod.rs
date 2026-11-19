@@ -278,9 +278,9 @@ impl Lowering {
             core::Expr::First(thunks) => Op::First(self.thunks(thunks, &mut scope)?),
             core::Expr::Provide {
                 handlers,
-                only,
+                restricted,
                 body,
-            } => return self.provide(handlers, *only, body),
+            } => return self.provide(handlers, *restricted, body),
             core::Expr::Tuple(_) | core::Expr::List(_) | core::Expr::Record(_) => {
                 self.construction(expr, &mut scope)?
             }

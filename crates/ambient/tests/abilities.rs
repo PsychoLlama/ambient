@@ -202,7 +202,7 @@ fn a_callback_given_to_a_generic_function_is_bound_in_place() {
 fn an_only_provide_runs_its_body_with_the_bundle_alone() {
     let body = asking(
         1,
-        b::provide_only([("base", answers(b::int(5)))], b::perform("base", [])),
+        b::provide_restricted([("base", answers(b::int(5)))], b::perform("base", [])),
     );
 
     assert_eq!(int(body), Value::Int(5));

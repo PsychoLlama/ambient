@@ -210,7 +210,7 @@ impl Checker<'_> {
             path,
             layers: vec![Layer {
                 abilities: row,
-                only: false,
+                restricted: false,
                 seen: None,
             }],
             ..Frame::default()

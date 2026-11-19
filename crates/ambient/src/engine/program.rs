@@ -214,7 +214,7 @@ impl Engine<'_> {
             body = Expr::Provide {
                 bundle: Box::new(Expr::Record(handlers)),
                 // Nothing is bound outside a target.
-                only: layer == 0,
+                restricted: layer == 0,
                 body: Box::new(body),
             };
         }

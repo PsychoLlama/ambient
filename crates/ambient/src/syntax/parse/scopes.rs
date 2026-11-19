@@ -10,16 +10,16 @@ impl Parser {
     /// body has, the bundle, and the body. The word is reserved, so
     /// the brackets hold no bundle of that name.
     pub(super) fn provide(&mut self) -> Parsed<Expr> {
-        let only =
+        let restricted =
             self.at("(") && matches!(self.peek_at(1), Token::Word(word) if word == "restricted");
-        if only {
+        if restricted {
             self.advance();
             self.advance();
             self.expect(")")?;
         }
         Ok(Expr::Provide {
             bundle: Box::new(self.expr()?),
-            only,
+            restricted,
             body: Box::new(self.body()?),
         })
     }

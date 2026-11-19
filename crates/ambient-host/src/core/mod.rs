@@ -338,7 +338,7 @@ pub enum Expr {
     /// other binding.
     Provide {
         handlers: Vec<Handler>,
-        only: bool,
+        restricted: bool,
         body: Box<Expr>,
     },
     /// The node of a definition's surface body this was checked from,

@@ -47,6 +47,22 @@ impl Resolver<'_> {
         resolved
     }
 
+    fn provide(
+        &mut self,
+        bundle: &Expr,
+        restricted: bool,
+        body: &Expr,
+    ) -> Result<Expr<Reference>, Error> {
+        let bundle = Box::new(self.expr(bundle)?);
+        // The binder a provide holds its bundle in. It has no name.
+        self.next += 1;
+        Ok(Expr::Provide {
+            bundle,
+            restricted,
+            body: Box::new(self.expr(body)?),
+        })
+    }
+
     fn node(&mut self, expr: &Expr) -> Result<Expr<Reference>, Error> {
         Ok(match expr {
             Expr::Null => Expr::Null,
@@ -123,16 +139,11 @@ impl Resolver<'_> {
             Expr::Spawn(task) => Expr::Spawn(Box::new(self.expr(task)?)),
             Expr::All(branches) => Expr::All(self.exprs(branches)?),
             Expr::First(branches) => Expr::First(self.exprs(branches)?),
-            Expr::Provide { bundle, only, body } => {
-                let bundle = Box::new(self.expr(bundle)?);
-                // The binder a provide holds its bundle in. It has no name.
-                self.next += 1;
-                Expr::Provide {
-                    bundle,
-                    only: *only,
-                    body: Box::new(self.expr(body)?),
-                }
-            }
+            Expr::Provide {
+                bundle,
+                restricted,
+                body,
+            } => self.provide(bundle, *restricted, body)?,
             Expr::Lambda { type_params, .. } => {
                 // Its type parameters follow those in scope, and a name
                 // of its own hides one outside it.

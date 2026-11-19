@@ -223,7 +223,7 @@ pub fn merge(left: Expr, right: Expr) -> Expr {
 pub fn with(bundle: Expr, body: Expr) -> Expr {
     Expr::Provide {
         bundle: Box::new(bundle),
-        only: false,
+        restricted: false,
         body: Box::new(body),
     }
 }
@@ -231,10 +231,10 @@ pub fn with(bundle: Expr, body: Expr) -> Expr {
 /// Binds the handlers in `bundle` for the extent of `body`, which sees no
 /// other binding.
 #[must_use]
-pub fn with_only(bundle: Expr, body: Expr) -> Expr {
+pub fn with_restricted(bundle: Expr, body: Expr) -> Expr {
     Expr::Provide {
         bundle: Box::new(bundle),
-        only: true,
+        restricted: true,
         body: Box::new(body),
     }
 }
@@ -347,9 +347,12 @@ pub fn provide<'a>(handlers: impl IntoIterator<Item = (&'a str, Expr)>, body: Ex
     with(bundle(handlers), body)
 }
 
-/// [`using_only`] a bundle written in place.
-pub fn provide_only<'a>(handlers: impl IntoIterator<Item = (&'a str, Expr)>, body: Expr) -> Expr {
-    with_only(bundle(handlers), body)
+/// [`with_restricted`] a bundle written in place.
+pub fn provide_restricted<'a>(
+    handlers: impl IntoIterator<Item = (&'a str, Expr)>,
+    body: Expr,
+) -> Expr {
+    with_restricted(bundle(handlers), body)
 }
 
 /// Runs `call`, a call to a named function, during compilation, and

@@ -468,7 +468,7 @@ pub enum Expr<N = Path> {
     /// it holds the bundle while the handlers are read from it.
     Provide {
         bundle: Box<Expr<N>>,
-        only: bool,
+        restricted: bool,
         body: Box<Expr<N>>,
     },
     /// A call that runs during compilation, replaced by its result.

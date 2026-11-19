@@ -74,7 +74,7 @@ pub fn check_function(
     let row = checker.row(&header.row);
     checker.frame().layers.push(Layer {
         abilities: header.row,
-        only: false,
+        restricted: false,
         seen: None,
     });
     for param in header.params {
@@ -442,7 +442,11 @@ impl<'a> Checker<'a> {
             Expr::Match { subject, arms } => self.matching(subject, arms, None)?,
             Expr::Lambda { .. } => self.lambda(expr, None, &[])?,
             Expr::Perform { ability, args } => self.perform(ability, args)?,
-            Expr::Provide { bundle, only, body } => self.provide(bundle, *only, body)?,
+            Expr::Provide {
+                bundle,
+                restricted,
+                body,
+            } => self.provide(bundle, *restricted, body)?,
             Expr::Observe { observer, body } => self.observe(observer, body)?,
             Expr::Using { value, body, .. } => self.using(value, body, None)?,
             // The reader takes its marks out, so one here is a tree that

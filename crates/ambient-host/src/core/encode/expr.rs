@@ -261,11 +261,11 @@ fn encode_binding(expr: &Expr, out: &mut Sink<'_>) {
         }
         Expr::Provide {
             handlers,
-            only,
+            restricted,
             body,
         } => {
             out.push(16);
-            out.push(u8::from(*only));
+            out.push(u8::from(*restricted));
             encode_handlers(handlers, out);
             encode_expr(body, out);
         }

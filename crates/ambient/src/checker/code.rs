@@ -176,7 +176,7 @@ impl<'a> Reader<'a> {
             },
             _ if has("handlers") => Expr::Provide {
                 bundle: self.boxed(need("handlers")?)?,
-                only: false,
+                restricted: false,
                 body: self.boxed(need("body")?)?,
             },
             _ if has("bind") => {

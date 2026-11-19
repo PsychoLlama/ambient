@@ -252,7 +252,7 @@ impl Lowering {
     pub(super) fn provide(
         &mut self,
         handlers: &[core::Handler],
-        only: bool,
+        restricted: bool,
         body: &core::Expr,
     ) -> Result<Expr, Unsupported> {
         let mut scope = Scope::default();
@@ -275,7 +275,7 @@ impl Lowering {
             }
         }
         let overlay = self.bound(Op::Record(fields), &mut scope);
-        self.bindings = if only {
+        self.bindings = if restricted {
             overlay
         } else {
             let base = outer;

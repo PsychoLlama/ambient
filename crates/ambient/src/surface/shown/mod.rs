@@ -203,8 +203,12 @@ impl<'a> Writer<'a> {
                 Doc::Row(row)
             }
             Expr::Operation { operator, operands } => self.operation(*operator, operands),
-            Expr::Provide { bundle, only, body } => {
-                let provide = text(if *only {
+            Expr::Provide {
+                bundle,
+                restricted,
+                body,
+            } => {
+                let provide = text(if *restricted {
                     "provide(restricted) "
                 } else {
                     "provide "

@@ -45,7 +45,7 @@ impl Checker<'_> {
 
         self.frame().layers.push(Layer {
             abilities: Vec::new(),
-            only: false,
+            restricted: false,
             seen: Some(Vec::new()),
         });
         let body = self.infer(body);
@@ -74,7 +74,7 @@ impl Checker<'_> {
         }
         let provide = core::Expr::Provide {
             handlers,
-            only: false,
+            restricted: false,
             body: Box::new(body),
         };
         let core = core::Expr::Let {

@@ -107,9 +107,9 @@ impl Body<'_, '_> {
             }
             Expr::Provide {
                 handlers,
-                only,
+                restricted,
                 body,
-            } => self.provide(handlers, *only, body)?,
+            } => self.provide(handlers, *restricted, body)?,
             _ => return shape("a node the core checker does not know"),
         })
     }
@@ -119,7 +119,7 @@ impl Body<'_, '_> {
     fn provide(
         &mut self,
         handlers: &[core::Handler],
-        only: bool,
+        restricted: bool,
         body: &Expr,
     ) -> Result<Ty, Invalid> {
         let verifier = self.verifier;
@@ -162,7 +162,7 @@ impl Body<'_, '_> {
         }
         self.layers.push(Layer {
             abilities: bound,
-            only,
+            restricted,
         });
         let ty = self.infer(body);
         self.layers.pop();

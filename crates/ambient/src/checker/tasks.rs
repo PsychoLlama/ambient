@@ -129,7 +129,7 @@ impl Checker<'_> {
         let recorded = inside.iter().any(|layer| layer.seen.is_some());
         self.frame().layers.push(Layer {
             abilities: Vec::new(),
-            only: inside.iter().any(|layer| layer.only),
+            restricted: inside.iter().any(|layer| layer.restricted),
             seen: Some(Vec::new()),
         });
         let thunk = self.function(Vec::new(), &[], None, task);

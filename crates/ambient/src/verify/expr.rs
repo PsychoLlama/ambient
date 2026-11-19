@@ -13,7 +13,7 @@ use crate::types::{Ty, TyKey, abilities, entry, generalize, substitute};
 pub(super) struct Layer {
     pub(super) abilities: Vec<Symbol>,
     /// Whether nothing bound outside this layer can be seen inside it.
-    pub(super) only: bool,
+    pub(super) restricted: bool,
 }
 
 /// A function's body, as far as it has been verified.
@@ -49,7 +49,7 @@ impl Verifier<'_> {
             locals: params.into_iter().map(Some).collect(),
             layers: vec![Layer {
                 abilities: bound,
-                only: false,
+                restricted: false,
             }],
             groups: Vec::new(),
         };
@@ -70,7 +70,7 @@ impl Body<'_, '_> {
             if layer.abilities.contains(ability) {
                 return Ok(());
             }
-            if layer.only {
+            if layer.restricted {
                 break;
             }
         }

@@ -12,7 +12,7 @@ use crate::types::{Ty, TyKey, abilities, generalize, instantiate};
 pub(super) struct Layer {
     pub(super) abilities: Vec<Symbol>,
     /// Whether nothing bound outside this layer can be seen inside it.
-    pub(super) only: bool,
+    pub(super) restricted: bool,
     /// For a recording: every ability that was looked for inside it and
     /// found only outside it.
     pub(super) seen: Option<Vec<Symbol>>,
@@ -49,7 +49,7 @@ impl Checker<'_> {
             if layer.abilities.contains(ability) {
                 return Ok(());
             }
-            if layer.only {
+            if layer.restricted {
                 return Err(unbound());
             }
             if let Some(seen) = &mut layer.seen
@@ -129,7 +129,7 @@ impl Checker<'_> {
     pub(super) fn provide(
         &mut self,
         bundle: &Expr<Reference>,
-        only: bool,
+        restricted: bool,
         body: &Expr<Reference>,
     ) -> Result<(core::Expr, Ty), Error> {
         let (bundle, ty) = self.infer(bundle)?;
@@ -196,7 +196,7 @@ impl Checker<'_> {
 
         self.frame().layers.push(Layer {
             abilities: bound,
-            only,
+            restricted,
             seen: None,
         });
         let body = self.infer(body);
@@ -205,7 +205,7 @@ impl Checker<'_> {
         results.push(ty);
         let provide = core::Expr::Provide {
             handlers,
-            only,
+            restricted,
             body: Box::new(body),
         };
         let core = core::Expr::Let {

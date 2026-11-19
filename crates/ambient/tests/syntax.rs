@@ -269,7 +269,7 @@ fn a_provide_is_restricted_by_the_word_and_by_no_bundle_in_brackets() {
         return provide(restricted) bundle => provide (bundle) => 1;
     }";
     let inner = b::with(b::name("bundle"), b::int(1));
-    let outer = b::with_only(b::name("bundle"), inner);
+    let outer = b::with_restricted(b::name("bundle"), inner);
 
     assert_eq!(
         parse(source).unwrap(),
