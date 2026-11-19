@@ -58,7 +58,7 @@ fn gives(entry: Json): tree.Type => named(json.get(entry, "gives"));
 /// An ability for an entry of the manifest, by its name there: what
 /// a program performs to reach that one thing of the host's, so its
 /// row says which it reaches.
-fn offered(entry: (string, Json)): tree.Definition {
+fn offered(entry: (name: string, member: Json)): tree.Definition {
     let (name, described) = entry;
     return code.named_ability(name, takes(described), gives(described));
 }
@@ -66,7 +66,7 @@ fn offered(entry: (string, Json)): tree.Definition {
 /// The handler for an entry's ability: it asks the host by name, and
 /// gives what came back as the type the manifest says, or throws if
 /// it is not that.
-fn asking(entry: (string, Json)): (tree.Reference, code.Code) {
+fn asking(entry: (name: string, member: Json)): (ability: tree.Reference, handler: code.Code) {
     let (name, described) = entry;
     let wrong = code.definition(comptime tree.reference(wrong));
     let handler = code.function(takes(described), fn(given: List<code.Code>): code.Code {
@@ -77,7 +77,7 @@ fn asking(entry: (string, Json)): (tree.Reference, code.Code) {
 }
 
 /// An entry's ability as a function type's row has it.
-fn reached(entry: (string, Json)): tree.Ability {
+fn reached(entry: (name: string, member: Json)): tree.Ability {
     let (name, described) = entry;
     return { ability: code.beside(name, "ability"), function: takes(described), returns: gives(described) };
 }
@@ -85,7 +85,7 @@ fn reached(entry: (string, Json)): tree.Ability {
 /// `hosted`: what runs a body with every ability of the manifest bound
 /// to the host. It is the one place the untyped `invoke` is turned
 /// into what the manifest says.
-fn hosting(entries: List<(string, Json)>): tree.Function =>
+fn hosting(entries: List<(name: string, member: Json)>): tree.Function =>
     code.generic([null], fn(types: List<tree.Type>): tree.Function {
         let result = types.get(0) ?? tree.none;
         let body: tree.Type = { function: [], returns: result, takes: entries.map(reached) };

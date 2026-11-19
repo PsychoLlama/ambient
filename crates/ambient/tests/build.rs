@@ -108,7 +108,7 @@ const PACKS: &str = r#"
             match code.unpack(cast::<bytes>(code.pack!(greet)) ?? 0x[]) {
                 let error: Error => { console.print!(error.message); }
                 let loaded: unknown => {
-                    let greet = cast::<fn(string): string>(loaded) ?? other;
+                    let greet = cast::<fn(text: string): string>(loaded) ?? other;
                     console.print!(greet("ada"));
                 }
             }

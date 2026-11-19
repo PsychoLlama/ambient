@@ -29,7 +29,7 @@ pub type Command = {
     program: string,
     args: List<string>,
     directory: string | null,
-    variables: List<(string, string)>,
+    variables: List<(name: string, value: string)>,
     input: bytes,
 };
 

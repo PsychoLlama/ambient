@@ -444,7 +444,7 @@ fn sibling_functions_in_a_tree_keep_their_own_parameters() {
         fn main(): int {
             let both = comptime pair(double);
             match (both.get(0), both.get(1)) {
-                (let first: fn(int): int, let second: fn(int): int) => { return first(1) + second(2); }
+                (let first: fn(number: int): int, let second: fn(number: int): int) => { return first(1) + second(2); }
                 _ => { return 0; }
             }
         }

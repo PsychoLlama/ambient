@@ -6,13 +6,13 @@ pub type Url = {
     host: string,
     port: int | null,
     path: string,
-    query: List<(string, string)>,
+    query: List<(name: string, value: string)>,
     fragment: string | null,
 };
 
 /// What is before the first `separator` in a text, and what is after
 /// it, or null if it is not there.
-fn cut(text: string, separator: string): (string, string | null) {
+fn cut(text: string, separator: string): (before: string, after: string | null) {
     match text.find(separator) {
         null => { return (text, null); }
         let at: int => {
@@ -66,7 +66,7 @@ pub fn encode(text: string): string {
 
 /// The scalar value the first bytes of a list encode, and how many
 /// bytes that took, or null if they are not UTF-8.
-fn scalar(bytes: List<int>): (int, int) | null {
+fn scalar(bytes: List<int>): (scalar: int, length: int) | null {
     let at = fn(position: int): int => bytes.get(position) ?? 0;
     let more = fn(count: int): bool =>
         bytes.skip(1).take(count).filter(fn(byte: int): bool => 127 < byte && byte < 192).length() == count;
@@ -133,12 +133,12 @@ pub fn decode(text: string): string | null => unescape(text.chars().to_list(), 0
 
 /// The names and values a query holds, as `a=1&b=two+words` holds two.
 /// A `+` is a space, as a form sends one. Null if a part is not text.
-pub fn query(text: string): List<(string, string)> | null {
+pub fn query(text: string): List<(name: string, value: string)> | null {
     let pairs = text.split("&").filter(fn(pair: string): bool => !pair.is_empty());
-    return pairs.fold([], fn(read: List<(string, string)> | null, pair: string): List<(string, string)> | null {
+    return pairs.fold([], fn(read: List<(name: string, value: string)> | null, pair: string): List<(name: string, value: string)> | null {
         let (name, value) = cut(pair.replace("+", " "), "=");
         match (read, decode(name), decode(value ?? "")) {
-            (let read: List<(string, string)>, let name: string, let value: string) => {
+            (let read: List<(name: string, value: string)>, let name: string, let value: string) => {
                 return read.push((name, value));
             }
             _ => { return null; }
@@ -147,8 +147,8 @@ pub fn query(text: string): List<(string, string)> | null {
 }
 
 /// A query that holds some names and values.
-pub fn write_query(pairs: List<(string, string)>): string {
-    let written = fn(pair: (string, string)): string {
+pub fn write_query(pairs: List<(name: string, value: string)>): string {
+    let written = fn(pair: (name: string, value: string)): string {
         let (name, value) = pair;
         return encode(name) + "=" + encode(value);
     };
@@ -157,7 +157,7 @@ pub fn write_query(pairs: List<(string, string)>): string {
 
 /// A host and a port, as `example.com:8080` is. Null if what follows
 /// the last `:` is not a number.
-fn authority(text: string): (string, int | null) | null {
+fn authority(text: string): (host: string, port: int | null) | null {
     // An address in brackets has colons of its own.
     let (host, after) = text.starts_with("[") ? cut(text, "]:") : cut(text, ":");
     match after {
@@ -186,7 +186,7 @@ pub fn parse(text: string): Url | null {
         },
     };
     match (authority(named), query(asked ?? "")) {
-        ((let host: string, let port), let query: List<(string, string)>) => {
+        ((let host: string, let port), let query: List<(name: string, value: string)>) => {
             return { scheme: after == null ? "" : scheme, host, port, path, query, fragment };
         }
         _ => { return null; }

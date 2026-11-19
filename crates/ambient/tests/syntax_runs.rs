@@ -83,7 +83,7 @@ fn a_match_narrows_and_binds() {
 
         fn size(n: int): Size => match n < 10 { true => small, false => large };
 
-        fn show(value: Size | int | (int, string)): string => match value {
+        fn show(value: Size | int | (number: int, text: string)): string => match value {
             small => "small",
             large => "large",
             let n: int => n.to_text(),
@@ -358,7 +358,7 @@ fn a_parameter_of_a_lambda_is_taken_apart_by_a_pattern() {
         fn main(): string {
             let pairs = [("a", 1), ("b", 2)];
             let named = pairs.map(fn((name, count)) => "${name}${count}");
-            let total = pairs.fold(0, fn(sum: int, (_, count): (string, int)): int => sum + count);
+            let total = pairs.fold(0, fn(sum: int, (_, count): (text: string, number: int)): int => sum + count);
             return "${named.join_with(",")} ${total}";
         }
     "#;
@@ -393,7 +393,7 @@ fn a_let_that_states_a_type_holds_its_value_to_it_and_tests_nothing() {
     // the type what it leaves out: a parameter's type, a member's.
     let source = "
         fn main(): int {
-            let add: fn(int): int = fn(n) => n + 1;
+            let add: fn(number: int): int = fn(n) => n + 1;
             let none: List<int> = [];
             let wide: int | null = 2;
             return add(none.length()) + (cast::<int>(wide) ?? 0);

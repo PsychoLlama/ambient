@@ -75,7 +75,7 @@ fn edits(sets: &[u8], removes: &[u8]) -> String {
         r#"
         use ambient.map;
         fn main(): string => map.empty::<int>(){edits}
-            .entries().iter().fold("", fn(text: string, entry: (string, int)): string {{
+            .entries().iter().fold("", fn(text: string, entry: (text: string, number: int)): string {{
                 let (key, value) = entry;
                 return text + key + "=" + value.to_text() + ",";
             }});

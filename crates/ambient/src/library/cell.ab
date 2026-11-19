@@ -11,7 +11,7 @@ pub fn wait<T>(self: Cell<T>, seen: T): null => intrinsics.wait(self, seen);
 
 /// Puts what `change` makes of the cell's value in the cell, again if
 /// another task got there first, and gives what was put.
-pub fn update<T>(self: Cell<T>, change: fn(T): T): T {
+pub fn update<T>(self: Cell<T>, change: fn(held: T): T): T {
     let seen = intrinsics.read(self);
     let new = change(seen);
     if intrinsics.replace(self, seen, new) {

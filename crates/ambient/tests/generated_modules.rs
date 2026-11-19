@@ -79,7 +79,7 @@ fn a_generated_definition_refers_to_one_beside_it_by_name() {
 
 #[test]
 fn a_generated_ability_has_the_type_parameters_its_tree_says() {
-    let all = "[code.named_generic_ability(\"echo\", [null], fn(types: List<tree.Type>): (List<tree.Type>, tree.Type) =>
+    let all = "[code.named_generic_ability(\"echo\", [null], fn(types: List<tree.Type>): (takes: List<tree.Type>, gives: tree.Type) =>
         (types, types.get(0) ?? tree.none))]";
     let main = "use pkg.made.{echo};
         fn asks(): int with echo => echo!(40) + echo!(\"two\").length() - 1;

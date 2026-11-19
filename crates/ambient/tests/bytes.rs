@@ -80,7 +80,7 @@ fn bytes_are_equal_by_what_they_hold_and_are_no_string() {
     let source = r#"
         fn is_bytes(held: unknown): bool => match held { let _: bytes => true, _ => false };
 
-        fn main(): (bool, bool, bool) {
+        fn main(): (first: bool, second: bool, third: bool) {
             let same = "ab".to_bytes() == "a".to_bytes().join("b".to_bytes());
             return (same, is_bytes("ab"), is_bytes("ab".to_bytes()));
         }

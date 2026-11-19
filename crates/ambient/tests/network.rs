@@ -269,7 +269,7 @@ fn a_program_serves_and_sends_over_a_real_socket() {
             }}
         }}
 
-        fn once(server: http.Server): fn(http.Request): http.Response with throw with http.close =>
+        fn once(server: http.Server): fn(request: http.Request): http.Response with throw with http.close =>
             fn(request: http.Request): http.Response with throw {{
                 http.close!(server);
                 return greet(request);

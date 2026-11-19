@@ -41,12 +41,12 @@ fn words(text: string): List<string> =>
 
 /// The `limit` entries counted most, the most first. Entries counted
 /// alike stay in the order of their words.
-fn most(counts: Map<int>, limit: int): List<(string, int)> =>
+fn most(counts: Map<int>, limit: int): List<(word: string, times: int)> =>
     counts.entries()
         .sort_by(fn((_, a), (_, b)) => a > b)
         .iter().take(limit).to_list();
 
-fn line(entry: (string, int)): string {
+fn line(entry: (word: string, times: int)): string {
     let (word, times) = entry;
     return "${times} ${word}";
 }

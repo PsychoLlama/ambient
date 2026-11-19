@@ -5,7 +5,7 @@ use system.http;
 use pkg.site;
 
 /// What answers a request.
-type Answer = fn(http.Request): http.Response with throw;
+type Answer = fn(request: http.Request): http.Response with throw;
 
 /// Serves `site.answer`, and then whatever is deployed in its place:
 /// `hot [port]`. A deploy is packed code posted to `/deploy`; see

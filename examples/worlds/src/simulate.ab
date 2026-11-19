@@ -49,7 +49,7 @@ fn arbitrary(of: tree.Type, source: code.Code): code.Code {
         tree.text => { return drawn(comptime tree.reference(text)); }
         let exact: { literal: bool | int | float | string | bytes | Tag } => { return code.literal(exact.literal); }
         let record: { record: List<tree.Field> } => {
-            return code.record(record.record.map(fn(field: tree.Field): (string, code.Code) =>
+            return code.record(record.record.map(fn(field: tree.Field): (name: string, value: code.Code) =>
                 (field.name, arbitrary(field.holds, source))));
         }
         let any: { union: List<tree.Type> } => {
@@ -70,7 +70,7 @@ pub fn simulates(of: tree.Type): tree.Expr {
     match of {
         let work: { function: List<tree.Type>, returns: tree.Type, takes: List<tree.Ability> } => {
             let making = fn(source: code.Code): code.Code =>
-                code.handlers(work.takes.map(fn(taken: tree.Ability): (tree.Reference, code.Code) {
+                code.handlers(work.takes.map(fn(taken: tree.Ability): (ability: tree.Reference, handler: code.Code) {
                     let handler = code.function(taken.function, fn(given: List<code.Code>): code.Code =>
                         arbitrary(taken.returns, source));
                     return (taken.ability, handler);

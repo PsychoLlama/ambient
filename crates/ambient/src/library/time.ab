@@ -85,7 +85,7 @@ fn floor(value: int, by: int): int => value % by < 0 ? value / by - 1 : value / 
 ///
 /// Years are counted from March, so that the day a leap year adds is
 /// the last, and in eras of 400 years, which are all the same length.
-fn civil(number: int): (int, int, int) {
+fn civil(number: int): (year: int, month: int, day: int) {
     let shifted = number + 719468;
     let era = floor(shifted, 146097);
     let day_of_era = shifted - era * 146097;
@@ -152,7 +152,7 @@ fn clock(rest: string): int | null {
 
 /// The milliseconds that `:SS` and a fraction say, if the text begins
 /// with them, and the text that follows.
-fn second_part(after: string): (int | null, string) {
+fn second_part(after: string): (milliseconds: int | null, rest: string) {
     if !after.starts_with(":") {
         return (0, after);
     }

@@ -44,7 +44,7 @@ const PROGRAM: &str = r#"
     extern handler said for say;
     extern handler(suspending) slept for sleep;
 
-    extern fn applied(work: fn(int): int, to: int): int;
+    extern fn applied(work: fn(number: int): int, to: int): int;
     extern fn echoed(text: string): null with say;
 
     #[binding({ build: "digest" })]
@@ -172,7 +172,7 @@ const LOADER: &str = r"
     target page { fetch: fetched }
 
     fn main(number: int): int with fetch {
-        let fetched = cast::<fn(int): int>(fetch!()) ?? fn(number: int) => 0 - 1;
+        let fetched = cast::<fn(number: int): int>(fetch!()) ?? fn(number: int) => 0 - 1;
         return fetched(number);
     }
 ";

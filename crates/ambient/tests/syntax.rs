@@ -277,6 +277,24 @@ fn a_provide_is_restricted_by_the_word_and_by_no_bundle_in_brackets() {
     );
 }
 
+#[test]
+fn a_name_in_a_type_is_for_a_reader_and_is_no_part_of_the_type() {
+    let source = "type Found = fn(note: string, at: (line: int, column: int)): null;";
+    let at = ty::tuple([ty::int(), ty::int()]);
+    let found = ty::function([ty::string(), at], ty::null());
+
+    assert_eq!(parse(source).unwrap(), built([b::type_("Found", found)]));
+}
+
+#[test]
+fn a_type_without_its_names_is_refused() {
+    let (_, _, tuple) = refused("type Pair = (string, int);");
+    let (_, _, function) = refused("type Found = fn(string): null;");
+
+    assert_eq!(tuple, "a member of a tuple type is named, as `count: int`");
+    assert_eq!(function, "a parameter in a type is named, as `count: int`");
+}
+
 // What is not text
 
 #[test]

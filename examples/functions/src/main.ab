@@ -9,7 +9,7 @@ use pkg.store;
 /// What can be published: a way to answer a request. Its row is all it
 /// may do, so a function that was sent reads no file, sends nothing,
 /// and prints nothing, whoever wrote it.
-type Function = fn(Request): Response with throw;
+type Function = fn(request: Request): Response with throw;
 
 /// Serves functions it is sent: `functions [port]`.
 ///

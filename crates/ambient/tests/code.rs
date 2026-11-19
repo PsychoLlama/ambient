@@ -40,7 +40,7 @@ const CALLED: &str = r#"
         match code.unpack(packed) {
             let error: Error => { return error.message; }
             let loaded: unknown => {
-                let greet = cast::<fn(string): string>(loaded) ?? other;
+                let greet = cast::<fn(text: string): string>(loaded) ?? other;
                 return greet("ada");
             }
         }
@@ -130,7 +130,7 @@ fn a_loaded_function_does_what_its_caller_provides() {
         }
         fn main(): null with code, console.print {
             let loaded = code.unpack(cast::<bytes>(code.pack!(shout)) ?? 0x[]);
-            let shout = cast::<fn(string): null with console.print>(loaded) ?? quiet;
+            let shout = cast::<fn(text: string): null with console.print>(loaded) ?? quiet;
             shout("loaded");
         }
     "#;
@@ -143,7 +143,7 @@ fn a_program_goes_on_with_the_code_it_was_last_given() {
     // The pattern of `spec/upgrade.md`: what answers is read from a
     // cell each time, and a deploy replaces what the cell holds.
     let source = r#"
-        type Answer = fn(string): string;
+        type Answer = fn(text: string): string;
 
         fn first(name: string): string => "hello, ${name}";
         fn second(name: string): string => "goodbye, ${name}";
@@ -176,7 +176,7 @@ fn what_was_compiled_is_kept_and_loaded_without_the_compiler() {
             let packed = cast::<bytes>(code.pack!(greet)) ?? 0x[];
             let _ = fs.write_bytes!(\"greet.code\", cast::<bytes>(code.compile!(packed)) ?? 0x[]);
             let kept = cast::<bytes>(fs.read_bytes!(\"greet.code\")) ?? 0x[];
-            let greet = cast::<fn(string): string>(code.load!(kept)) ?? other;
+            let greet = cast::<fn(text: string): string>(code.load!(kept)) ?? other;
             return greet(\"ada\");
         }}"
     );

@@ -29,16 +29,16 @@ pub fn first<T>(self: List<T>): T | null => intrinsics.get(self, 0);
 pub fn last<T>(self: List<T>): T | null => intrinsics.get(self, intrinsics.length(self) - 1);
 
 /// What `f` makes of each member.
-pub fn map<T, U>(self: List<T>, f: fn(T): U): List<U> => intrinsics.iterate(self).map(f).to_list();
+pub fn map<T, U>(self: List<T>, f: fn(item: T): U): List<U> => intrinsics.iterate(self).map(f).to_list();
 
 /// The members `keep` takes.
-pub fn filter<T>(self: List<T>, keep: fn(T): bool): List<T> => intrinsics.iterate(self).filter(keep).to_list();
+pub fn filter<T>(self: List<T>, keep: fn(item: T): bool): List<T> => intrinsics.iterate(self).filter(keep).to_list();
 
 /// What `f` makes of `initial` and each member in turn.
-pub fn fold<T, A>(self: List<T>, initial: A, f: fn(A, T): A): A => intrinsics.iterate(self).fold(initial, f);
+pub fn fold<T, A>(self: List<T>, initial: A, f: fn(total: A, item: T): A): A => intrinsics.iterate(self).fold(initial, f);
 
 /// Calls `f` with each member, for what it does.
-pub fn each<T, R>(self: List<T>, f: fn(T): R): null => intrinsics.iterate(self).each(f);
+pub fn each<T, R>(self: List<T>, f: fn(item: T): R): null => intrinsics.iterate(self).each(f);
 
 /// The members in the opposite order.
 pub fn reverse<T>(self: List<T>): List<T> => reversed(self, intrinsics.length(self), []);
@@ -56,7 +56,7 @@ fn reversed<T>(members: List<T>, left: int, into: List<T>): List<T> {
 /// The members in order, where `before` says whether one comes before
 /// another. Members neither of which comes before the other keep the
 /// order they had.
-pub fn sort_by<T>(self: List<T>, before: fn(T, T): bool): List<T> {
+pub fn sort_by<T>(self: List<T>, before: fn(left: T, right: T): bool): List<T> {
     let count = intrinsics.length(self);
     if count < 2 {
         return self;
@@ -68,7 +68,7 @@ pub fn sort_by<T>(self: List<T>, before: fn(T, T): bool): List<T> {
 }
 
 /// Two sorted runs as one, after `into`.
-fn merge<T>(left: Iterator<T>, right: Iterator<T>, before: fn(T, T): bool, into: List<T>): List<T> {
+fn merge<T>(left: Iterator<T>, right: Iterator<T>, before: fn(left: T, right: T): bool, into: List<T>): List<T> {
     match intrinsics.step(left) {
         null => { return intrinsics.join(into, right.to_list()); }
         (let a, let more_left) => {
@@ -103,13 +103,13 @@ pub fn contains<T>(self: List<T>, member: T): bool =>
     intrinsics.iterate(self).some(fn(each: T): bool => each == member);
 
 /// The first member `wanted` takes, or null if there is none.
-pub fn find<T>(self: List<T>, wanted: fn(T): bool): T | null => intrinsics.iterate(self).find(wanted);
+pub fn find<T>(self: List<T>, wanted: fn(item: T): bool): T | null => intrinsics.iterate(self).find(wanted);
 
 /// Whether `holds` takes any member.
-pub fn some<T>(self: List<T>, holds: fn(T): bool): bool => intrinsics.iterate(self).some(holds);
+pub fn some<T>(self: List<T>, holds: fn(item: T): bool): bool => intrinsics.iterate(self).some(holds);
 
 /// Whether `holds` takes every member.
-pub fn every<T>(self: List<T>, holds: fn(T): bool): bool => intrinsics.iterate(self).every(holds);
+pub fn every<T>(self: List<T>, holds: fn(item: T): bool): bool => intrinsics.iterate(self).every(holds);
 
 /// The first `count` members, or all of them if there are fewer.
 pub fn take<T>(self: List<T>, count: int): List<T> => intrinsics.iterate(self).take(count).to_list();

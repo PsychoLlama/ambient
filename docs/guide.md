@@ -364,7 +364,7 @@ A body is `bytes`, since not everything sent is text: `request.body.to_text()` i
 use system.code;
 use system.console;
 
-type Answer = fn(string): string;
+type Answer = fn(name: string): string;
 
 fn polite(name: string): string => "good day, ${name}";
 fn curt(name: string): string => "hi ${name}";

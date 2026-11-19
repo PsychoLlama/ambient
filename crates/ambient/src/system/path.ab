@@ -36,7 +36,7 @@ pub fn parent(path: string): string | null {
 /// A name as what is before its last `.` and what is after. A name
 /// with none, or that only begins with one as `.profile` does, is all
 /// before.
-fn halves(name: string): (string, string | null) {
+fn halves(name: string): (stem: string, extension: string | null) {
     let pieces = name.split(".");
     let before = pieces.take(pieces.length() - 1).join_with(".");
     if pieces.length() < 2 || before.is_empty() {

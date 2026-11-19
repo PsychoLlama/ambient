@@ -15,7 +15,7 @@ fn url(expr: &str) -> String {
 fn parts(source: &str) -> String {
     text(&format!(
         r#"use ambient.url;
-        fn pair(pair: (string, string)): string {{
+        fn pair(pair: (left: string, right: string)): string {{
             let (name, value) = pair;
             return "${{name}}={{value}}".replace("{{value}}", value);
         }}

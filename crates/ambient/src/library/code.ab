@@ -5,7 +5,7 @@ use pkg.tree.{any, Arm, Definition, Kind, Entry, Expr, Function, Operation, Patt
 /// many locals are bound around it. Putting code together from these
 /// never counts a local by hand, and a piece of code means the same
 /// wherever it is put inside what binds its locals.
-pub type Code = fn(int): Expr;
+pub type Code = fn(bound: int): Expr;
 
 /// The tree of code that is not inside any other: what a function
 /// gives for a comptime call of it to be spliced.
@@ -44,7 +44,7 @@ pub fn operate(operation: Operation, on: List<Code>): Code =>
 
 /// An arm of a match that is not yet in one: the arm it is, once it is
 /// told how many locals are bound around the match.
-pub type Case = fn(int): Arm;
+pub type Case = fn(bound: int): Arm;
 
 /// How many locals a pattern binds.
 fn binds(pattern: Pattern): int {
@@ -63,7 +63,7 @@ fn binds(pattern: Pattern): int {
 /// An arm that gives what `body` makes of what `pattern` binds: the
 /// code `body` is handed is each binding, in the order the pattern
 /// has them.
-pub fn arm(pattern: Pattern, body: fn(List<Code>): Code): Case =>
+pub fn arm(pattern: Pattern, body: fn(locals: List<Code>): Code): Case =>
     fn(depth: int): Arm {
         let count = binds(pattern);
         let locals = intrinsics.range(0, count).map(fn(at: int): Code => local(depth + at)).to_list();
@@ -85,9 +85,9 @@ pub fn choose(condition: Code, then: Code, otherwise: Code): Code =>
     ]);
 
 /// A record with a field for each name.
-pub fn record(fields: List<(string, Code)>): Code =>
+pub fn record(fields: List<(name: string, value: Code)>): Code =>
     fn(depth: int): Expr => {
-        fields: fields.map(fn(named: (string, Code)): Entry {
+        fields: fields.map(fn(named: (name: string, value: Code)): Entry {
             let (name, value) = named;
             return { name: name, value: value(depth) };
         }),
@@ -95,9 +95,9 @@ pub fn record(fields: List<(string, Code)>): Code =>
 
 /// A record that holds a handler for each ability: what a provide
 /// binds.
-pub fn handlers(of: List<(Reference, Code)>): Code =>
+pub fn handlers(of: List<(ability: Reference, handler: Code)>): Code =>
     fn(depth: int): Expr => {
-        fields: of.map(fn(bound: (Reference, Code)): Entry {
+        fields: of.map(fn(bound: (ability: Reference, handler: Code)): Entry {
             let (ability, handler) = bound;
             return { ability: ability, value: handler(depth) };
         }),
@@ -141,12 +141,12 @@ fn local(depth: int): Code => fn(inner: int): Expr => { local: depth };
 
 /// What `body` makes of `value`, which is evaluated once and held: the
 /// code `body` is handed is the value.
-pub fn bind(value: Code, body: fn(Code): Code): Code =>
+pub fn bind(value: Code, body: fn(local: Code): Code): Code =>
     fn(depth: int): Expr => { bind: value(depth), body: body(local(depth))(depth + 1) };
 
 /// A function that takes a parameter of each type, and gives what
 /// `body` makes of them: the code `body` is handed is the parameters.
-pub fn function(params: List<Type>, body: fn(List<Code>): Code): Code =>
+pub fn function(params: List<Type>, body: fn(locals: List<Code>): Code): Code =>
     fn(depth: int): Expr {
         let count = params.length();
         let locals = intrinsics.range(0, count).map(fn(at: int): Code => local(depth + at)).to_list();
@@ -154,13 +154,13 @@ pub fn function(params: List<Type>, body: fn(List<Code>): Code): Code =>
     };
 
 /// A function of one parameter: [`function`], for the common case.
-pub fn lambda(param: Type, body: fn(Code): Code): Code =>
+pub fn lambda(param: Type, body: fn(local: Code): Code): Code =>
     fn(depth: int): Expr => { function: [param], body: body(local(depth))(depth + 1) };
 
 /// A function as a definition, which takes a parameter of each type
 /// and `takes` from its caller, and gives what `body` makes of the
 /// parameters: what a function gives for `fn name = comptime ...;`.
-pub fn define(params: List<Type>, returns: Type, takes: List<Reference>, body: fn(List<Code>): Code): Function {
+pub fn define(params: List<Type>, returns: Type, takes: List<Reference>, body: fn(locals: List<Code>): Code): Function {
     let count = params.length();
     let locals = intrinsics.range(0, count).map(fn(at: int): Code => local(at)).to_list();
     return { generic: [], params, returns, takes, body: body(locals)(count) };
@@ -173,7 +173,7 @@ fn parameter(at: int): Type => { parameter: at };
 /// A function with a type parameter for each of `bounds`, which is
 /// its bound or null: the function `make` gives, which is handed the
 /// type each parameter is.
-pub fn generic(bounds: List<Type | null>, make: fn(List<Type>): Function): Function {
+pub fn generic(bounds: List<Type | null>, make: fn(parameters: List<Type>): Function): Function {
     let made = make(intrinsics.range(0, bounds.length()).map(parameter).to_list());
     return { generic: bounds, params: made.params, returns: made.returns, takes: made.takes, body: made.body };
 }
@@ -186,7 +186,7 @@ pub fn named_type(name: string, means: Type): Definition => { name, public: true
 
 /// A public type of a generated module with `parameters` type
 /// parameters: what `means` gives, which is handed the type each is.
-pub fn named_generic(name: string, parameters: int, means: fn(List<Type>): Type): Definition =>
+pub fn named_generic(name: string, parameters: int, means: fn(parameters: List<Type>): Type): Definition =>
     { name, public: true, means: means(intrinsics.range(0, parameters).map(parameter).to_list()), parameters };
 
 /// A public ability of a generated module, by the name it has there
@@ -198,7 +198,7 @@ pub fn named_ability(name: string, takes: List<Type>, returns: Type): Definition
 /// each of `bounds`, which is its bound or null: `signature` is
 /// handed the type each is, and gives what the ability takes and
 /// gives.
-pub fn named_generic_ability(name: string, bounds: List<Type | null>, signature: fn(List<Type>): (List<Type>, Type)): Definition {
+pub fn named_generic_ability(name: string, bounds: List<Type | null>, signature: fn(parameters: List<Type>): (takes: List<Type>, gives: Type)): Definition {
     let (takes, returns) = signature(intrinsics.range(0, bounds.length()).map(parameter).to_list());
     return { name, public: true, ability: takes, returns, generic: bounds };
 }

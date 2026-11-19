@@ -341,7 +341,7 @@ fn a_program_reads_its_whole_environment() {
         use system.env;
 
         fn main(): string with env {
-            let named = fn(variable: (string, string)): string {
+            let named = fn(variable: (left: string, right: string)): string {
                 let (name, value) = variable;
                 return "${name}=${value}";
             };

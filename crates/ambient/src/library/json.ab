@@ -32,7 +32,7 @@ pub fn write(value: Json): string {
             return "[" + items.map(write).join_with(",") + "]";
         }
         let members: Map<Json> => {
-            let each = fn((name, member): (string, Json)): string => quote(name) + ":" + write(member);
+            let each = fn((name, member): (name: string, member: Json)): string => quote(name) + ":" + write(member);
             return "{" + members.entries().map(each).join_with(",") + "}";
         }
     }
@@ -80,7 +80,7 @@ fn blank(text: string, at: int): int {
 }
 
 /// The value that begins at a position, and the position after it.
-fn value(text: string, at: int): (Json, int) with throw {
+fn value(text: string, at: int): (value: Json, after: int) with throw {
     let here = peek(text, at);
     if here == "{" {
         return object(text, blank(text, at + 1));
@@ -103,7 +103,7 @@ fn value(text: string, at: int): (Json, int) with throw {
     return number(text, at);
 }
 
-fn word(text: string, at: int, written: string, means: Json): (Json, int) with throw {
+fn word(text: string, at: int, written: string, means: Json): (value: Json, after: int) with throw {
     let end = at + written.length();
     if between(text, at, end) != written {
         wrong(text, at, "expected a value");
@@ -112,14 +112,14 @@ fn word(text: string, at: int, written: string, means: Json): (Json, int) with t
 }
 
 /// An array, after its bracket and any space.
-fn array(text: string, at: int): (Json, int) with throw {
+fn array(text: string, at: int): (value: Json, after: int) with throw {
     if peek(text, at) == "]" {
         return ([], at + 1);
     }
     return items(text, at, []);
 }
 
-fn items(text: string, at: int, read: List<Json>): (Json, int) with throw {
+fn items(text: string, at: int, read: List<Json>): (value: Json, after: int) with throw {
     let (item, after) = value(text, at);
     let next = blank(text, after);
     let here = peek(text, next);
@@ -133,14 +133,14 @@ fn items(text: string, at: int, read: List<Json>): (Json, int) with throw {
 }
 
 /// An object, after its brace and any space.
-fn object(text: string, at: int): (Json, int) with throw {
+fn object(text: string, at: int): (value: Json, after: int) with throw {
     if peek(text, at) == "}" {
         return (map.empty::<Json>(), at + 1);
     }
     return members(text, at, map.empty::<Json>());
 }
 
-fn members(text: string, at: int, read: Map<Json>): (Json, int) with throw {
+fn members(text: string, at: int, read: Map<Json>): (value: Json, after: int) with throw {
     if peek(text, at) != "\"" {
         wrong(text, at, "expected a name");
     }
@@ -162,11 +162,11 @@ fn members(text: string, at: int, read: Map<Json>): (Json, int) with throw {
 }
 
 /// A string, after its opening quote.
-fn quoted(text: string, at: int): (string, int) with throw => pieces(text, at, at, "");
+fn quoted(text: string, at: int): (text: string, after: int) with throw => pieces(text, at, at, "");
 
 /// The rest of a string: `read` is what it holds so far, up to `from`,
 /// and everything from there to `at` is written as it is meant.
-fn pieces(text: string, from: int, at: int, read: string): (string, int) with throw {
+fn pieces(text: string, from: int, at: int, read: string): (text: string, after: int) with throw {
     if at >= text.length() {
         wrong(text, at, "expected `\"`");
     }
@@ -185,7 +185,7 @@ fn pieces(text: string, from: int, at: int, read: string): (string, int) with th
 }
 
 /// What an escape stands for, after its backslash.
-fn escape(text: string, at: int): (string, int) with throw {
+fn escape(text: string, at: int): (text: string, after: int) with throw {
     let here = peek(text, at);
     if here == "\"" || here == "\\" || here == "/" {
         return (here, at + 1);
@@ -267,7 +267,7 @@ fn part(text: string, at: int): int with throw {
 
 /// A number: one with no fraction and no exponent is an integer, if it
 /// is small enough to be one.
-fn number(text: string, at: int): (Json, int) with throw {
+fn number(text: string, at: int): (value: Json, after: int) with throw {
     let whole = peek(text, at) == "-" ? at + 1 : at;
     let counted = digits(text, whole);
     if counted == whole {

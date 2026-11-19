@@ -23,7 +23,7 @@ pub fn holding(events: List<Event>): Tape => { events: cell::<List<Event>>(event
 
 /// The observer that puts each event on a tape: what `observe` is
 /// given to record a body.
-pub fn recorder(onto: Tape): fn(Event): null =>
+pub fn recorder(onto: Tape): fn(event: Event): null =>
     fn(event: Event): null {
         onto.events.update(fn(events: List<Event>): List<Event> => events.push(event));
         return null;
@@ -63,7 +63,7 @@ pub fn replays(of: tree.Type): tree.Expr {
             let next = code.definition(comptime tree.reference(next));
             let mistyped = code.call(code.definition(comptime tree.reference(mistyped)), []);
             let answering = fn(tape: code.Code): code.Code =>
-                code.handlers(work.takes.map(fn(taken: tree.Ability): (tree.Reference, code.Code) {
+                code.handlers(work.takes.map(fn(taken: tree.Ability): (ability: tree.Reference, handler: code.Code) {
                     let handler = code.function(taken.function, fn(given: List<code.Code>): code.Code {
                         let asked = [tape, code.identity(taken.ability), code.list(given)];
                         return code.cast(code.call(next, asked), taken.returns, mistyped);
@@ -87,7 +87,7 @@ fn game(): int with roll, say {
 }
 
 /// Plays the game for real, with a die that is not random, onto a tape.
-fn recorded(): (int, Tape) {
+fn recorded(): (total: int, tape: Tape) {
     let tape = blank();
     let world = { [roll](sides) => sides - 1, [say](text) => null };
     let total = provide world => observe(recorder(tape), fn() => game());

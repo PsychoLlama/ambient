@@ -14,5 +14,5 @@ pub fn race<T>(work: List<fn(): T>): T | null => work.is_empty() ? null : intrin
 
 /// What `work` makes of each of `items`, in order, with every item
 /// worked on at once.
-pub fn map<T, U>(items: List<T>, work: fn(T): U): List<U> =>
+pub fn map<T, U>(items: List<T>, work: fn(item: T): U): List<U> =>
     intrinsics.gather(items.map(fn(item: T): fn(): U => fn(): U => work(item)));

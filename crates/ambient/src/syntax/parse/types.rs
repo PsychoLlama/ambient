@@ -84,13 +84,36 @@ impl Parser {
             Token::Mark("(") => {
                 let at = self.position();
                 self.advance();
-                let members = self.list(")", Self::ty)?;
-                Ok(self.grouped(at, members)?.unwrap_or_else(Type::Tuple))
+                let members = self.list(")", |parser| {
+                    let named = parser.eat_label();
+                    Ok((named, parser.ty()?))
+                })?;
+                let unnamed = members.iter().any(|(named, _)| !named);
+                let members = members.into_iter().map(|(_, ty)| ty).collect();
+                match self.grouped(at, members)? {
+                    Ok(one) => Ok(one),
+                    Err(_) if unnamed => {
+                        self.fail_at(at, "a member of a tuple type is named, as `count: int`")
+                    }
+                    Err(members) => Ok(Type::Tuple(members)),
+                }
             }
             Token::Mark("{") => self.record_type(),
             Token::Word(word) => self.named_type(&word),
             _ => self.unexpected("a type"),
         }
+    }
+
+    /// Takes a name and the colon after it, if they are next: what a
+    /// member of a tuple type and a parameter in a type are named, for
+    /// a reader. The name is no part of the type.
+    fn eat_label(&mut self) -> bool {
+        let named = self.at_name() && matches!(self.peek_at(1), Token::Mark(":"));
+        if named {
+            self.advance();
+            self.advance();
+        }
+        named
     }
 
     /// The token before the one just taken.
@@ -180,10 +203,8 @@ impl Parser {
             }
         }
         let params = self.list(")", |parser| {
-            // A parameter of a type may be named, for a reader.
-            if parser.at_name() && matches!(parser.peek_at(1), Token::Mark(":")) {
-                parser.advance();
-                parser.advance();
+            if !parser.eat_label() {
+                return parser.fail("a parameter in a type is named, as `count: int`");
             }
             parser.ty()
         })?;

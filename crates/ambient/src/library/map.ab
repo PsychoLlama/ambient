@@ -10,12 +10,12 @@ pub type Map<V> = {
     has(self, key: string): bool,
     // `key` with what is under it, or null if nothing is: unlike `get`,
     // it tells a value that is null from none.
-    entry(self, key: string): (string, V) | null,
+    entry(self, key: string): (key: string, value: V) | null,
     // This with `value` under `key`, in place of what was there.
     set(self, key: string, value: V): Map<V>,
     // This with what `change` makes of what is under `key`, which is
     // null if nothing is.
-    update(self, key: string, change: fn(V | null): V): Map<V>,
+    update(self, key: string, change: fn(held: V | null): V): Map<V>,
     // This with nothing under `key`.
     remove(self, key: string): Map<V>,
     // The keys, in order.
@@ -23,7 +23,7 @@ pub type Map<V> = {
     // The values, in the order of their keys.
     values(self): List<V>,
     // Each key with its value, in the order of the keys.
-    entries(self): List<(string, V)>,
+    entries(self): List<(key: string, value: V)>,
 };
 
 /// A balanced tree: the keys to the left of a node come before its key,
@@ -36,8 +36,8 @@ pub fn empty<V>(): Map<V> => over::<V>(null);
 
 /// A map of each key and its value. A later one replaces an
 /// earlier one of the same key.
-pub fn of<V>(entries: List<(string, V)>): Map<V> =>
-    over::<V>(entries.iter().fold(null, fn(tree: Tree<V>, entry: (string, V)): Tree<V> {
+pub fn of<V>(entries: List<(key: string, value: V)>): Map<V> =>
+    over::<V>(entries.iter().fold(null, fn(tree: Tree<V>, entry: (key: string, value: V)): Tree<V> {
         let (key, value) = entry;
         return insert(tree, key, value);
     }));
@@ -47,17 +47,17 @@ fn over<V>(tree: Tree<V>): Map<V> => {
     size(self): int => count(self.tree),
     get(self, key: string): V | null => find(self.tree, key),
     has(self, key: string): bool => holds(self.tree, key),
-    entry(self, key: string): (string, V) | null => locate(self.tree, key),
+    entry(self, key: string): (key: string, value: V) | null => locate(self.tree, key),
     set(self, key: string, value: V): Map<V> => over(insert(self.tree, key, value)),
-    update(self, key: string, change: fn(V | null): V): Map<V> =>
+    update(self, key: string, change: fn(held: V | null): V): Map<V> =>
         over(insert(self.tree, key, change(find(self.tree, key)))),
     remove(self, key: string): Map<V> => over(delete(self.tree, key)),
     keys(self): List<string> =>
         walk(self.tree, [], fn(found: List<string>, node: Node<V>) => found.push(node.key)),
     values(self): List<V> =>
         walk(self.tree, [], fn(found: List<V>, node: Node<V>) => found.push(node.value)),
-    entries(self): List<(string, V)> =>
-        walk(self.tree, [], fn(found: List<(string, V)>, node: Node<V>) =>
+    entries(self): List<(key: string, value: V)> =>
+        walk(self.tree, [], fn(found: List<(key: string, value: V)>, node: Node<V>) =>
             found.push((node.key, node.value))),
 };
 
@@ -81,7 +81,7 @@ fn find<V>(tree: Tree<V>, key: string): V | null {
     }
 }
 
-fn locate<V>(tree: Tree<V>, key: string): (string, V) | null {
+fn locate<V>(tree: Tree<V>, key: string): (key: string, value: V) | null {
     match tree {
         null => { return null; }
         let node => {
@@ -104,7 +104,7 @@ fn holds<V>(tree: Tree<V>, key: string): bool {
 }
 
 /// What `visit` makes of `found` and each node in turn, in key order.
-fn walk<V, A>(tree: Tree<V>, found: A, visit: fn(A, Node<V>): A): A =>
+fn walk<V, A>(tree: Tree<V>, found: A, visit: fn(found: A, node: Node<V>): A): A =>
     match tree {
         null => found,
         let node => walk(node.right, visit(walk(node.left, found, visit), node), visit),

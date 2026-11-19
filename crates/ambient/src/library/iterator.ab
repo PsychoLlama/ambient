@@ -2,29 +2,29 @@ use pkg.intrinsics;
 
 /// An iterator that `step` steps: it gives null at the end, or an item
 /// and an iterator of the rest.
-pub fn from<T>(step: fn(): null | (T, Iterator<T>)): Iterator<T> => intrinsics.iterator(step);
+pub fn from<T>(step: fn(): null | (item: T, rest: Iterator<T>)): Iterator<T> => intrinsics.iterator(step);
 
 /// Null at the end, or the next item and an iterator of the rest.
-pub fn step<T>(self: Iterator<T>): null | (T, Iterator<T>) => intrinsics.step(self);
+pub fn step<T>(self: Iterator<T>): null | (item: T, rest: Iterator<T>) => intrinsics.step(self);
 
 /// Each integer from `start` up to `end`, which it leaves out.
 pub fn range(start: int, end: int): Iterator<int> => intrinsics.range(start, end);
 
 /// What `f` makes of each item.
-pub fn map<T, U>(self: Iterator<T>, f: fn(T): U): Iterator<U> =>
+pub fn map<T, U>(self: Iterator<T>, f: fn(item: T): U): Iterator<U> =>
     intrinsics.iterator(fn() => match intrinsics.step(self) {
         null => null,
         (let item, let rest) => (f(item), map(rest, f)),
     });
 
 /// The items `keep` takes.
-pub fn filter<T>(self: Iterator<T>, keep: fn(T): bool): Iterator<T> =>
+pub fn filter<T>(self: Iterator<T>, keep: fn(item: T): bool): Iterator<T> =>
     intrinsics.iterator(fn() => seek(self, keep));
 
 /// The first item `keep` takes, and a filter of what follows it. It
 /// calls itself in tail position past each item `keep` refuses, so a
 /// long run of them takes no stack.
-fn seek<T>(items: Iterator<T>, keep: fn(T): bool): null | (T, Iterator<T>) {
+fn seek<T>(items: Iterator<T>, keep: fn(item: T): bool): null | (item: T, rest: Iterator<T>) {
     match intrinsics.step(items) {
         null => { return null; }
         (let item, let rest) => {
@@ -67,16 +67,16 @@ pub fn chain<T>(self: Iterator<T>, other: Iterator<T>): Iterator<T> =>
     });
 
 /// Each item with its position, counted from zero.
-pub fn enumerate<T>(self: Iterator<T>): Iterator<(int, T)> => numbered(self, 0);
+pub fn enumerate<T>(self: Iterator<T>): Iterator<(position: int, item: T)> => numbered(self, 0);
 
-fn numbered<T>(items: Iterator<T>, position: int): Iterator<(int, T)> =>
+fn numbered<T>(items: Iterator<T>, position: int): Iterator<(position: int, item: T)> =>
     intrinsics.iterator(fn() => match intrinsics.step(items) {
         null => null,
         (let item, let rest) => ((position, item), numbered(rest, position + 1)),
     });
 
 /// What `f` makes of `initial` and each item in turn.
-pub fn fold<T, A>(self: Iterator<T>, initial: A, f: fn(A, T): A): A {
+pub fn fold<T, A>(self: Iterator<T>, initial: A, f: fn(total: A, item: T): A): A {
     match intrinsics.step(self) {
         null => { return initial; }
         (let item, let rest) => { return fold(rest, f(initial, item), f); }
@@ -84,7 +84,7 @@ pub fn fold<T, A>(self: Iterator<T>, initial: A, f: fn(A, T): A): A {
 }
 
 /// Calls `f` with each item, for what it does.
-pub fn each<T, R>(self: Iterator<T>, f: fn(T): R): null {
+pub fn each<T, R>(self: Iterator<T>, f: fn(item: T): R): null {
     match intrinsics.step(self) {
         null => { return null; }
         (let item, let rest) => {
@@ -98,7 +98,7 @@ pub fn each<T, R>(self: Iterator<T>, f: fn(T): R): null {
 pub fn count<T>(self: Iterator<T>): int => fold(self, 0, fn(seen: int, item: T): int => seen + 1);
 
 /// The first item `wanted` takes, or null if there is none.
-pub fn find<T>(self: Iterator<T>, wanted: fn(T): bool): T | null {
+pub fn find<T>(self: Iterator<T>, wanted: fn(item: T): bool): T | null {
     match seek(self, wanted) {
         null => { return null; }
         (let item, _) => { return item; }
@@ -106,14 +106,14 @@ pub fn find<T>(self: Iterator<T>, wanted: fn(T): bool): T | null {
 }
 
 /// Whether `holds` takes any item.
-pub fn some<T>(self: Iterator<T>, holds: fn(T): bool): bool =>
+pub fn some<T>(self: Iterator<T>, holds: fn(item: T): bool): bool =>
     match seek(self, holds) {
         null => false,
         _ => true,
     };
 
 /// Whether `holds` takes every item.
-pub fn every<T>(self: Iterator<T>, holds: fn(T): bool): bool =>
+pub fn every<T>(self: Iterator<T>, holds: fn(item: T): bool): bool =>
     !some(self, fn(item: T): bool => !holds(item));
 
 /// Every item, in order.

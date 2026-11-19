@@ -49,7 +49,7 @@ fn add(note: string): Response with load, save {
 
 /// What `found` makes of the note at a position written out, and the
 /// position, or why there is no such note.
-fn one(which: string, found: fn(string, int): Response): Response with load {
+fn one(which: string, found: fn(note: string, position: int): Response): Response with load {
     let position = which.to_int() ?? -1;
     match load!().get(position) {
         null => { return http.text(404, "there is no note ${which}\n"); }
@@ -65,11 +65,11 @@ fn forget(_: string, position: int): Response with load, save {
 
 /// What a run of requests is answered with, as `status body` each,
 /// when the notes are kept in memory and start as `kept`.
-fn answers(kept: List<string>, requests: List<(string, string, string)>): List<string> {
+fn answers(kept: List<string>, requests: List<(method: string, url: string, body: string)>): List<string> {
     let notes = cell::<List<string>>(kept);
     // The row says the notes are whoever calls this one's, not the ones
     // in scope here, where none are kept yet.
-    let asked = fn((method, url, body): (string, string, string)): string with load, save {
+    let asked = fn((method, url, body): (method: string, url: string, body: string)): string with load, save {
         let response = answer({ method, url, headers: [], body: body.to_bytes() });
         let answered = response.body.to_text() ?? "";
         return "${response.status} ${answered}";
