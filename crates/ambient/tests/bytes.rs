@@ -25,13 +25,11 @@ fn bytes_that_encode_no_string_miss() {
     // The first byte of a two-byte character, alone.
     let cut = r#""é".to_bytes().slice(0, 1)"#;
     assert_eq!(
-        evaluates(&format!(r#"(cast::<bytes>({cut}) ?? "".to_bytes()).hex()"#)),
+        evaluates(&format!(r#"({cut} ?? "".to_bytes()).hex()"#)),
         "c3"
     );
     assert_eq!(
-        evaluates(&format!(
-            r#"(cast::<bytes>({cut}) ?? "".to_bytes()).to_text() ?? "none""#
-        )),
+        evaluates(&format!(r#"({cut} ?? "".to_bytes()).to_text() ?? "none""#)),
         "none"
     );
 }

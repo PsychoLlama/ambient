@@ -25,7 +25,7 @@ fn parts(source: &str) -> String {
                 let read: url.Url => {{
                     let port = match read.port {{ null => "-", let port: int => port.to_text() }};
                     let query = read.query.map(pair).join_with("&");
-                    let fragment = cast::<string>(read.fragment) ?? "-";
+                    let fragment = read.fragment ?? "-";
                     return [read.scheme, read.host, port, read.path, query, fragment].join_with(" | ");
                 }}
             }}

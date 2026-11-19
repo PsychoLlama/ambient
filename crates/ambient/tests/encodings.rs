@@ -59,7 +59,7 @@ fn base64_is_read_in_either_form_padded_or_not() {
     assert_eq!(decoded("Zm8"), "fo");
     let hex = |written: &str| {
         gives(&format!(
-            r#"(cast::<bytes>(base64.decode("{written}")) ?? "".to_bytes()).hex()"#
+            r#"(base64.decode("{written}") ?? "".to_bytes()).hex()"#
         ))
     };
     assert_eq!(
@@ -99,7 +99,7 @@ fn every_byte_is_written_and_read_back() {
         use ambient.iterator.{range};
 
         fn main(): bool {
-            let all = cast::<bytes>(bytes.of(range(0, 256).to_list())) ?? "".to_bytes();
+            let all = bytes.of(range(0, 256).to_list()) ?? "".to_bytes();
             let same = fn(read: bytes | null): bool => read == all;
             return same(base64.decode(base64.encode(all)))
                 && same(base64.decode(base64.encode_url(all)))

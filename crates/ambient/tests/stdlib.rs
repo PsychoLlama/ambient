@@ -185,7 +185,7 @@ fn a_list_is_asked_about_its_members() {
         fn main(): int {
             let words = ["a", "bb", "ccc"];
             let has = words.contains("bb") && !words.contains("z") ? 1 : 0;
-            let found = (cast::<string>(words.find(fn(word) => word.length() > 1)) ?? "").length() * 10;
+            let found = (words.find(fn(word) => word.length() > 1) ?? "").length() * 10;
             let asked = words.some(fn(word) => word == "a") && !words.every(fn(word) => word == "a") ? 100 : 0;
             return has + found + asked + words.take(2).length() * 1000 + words.skip(2).length() * 10000;
         }

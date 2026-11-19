@@ -58,7 +58,7 @@ fn a_map_is_read_in_the_order_of_its_keys() {
 #[test]
 fn changing_a_map_leaves_the_one_changed_as_it_was() {
     let body = r#"
-        let more = d.set("a", 10).remove("b").update("n", fn(seen) => (cast::<int>(seen) ?? 0) + 1);
+        let more = d.set("a", 10).remove("b").update("n", fn(seen) => (seen ?? 0) + 1);
         return more.keys().join_with("") + d.keys().join_with("");
     "#;
 
