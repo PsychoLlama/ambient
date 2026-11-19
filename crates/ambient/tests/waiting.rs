@@ -1,5 +1,5 @@
 //! Native handlers that suspend: a task waits on the host while others
-//! run. See "Native side" in `spec/externs.md` and `spec/tasks.md`.
+//! run. See "Native side" in `docs/spec/externs.md` and `docs/spec/tasks.md`.
 
 #![allow(clippy::unwrap_used)]
 

@@ -1,5 +1,5 @@
 //! Exchange: the one encoding every unanchored value has. See
-//! `spec/exchange.md`.
+//! `docs/spec/exchange.md`.
 //!
 //! The encoding is determined by a value's shape alone, so equal values
 //! encode identically and the encoding gives every value a hash. Decoding

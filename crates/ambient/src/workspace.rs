@@ -26,21 +26,21 @@ pub trait Sources {
 
     /// The ID of the package that `package` is an instance of: what its
     /// tags are scoped by. Every snapshot of one package has the same ID,
-    /// whatever a workspace calls it. See `spec/packages.md`.
+    /// whatever a workspace calls it. See `docs/spec/packages.md`.
     fn identity(&self, package: &PackageId) -> String;
 
     /// The build abilities `package` is granted: what its comptime
     /// calls may take from the build target. See "Authority" in
-    /// `spec/comptime.md`.
+    /// `docs/spec/comptime.md`.
     fn grants(&self, package: &PackageId) -> Vec<Symbol>;
 
     /// Every build step a package declares: the target it is for and
     /// the tool it runs, in an order that is the same on every build.
-    /// See "Builds" in `spec/tools.md`.
+    /// See "Builds" in `docs/spec/tools.md`.
     fn steps(&self) -> Vec<(Symbol, Symbol)>;
 
     /// The lints checking `package` runs, as its manifest lists them.
-    /// See "Commands" in `spec/tools.md`.
+    /// See "Commands" in `docs/spec/tools.md`.
     fn lints(&self, package: &PackageId) -> Vec<Symbol>;
 }
 
@@ -183,7 +183,7 @@ impl Workspace {
 
     /// Adds `module` to the end of the preludes of `package`: its public
     /// definitions and re-exports are then in scope in every module of the
-    /// package. See `spec/modules.md`.
+    /// package. See `docs/spec/modules.md`.
     pub fn prelude(&mut self, package: &str, module: ModuleId) {
         self.preludes
             .entry(PackageId(package.to_owned()))

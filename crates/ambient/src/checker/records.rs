@@ -1,5 +1,5 @@
 //! Records: making, reading, and merging them. A record keyed by
-//! abilities is a bundle. See `spec/handlers.md`.
+//! abilities is a bundle. See `docs/spec/handlers.md`.
 
 use super::Checker;
 use crate::core;

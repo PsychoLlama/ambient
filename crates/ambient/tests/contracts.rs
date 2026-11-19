@@ -1,5 +1,5 @@
 //! Contracts: what a record holds a value under without reserving a name,
-//! run on every backend. See `spec/methods.md`.
+//! run on every backend. See `docs/spec/methods.md`.
 
 #![allow(clippy::unwrap_used)]
 

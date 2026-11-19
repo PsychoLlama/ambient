@@ -1,4 +1,4 @@
-//! Builders: the first interface to the language. See `spec/trees.md`.
+//! Builders: the first interface to the language. See `docs/spec/trees.md`.
 //!
 //! Expressions and types are made with the free functions here and in
 //! [`ty`]. They are assembled into definitions, and definitions into a

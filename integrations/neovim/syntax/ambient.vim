@@ -1,4 +1,4 @@
-" Ambient source (`.ab`), as `spec/syntax.md` describes it.
+" Ambient source (`.ab`), as `docs/spec/syntax.md` describes it.
 "
 " Matched by pattern, not parsed. The reserved words are highlighted
 " wherever they stand; a word that only means something in one place

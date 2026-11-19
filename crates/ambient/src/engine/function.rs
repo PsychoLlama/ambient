@@ -1,6 +1,6 @@
 //! Checking a function: one that was written, a program's root, or the
-//! call a type is derived from. See `spec/definitions.md` and
-//! `spec/comptime.md`.
+//! call a type is derived from. See `docs/spec/definitions.md` and
+//! `docs/spec/comptime.md`.
 //!
 //! A function's check may read what its key does not cover: what a
 //! comptime call observed, and the definitions that code one gave

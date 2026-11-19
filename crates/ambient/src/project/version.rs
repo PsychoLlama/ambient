@@ -1,5 +1,5 @@
 //! Versions and the lines they fall in. See "Versions" in
-//! `spec/releases.md`.
+//! `docs/spec/releases.md`.
 
 use std::fmt;
 

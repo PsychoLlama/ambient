@@ -1,4 +1,4 @@
-//! Operators. See `spec/operations.md`.
+//! Operators. See `docs/spec/operations.md`.
 
 use serde::{Deserialize, Serialize};
 

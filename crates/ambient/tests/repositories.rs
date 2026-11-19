@@ -1,6 +1,6 @@
 //! Dependencies in git repositories, and the lock that holds the
 //! commit and snapshot each led to. See "Git dependencies" and "Locks"
-//! in `spec/releases.md`.
+//! in `docs/spec/releases.md`.
 
 #![allow(clippy::unwrap_used)]
 

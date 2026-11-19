@@ -1,4 +1,4 @@
-//! Tags. See "Tags" in `spec/definitions.md` and `spec/types.md`.
+//! Tags. See "Tags" in `docs/spec/definitions.md` and `docs/spec/types.md`.
 
 #![allow(clippy::unwrap_used)]
 

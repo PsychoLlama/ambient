@@ -1,6 +1,6 @@
 //! Lints: the functions a package's manifest lists, which checking the
 //! package runs for what each finds wrong. See "Commands" in
-//! `spec/tools.md`.
+//! `docs/spec/tools.md`.
 
 use super::Engine;
 use super::asked::{definition, record};

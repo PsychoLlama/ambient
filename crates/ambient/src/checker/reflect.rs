@@ -1,5 +1,5 @@
 //! Types as values: what a comptime function is handed for a type its
-//! call names. See "Trees as values" in `spec/comptime.md`.
+//! call names. See "Trees as values" in `docs/spec/comptime.md`.
 //!
 //! The shape is the library's `tree.Type`, which this makes values of.
 

@@ -1,5 +1,5 @@
 //! Calls nested too deeply, run on every backend. See "Calls" in
-//! `spec/backends.md`.
+//! `docs/spec/backends.md`.
 
 #![allow(clippy::unwrap_used)]
 

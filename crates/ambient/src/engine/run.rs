@@ -1,6 +1,6 @@
 //! Run: a function and its arguments yield a value, and a record of what
 //! the run observed. Comptime calls and tests are both this. See
-//! `spec/comptime.md` and `spec/memoization.md`.
+//! `docs/spec/comptime.md` and `docs/spec/memoization.md`.
 
 use std::cell::OnceCell;
 

@@ -1,6 +1,6 @@
 // Loading code into a program that is running, and dropping it again:
 // what `crates/ambient/src/backend/wasm/units.rs` does. See "Loading"
-// in `spec/linking.md`.
+// in `docs/spec/linking.md`.
 
 import { Loaded, Values } from "./values.js";
 

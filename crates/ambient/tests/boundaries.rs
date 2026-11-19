@@ -1,5 +1,5 @@
-//! Boundaries, run on every backend. See `spec/values.md` and
-//! `spec/errors.md`.
+//! Boundaries, run on every backend. See `docs/spec/values.md` and
+//! `docs/spec/errors.md`.
 
 #![allow(clippy::unwrap_used)]
 

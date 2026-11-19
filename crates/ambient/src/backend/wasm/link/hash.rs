@@ -1,5 +1,5 @@
 //! The name of each piece: a hash of its content and of the pieces it
-//! refers to. See "Pieces" in `spec/linking.md`.
+//! refers to. See "Pieces" in `docs/spec/linking.md`.
 //!
 //! Pieces refer to each other in cycles, so a piece cannot be hashed
 //! after everything it refers to. Those that reach each other are

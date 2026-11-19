@@ -1,5 +1,5 @@
 //! Functions that are whatever tree a comptime call gives. See "Splice
-//! positions" in `spec/comptime.md`.
+//! positions" in `docs/spec/comptime.md`.
 
 #![allow(clippy::unwrap_used)]
 

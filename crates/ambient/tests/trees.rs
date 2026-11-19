@@ -1,5 +1,5 @@
 //! Types handed to comptime functions as trees. See "Trees as values"
-//! in `spec/comptime.md`.
+//! in `docs/spec/comptime.md`.
 
 #![allow(clippy::unwrap_used)]
 

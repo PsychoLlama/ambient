@@ -1,4 +1,4 @@
-//! Handles: opaque references native code mints. See `spec/values.md`.
+//! Handles: opaque references native code mints. See `docs/spec/values.md`.
 //!
 //! A handle is the brand it was minted under, as a tag, and a number
 //! its host knows it by. Nothing in a program reads either; the host

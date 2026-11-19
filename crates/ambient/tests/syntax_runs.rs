@@ -1,4 +1,4 @@
-//! Programs written as text, run on every backend. See `spec/syntax.md`.
+//! Programs written as text, run on every backend. See `docs/spec/syntax.md`.
 
 #![allow(clippy::unwrap_used)]
 

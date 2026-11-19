@@ -1,4 +1,4 @@
-//! What an edit invalidates. See `spec/definitions.md` and `spec/build.md`.
+//! What an edit invalidates. See `docs/spec/definitions.md` and `docs/spec/build.md`.
 //!
 //! Each test builds a program, edits it, and builds again over the same
 //! store. The second engine's log says which stages did their work.

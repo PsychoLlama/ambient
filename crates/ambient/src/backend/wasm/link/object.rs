@@ -1,6 +1,6 @@
 //! Reading the runtime as pieces: each function and each block of data
 //! of a relocatable object, with what it refers to. See "Pieces" in
-//! `spec/linking.md`.
+//! `docs/spec/linking.md`.
 //!
 //! The object is what a linker makes of the runtime and everything it
 //! is built on: one symbol table, and beside the code and the data a
@@ -55,7 +55,7 @@ pub enum Body {
         /// The power of two its address is a multiple of.
         align: u32,
         /// Whether the runtime writes to it: see "Pieces" in
-        /// `spec/linking.md`.
+        /// `docs/spec/linking.md`.
         state: bool,
     },
 }

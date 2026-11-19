@@ -1,5 +1,5 @@
 //! Compiled parts as bytes, for a host that has no compiler. See
-//! "Packs" in `spec/exchange.md`.
+//! "Packs" in `docs/spec/exchange.md`.
 
 #![allow(clippy::unwrap_used)]
 

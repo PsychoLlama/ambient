@@ -1,5 +1,5 @@
 //! The core checker: whether a core tree is one checking could have made.
-//! See `spec/exchange.md`.
+//! See `docs/spec/exchange.md`.
 //!
 //! Everything after checking trusts a core tree: lowering reads a field
 //! without asking whether the record has it, and calls a handler without

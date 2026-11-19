@@ -1,4 +1,4 @@
-//! Tasks that wait for a cell to change. See `spec/cells.md`.
+//! Tasks that wait for a cell to change. See `docs/spec/cells.md`.
 //!
 //! The tasks waiting on one cell are a ring: the cell names the one
 //! that has waited longest, and each names the one before it and the

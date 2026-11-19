@@ -1,5 +1,5 @@
 //! Joining: tasks started together, and their starter waiting for them.
-//! See `spec/tasks.md`.
+//! See `docs/spec/tasks.md`.
 
 use alloc::vec;
 use alloc::vec::Vec;

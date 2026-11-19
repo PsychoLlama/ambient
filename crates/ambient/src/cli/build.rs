@@ -1,5 +1,5 @@
 //! `ambient build`: an executable of a program, and how one starts.
-//! See "Building" in `spec/packages.md`.
+//! See "Building" in `docs/spec/packages.md`.
 //!
 //! An executable is a launcher with a program after it
 //! (`ambient_host::launch::Built`), which the launcher looks for in its
@@ -79,7 +79,7 @@ impl Session<'_> {
     }
 
     /// Builds `entry` of the package at `path` under `target` of the
-    /// same package. See "Builds" in `spec/tools.md`.
+    /// same package. See "Builds" in `docs/spec/tools.md`.
     ///
     /// A target built by a tool gives that tool's files, written into
     /// the directory `output`, or else `build` in the package's own.

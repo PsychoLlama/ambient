@@ -1,6 +1,6 @@
 //! A program running in a WebAssembly engine, and loading code into it.
 //!
-//! This is the host `spec/backends.md` leaves to an embedder, written
+//! This is the host `docs/spec/backends.md` leaves to an embedder, written
 //! for wasmtime: it instantiates the program, and each unit loaded after that as one more module over the same
 //! memory and table. Any other host does the same with the same
 //! modules; nothing here needs the compiler.

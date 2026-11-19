@@ -19,5 +19,5 @@ With lazy.nvim:
 ## What it gives
 
 - `ftdetect/`: `.ab` files have the filetype `ambient`.
-- `syntax/`: highlighting by pattern, following `spec/syntax.md`.
+- `syntax/`: highlighting by pattern, following `docs/spec/syntax.md`.
 - `ftplugin/`: `//` comments, `///` doc comments that continue, four-space indents.

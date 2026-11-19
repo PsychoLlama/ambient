@@ -1,4 +1,4 @@
-//! Surface trees: what an author writes. See `spec/trees.md`.
+//! Surface trees: what an author writes. See `docs/spec/trees.md`.
 //!
 //! The trees are generic over how they name things. As authored, a name is a
 //! [`Path`]; after resolution it is a [`Reference`]. Nothing else differs
@@ -80,7 +80,7 @@ pub struct Definition<N = Path> {
 }
 
 /// Data on a definition that a build reads: the tag that is its key,
-/// and an expression of plain data. See `spec/annotations.md`.
+/// and an expression of plain data. See `docs/spec/annotations.md`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Annotation<N = Path> {
     pub key: N,
@@ -94,7 +94,7 @@ pub const GENERATOR: &str = "__module";
 pub enum DefinitionKind<N = Path> {
     Type(TypeDefinition<N>),
     /// A type a comptime call gives: the call, which is run for the
-    /// type's tree. See "Splice positions" in `spec/comptime.md`.
+    /// type's tree. See "Splice positions" in `docs/spec/comptime.md`.
     Derived(Expr<N>),
     /// A function that is whatever tree a comptime call gives: the
     /// call.
@@ -107,10 +107,10 @@ pub enum DefinitionKind<N = Path> {
     Ability(Ability<N>),
     Contract(ContractDefinition<N>),
     /// A tag: a name for one value, told from every other by where it
-    /// is declared. See "Tags" in `spec/definitions.md`.
+    /// is declared. See "Tags" in `docs/spec/definitions.md`.
     Tag,
     /// A brand: a name for a mark on a type, told from every other by
-    /// where it is declared. See "Brands" in `spec/types.md`.
+    /// where it is declared. See "Brands" in `docs/spec/types.md`.
     Brand,
     /// A name the compiler knows: a call of it is a node of a tree,
     /// and it is nothing else. See [`intrinsic::Intrinsic`].
@@ -119,7 +119,7 @@ pub enum DefinitionKind<N = Path> {
     Target(Target<N>),
 }
 
-/// A definition implemented in native code. See `spec/externs.md`.
+/// A definition implemented in native code. See `docs/spec/externs.md`.
 impl<N> DefinitionKind<N> {
     /// The namespace a definition of this kind is named in. A tag is
     /// named as a type, and through that as a value.
@@ -144,7 +144,7 @@ impl<N> DefinitionKind<N> {
 pub struct Extern<N = Path> {
     pub kind: ExternKind<N>,
     /// Whether it may suspend the task that performs it: only a
-    /// handler may. See `spec/externs.md`.
+    /// handler may. See `docs/spec/externs.md`.
     pub suspends: bool,
 }
 
@@ -163,19 +163,19 @@ pub enum ExternKind<N = Path> {
 }
 
 /// The world a program runs in: a handler for each ability it offers.
-/// See `spec/targets.md`.
+/// See `docs/spec/targets.md`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target<N = Path> {
     /// Targets whose bindings this one starts from.
     pub extends: Vec<N>,
     /// The tool that builds a program under it, if it names one: see
-    /// "Builds" in `spec/tools.md`.
+    /// "Builds" in `docs/spec/tools.md`.
     pub tool: Option<N>,
     /// An ability, and the function or native handler bound to it.
     pub bindings: Vec<(N, N)>,
 }
 
-/// An operation with a signature and no body. See `spec/abilities.md`.
+/// An operation with a signature and no body. See `docs/spec/abilities.md`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ability<N = Path> {
     /// The type parameters of its signature. A handler for it is then
@@ -187,7 +187,7 @@ pub struct Ability<N = Path> {
 
 /// A contract: what a record holds a value under without reserving a
 /// name.
-/// See `spec/methods.md`.
+/// See `docs/spec/methods.md`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractDefinition<N = Path> {
     /// The type of what a record holds under the contract.
@@ -263,7 +263,7 @@ pub enum Type<N = Path> {
     Record(Vec<(Key<N>, Type<N>)>),
     /// A method, as a key of a record type holds one: what it needs of
     /// the record it is read from, and the function reading it gives.
-    /// See `spec/methods.md`.
+    /// See `docs/spec/methods.md`.
     Method {
         needs: Box<Type<N>>,
         function: Box<Type<N>>,
@@ -272,7 +272,7 @@ pub enum Type<N = Path> {
     List(Box<Type<N>>),
     /// A cell that holds a value of the type.
     Cell(Box<Type<N>>),
-    /// An iterator of items of the type. See `spec/iteration.md`.
+    /// An iterator of items of the type. See `docs/spec/iteration.md`.
     Iterator(Box<Type<N>>),
     Function {
         params: Members<N>,
@@ -285,7 +285,7 @@ pub enum Type<N = Path> {
     Named(N, Vec<Type<N>>),
     /// A function type with type parameters of its own: the bound of
     /// each, and the function type they are parameters of. See
-    /// "Generics" in `spec/types.md`.
+    /// "Generics" in `docs/spec/types.md`.
     Generic {
         bounds: Vec<Type<N>>,
         function: Box<Type<N>>,
@@ -297,7 +297,7 @@ pub enum Type<N = Path> {
     Bound(usize),
 }
 
-/// What can be done with a cell. See `spec/cells.md`.
+/// What can be done with a cell. See `docs/spec/cells.md`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CellOp {
     /// Makes a cell: its type, then its first value.
@@ -353,7 +353,7 @@ pub enum Expr<N = Path> {
     Record(Vec<(Key<N>, Expr<N>)>),
     /// A function as a method of the record it is a field of: its first
     /// parameter is the record the field is read from. Only a field of
-    /// a record is one. See `spec/methods.md`.
+    /// a record is one. See `docs/spec/methods.md`.
     Method(Box<Expr<N>>),
     Tuple(Vec<Expr<N>>),
     List(Vec<Expr<N>>),
@@ -373,13 +373,13 @@ pub enum Expr<N = Path> {
         body: Box<Expr<N>>,
     },
     /// An operation of the language on its operands. See
-    /// `spec/operations.md`.
+    /// `docs/spec/operations.md`.
     Operation {
         operator: Operator,
         operands: Vec<Expr<N>>,
     },
     /// A method call: `method` of `target`, with `args`. See
-    /// `spec/methods.md`. What it means waits for the type of `target`.
+    /// `docs/spec/methods.md`. What it means waits for the type of `target`.
     Send {
         target: Box<Expr<N>>,
         method: Key<N>,
@@ -410,7 +410,7 @@ pub enum Expr<N = Path> {
         args: Vec<Expr<N>>,
     },
     /// Evaluates `body`, and then `cleanup`, however `body` ended. Is what
-    /// `body` gave. See `spec/cleanup.md`.
+    /// `body` gave. See `docs/spec/cleanup.md`.
     /// Binds a value that carries its own cleanup, as a let does, and
     /// calls what the value holds under the standard library's contract
     /// when `body` exits.
@@ -420,18 +420,18 @@ pub enum Expr<N = Path> {
         body: Box<Expr<N>>,
     },
     /// Evaluates the body, and is what it gave, or the fault that ended
-    /// it, as an error. See `spec/values.md`.
+    /// it, as an error. See `docs/spec/values.md`.
     Boundary(Box<Expr<N>>),
     /// `expr`, with something said of it to a build: a key, which is
     /// a tag, and `value`, which is plain data. See
-    /// `spec/annotations.md`.
+    /// `docs/spec/annotations.md`.
     Annotated {
         key: N,
         value: Box<Expr<N>>,
         expr: Box<Expr<N>>,
     },
     /// Evaluates the body, and is what it gave once every task it spawned
-    /// is over. See `spec/tasks.md`.
+    /// is over. See `docs/spec/tasks.md`.
     Group(Box<Expr<N>>),
     /// Starts an expression as a task of the group it is written in, and
     /// is null.
@@ -450,7 +450,7 @@ pub enum Expr<N = Path> {
         args: Vec<Expr<N>>,
     },
     /// Evaluates `body`, calling `observer` with each ability it performs,
-    /// the arguments, and what came back. See `spec/handlers.md`.
+    /// the arguments, and what came back. See `docs/spec/handlers.md`.
     ///
     /// Counts as one binder, numbered after those in `observer`: it holds
     /// the observer.

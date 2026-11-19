@@ -4,7 +4,7 @@
 //! an interned string, so the order is by address: arbitrary, but the same
 //! for every record in one execution.
 //!
-//! A method (`spec/methods.md`) is held as a closure of its own kind,
+//! A method (`docs/spec/methods.md`) is held as a closure of its own kind,
 //! with room for the record it will receive. Reading the field gives a
 //! copy that holds the record, so no record holds itself.
 

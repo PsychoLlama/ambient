@@ -1,5 +1,5 @@
 //! Operations: an operator applied to operands. See
-//! `spec/operations.md`.
+//! `docs/spec/operations.md`.
 
 use crate::surface::{Expr, Operator};
 

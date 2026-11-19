@@ -1,5 +1,5 @@
 //! Abort: unwinding to the provide that bound a handler. See
-//! `spec/backends.md`.
+//! `docs/spec/backends.md`.
 //!
 //! A provide makes a token for each abort handler it binds, and puts the
 //! token where a handler would go. Performing the ability records the token

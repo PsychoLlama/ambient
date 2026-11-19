@@ -1,6 +1,6 @@
 # Writing a program in Ambient
 
-This is a tour for someone who wants to write and run something. The [spec](../spec/README.md) says what the language is and why; the packages under [`examples/`](../examples) are complete programs.
+This is a tour for someone who wants to write and run something. The [spec](spec/README.md) says what the language is and why; the packages under [`examples/`](../examples) are complete programs.
 
 Every block marked `ab` on this page is a whole module, and a test checks each one.
 

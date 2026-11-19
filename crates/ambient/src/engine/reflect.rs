@@ -1,7 +1,7 @@
 //! What a build is told of a program and of the world outside it: a
 //! package's modules, a module's definitions, what a definition
 //! reaches, a run of a function, and the bytes at a URL. See "Build
-//! abilities" in `spec/tools.md`.
+//! abilities" in `docs/spec/tools.md`.
 
 use std::collections::HashSet;
 

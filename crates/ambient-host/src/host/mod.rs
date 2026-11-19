@@ -1,5 +1,5 @@
 //! The native side of the standard library's command-line target: what
-//! `system.cli` binds each ability to. See `spec/targets.md`.
+//! `system.cli` binds each ability to. See `docs/spec/targets.md`.
 //!
 //! Everything a program can do to the world goes through a [`World`], so
 //! the same handlers serve a real process ([`System`]) and a test that

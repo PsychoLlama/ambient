@@ -1,5 +1,5 @@
 //! Programs of tasks made at random, run on every backend. See
-//! `spec/tasks.md`, `spec/cells.md`, and `spec/cleanup.md`.
+//! `docs/spec/tasks.md`, `docs/spec/cells.md`, and `docs/spec/cleanup.md`.
 //!
 //! `support::run` fails if the backends disagree or either leaks, so
 //! running a program is the whole of the test: whatever tasks do to one

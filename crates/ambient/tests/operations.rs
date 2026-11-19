@@ -1,5 +1,5 @@
 //! Operations: what the language itself does with numbers, strings, and
-//! lists. See `spec/operations.md`.
+//! lists. See `docs/spec/operations.md`.
 
 #![allow(clippy::unwrap_used)]
 

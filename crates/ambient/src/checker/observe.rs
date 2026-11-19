@@ -1,5 +1,5 @@
 //! Recording: an observer told of every ability a body performs. See
-//! `spec/handlers.md`.
+//! `docs/spec/handlers.md`.
 //!
 //! A recording has no node of its own. For each ability its body takes
 //! from outside, the checker derives a handler that forwards to the

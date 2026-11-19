@@ -1,5 +1,5 @@
 //! Hashing, HMAC, and random bytes. See "Cryptography" in
-//! `spec/targets.md`.
+//! `docs/spec/targets.md`.
 
 #![allow(clippy::unwrap_used)]
 

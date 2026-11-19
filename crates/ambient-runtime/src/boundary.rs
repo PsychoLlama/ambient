@@ -1,5 +1,5 @@
-//! Boundaries: a fault as an error. See `spec/values.md` and
-//! `spec/errors.md`.
+//! Boundaries: a fault as an error. See `docs/spec/values.md` and
+//! `docs/spec/errors.md`.
 
 use crate::object::amb_release;
 use crate::record::{amb_record_new, amb_record_set};

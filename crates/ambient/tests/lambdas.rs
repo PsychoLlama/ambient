@@ -1,5 +1,5 @@
-//! Lambdas: functions written in place. See `spec/definitions.md` and
-//! `spec/core.md`.
+//! Lambdas: functions written in place. See `docs/spec/definitions.md` and
+//! `docs/spec/core.md`.
 
 #![allow(clippy::unwrap_used)]
 

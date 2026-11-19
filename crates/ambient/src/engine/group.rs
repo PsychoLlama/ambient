@@ -1,5 +1,5 @@
 //! Hash: an open definition and the hashes of its slots yield a hash. See
-//! `spec/definitions.md`.
+//! `docs/spec/definitions.md`.
 //!
 //! Definitions that refer to each other cyclically form a group and are
 //! hashed as one unit. Finding groups is Tarjan's algorithm over slots, which

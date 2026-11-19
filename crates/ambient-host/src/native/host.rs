@@ -15,7 +15,7 @@ use crate::parts::{Native, Parts};
 use crate::value::{self, Handed, Live, Value};
 
 /// The program that called native code, as far as native code reaches
-/// it. See "Native side" in `spec/externs.md`.
+/// it. See "Native side" in `docs/spec/externs.md`.
 pub trait Running {
     /// Loads a function into the program and gives it as a value: one
     /// `Engine::link_to_load` made for the program's
@@ -50,7 +50,7 @@ pub trait Running {
     /// Calls a function value of the program with `args` and nothing
     /// bound, and gives what it gives. The call is the task's that
     /// called this native code: see "Calling back" in
-    /// `spec/externs.md`.
+    /// `docs/spec/externs.md`.
     ///
     /// # Errors
     ///
@@ -92,7 +92,7 @@ pub const UNASKED: &str = "nothing that is running the program answers questions
 /// What answers the questions a program asks of what runs it, each by
 /// name. A build is one: a program it runs asks it what a definition
 /// reaches or compiles to, which only the build knows. See "Build
-/// abilities" in `spec/tools.md`.
+/// abilities" in `docs/spec/tools.md`.
 pub trait Questions {
     /// The answer to `question`, asked with `args`.
     ///
@@ -264,7 +264,7 @@ pub struct Offered {
     pub run: NativeFn,
     /// Whether calling it again is cheap, has no side effects, and shows
     /// whether what it returned before still holds. See
-    /// `spec/memoization.md`.
+    /// `docs/spec/memoization.md`.
     pub verifiable: bool,
 }
 

@@ -1,4 +1,4 @@
-//! Calling native code. See `spec/externs.md`.
+//! Calling native code. See `docs/spec/externs.md`.
 //!
 //! Compiled code never holds the address of native code. It names an
 //! extern by its position among the externs of the program, and the host

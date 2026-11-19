@@ -1,5 +1,5 @@
 //! Literals: the values that can be written directly, and so have a type of
-//! their own. See `spec/types.md`.
+//! their own. See `docs/spec/types.md`.
 
 use std::fmt;
 
@@ -23,7 +23,7 @@ pub enum Literal {
 }
 
 /// A brand: a mark on a type, told from every other by where it is
-/// declared. See "Brands" in `spec/types.md`.
+/// declared. See "Brands" in `docs/spec/types.md`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Brand {
     /// The package it is declared in.

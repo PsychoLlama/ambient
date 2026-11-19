@@ -1,7 +1,7 @@
 //! Compiled parts as bytes: what a host that has no compiler is given
-//! to load. See "Packs" in `spec/exchange.md`.
+//! to load. See "Packs" in `docs/spec/exchange.md`.
 //!
-//! The bytes are trusted as the code is (`spec/exchange.md`, "Trust"):
+//! The bytes are trusted as the code is (`docs/spec/exchange.md`, "Trust"):
 //! decoding refuses what is not parts at all, or was made for another
 //! backend, and nothing subtler.
 

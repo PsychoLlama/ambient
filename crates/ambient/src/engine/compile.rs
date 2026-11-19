@@ -1,5 +1,5 @@
 //! Compile: a core tree, the interfaces of its slots, and a backend yield an
-//! artifact. See `spec/build.md`.
+//! artifact. See `docs/spec/build.md`.
 
 use std::sync::Arc;
 
@@ -30,7 +30,7 @@ pub trait Backend {
 
     /// Whether a task is a stack where this backend's code runs, so
     /// that no function is compiled to suspend or to resume. See
-    /// "Suspension" in `spec/backends.md`.
+    /// "Suspension" in `docs/spec/backends.md`.
     fn stacks(&self) -> bool {
         false
     }

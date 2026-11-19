@@ -1,4 +1,4 @@
-//! Types as a core tree holds them. See `spec/core.md`.
+//! Types as a core tree holds them. See `docs/spec/core.md`.
 //!
 //! A core tree names another definition by a slot, so whoever lowers a
 //! type says which slot a symbol has.

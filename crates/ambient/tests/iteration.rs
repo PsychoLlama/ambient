@@ -1,5 +1,5 @@
 //! Iterators of the standard library, run on every backend. See
-//! `spec/iteration.md`.
+//! `docs/spec/iteration.md`.
 
 #![allow(clippy::unwrap_used)]
 

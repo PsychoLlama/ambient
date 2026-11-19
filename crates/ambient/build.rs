@@ -1,6 +1,6 @@
 //! Builds the runtime for WebAssembly as one relocatable object, so the
 //! compiler can link into each module the parts of it the module
-//! reaches. See `spec/linking.md`. Also names the build, for the
+//! reaches. See `docs/spec/linking.md`. Also names the build, for the
 //! store.
 
 use std::collections::hash_map::DefaultHasher;

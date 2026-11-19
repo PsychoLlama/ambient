@@ -1,5 +1,5 @@
 //! Packages that depend on each other, by directory and as members of
-//! a workspace. See "Workspaces" in `spec/packages.md`.
+//! a workspace. See "Workspaces" in `docs/spec/packages.md`.
 
 #![allow(clippy::unwrap_used)]
 

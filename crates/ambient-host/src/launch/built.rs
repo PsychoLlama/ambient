@@ -1,5 +1,5 @@
 //! An executable of a program, and how one starts. See "Building" in
-//! `spec/packages.md`.
+//! `docs/spec/packages.md`.
 //!
 //! An executable is a launcher's own file with a program after it:
 //! what was compiled, what a report of it names, how long those are,

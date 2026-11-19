@@ -1,5 +1,5 @@
 //! How a recursive type definition varies with its type parameters, and
-//! whether unfolding it ever ends. See "Subtyping" in `spec/types.md`.
+//! whether unfolding it ever ends. See "Subtyping" in `docs/spec/types.md`.
 //!
 //! A recursive type that applies itself to anything but its own
 //! parameters has no end of different unfoldings, so two uses of it

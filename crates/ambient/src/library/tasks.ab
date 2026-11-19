@@ -1,6 +1,6 @@
 use pkg.intrinsics;
 
-/// What a group is written with, and a join: see `spec/tasks.md`.
+/// What a group is written with, and a join: see `docs/spec/tasks.md`.
 pub use pkg.intrinsics.{all, first, group, spawn};
 
 /// What each of `work` gives, in order, with every one run as a task

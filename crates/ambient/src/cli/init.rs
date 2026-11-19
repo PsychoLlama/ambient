@@ -1,5 +1,5 @@
 //! `ambient init`: the files of a package that runs and has a test, to
-//! begin one from. See `spec/packages.md`.
+//! begin one from. See `docs/spec/packages.md`.
 
 use std::path::{Component, Path, PathBuf};
 

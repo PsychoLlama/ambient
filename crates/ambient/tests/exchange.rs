@@ -1,4 +1,4 @@
-//! The canonical encoding of values. See `spec/exchange.md`.
+//! The canonical encoding of values. See `docs/spec/exchange.md`.
 
 #![allow(clippy::unwrap_used)]
 

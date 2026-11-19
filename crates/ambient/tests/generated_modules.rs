@@ -1,5 +1,5 @@
 //! Modules whose whole content is a comptime call. See "Splice
-//! positions" in `spec/comptime.md`.
+//! positions" in `docs/spec/comptime.md`.
 
 #![allow(clippy::unwrap_used)]
 

@@ -1,5 +1,5 @@
 //! Packing a definition to send, and receiving one. See
-//! `spec/exchange.md`.
+//! `docs/spec/exchange.md`.
 //!
 //! A received definition enters the engine as an open core tree under a
 //! symbol the engine makes up: a symbol never reaches a hash, so the

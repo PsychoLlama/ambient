@@ -1,6 +1,6 @@
 //! What a program that did not finish is reported as: the error that
 //! ended it, and where each frame of its trace is in the text. See
-//! "Traces" in `spec/errors.md`.
+//! "Traces" in `docs/spec/errors.md`.
 
 use std::collections::BTreeMap;
 

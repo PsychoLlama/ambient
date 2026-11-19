@@ -1,5 +1,5 @@
 //! Methods: fields of a record that receive the record they are read
-//! from. See `spec/methods.md`.
+//! from. See `docs/spec/methods.md`.
 //!
 //! A record holds a method as a closure over a function the checker
 //! writes: one that captures the method's function and the record, and

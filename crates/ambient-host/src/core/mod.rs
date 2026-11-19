@@ -1,4 +1,4 @@
-//! Core trees: the checked form of a definition. See `spec/core.md`.
+//! Core trees: the checked form of a definition. See `docs/spec/core.md`.
 
 mod depth;
 mod encode;
@@ -217,7 +217,7 @@ pub enum Expr {
     },
     /// What an iterator gives next: null, or an item and the iterator
     /// of the rest. Not a primitive, since stepping may call a
-    /// function. See `spec/iteration.md`.
+    /// function. See `docs/spec/iteration.md`.
     Step(Box<Expr>),
     Tuple(Vec<Expr>),
     List(Vec<Expr>),
@@ -255,7 +255,7 @@ pub enum Expr {
         ty: Type,
     },
     /// `value`, with something said of it to a build. A program that
-    /// runs sees the value alone. See `spec/annotations.md`.
+    /// runs sees the value alone. See `docs/spec/annotations.md`.
     Annotated {
         annotation: Annotation,
         value: Box<Expr>,
@@ -388,7 +388,7 @@ pub enum Tree {
     Ability {
         /// What tells it from every other: the ID of the package that
         /// declares it, and its module path and name as one text. See
-        /// "Identity" in `spec/definitions.md`.
+        /// "Identity" in `docs/spec/definitions.md`.
         package: String,
         path: String,
         /// The bound of each type parameter of its signature.
@@ -440,7 +440,7 @@ pub struct Open {
 /// Data on a definition or an expression that a build reads and a
 /// program never does:
 /// a key, which is a tag, and a value. It is content, so a hash
-/// covers it. See `spec/annotations.md`.
+/// covers it. See `docs/spec/annotations.md`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Annotation {
     /// The key: the package a tag is of, and the tag.

@@ -1,4 +1,4 @@
-//! Source text as tokens. See `spec/syntax.md`.
+//! Source text as tokens. See `docs/spec/syntax.md`.
 
 use super::{Position, SyntaxError};
 

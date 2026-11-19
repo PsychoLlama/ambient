@@ -1,4 +1,4 @@
-//! Moments, dates, and their text. See `spec/time.md`.
+//! Moments, dates, and their text. See `docs/spec/time.md`.
 
 #![allow(clippy::unwrap_used)]
 

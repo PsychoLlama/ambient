@@ -1,5 +1,5 @@
 //! What checking a definition reads about others, and what covers it in
-//! the check key. See `spec/definitions.md` and `spec/methods.md`.
+//! the check key. See `docs/spec/definitions.md` and `docs/spec/methods.md`.
 //!
 //! Most of it follows from the names in the definition's tree. A method
 //! call is the exception: what it means waits for the type of its

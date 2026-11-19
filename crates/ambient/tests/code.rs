@@ -1,5 +1,5 @@
 //! Packing a function and loading one, as a program does. See "Code"
-//! in `spec/targets.md`.
+//! in `docs/spec/targets.md`.
 
 #![allow(clippy::unwrap_used)]
 
@@ -140,7 +140,7 @@ fn a_loaded_function_does_what_its_caller_provides() {
 
 #[test]
 fn a_program_goes_on_with_the_code_it_was_last_given() {
-    // The pattern of `spec/upgrade.md`: what answers is read from a
+    // The pattern of `docs/spec/upgrade.md`: what answers is read from a
     // cell each time, and a deploy replaces what the cell holds.
     let source = r#"
         type Answer = fn(text: string): string;

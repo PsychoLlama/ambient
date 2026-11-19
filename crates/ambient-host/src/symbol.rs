@@ -1,4 +1,4 @@
-//! Symbols: the canonical names of definitions. See `spec/symbols.md`.
+//! Symbols: the canonical names of definitions. See `docs/spec/symbols.md`.
 
 use std::fmt;
 use std::ops::Deref;
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// One package instance in a workspace.
 ///
 /// TODO: this becomes a workspace member or a locked snapshot once packages
-/// have identities (`spec/packages.md`).
+/// have identities (`docs/spec/packages.md`).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PackageId(pub String);
 
@@ -38,7 +38,7 @@ impl ModuleId {
 
     /// The library module of `package`: the one whose definitions are
     /// reached through the package itself, and which lists the modules
-    /// other packages may reach. See `spec/packages.md`.
+    /// other packages may reach. See `docs/spec/packages.md`.
     #[must_use]
     pub fn library(package: &PackageId) -> Self {
         Self {
@@ -95,7 +95,7 @@ pub enum Namespace {
     Value,
     Ability,
     /// The contracts a record holds a value under besides names. See
-    /// `spec/methods.md`.
+    /// `docs/spec/methods.md`.
     Contract,
 }
 
@@ -136,7 +136,7 @@ impl Symbol {
     /// What tells a definition from every other of its package, where
     /// structure cannot: its module path and its name, as one text. With
     /// the package's ID it is the definition's identity. See "Identity"
-    /// in `spec/definitions.md`.
+    /// in `docs/spec/definitions.md`.
     #[must_use]
     pub fn identity(&self) -> String {
         let path = self.module.path.0.iter().map(String::as_str);

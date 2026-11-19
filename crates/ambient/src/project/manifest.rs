@@ -1,5 +1,5 @@
 //! What a manifest says: of a package, of a workspace, or of both. See
-//! "Layout" and "Workspaces" in `spec/packages.md`.
+//! "Layout" and "Workspaces" in `docs/spec/packages.md`.
 
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
@@ -24,7 +24,7 @@ pub struct Package {
     /// What the package is called in messages, and in this workspace.
     pub name: String,
     /// The package's identity, made once and kept whatever the package
-    /// comes to be called. See "Identity" in `spec/packages.md`.
+    /// comes to be called. See "Identity" in `docs/spec/packages.md`.
     pub id: String,
     pub version: Version,
     /// The modules in scope in every module of the package, each a path
@@ -40,10 +40,10 @@ pub struct Package {
     /// the package, each a path from the manifest's directory.
     pub files: Vec<PathBuf>,
     /// The build steps the package adds to builds under a target. See
-    /// "Builds" in `spec/tools.md`.
+    /// "Builds" in `docs/spec/tools.md`.
     pub steps: Vec<Step>,
     /// The lints checking the package runs, each a path as a
-    /// prelude's is, to a function. See "Commands" in `spec/tools.md`.
+    /// prelude's is, to a function. See "Commands" in `docs/spec/tools.md`.
     pub lints: Vec<String>,
 }
 
@@ -54,7 +54,7 @@ pub struct Dependency {
     /// The ID of the package meant.
     pub id: String,
     /// The least version of it that will do, whose line is the one
-    /// meant. See "Selection" in `spec/releases.md`.
+    /// meant. See "Selection" in `docs/spec/releases.md`.
     pub version: Option<Version>,
     /// Where the package is, from the directory of this manifest. One
     /// that is nowhere is a member of the workspace.
@@ -156,7 +156,7 @@ pub struct Manifest {
     /// own, if it is a workspace's.
     pub members: Option<Vec<PathBuf>>,
     /// The snapshot each member that was vendored was copied from, by
-    /// its directory. See "Vendoring" in `spec/releases.md`.
+    /// its directory. See "Vendoring" in `docs/spec/releases.md`.
     pub vendored: BTreeMap<PathBuf, String>,
 }
 

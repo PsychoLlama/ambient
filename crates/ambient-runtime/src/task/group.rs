@@ -1,5 +1,5 @@
 //! Groups: a block whose body starts tasks and which ends only once they
-//! all have. See `spec/tasks.md`.
+//! all have. See `docs/spec/tasks.md`.
 //!
 //! A group is a join whose starter does not wait at once: it runs the
 //! group's body, which spawns into the join, and waits when the body is

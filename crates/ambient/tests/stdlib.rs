@@ -1,5 +1,5 @@
 //! The methods the standard library gives each shape, which are source
-//! like any program. See `spec/methods.md` and `spec/iteration.md`.
+//! like any program. See `docs/spec/methods.md` and `docs/spec/iteration.md`.
 
 #![allow(clippy::unwrap_used)]
 

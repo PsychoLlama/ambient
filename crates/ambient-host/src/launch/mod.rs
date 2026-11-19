@@ -1,5 +1,5 @@
 //! Starting a compiled program: loading it, running it, and the report
-//! of one that did not finish. See "Running" in `spec/packages.md`.
+//! of one that did not finish. See "Running" in `docs/spec/packages.md`.
 
 mod built;
 mod own;

@@ -1,4 +1,4 @@
-//! Tail calls, run on every backend. See "Calls" in `spec/backends.md`.
+//! Tail calls, run on every backend. See "Calls" in `docs/spec/backends.md`.
 //!
 //! What a trace says of them is tested in `traces.rs`.
 

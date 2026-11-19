@@ -1,5 +1,5 @@
 //! The standard library: the language's own package, written with
-//! builders or as source like any other. See `spec/modules.md` and `spec/errors.md`.
+//! builders or as source like any other. See `docs/spec/modules.md` and `docs/spec/errors.md`.
 //!
 //! The kind of an error a boundary makes is a tag this package declares in its library module, which a
 //! workspace has in scope unless it lists preludes of its own.
@@ -37,7 +37,7 @@ const SOURCES: [(&str, &str); 20] = [
 ];
 
 /// The target comptime calls of a package on disk run under: see
-/// "Build abilities" in `spec/tools.md`.
+/// "Build abilities" in `docs/spec/tools.md`.
 #[must_use]
 pub fn build() -> crate::symbol::Symbol {
     ModuleId::new(FAULT_PACKAGE, "build").value("world")

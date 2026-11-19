@@ -1,7 +1,7 @@
 //! Blocks: statements, and the expression they are.
 //!
 //! The language has no statements and no way to leave a function early
-//! (`spec/syntax.md`). A block is read as statements and then arranged:
+//! (`docs/spec/syntax.md`). A block is read as statements and then arranged:
 //! each `let` scopes over what follows it, and what follows a branch
 //! that may return becomes what its other branches go on to do.
 

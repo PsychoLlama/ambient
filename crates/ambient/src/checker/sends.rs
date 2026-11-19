@@ -1,4 +1,4 @@
-//! Method calls. See `spec/methods.md`.
+//! Method calls. See `docs/spec/methods.md`.
 //!
 //! What a call means is decided by the type of its receiver: a field of
 //! a record, or the function the standard library has under that name

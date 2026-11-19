@@ -1,6 +1,6 @@
 //! Annotations: what a definition says to a build, and what a build
 //! is told of them and of the definitions they are on. See
-//! `spec/annotations.md` and "Build abilities" in `spec/tools.md`.
+//! `docs/spec/annotations.md` and "Build abilities" in `docs/spec/tools.md`.
 
 use std::collections::{HashMap, HashSet};
 
@@ -112,7 +112,7 @@ impl Engine<'_> {
     /// The annotations of the key `package` and `tag` that `from`
     /// reaches, as a list of `build.Annotation`: in the order a walk
     /// from it first meets them, a definition met twice giving its
-    /// own once. See "Collecting" in `spec/annotations.md`.
+    /// own once. See "Collecting" in `docs/spec/annotations.md`.
     pub(super) fn annotations(
         &self,
         from: &Symbol,
@@ -134,7 +134,7 @@ impl Engine<'_> {
         Ok(Value::List(found))
     }
 
-    /// Walks what `from` reaches, in the order `spec/annotations.md`
+    /// Walks what `from` reaches, in the order `docs/spec/annotations.md`
     /// gives: `visit` is told each definition as the walk comes to it,
     /// and then each thing said in it, with the definition it is in.
     pub(super) fn walk(

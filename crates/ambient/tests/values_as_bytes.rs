@@ -1,5 +1,5 @@
 //! A value as bytes and back, for a program that keeps one. See
-//! "Values as bytes" in `spec/targets.md`.
+//! "Values as bytes" in `docs/spec/targets.md`.
 
 #![allow(clippy::unwrap_used)]
 

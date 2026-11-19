@@ -1,5 +1,5 @@
 //! Type parameters, bounds, and generic type definitions. See
-//! `spec/types.md`.
+//! `docs/spec/types.md`.
 
 #![allow(clippy::unwrap_used)]
 

@@ -26,7 +26,7 @@ pub enum Value {
     Bytes(Vec<u8>),
     /// A handle: the brand it was minted under, by the package that
     /// declares it and its identity there, and the number the host
-    /// that minted it knows it by. See `spec/values.md`.
+    /// that minted it knows it by. See `docs/spec/values.md`.
     Handle {
         package: String,
         brand: String,
@@ -327,7 +327,7 @@ pub trait Construct {
     fn int(&mut self, value: i64) -> Word;
     fn float(&mut self, bits: u64) -> Word;
     fn string(&mut self, bytes: &[u8]) -> Word;
-    /// A bytes value: see "Bytes" in `spec/operations.md`.
+    /// A bytes value: see "Bytes" in `docs/spec/operations.md`.
     fn bytes(&mut self, bytes: &[u8]) -> Word;
     /// The key a record holds the field `name` under.
     fn key(&mut self, name: &[u8]) -> Word;

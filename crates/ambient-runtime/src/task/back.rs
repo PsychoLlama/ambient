@@ -1,5 +1,5 @@
 //! Calls native code makes back into its program. See "Calling back" in
-//! `spec/externs.md`.
+//! `docs/spec/externs.md`.
 //!
 //! Native code is on the stack while what it calls runs, and nothing
 //! can save it there. So a task that suspends beneath native code is

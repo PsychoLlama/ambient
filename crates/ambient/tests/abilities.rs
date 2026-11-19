@@ -1,5 +1,5 @@
 //! Abilities, handlers, and abort, run on every backend. See
-//! `spec/abilities.md` and `spec/handlers.md`.
+//! `docs/spec/abilities.md` and `docs/spec/handlers.md`.
 
 #![allow(clippy::unwrap_used)]
 

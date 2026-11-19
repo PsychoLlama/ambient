@@ -1,5 +1,5 @@
 //! Waiting on the host: a task suspended in native code that will
-//! answer later. See "Native side" in `spec/externs.md`.
+//! answer later. See "Native side" in `docs/spec/externs.md`.
 //!
 //! Native code that cannot answer at once asks for a ticket
 //! ([`amb_await`]) and returns. The task suspends, and the host hands

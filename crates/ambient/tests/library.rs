@@ -1,4 +1,4 @@
-//! The standard library. See `spec/modules.md` and `spec/errors.md`.
+//! The standard library. See `docs/spec/modules.md` and `docs/spec/errors.md`.
 
 #![allow(clippy::unwrap_used)]
 

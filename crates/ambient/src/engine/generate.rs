@@ -1,6 +1,6 @@
 //! Definitions that are whatever tree a comptime call gives: a derived
 //! type, a generated function, and the definitions of a generated
-//! module. See "Splice positions" in `spec/comptime.md`.
+//! module. See "Splice positions" in `docs/spec/comptime.md`.
 //!
 //! The call is checked as the body of a function the engine writes,
 //! which takes nothing and gives the tree. Everything a comptime
@@ -37,7 +37,7 @@ impl Engine<'_> {
 
     /// The definitions the call of a generated module gives, each
     /// resolved as one written there would be; none, for a module that
-    /// was written. See "Splice positions" in `spec/comptime.md`.
+    /// was written. See "Splice positions" in `docs/spec/comptime.md`.
     pub(super) fn made(&self, module: &ModuleId) -> Query<Vec<Definition<Reference>>> {
         memo(&self.made, module, || {
             if !self.generates(module)? {

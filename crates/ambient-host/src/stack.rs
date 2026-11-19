@@ -1,4 +1,4 @@
-//! The stack a program runs on. See "Calls" in `spec/backends.md`.
+//! The stack a program runs on. See "Calls" in `docs/spec/backends.md`.
 //!
 //! Calls nest no deeper than the runtime counts
 //! ([`ambient_runtime::DEPTH`]), so a host that gives a program room

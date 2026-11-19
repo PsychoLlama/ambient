@@ -1,4 +1,4 @@
-//! Cleanups, run on every backend. See `spec/cleanup.md`.
+//! Cleanups, run on every backend. See `docs/spec/cleanup.md`.
 
 #![allow(clippy::unwrap_used)]
 

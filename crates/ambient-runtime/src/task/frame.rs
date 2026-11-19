@@ -1,6 +1,6 @@
 //! What a function keeps while its task is suspended: the frame it
 //! saves as it unwinds and takes back as it is called again. See
-//! "Suspension" in `spec/backends.md`.
+//! "Suspension" in `docs/spec/backends.md`.
 //!
 //! A function makes its frame with one call and then one for each
 //! local, and takes it back the other way round. What makes a frame

@@ -1,5 +1,5 @@
 //! Writing the files of a build into a directory the command owns.
-//! See "Builds" in `spec/tools.md`.
+//! See "Builds" in `docs/spec/tools.md`.
 
 use std::collections::BTreeSet;
 use std::path::{Component, Path};

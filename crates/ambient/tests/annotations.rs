@@ -1,5 +1,5 @@
 //! Annotations: what a definition says to a build, which a tool
-//! collects and a program never reads. See `spec/annotations.md`.
+//! collects and a program never reads. See `docs/spec/annotations.md`.
 
 #![allow(clippy::unwrap_used)]
 

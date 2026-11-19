@@ -1,6 +1,6 @@
 //! Build grants: what a package's manifest lets its comptime calls
 //! take, and the files they read. See "Authority" in
-//! `spec/comptime.md`.
+//! `docs/spec/comptime.md`.
 
 #![allow(clippy::unwrap_used)]
 

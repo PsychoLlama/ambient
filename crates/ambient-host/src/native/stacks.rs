@@ -1,6 +1,6 @@
 //! A task as a stack of its own: what the runtime asks of a platform
 //! that can keep one (`ambient_runtime::Stacks`). See "Suspension" in
-//! `spec/backends.md`.
+//! `docs/spec/backends.md`.
 //!
 //! Each stack has the room a program may take ([`ROOM`]), reserved and
 //! not touched until used. One that is done with is kept for the next

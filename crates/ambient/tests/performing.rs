@@ -1,5 +1,5 @@
 //! Native code that performs an ability of the row it declared. See
-//! "Calling back" in `spec/externs.md`.
+//! "Calling back" in `docs/spec/externs.md`.
 
 #![allow(clippy::unwrap_used)]
 

@@ -1,5 +1,5 @@
 //! Intrinsics: names the compiler knows, which a call of is a node of
-//! a tree. See "Intrinsics" in `spec/definitions.md`.
+//! a tree. See "Intrinsics" in `docs/spec/definitions.md`.
 
 #![allow(clippy::unwrap_used)]
 

@@ -1,5 +1,5 @@
 //! Which functions are handed their type arguments as they run. See
-//! "Types at run time" in `spec/backends.md`.
+//! "Types at run time" in `docs/spec/backends.md`.
 
 use std::collections::HashMap;
 

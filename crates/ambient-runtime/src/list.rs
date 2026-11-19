@@ -1,4 +1,4 @@
-//! Lists. See "Sharing" in `spec/values.md`.
+//! Lists. See "Sharing" in `docs/spec/values.md`.
 //!
 //! A list is a view: a buffer, where in it the list starts, and how
 //! many members it has. A buffer has room for more members than it

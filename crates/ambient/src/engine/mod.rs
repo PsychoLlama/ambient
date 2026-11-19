@@ -1,4 +1,4 @@
-//! The build engine: demand-driven stages over a store. See `spec/build.md`.
+//! The build engine: demand-driven stages over a store. See `docs/spec/build.md`.
 //!
 //! An [`Engine`] answers questions about one snapshot of a program. Nothing
 //! is computed until a question needs it.

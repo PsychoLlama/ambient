@@ -1,6 +1,6 @@
 //! Which type a function type is, as one name: what a function's
 //! definition carries, and what a cast to a function type compares it
-//! with. See "Types at run time" in `spec/backends.md`.
+//! with. See "Types at run time" in `docs/spec/backends.md`.
 //!
 //! Two function types have one name exactly when they are the same
 //! type: a definition is named by its hash, and a union's members and a

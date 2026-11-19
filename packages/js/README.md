@@ -77,4 +77,4 @@ plugin.release();
 - `cargo nextest run -p ambient-js` builds a program with this package and runs `crates/ambient-js/js/*.test.js` under Node's own runner.
 - Nothing here is installed from a registry. Keep it so.
 
-See "JavaScript hosts" in `spec/targets.md` and `spec/tools.md`.
+See "JavaScript hosts" in `docs/spec/targets.md` and `docs/spec/tools.md`.

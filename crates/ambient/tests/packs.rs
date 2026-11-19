@@ -1,5 +1,5 @@
 //! Packs: a definition sent from one build and received by another. See
-//! `spec/exchange.md`.
+//! `docs/spec/exchange.md`.
 
 #![allow(clippy::unwrap_used)]
 

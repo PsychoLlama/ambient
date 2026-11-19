@@ -1,5 +1,5 @@
 //! Casts that compare types at run time: to a function type, to a cell
-//! type, and to a type parameter. See `spec/backends.md`.
+//! type, and to a type parameter. See `docs/spec/backends.md`.
 
 #![allow(clippy::unwrap_used)]
 

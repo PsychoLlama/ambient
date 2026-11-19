@@ -1,5 +1,5 @@
 //! Linking the runtime into a module: the pieces the module reaches,
-//! each given its place, and nothing else. See `spec/linking.md`.
+//! each given its place, and nothing else. See `docs/spec/linking.md`.
 //!
 //! A program's pieces are at addresses and indices known when it is
 //! put together. A unit's are not: it is loaded wherever its program

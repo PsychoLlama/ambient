@@ -1,5 +1,5 @@
 //! What the command line says of a package as files. See "Identity"
-//! in `spec/packages.md`.
+//! in `docs/spec/packages.md`.
 
 use std::path::Path;
 

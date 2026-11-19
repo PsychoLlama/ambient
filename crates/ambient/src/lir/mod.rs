@@ -1,4 +1,4 @@
-//! The lowered form: what a backend translates. See `spec/backends.md`.
+//! The lowered form: what a backend translates. See `docs/spec/backends.md`.
 //!
 //! It is first-order and structured. Every intermediate value is bound to a
 //! local, and reference counting is explicit:
@@ -13,7 +13,7 @@
 //! `Let`s so that each releases its local.
 //!
 //! A task suspends by unwinding and resumes by running its functions
-//! again (`spec/backends.md`). [`Expr::Point`] and [`Expr::Resumed`] are
+//! again (`docs/spec/backends.md`). [`Expr::Point`] and [`Expr::Resumed`] are
 //! how a function takes part: see [`crate::lower`].
 //!
 //! Most operations are calls into the runtime. [`Op::steps`] spells those

@@ -1,5 +1,5 @@
 //! The files that are a package, and the hash of them. See "Identity"
-//! and "Layout" in `spec/packages.md`.
+//! and "Layout" in `docs/spec/packages.md`.
 
 use std::io;
 use std::path::{Component, Path, PathBuf};

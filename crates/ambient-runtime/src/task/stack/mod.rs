@@ -1,4 +1,4 @@
-//! A task as a stack. See "Suspension" in `spec/backends.md`.
+//! A task as a stack. See "Suspension" in `docs/spec/backends.md`.
 //!
 //! Where a platform can keep a stack and come back to it, a task that
 //! suspends is left as it stands: nothing it is inside of unwinds. The

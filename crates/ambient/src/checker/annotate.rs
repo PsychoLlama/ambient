@@ -1,5 +1,5 @@
 //! An annotation on an expression: the expression, with something
-//! said of it to a build. See `spec/annotations.md`.
+//! said of it to a build. See `docs/spec/annotations.md`.
 
 use super::{Checker, core};
 use crate::core::Annotation;

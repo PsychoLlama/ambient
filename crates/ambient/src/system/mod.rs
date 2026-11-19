@@ -1,6 +1,6 @@
 //! The `system` package: the abilities of a program on a machine, and
 //! the command-line target that binds them. See "The system package"
-//! in `spec/targets.md`.
+//! in `docs/spec/targets.md`.
 //!
 //! Its modules are source, embedded and read at install, as the
 //! standard library's are. Its native side is [`crate::host`].

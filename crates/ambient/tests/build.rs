@@ -1,5 +1,5 @@
 //! `ambient build`: an executable of a program. See "Building" in
-//! `spec/packages.md`.
+//! `docs/spec/packages.md`.
 
 #![allow(clippy::unwrap_used)]
 

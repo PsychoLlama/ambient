@@ -1,4 +1,4 @@
-//! Handles: opaque references native code mints. See `spec/values.md`.
+//! Handles: opaque references native code mints. See `docs/spec/values.md`.
 
 #![allow(clippy::unwrap_used)]
 

@@ -1,5 +1,5 @@
 //! Type arguments at run time: what a type parameter stands for where a
-//! node that mentions one is read. See `spec/backends.md`.
+//! node that mentions one is read. See `docs/spec/backends.md`.
 
 use crate::is::descriptor as d;
 use crate::object::{KIND_SCOPE, amb_retain, fixed, object, words};

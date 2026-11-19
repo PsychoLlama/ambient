@@ -1,6 +1,6 @@
 //! The Ambient language.
 //!
-//! `spec/` at the repository root is the source of truth for the design; the
+//! `docs/spec/` at the repository root is the source of truth for the design; the
 //! module docs here say which page each module implements.
 //!
 //! A program enters as [`surface`] trees made with a [`builder`], held by a

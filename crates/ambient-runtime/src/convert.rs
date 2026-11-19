@@ -1,5 +1,5 @@
 //! Conversions between integers, floats, and text. See "Conversions" in
-//! `spec/operations.md`.
+//! `docs/spec/operations.md`.
 
 use crate::number::{amb_float_new, amb_int_new};
 use crate::object::{bytes, float, int};

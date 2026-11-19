@@ -1,5 +1,5 @@
-//! Tasks and cells, run on every backend. See `spec/tasks.md` and
-//! `spec/cells.md`.
+//! Tasks and cells, run on every backend. See `docs/spec/tasks.md` and
+//! `docs/spec/cells.md`.
 
 #![allow(clippy::unwrap_used)]
 

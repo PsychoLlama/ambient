@@ -1,6 +1,6 @@
 //! Trees as what they stand for: the type a `tree.Type` a comptime call
 //! gave is, and the definition a `tree.Reference` refers to. See
-//! "Splice positions" and "Trees as values" in `spec/comptime.md`.
+//! "Splice positions" and "Trees as values" in `docs/spec/comptime.md`.
 //!
 //! This reads what [`super::reflect`] writes, from the literal a
 //! comptime result was spliced as. [`super::code`] reads expressions

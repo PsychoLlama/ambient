@@ -1,5 +1,5 @@
 //! What a world takes time over: work it is asked to begin, and gives
-//! the outcome of later. See "Native side" in `spec/externs.md`.
+//! the outcome of later. See "Native side" in `docs/spec/externs.md`.
 //!
 //! A handler that waits does not block: it begins the work under a
 //! ticket, its task suspends, and the program takes each outcome from

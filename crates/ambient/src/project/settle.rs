@@ -1,7 +1,7 @@
 //! Settling a workspace's lock against what its members declare, before
 //! anything is opened: what is declared and not locked is fetched and
 //! locked, and what is locked and not declared is dropped. See "Locks"
-//! in `spec/releases.md`.
+//! in `docs/spec/releases.md`.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -13,7 +13,7 @@ use super::members::{Member, Members, manifest};
 use super::{Commit, Files, LOCK, Line, Lock, Locked, Package, ProjectError, Snapshots, Source};
 
 /// Which dependencies on a branch or a tag are read again, whatever
-/// is locked for them. See "Git dependencies" in `spec/releases.md`.
+/// is locked for them. See "Git dependencies" in `docs/spec/releases.md`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Update {
     Nothing,

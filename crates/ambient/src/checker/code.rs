@@ -1,7 +1,7 @@
 //! Code as a tree: the expression a `tree.Expr` a comptime call gave
 //! stands for, checked where it is spliced as one written there would
 //! be. See "Splice
-//! positions" and "Trees as values" in `spec/comptime.md`.
+//! positions" and "Trees as values" in `docs/spec/comptime.md`.
 
 use super::reify::{
     Home, Read, definition, each, field, fields, need, parameter_within, text, written,

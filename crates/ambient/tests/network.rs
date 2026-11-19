@@ -1,5 +1,5 @@
 //! HTTP: sending requests and serving them. See "Network" in
-//! `spec/targets.md`.
+//! `docs/spec/targets.md`.
 
 #![allow(clippy::unwrap_used)]
 

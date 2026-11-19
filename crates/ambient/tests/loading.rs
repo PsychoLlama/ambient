@@ -1,5 +1,5 @@
 //! Loading code into a program that is running. See "Trust" and
-//! "Receiving" in `spec/exchange.md`.
+//! "Receiving" in `docs/spec/exchange.md`.
 
 #![allow(clippy::unwrap_used)]
 

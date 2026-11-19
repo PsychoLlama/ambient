@@ -1,5 +1,5 @@
 //! Link: everything an entry reaches, as the parts of a program. See
-//! `spec/build.md` and `spec/targets.md`.
+//! `docs/spec/build.md` and `docs/spec/targets.md`.
 
 use std::collections::HashMap;
 
@@ -52,7 +52,7 @@ impl Engine<'_> {
     ///
     /// The whole program is known, so it pays only for what it does:
     /// if nothing in it can suspend a task, no function is compiled to
-    /// suspend. See "Floor" in `spec/linking.md`.
+    /// suspend. See "Floor" in `docs/spec/linking.md`.
     ///
     /// Definitions with equal hashes are one part, whatever their symbols.
     ///

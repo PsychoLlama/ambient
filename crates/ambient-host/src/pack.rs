@@ -1,5 +1,5 @@
 //! Packs: definitions as they travel between programs. See
-//! `spec/exchange.md`.
+//! `docs/spec/exchange.md`.
 //!
 //! A pack holds closed core trees and nothing else: no symbol, no hash of
 //! its own contents, no compiled code. Whoever receives one works every

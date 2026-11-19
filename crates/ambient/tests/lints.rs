@@ -1,5 +1,5 @@
 //! Lints: the functions a manifest lists, which checking a package
-//! runs for what each finds wrong. See "Commands" in `spec/tools.md`.
+//! runs for what each finds wrong. See "Commands" in `docs/spec/tools.md`.
 
 #![allow(clippy::unwrap_used)]
 

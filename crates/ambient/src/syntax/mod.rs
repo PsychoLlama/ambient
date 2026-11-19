@@ -1,4 +1,4 @@
-//! Source text, read into surface trees. See `spec/syntax.md`.
+//! Source text, read into surface trees. See `docs/spec/syntax.md`.
 //!
 //! The reader is one more client of the builders: what it makes is a
 //! [`Module`] a builder accepted, and nothing downstream can tell it from

@@ -1,5 +1,5 @@
 //! Copying a package into a workspace as a member. See "Vendoring" in
-//! `spec/releases.md`.
+//! `docs/spec/releases.md`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

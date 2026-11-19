@@ -1,5 +1,5 @@
 //! The JavaScript target (`packages/js`) builds a program, and its host
-//! runs it under Node. See "JavaScript hosts" in `spec/targets.md`.
+//! runs it under Node. See "JavaScript hosts" in `docs/spec/targets.md`.
 //!
 //! The tests themselves are JavaScript (`js/*.test.js`), since what they test
 //! is. This builds the program they run and runs them, so that the one

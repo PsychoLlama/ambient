@@ -1,5 +1,5 @@
 //! A package's snapshot: a hash of the files that are it, and of
-//! nothing else. See "Identity" in `spec/packages.md`.
+//! nothing else. See "Identity" in `docs/spec/packages.md`.
 
 #![allow(clippy::unwrap_used)]
 

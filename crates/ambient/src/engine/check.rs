@@ -1,5 +1,5 @@
 //! Check: a resolved tree and the interfaces it refers to yield an open core
-//! definition. See `spec/definitions.md` and `spec/core.md`.
+//! definition. See `docs/spec/definitions.md` and `docs/spec/core.md`.
 //!
 //! This is the engine's side of checking: gathering what the checker reads
 //! and deriving the key that covers it. The checking itself is

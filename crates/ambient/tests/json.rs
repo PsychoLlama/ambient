@@ -1,5 +1,5 @@
 //! The standard library's JSON, which is source like any program. See
-//! `spec/json.md`.
+//! `docs/spec/json.md`.
 
 #![allow(clippy::unwrap_used)]
 

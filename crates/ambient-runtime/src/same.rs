@@ -2,7 +2,7 @@
 //!
 //! No value says what type it is but a cell, which keeps the type it was
 //! made at. A cast to a cell type therefore compares two types
-//! (`spec/backends.md`): a name stands for its definition, and a union
+//! (`docs/spec/backends.md`): a name stands for its definition, and a union
 //! is its members in any order. This is no part of subtyping, which is
 //! decided only where a program is checked.
 

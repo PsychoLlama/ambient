@@ -87,7 +87,7 @@ macro_rules! children {
 impl Expr {
     /// Whether a task may suspend somewhere in this: it runs tasks,
     /// waits on a cell, or reads its own trace, which is read off a
-    /// suspension. See `spec/tasks.md`.
+    /// suspension. See `docs/spec/tasks.md`.
     #[must_use]
     pub fn suspends(&self) -> bool {
         let here = match self {
@@ -134,7 +134,7 @@ impl Expr {
 
     /// Every expression in this one, each before what is inside it. An
     /// expression's place in this list is its position: what a frame of
-    /// a trace names. See `spec/errors.md`.
+    /// a trace names. See `docs/spec/errors.md`.
     #[must_use]
     pub fn positions(&self) -> Vec<&Self> {
         let mut found = Vec::new();
@@ -179,7 +179,7 @@ impl Pattern {
 impl Expr {
     /// What this, a function's body, does with the function's type
     /// parameters. A function needs its type arguments as it runs only
-    /// for one of these. See "Types at run time" in `spec/backends.md`.
+    /// for one of these. See "Types at run time" in `docs/spec/backends.md`.
     #[must_use]
     pub fn consults(&self) -> Consults {
         let mut found = Consults::default();

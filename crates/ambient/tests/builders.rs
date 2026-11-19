@@ -1,4 +1,4 @@
-//! A builder rejects an ill-formed tree. See `spec/trees.md`.
+//! A builder rejects an ill-formed tree. See `docs/spec/trees.md`.
 
 use ambient::builder::{self as b, BuildError, ty};
 

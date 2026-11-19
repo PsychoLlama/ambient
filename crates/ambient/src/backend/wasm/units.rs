@@ -1,5 +1,5 @@
 //! Loading code into a WebAssembly program that is running, and
-//! dropping it again. See "Loading" in `spec/backends.md`.
+//! dropping it again. See "Loading" in `docs/spec/backends.md`.
 //!
 //! All of it works through a [`Guest`], so that it is the same whether
 //! the host loads between calls or native code loads in the middle of

@@ -1,4 +1,4 @@
-//! How deeply a tree may nest. See "Limits" in `spec/core.md`.
+//! How deeply a tree may nest. See "Limits" in `docs/spec/core.md`.
 
 #![allow(clippy::unwrap_used)]
 

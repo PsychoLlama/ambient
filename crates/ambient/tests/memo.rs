@@ -1,5 +1,5 @@
 //! Memoized runs: what a run observed decides whether it is made again.
-//! See `spec/memoization.md` and `spec/comptime.md`.
+//! See `docs/spec/memoization.md` and `docs/spec/comptime.md`.
 
 #![allow(clippy::unwrap_used)]
 

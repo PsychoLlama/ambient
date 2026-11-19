@@ -1,5 +1,5 @@
 //! Tools: a target built by a function of a package, which asks the
-//! build what it needs and gives the files. See `spec/tools.md`.
+//! build what it needs and gives the files. See `docs/spec/tools.md`.
 
 #![allow(clippy::unwrap_used)]
 

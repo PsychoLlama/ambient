@@ -1,5 +1,5 @@
 //! Native code that calls back into its program. See "Calling back" in
-//! `spec/externs.md`.
+//! `docs/spec/externs.md`.
 
 #![allow(clippy::unwrap_used)]
 

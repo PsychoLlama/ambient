@@ -1,5 +1,5 @@
 //! Abilities whose signatures have type parameters, run on every
-//! backend. See `spec/abilities.md`.
+//! backend. See `docs/spec/abilities.md`.
 
 #![allow(clippy::unwrap_used)]
 

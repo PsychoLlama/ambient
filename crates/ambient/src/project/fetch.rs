@@ -1,6 +1,6 @@
 //! The snapshots this machine keeps, each in a directory named for its
 //! hash, and fetching one from a repository. See "Fetching" in
-//! `spec/releases.md`.
+//! `docs/spec/releases.md`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

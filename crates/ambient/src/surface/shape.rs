@@ -1,9 +1,9 @@
-//! The built-in shapes that have methods. See `spec/methods.md`.
+//! The built-in shapes that have methods. See `docs/spec/methods.md`.
 
 use serde::{Deserialize, Serialize};
 
 /// A shape of value that has methods of the standard library: every
-/// built-in shape but a record. See `spec/methods.md`.
+/// built-in shape but a record. See `docs/spec/methods.md`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Shape {
     Null,

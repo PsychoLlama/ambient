@@ -36,7 +36,7 @@ struct Heap {
 }
 
 // Named, as every state is: a program has one of each name, whatever
-// code is loaded into it (`spec/linking.md`).
+// code is loaded into it (`docs/spec/linking.md`).
 #[unsafe(export_name = "amb_state_heap")]
 static HEAP: Shared<Heap> = Shared::new(Heap {
     free: [0; EXACT + POWERS],

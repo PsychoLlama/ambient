@@ -1,5 +1,5 @@
 //! Comptime calls: functions run during compilation. See
-//! `spec/comptime.md`.
+//! `docs/spec/comptime.md`.
 
 #![allow(clippy::unwrap_used)]
 

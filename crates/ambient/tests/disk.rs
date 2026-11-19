@@ -1,4 +1,4 @@
-//! The store on disk. See `spec/build.md`.
+//! The store on disk. See `docs/spec/build.md`.
 //!
 //! These tests write under the system's temporary directory, and remove
 //! what they wrote.

@@ -1,5 +1,5 @@
 //! How large a compiled WebAssembly program is. See "Floor" in
-//! `spec/linking.md`.
+//! `docs/spec/linking.md`.
 
 #![allow(clippy::unwrap_used)]
 

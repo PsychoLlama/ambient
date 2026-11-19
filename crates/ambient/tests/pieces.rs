@@ -1,5 +1,5 @@
 //! What loaded code carries of the runtime. See "Loading" in
-//! `spec/linking.md`.
+//! `docs/spec/linking.md`.
 
 #![allow(clippy::unwrap_used)]
 

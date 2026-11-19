@@ -1,5 +1,5 @@
 //! Random numbers: one ability, and what the `system` package makes of
-//! it. See "The system package" in `spec/targets.md`.
+//! it. See "The system package" in `docs/spec/targets.md`.
 
 #![allow(clippy::unwrap_used)]
 

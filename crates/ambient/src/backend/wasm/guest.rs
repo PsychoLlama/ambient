@@ -27,7 +27,7 @@ pub struct State {
     pub(super) units: HashMap<u64, Unit>,
     /// What the program has of the runtime, its own and what was
     /// loaded since: each function by hash, and the address of each
-    /// state. See "Loading" in `spec/linking.md`.
+    /// state. See "Loading" in `docs/spec/linking.md`.
     pub(super) pieces: HashMap<Hash, Func>,
     pub(super) states: HashMap<Hash, u64>,
     /// The address of the word the runtime keeps the units nothing

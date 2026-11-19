@@ -1,5 +1,5 @@
 //! The code that lets a task suspend in a function and resume in it. See
-//! "Suspension" in `spec/backends.md`.
+//! "Suspension" in `docs/spec/backends.md`.
 //!
 //! A function that may suspend keeps one more local, where it is
 //! ([`Emitter::at`]): the last point it reached, and less than any

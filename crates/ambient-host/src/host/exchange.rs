@@ -1,6 +1,6 @@
 //! What `system.exchange` declares: a value as bytes and back, for a
 //! program that keeps one or sends it. See "Values as bytes" in
-//! `spec/targets.md`.
+//! `docs/spec/targets.md`.
 //!
 //! Neither reaches a world, so each is offered as verifiable.
 

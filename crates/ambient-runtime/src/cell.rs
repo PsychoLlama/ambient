@@ -1,4 +1,4 @@
-//! Cells: the only mutable thing. See `spec/cells.md`.
+//! Cells: the only mutable thing. See `docs/spec/cells.md`.
 
 use crate::number::equal;
 use crate::object::{KIND_CELL, amb_release, amb_retain, boolean, fault, object, words};

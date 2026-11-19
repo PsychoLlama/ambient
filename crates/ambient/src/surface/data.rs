@@ -1,5 +1,5 @@
 //! Plain data: the expressions that are a value as they stand, which
-//! is what an annotation says. See "Shape" in `spec/annotations.md`.
+//! is what an annotation says. See "Shape" in `docs/spec/annotations.md`.
 
 use super::{Expr, Key};
 use crate::literal::Literal;

@@ -1,6 +1,6 @@
 //! Writing a dependency into a manifest, so that an ID is copied by
 //! the command and never by hand. See "Dependencies" in
-//! `spec/packages.md`.
+//! `docs/spec/packages.md`.
 
 use std::path::Path;
 

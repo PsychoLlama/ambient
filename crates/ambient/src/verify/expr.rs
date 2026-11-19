@@ -198,7 +198,7 @@ impl Body<'_, '_> {
                 seen
             }
             // Whoever sent the tree is trusted with its brands
-            // (`spec/exchange.md`): only what is under them is checked.
+            // (`docs/spec/exchange.md`): only what is under them is checked.
             Expr::Brand { value, ty } => {
                 let branded = verifier.sound(ty)?;
                 let Ty::Branded(under, _) = &branded else {

@@ -1,5 +1,5 @@
 //! Intrinsics: the names the compiler knows. See "Intrinsics" in
-//! `spec/definitions.md`.
+//! `docs/spec/definitions.md`.
 
 use super::{CellOp, Operator};
 

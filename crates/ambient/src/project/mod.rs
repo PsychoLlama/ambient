@@ -1,5 +1,5 @@
 //! A package as files: a manifest, and a module for each source file.
-//! See `spec/packages.md` and `spec/modules.md`.
+//! See `docs/spec/packages.md` and `docs/spec/modules.md`.
 //!
 //! A package is a directory holding `ambient.toml` and `src/`. Each
 //! `.ab` file under `src/` is the module its path names, and `lib.ab`

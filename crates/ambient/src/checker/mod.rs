@@ -1,5 +1,5 @@
 //! The type checker: a resolved definition and an [`Env`] yield an open core
-//! definition. See `spec/types.md` and `spec/core.md`.
+//! definition. See `docs/spec/types.md` and `docs/spec/core.md`.
 //!
 //! Calls to generic functions are in [`generics`]; match is in
 //! [`patterns`].

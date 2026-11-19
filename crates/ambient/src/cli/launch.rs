@@ -1,6 +1,6 @@
 //! Running a program: a package's function, linked and loaded, and the
 //! report of one that did not finish. See "Running" in
-//! `spec/packages.md`.
+//! `docs/spec/packages.md`.
 
 use ambient_host::launch::{Frames, started};
 

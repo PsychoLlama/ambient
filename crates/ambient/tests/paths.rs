@@ -1,5 +1,5 @@
 //! Paths: pure functions over the text of one. See "The system
-//! package" in `spec/targets.md`.
+//! package" in `docs/spec/targets.md`.
 
 #![allow(clippy::unwrap_used)]
 

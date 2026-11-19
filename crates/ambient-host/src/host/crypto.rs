@@ -1,6 +1,6 @@
 //! What `system.crypto` declares: hashing, HMAC, and a comparison that
 //! takes the same time whatever it compares. See "Cryptography" in
-//! `spec/targets.md`.
+//! `docs/spec/targets.md`.
 //!
 //! None of it reaches a world, so each is offered as verifiable: called
 //! again, it gives what it gave.

@@ -1,6 +1,6 @@
 //! Types at run time: testing a value against one, what a cell keeps
 //! of the type it was made at, and the type arguments a generic function
-//! is handed. See `spec/backends.md`.
+//! is handed. See `docs/spec/backends.md`.
 
 use super::{Lowering, Scope, Unsupported};
 use crate::core;
@@ -21,7 +21,7 @@ pub struct Form {
     pub own: Option<usize>,
     /// Whether the function is part of a program in which nothing
     /// suspends, so that it never has to resume: see "Floor" in
-    /// `spec/linking.md`.
+    /// `docs/spec/linking.md`.
     pub still: bool,
 }
 

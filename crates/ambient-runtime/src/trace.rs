@@ -1,5 +1,5 @@
 //! Traces: where a fault was, and the calls it unwound through. See
-//! `spec/errors.md`.
+//! `docs/spec/errors.md`.
 //!
 //! A trace is gathered as a fault unwinds, or an abort whose handler
 //! takes one. Compiled code that either leaves calls [`amb_trace`] on

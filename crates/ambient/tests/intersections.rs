@@ -1,5 +1,5 @@
 //! Records intersected: a record that is both. See "Intersections" in
-//! `spec/types.md`.
+//! `docs/spec/types.md`.
 
 #![allow(clippy::unwrap_used)]
 

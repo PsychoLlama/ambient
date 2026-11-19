@@ -1,5 +1,5 @@
 //! Native code that answers later, and the host that brings the
-//! answers. See "Native side" in `spec/externs.md`.
+//! answers. See "Native side" in `docs/spec/externs.md`.
 //!
 //! Native code that cannot answer at once takes a ticket
 //! ([`super::Running::later`]) and starts whatever does the waiting. When

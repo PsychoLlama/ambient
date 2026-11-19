@@ -1,5 +1,5 @@
 //! Scope: every name a module's definitions can use, and every name
-//! other modules can reach through it. See `spec/modules.md`.
+//! other modules can reach through it. See `docs/spec/modules.md`.
 
 use std::collections::BTreeMap;
 

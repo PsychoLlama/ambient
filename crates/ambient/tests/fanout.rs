@@ -1,5 +1,5 @@
 //! An all and a first over a list of functions: as many tasks as a
-//! value says. See "Joining" in `spec/tasks.md`.
+//! value says. See "Joining" in `docs/spec/tasks.md`.
 
 #![allow(clippy::unwrap_used)]
 

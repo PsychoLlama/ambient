@@ -1,5 +1,5 @@
 //! Recording: an observer told of every ability a body performs. See
-//! `spec/handlers.md`.
+//! `docs/spec/handlers.md`.
 
 #![allow(clippy::unwrap_used)]
 

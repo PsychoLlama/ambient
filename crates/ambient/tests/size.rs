@@ -1,5 +1,5 @@
 //! How compiled code grows with its source. See "Suspension" in
-//! `spec/backends.md`.
+//! `docs/spec/backends.md`.
 
 #![allow(clippy::unwrap_used)]
 

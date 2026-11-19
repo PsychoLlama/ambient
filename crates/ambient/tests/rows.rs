@@ -1,5 +1,5 @@
 //! What the checker says about abilities, and what of them is content.
-//! See `spec/abilities.md` and `spec/handlers.md`.
+//! See `docs/spec/abilities.md` and `docs/spec/handlers.md`.
 
 #![allow(clippy::unwrap_used)]
 

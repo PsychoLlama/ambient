@@ -1,5 +1,5 @@
 //! Values of generic function types, run on every backend. See
-//! "Generics" in `spec/types.md`.
+//! "Generics" in `docs/spec/types.md`.
 
 #![allow(clippy::unwrap_used)]
 

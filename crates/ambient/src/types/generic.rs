@@ -1,6 +1,6 @@
 //! Generic function types: putting types in place of the parameters
 //! one binds, and binding the parameters of a definition. See
-//! "Generics" in `spec/types.md`.
+//! "Generics" in `docs/spec/types.md`.
 
 use super::{AbilityInfo, Env, Signature, Ty};
 use crate::surface::Reference;

@@ -1,5 +1,5 @@
 //! Relations between types: subtyping, unions, disjointness. See
-//! `spec/types.md`.
+//! `docs/spec/types.md`.
 //!
 //! The checker works on resolved surface types. A name in one is either a
 //! type parameter or a recursive type definition; a non-recursive definition
@@ -237,7 +237,7 @@ impl Env {
             // An iterator that a function steps is tested as that
             // function is.
             Ty::Function { .. } | Ty::Generic { .. } | Ty::Iterator(_) => !mentions_parameter(ty),
-            // A test never yields a method: see `spec/methods.md`. And
+            // A test never yields a method: see `docs/spec/methods.md`. And
             // nothing of a brand on a type is there as a program runs.
             Ty::Method { .. } | Ty::Branded(..) => false,
             Ty::Record(fields) => fields.iter().all(|(_, ty)| self.tests(ty, seen)),
@@ -346,7 +346,7 @@ pub fn abilities(row: &[Reference]) -> Vec<Symbol> {
 }
 
 /// What a trace is: a list of frames, each a definition's hash and a
-/// position in the definition. See `spec/errors.md`.
+/// position in the definition. See `docs/spec/errors.md`.
 #[must_use]
 pub fn trace() -> Ty {
     let field = |name: &str, ty| (Key::Field(name.to_owned()), ty);
@@ -357,7 +357,7 @@ pub fn trace() -> Ty {
     Ty::List(Box::new(frame))
 }
 
-/// What a boundary gives for a fault: an error, as `spec/errors.md`
+/// What a boundary gives for a fault: an error, as `docs/spec/errors.md`
 /// shapes one.
 #[must_use]
 pub fn error() -> Ty {

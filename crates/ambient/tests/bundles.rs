@@ -1,5 +1,5 @@
 //! Bundles: records of handlers, as ordinary values. See
-//! `spec/handlers.md`.
+//! `docs/spec/handlers.md`.
 
 #![allow(clippy::unwrap_used)]
 

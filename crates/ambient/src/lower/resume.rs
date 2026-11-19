@@ -1,5 +1,5 @@
 //! Suspension: marking where a task may suspend, and what a function
-//! that is resuming must not do again. See `spec/backends.md`.
+//! that is resuming must not do again. See `docs/spec/backends.md`.
 //!
 //! A task suspends by unwinding and resumes by running its functions
 //! again from the outermost. A function that is resuming has its locals

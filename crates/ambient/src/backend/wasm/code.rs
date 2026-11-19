@@ -1,7 +1,7 @@
 //! A function body whose calls into the runtime are not numbered yet.
 //!
 //! Which functions a module has before its own depends on what it
-//! reaches of the runtime (`spec/linking.md`), so a body compiled on
+//! reaches of the runtime (`docs/spec/linking.md`), so a body compiled on
 //! its own cannot say the index of one. It leaves room, and says where.
 
 use ambient_runtime::Entry;

@@ -1,5 +1,5 @@
 //! Abilities: bindings as a record, performs as calls through it, and
-//! abort as unwinding to a provide. See `spec/backends.md`.
+//! abort as unwinding to a provide. See `docs/spec/backends.md`.
 
 use super::{Lowering, Scope, Unsupported};
 use crate::core::{self, Primitive, Slot};

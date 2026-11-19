@@ -1,5 +1,5 @@
 //! A store kept in a directory, so that what one process computed the
-//! next finds. See `spec/build.md`.
+//! next finds. See `docs/spec/build.md`.
 
 use std::fs;
 use std::io::{self, Write};

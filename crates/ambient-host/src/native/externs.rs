@@ -1,5 +1,5 @@
 //! The native code a running program reaches, by the index compiled
-//! code names each extern by. See "Linking" in `spec/externs.md`.
+//! code names each extern by. See "Linking" in `docs/spec/externs.md`.
 
 use std::ops::Range;
 

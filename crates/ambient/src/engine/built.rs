@@ -1,6 +1,6 @@
 //! Builds: the files a program is built as under a target, which the
 //! target's tool and the build steps of the packages it reaches give.
-//! See "Builds" in `spec/tools.md`.
+//! See "Builds" in `docs/spec/tools.md`.
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -168,7 +168,7 @@ impl Engine<'_> {
     }
 
     /// Runs `tool` with `args` under the build target, and gives what
-    /// it gives. See "Tools" in `spec/tools.md`.
+    /// it gives. See "Tools" in `docs/spec/tools.md`.
     ///
     /// # Errors
     ///

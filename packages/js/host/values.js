@@ -1,5 +1,5 @@
 // How a host sees a program's values, and makes them. See "JavaScript
-// hosts" in `spec/targets.md`.
+// hosts" in `docs/spec/targets.md`.
 
 import { FALSE, Kind, NULL, TRUE } from "./constants.js";
 

@@ -1,4 +1,4 @@
-//! The backends. See `spec/backends.md`.
+//! The backends. See `docs/spec/backends.md`.
 //!
 //! Each translates the [lowered form](crate::lir) one construct at a time.
 //! Both follow the same calling convention and the same layouts, which the

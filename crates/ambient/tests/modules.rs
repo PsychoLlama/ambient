@@ -1,4 +1,4 @@
-//! Paths, imports, and visibility. See `spec/modules.md`.
+//! Paths, imports, and visibility. See `docs/spec/modules.md`.
 
 #![allow(clippy::unwrap_used)]
 

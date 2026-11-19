@@ -1,5 +1,5 @@
-//! Tasks, cells, and cleanups. See `spec/tasks.md`, `spec/cells.md`, and
-//! `spec/cleanup.md`.
+//! Tasks, cells, and cleanups. See `docs/spec/tasks.md`, `docs/spec/cells.md`, and
+//! `docs/spec/cleanup.md`.
 
 use super::Checker;
 use super::abilities::Layer;
@@ -55,7 +55,7 @@ impl Checker<'_> {
     /// A using holds its value, reads what the value carries under the
     /// standard library's key, and registers a call of that: what runs
     /// is fixed before the body does anything. See "Registering" in
-    /// `spec/cleanup.md`.
+    /// `docs/spec/cleanup.md`.
     pub(super) fn using(
         &mut self,
         value: &Expr<Reference>,

@@ -1,5 +1,5 @@
 //! Brands: a mark on a type that only its module puts there. See
-//! "Brands" in `spec/types.md`.
+//! "Brands" in `docs/spec/types.md`.
 
 #![allow(clippy::unwrap_used)]
 

@@ -1,4 +1,4 @@
-//! The core checker: what a receiver refuses. See `spec/exchange.md`.
+//! The core checker: what a receiver refuses. See `docs/spec/exchange.md`.
 //!
 //! That it accepts what checking makes is tested by every program
 //! `support::run` runs. Here a checked tree is tampered with, as a

@@ -1,4 +1,4 @@
-//! What an extern compiles to. See `spec/externs.md`.
+//! What an extern compiles to. See `docs/spec/externs.md`.
 
 use super::{Lowering, resume};
 use crate::core::Slot;

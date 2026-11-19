@@ -1,4 +1,4 @@
-//! What is and is not content. See `spec/definitions.md`.
+//! What is and is not content. See `docs/spec/definitions.md`.
 
 #![allow(clippy::unwrap_used)]
 

@@ -1,5 +1,5 @@
 //! Source text, read: what it is as a tree, and what is not text.
-//! See `spec/syntax.md`.
+//! See `docs/spec/syntax.md`.
 
 #![allow(clippy::unwrap_used)]
 

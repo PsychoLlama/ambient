@@ -1,7 +1,7 @@
 //! Code as text, for a report to show what a comptime call gave. See
-//! "Unsettled" in `spec/comptime.md`.
+//! "Unsettled" in `docs/spec/comptime.md`.
 //!
-//! This is not the canonical format of `spec/trees.md`. It writes the
+//! This is not the canonical format of `docs/spec/trees.md`. It writes the
 //! nodes a tree of code has; one no tree gives is written `…`. A local
 //! has no name in a tree, so each is named by the order it was bound
 //! in, which is the order resolution numbers them in.

@@ -1,5 +1,5 @@
 //! A float as the shortest decimal that reads back as the same float.
-//! See "Conversions" in `spec/operations.md`.
+//! See "Conversions" in `docs/spec/operations.md`.
 //!
 //! Written out here because the standard library's formatting, which
 //! would do it, is twenty-six thousand bytes of a WebAssembly module

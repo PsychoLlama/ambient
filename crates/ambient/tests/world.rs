@@ -1,5 +1,5 @@
 //! The command-line target, over a world that is scripted: what a
-//! program reads, writes, and is told. See `spec/targets.md`.
+//! program reads, writes, and is told. See `docs/spec/targets.md`.
 
 #![allow(clippy::unwrap_used)]
 

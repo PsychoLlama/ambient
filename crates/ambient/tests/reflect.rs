@@ -1,5 +1,5 @@
 //! What a tool is told of a program and of the world outside it. See
-//! "Build abilities" in `spec/tools.md`.
+//! "Build abilities" in `docs/spec/tools.md`.
 
 #![allow(clippy::unwrap_used)]
 

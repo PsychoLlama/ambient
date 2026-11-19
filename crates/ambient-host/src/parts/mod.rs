@@ -1,5 +1,5 @@
 //! The parts of a program: everything an entry reaches, compiled. See
-//! `spec/build.md` and `spec/targets.md`.
+//! `docs/spec/build.md` and `docs/spec/targets.md`.
 //!
 //! The compiler's engine makes them (`Engine::link`); a host loads
 //! them, and needs nothing else of the compiler to.

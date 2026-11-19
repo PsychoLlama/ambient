@@ -1,6 +1,6 @@
 //! A workspace's lock: each snapshot it builds that is not a member,
 //! and where it was fetched from. See "Locks" and "Git
-//! dependencies" in `spec/releases.md`.
+//! dependencies" in `docs/spec/releases.md`.
 
 use std::path::{Path, PathBuf};
 
@@ -171,7 +171,7 @@ impl Lock {
 }
 
 /// The snapshots a machine keeps, and how it comes by one it lacks.
-/// See "Fetching" in `spec/releases.md`.
+/// See "Fetching" in `docs/spec/releases.md`.
 pub trait Snapshots {
     /// Where the files of a snapshot are, if the machine keeps it.
     fn held(&self, snapshot: &Hash) -> Option<PathBuf>;
@@ -192,7 +192,7 @@ pub trait Snapshots {
     fn fetch(&self, commit: Commit) -> Result<Hash, String>;
 
     /// The bytes at a URL, for a build that names their digest. See
-    /// "Build abilities" in `spec/tools.md`.
+    /// "Build abilities" in `docs/spec/tools.md`.
     ///
     /// # Errors
     ///

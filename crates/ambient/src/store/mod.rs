@@ -1,4 +1,4 @@
-//! The store: stage results by key. See `spec/build.md`.
+//! The store: stage results by key. See `docs/spec/build.md`.
 
 mod disk;
 

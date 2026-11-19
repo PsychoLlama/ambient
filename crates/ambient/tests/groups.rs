@@ -1,4 +1,4 @@
-//! Groups and spawned tasks, run on every backend. See `spec/tasks.md`.
+//! Groups and spawned tasks, run on every backend. See `docs/spec/tasks.md`.
 
 #![allow(clippy::unwrap_used)]
 

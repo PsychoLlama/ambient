@@ -1,5 +1,5 @@
 //! Cleanups: code that runs when a block exits, by any route. See
-//! `spec/cleanup.md`.
+//! `docs/spec/cleanup.md`.
 //!
 //! A cleanup that runs because its block is unwinding has to leave the
 //! unwinding as it found it. [`amb_hold`] takes the unwinding out of the

@@ -1,6 +1,6 @@
 //! The packages of a workspace: the ones its manifest lists, and the
 //! ones at a directory a member depends on. See "Workspaces" in
-//! `spec/packages.md`.
+//! `docs/spec/packages.md`.
 
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};

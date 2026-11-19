@@ -1,4 +1,4 @@
-//! Programs: an entry and a target. See `spec/targets.md`.
+//! Programs: an entry and a target. See `docs/spec/targets.md`.
 //!
 //! A program's root is a function nobody wrote: the entry, called under
 //! the target's bindings. It is checked, hashed, and compiled like any
@@ -74,7 +74,7 @@ impl Engine<'_> {
 
     /// The tool that builds a program under `target`: the one it
     /// names, or else the one the targets it extends are built by.
-    /// See "Builds" in `spec/tools.md`.
+    /// See "Builds" in `docs/spec/tools.md`.
     ///
     /// # Errors
     ///

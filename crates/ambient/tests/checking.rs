@@ -1,4 +1,4 @@
-//! The type checker. See `spec/types.md`.
+//! The type checker. See `docs/spec/types.md`.
 
 #![allow(clippy::unwrap_used)]
 

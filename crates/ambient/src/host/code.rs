@@ -1,7 +1,7 @@
 //! What `system.code` binds that needs the compiler: packing a
 //! function to send, and compiling one that was sent. Loading what was
 //! compiled needs none, and is the host's (`ambient_host::host`). See
-//! "Code" in `spec/targets.md`.
+//! "Code" in `docs/spec/targets.md`.
 //!
 //! None of them reaches a world. Packing and compiling work over
 //! nothing but what a pack holds: a pack leaves nothing

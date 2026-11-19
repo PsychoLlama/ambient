@@ -1,5 +1,5 @@
 //! Targets and externs: a program run under a world. See
-//! `spec/targets.md` and `spec/externs.md`.
+//! `docs/spec/targets.md` and `docs/spec/externs.md`.
 
 #![allow(clippy::unwrap_used)]
 

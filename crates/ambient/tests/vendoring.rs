@@ -1,5 +1,5 @@
 //! Copying a dependency into a workspace as a member. See "Vendoring"
-//! in `spec/releases.md`.
+//! in `docs/spec/releases.md`.
 
 #![allow(clippy::unwrap_used)]
 

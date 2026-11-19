@@ -1,5 +1,5 @@
 //! How long loaded code stays in a program, on every backend. See
-//! "Receiving" in `spec/exchange.md`.
+//! "Receiving" in `docs/spec/exchange.md`.
 
 #![allow(clippy::unwrap_used)]
 

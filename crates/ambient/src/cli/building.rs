@@ -1,5 +1,5 @@
 //! The world comptime calls of a package on disk run in: the native
-//! side of `ambient.build`. See "Build abilities" in `spec/tools.md`.
+//! side of `ambient.build`. See "Build abilities" in `docs/spec/tools.md`.
 
 use std::collections::BTreeMap;
 use std::io;

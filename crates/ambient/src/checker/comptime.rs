@@ -1,5 +1,5 @@
 //! Comptime calls: a function run during checking, and its result put in
-//! the tree. See `spec/comptime.md`.
+//! the tree. See `docs/spec/comptime.md`.
 
 use super::{Checker, reify};
 use crate::core;

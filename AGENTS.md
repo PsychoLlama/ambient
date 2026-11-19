@@ -1,11 +1,11 @@
 ## Structure
 
-- `spec/`: source of truth for the language design. The implementation follows it; change the spec first.
+- `docs/spec/`: source of truth for the language design. The implementation follows it; change the spec first.
 - `crates/ambient`: the implementation, a library plus an empty binary. Module docs name the spec page each module implements.
 - `crates/ambient-host`: what loads and runs a compiled program, with no compiler in it: trees, values, parts, the native loader, the native side of `system`, and launching. `ambient` gives its modules again at the paths they had (`ambient::core`, `backend::native`, `host`), which is how the bullets below name them.
 - `crates/ambient-launcher`: the binary a built program is put after. It links `ambient-host` and nothing of the compiler; keep it so.
 - `packages/js`: the JavaScript target, an Ambient package: the tool that builds a program for a JavaScript host, and the host (`host/host.js`). `crates/ambient-js` holds its tests.
-- `integrations/neovim`: a Neovim plugin for `.ab` files: filetype, highlighting by pattern, and comment settings. It follows `spec/syntax.md` by hand; change it when the syntax changes.
+- `integrations/neovim`: a Neovim plugin for `.ab` files: filetype, highlighting by pattern, and comment settings. It follows `docs/spec/syntax.md` by hand; change it when the syntax changes.
 - `crates/ambient-runtime`: what compiled code calls. Built natively into the compiler, and for wasm32 by `crates/ambient/build.rs` as one relocatable object.
 - Each crate but the launcher, and each package, has an `AGENTS.md` of its own invariants. Read it before working there, and put a new invariant in the crate that must uphold it.
 

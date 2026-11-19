@@ -5,7 +5,7 @@
 //! on many threads, so its state is locked or kept per thread. In
 //! WebAssembly a program is alone in its memory and runs on one thread,
 //! and the runtime is built without the standard library: what a
-//! program does not reach it does not carry (`spec/linking.md`), and
+//! program does not reach it does not carry (`docs/spec/linking.md`), and
 //! locks and thread-local storage would be reached by every program.
 
 /// State every thread of a process shares.

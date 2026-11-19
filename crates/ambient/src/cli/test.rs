@@ -1,5 +1,5 @@
 //! `ambient test`: the tests of a package, each run as a program of its
-//! own. See "Testing" in `spec/packages.md`.
+//! own. See "Testing" in `docs/spec/packages.md`.
 
 use std::cell::RefCell;
 use std::path::Path;

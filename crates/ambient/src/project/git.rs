@@ -1,7 +1,7 @@
 //! Opening a dependency in a git repository: the snapshot the lock holds for it,
 //! which the machine keeps once the lock is settled
 //! (`project/settle.rs`). See "Git dependencies" and "Locks" in
-//! `spec/releases.md`.
+//! `docs/spec/releases.md`.
 
 use ambient_host::hash::Hash;
 

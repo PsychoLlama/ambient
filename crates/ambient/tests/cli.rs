@@ -1,5 +1,5 @@
 //! The command line, over files and a world held in memory. See
-//! `spec/packages.md`.
+//! `docs/spec/packages.md`.
 
 #![allow(clippy::unwrap_used)]
 

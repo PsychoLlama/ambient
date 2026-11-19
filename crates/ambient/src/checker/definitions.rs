@@ -1,6 +1,6 @@
 //! Definitions as trees: the function a `tree.Function` a comptime
 //! call gave stands for, and the definitions of a `tree.Module`. See
-//! "Splice positions" in `spec/comptime.md`.
+//! "Splice positions" in `docs/spec/comptime.md`.
 //!
 //! Each is read into what resolution leaves of one that was written,
 //! so the engine checks it as it would that.

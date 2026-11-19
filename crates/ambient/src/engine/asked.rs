@@ -1,6 +1,6 @@
 //! What a build is asked: the questions a tool or a comptime call
 //! puts to the engine that runs it. See "Build abilities" in
-//! `spec/tools.md`.
+//! `docs/spec/tools.md`.
 //!
 //! Each is native code of `ambient.build` that only passes the
 //! question on (`Natives::asking`), and the engine answers while the

@@ -1,4 +1,4 @@
-//! Methods of records, run on every backend. See `spec/methods.md`.
+//! Methods of records, run on every backend. See `docs/spec/methods.md`.
 
 #![allow(clippy::unwrap_used)]
 

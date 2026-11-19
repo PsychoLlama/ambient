@@ -1,4 +1,4 @@
-//! The Ambient runtime. See `spec/backends.md`.
+//! The Ambient runtime. See `docs/spec/backends.md`.
 //!
 //! Everything here is called by compiled code, through the C ABI, on both
 //! backends. A function listed in [`Entry`] is an entry point: natively it is

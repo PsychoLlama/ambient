@@ -1,5 +1,5 @@
 //! The native side of the standard library's command-line target: what
-//! `system.cli` binds each ability to. See `spec/targets.md`.
+//! `system.cli` binds each ability to. See `docs/spec/targets.md`.
 //!
 //! All of it that needs no compiler is `ambient_host::host`, whose
 //! names are given again here. What is added is what needs one:

@@ -1,4 +1,4 @@
-//! Programs, run on every backend. See `spec/backends.md`.
+//! Programs, run on every backend. See `docs/spec/backends.md`.
 
 #![allow(clippy::unwrap_used)]
 

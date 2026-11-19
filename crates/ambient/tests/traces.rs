@@ -1,4 +1,4 @@
-//! The trace of an abort, which its handler takes. See `spec/errors.md`.
+//! The trace of an abort, which its handler takes. See `docs/spec/errors.md`.
 //!
 //! The trace of a fault is tested in `boundaries.rs`.
 

@@ -112,7 +112,7 @@ pub fn open_module(parts: &Parts) -> Result<Vec<u8>, String> {
 /// the program and the units loaded into it export as `piece:<hash>`.
 /// The unit imports those, and carries the rest of what it reaches;
 /// told of nothing, it loads into any program. See "Loading" in
-/// `spec/linking.md`.
+/// `docs/spec/linking.md`.
 ///
 /// It imports the program's memory, table, and stack, and what
 /// [`HOST_MODULE`] and [`KNOWN_MODULE`] describe. It exports what
@@ -169,7 +169,7 @@ fn assemble(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Vec<u8
 }
 
 /// The pieces of the runtime a program carries for a host that calls
-/// `host`. See "Pieces" in `spec/linking.md`.
+/// `host`. See "Pieces" in `docs/spec/linking.md`.
 ///
 /// # Errors
 ///

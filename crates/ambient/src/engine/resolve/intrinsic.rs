@@ -1,6 +1,6 @@
 //! Calls of intrinsics: the names the compiler knows, each of which is
 //! a node of a tree once it is called. See "Intrinsics" in
-//! `spec/definitions.md`.
+//! `docs/spec/definitions.md`.
 //!
 //! The node has fewer nodes inside it than the call that was written:
 //! the name is gone, and so is the function a body was written as. So

@@ -269,7 +269,7 @@ impl Env {
     /// Whether a function that takes `takes` can handle an ability that
     /// does not return and takes `params`, and if so whether it takes
     /// the trace of the abort as well: one parameter more, after the
-    /// ability's own. See "Abort" in `spec/handlers.md`.
+    /// ability's own. See "Abort" in `docs/spec/handlers.md`.
     #[must_use]
     pub fn abort_handler(&self, params: &[Ty], takes: &[Ty]) -> Option<bool> {
         let (own, trace) = match takes.len().checked_sub(params.len())? {

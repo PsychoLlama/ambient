@@ -1,5 +1,5 @@
 //! Units: code loaded into a program that is running, and who holds it.
-//! See "Receiving" in `spec/exchange.md`.
+//! See "Receiving" in `docs/spec/exchange.md`.
 //!
 //! A unit is a block of words a host laid out: definitions, closures,
 //! type arguments, and descriptors, none of them reclaimed one by one.

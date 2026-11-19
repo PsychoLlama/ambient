@@ -1,4 +1,4 @@
-//! Externs and targets. See `spec/externs.md` and `spec/targets.md`.
+//! Externs and targets. See `docs/spec/externs.md` and `docs/spec/targets.md`.
 
 use std::collections::BTreeMap;
 
@@ -78,7 +78,7 @@ pub fn check_extern(
 /// Whether a type an extern takes holds a function type with a row.
 /// Native code calls a function with nothing bound, so what it is
 /// handed must be bound already: see "Calling back" in
-/// `spec/externs.md`.
+/// `docs/spec/externs.md`.
 fn takes_bindings(ty: &Ty) -> bool {
     let found = std::cell::Cell::new(false);
     let _ = ty.rewrite(0, &|ty, _| {

@@ -1,4 +1,4 @@
-//! Bytes as hexadecimal and Base64. See `spec/encodings.md`.
+//! Bytes as hexadecimal and Base64. See `docs/spec/encodings.md`.
 
 #![allow(clippy::unwrap_used)]
 

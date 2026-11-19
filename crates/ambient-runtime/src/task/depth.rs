@@ -1,5 +1,5 @@
 //! How deep calls nest: what makes recursion without end a fault and
-//! not a crash. See "Calls" in `spec/backends.md`.
+//! not a crash. See "Calls" in `docs/spec/backends.md`.
 //!
 //! Depth is counted in words, not calls: a function weighs what it
 //! keeps, so the count bounds the stack a program takes on any backend.

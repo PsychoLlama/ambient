@@ -1,5 +1,5 @@
 //! Iterators: a function that steps, or something the runtime steps
-//! itself. See `spec/iteration.md`.
+//! itself. See `docs/spec/iteration.md`.
 //!
 //! An iterator is an object of three words: which kind it is, and two
 //! values that kind keeps. Every word is a value, so an iterator is

@@ -1,6 +1,6 @@
 //! Tail calls: a function that ends with a call leaves before the call
 //! is made, so a loop written as calls runs in constant stack. See
-//! "Calls" in `spec/backends.md`.
+//! "Calls" in `docs/spec/backends.md`.
 //!
 //! The function unwinds with the call pending in the context
 //! ([`amb_tail`]), and whatever called it makes the call

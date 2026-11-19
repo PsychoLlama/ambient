@@ -1,5 +1,5 @@
 //! Build steps: a package adds files to builds under a target, which
-//! the target's tool is handed. See "Builds" in `spec/tools.md`.
+//! the target's tool is handed. See "Builds" in `docs/spec/tools.md`.
 
 #![allow(clippy::unwrap_used)]
 

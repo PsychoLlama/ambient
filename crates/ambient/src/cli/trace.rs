@@ -1,5 +1,5 @@
 //! What a report of a program names: where each frame of a trace is in
-//! the text. See "Traces" in `spec/errors.md`.
+//! the text. See "Traces" in `docs/spec/errors.md`.
 //!
 //! The names and places are plain data (`ambient_host::launch::Frames`),
 //! which a host with no compiler reads a trace by; gathering them takes

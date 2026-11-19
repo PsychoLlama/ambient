@@ -87,7 +87,7 @@ impl Tree {
 
     /// The encoding compiled code is kept under: the tree as it is
     /// stored, without what it says to a build, which no backend
-    /// reads. See `spec/annotations.md`.
+    /// reads. See `docs/spec/annotations.md`.
     #[must_use]
     pub fn compiled(&self) -> Vec<u8> {
         let mut sink = Sink::new(None);

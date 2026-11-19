@@ -1,5 +1,5 @@
 //! Fetching a dependency from a git repository into what a machine
-//! keeps. See "Fetching" in `spec/releases.md`.
+//! keeps. See "Fetching" in `docs/spec/releases.md`.
 //!
 //! These tests run `git` and write under the system's temporary
 //! directory, and remove what they wrote.

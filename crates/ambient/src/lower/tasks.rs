@@ -1,5 +1,5 @@
 //! Cleanups and groups: what a block does on every way out of it. See
-//! `spec/cleanup.md` and `spec/tasks.md`.
+//! `docs/spec/cleanup.md` and `docs/spec/tasks.md`.
 
 use super::{Lowering, Scope, Unsupported};
 use crate::core;

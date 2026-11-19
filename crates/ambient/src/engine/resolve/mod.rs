@@ -1,5 +1,5 @@
 //! Resolve: a surface tree and the definition tables it imports from yield
-//! symbols. See `spec/symbols.md`.
+//! symbols. See `docs/spec/symbols.md`.
 
 mod expr;
 mod intrinsic;

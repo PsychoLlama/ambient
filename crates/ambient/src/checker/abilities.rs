@@ -1,5 +1,5 @@
 //! Abilities: what is bound where, performs, provides, and binding a
-//! function value in place. See `spec/abilities.md` and `spec/handlers.md`.
+//! function value in place. See `docs/spec/abilities.md` and `docs/spec/handlers.md`.
 
 use super::Checker;
 use crate::core::{self, Slot};

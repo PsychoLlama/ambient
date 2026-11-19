@@ -1,5 +1,5 @@
-//! Tasks: suspension, a scheduler, and joining. See `spec/tasks.md` and
-//! `spec/backends.md`.
+//! Tasks: suspension, a scheduler, and joining. See `docs/spec/tasks.md` and
+//! `docs/spec/backends.md`.
 //!
 //! A task suspends by unwinding, unless its platform keeps it as a
 //! stack: see [`stack`]. Something in the runtime sets the
@@ -291,7 +291,7 @@ pub(crate) unsafe fn arriving(context: *mut Context) -> bool {
 /// Everything that suspends comes through here, by name and never
 /// inlined: a program that does not reach this cannot suspend, and is
 /// linked without what gives suspended tasks their turns
-/// (`spec/linking.md`).
+/// (`docs/spec/linking.md`).
 #[unsafe(no_mangle)]
 #[inline(never)]
 pub unsafe extern "C" fn amb_suspend(context: *mut Context) -> Word {

@@ -1,5 +1,5 @@
 //! What a name means where it is written: a definition of the module,
-//! one it imports, or one of a prelude. See `spec/symbols.md`.
+//! one it imports, or one of a prelude. See `docs/spec/symbols.md`.
 
 use super::Resolver;
 use crate::engine::scope::{Lazy, Member, Members};

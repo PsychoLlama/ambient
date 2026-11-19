@@ -1,5 +1,5 @@
 //! Verify: whether a checked definition is one the core checker accepts.
-//! See `spec/exchange.md`.
+//! See `docs/spec/exchange.md`.
 
 use super::Engine;
 use crate::error::Error;

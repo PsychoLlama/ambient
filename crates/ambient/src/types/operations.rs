@@ -1,4 +1,4 @@
-//! What each operation takes and gives. See `spec/operations.md`.
+//! What each operation takes and gives. See `docs/spec/operations.md`.
 //!
 //! Both checkers ask here: the checker to find which operation an
 //! operator means at its operands' types, and the core checker to see

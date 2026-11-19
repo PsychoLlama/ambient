@@ -1,5 +1,5 @@
 //! What `system.code` binds that needs no compiler: loading what was
-//! compiled. See "Code" in `spec/targets.md`.
+//! compiled. See "Code" in `docs/spec/targets.md`.
 //!
 //! Packing a function and compiling one need the compiler, which adds
 //! them (`ambient::host`).

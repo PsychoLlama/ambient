@@ -1,7 +1,7 @@
 //! What a module has of the runtime: the pieces it reaches, linked in.
 //! A program has them at places known when it is put together; a unit
 //! brings the ones its program lacks and imports the rest. See
-//! `spec/linking.md`.
+//! `docs/spec/linking.md`.
 
 use std::collections::BTreeSet;
 
@@ -20,7 +20,7 @@ const PAGE: u32 = 1 << 16;
 
 /// The runtime's functions the host in this crate calls: what
 /// [`super::Program`] starts a call with, and makes and reads values
-/// with. See "Hosts" in `spec/linking.md`.
+/// with. See "Hosts" in `docs/spec/linking.md`.
 pub const HOST: &[&str] = &[
     "amb_words",
     "amb_words_free",

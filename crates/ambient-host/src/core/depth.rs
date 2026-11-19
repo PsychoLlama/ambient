@@ -1,5 +1,5 @@
 //! How deeply a core tree nests, and the limit on it. See "Limits" in
-//! `spec/core.md`.
+//! `docs/spec/core.md`.
 //!
 //! Everything that walks a tree recurses once per level, so the limit is
 //! what lets [`crate::deep`] promise room for any tree. A tree is

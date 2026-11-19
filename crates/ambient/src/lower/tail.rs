@@ -1,5 +1,5 @@
 //! Tail calls: a call that is the last thing a function does is made
-//! after the function has left. See "Calls" in `spec/backends.md`.
+//! after the function has left. See "Calls" in `docs/spec/backends.md`.
 //!
 //! The function unwinds with the call pending, and whatever called it
 //! makes the call. So every call that is not a tail call is followed

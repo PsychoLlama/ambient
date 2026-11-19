@@ -1,5 +1,5 @@
 //! Bytes: a run of bytes that need not be text. See "Bytes" in
-//! `spec/operations.md`.
+//! `docs/spec/operations.md`.
 
 use alloc::vec::Vec;
 
