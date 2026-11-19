@@ -1,7 +1,7 @@
-//! Types as error messages show them: as the text writes them, where
-//! it has a way to. A type parameter and a method have no form of
-//! their own, and a type nothing wrote out, as a tuple value's is, has
-//! no names to show.
+//! Types as error messages show them: as the text writes them. A type
+//! parameter has no name once it is checked, so one is shown by its
+//! number, and a type nothing wrote out, as a tuple value's is, has no
+//! names to show.
 
 use std::fmt::Write as _;
 
@@ -34,6 +34,47 @@ fn show_members(members: &Members<Reference>, out: &mut String) {
             let _ = write!(out, "{name}: ");
         }
         show(ty, out);
+    }
+}
+
+/// What a function takes and gives, after `opening`: `fn`, or the key a
+/// method is under. Type parameters come first, each with its bound if
+/// it has one, and then `self` with what a method needs of it.
+fn show_signature(opening: &str, receiver: Option<&Ty>, function: &Ty, out: &mut String) {
+    out.push_str(opening);
+    let function = match function {
+        Ty::Generic { bounds, function } => {
+            out.push('<');
+            for (index, bound) in bounds.iter().enumerate() {
+                let _ = write!(out, "{}G{index}", if index > 0 { ", " } else { "" });
+                if !matches!(bound, Ty::Unknown) {
+                    out.push_str(": ");
+                    show(bound, out);
+                }
+            }
+            out.push('>');
+            function
+        }
+        function => function,
+    };
+    let Ty::Function { params, ret, row } = function else {
+        // Nothing makes a method or a generic of anything else.
+        return show(function, out);
+    };
+    out.push('(');
+    if let Some(needs) = receiver {
+        out.push_str("self: ");
+        show(needs, out);
+        if !params.is_empty() {
+            out.push_str(", ");
+        }
+    }
+    show_members(params, out);
+    out.push_str("): ");
+    show(ret, out);
+    if !row.is_empty() {
+        let names: Vec<&str> = row.iter().map(ability_name).collect();
+        let _ = write!(out, " with {}", names.join(", "));
     }
 }
 
@@ -77,11 +118,17 @@ fn show(ty: &Ty, out: &mut String) {
                 if index > 0 {
                     out.push_str(", ");
                 }
-                let _ = match key {
-                    Key::Field(name) => write!(out, "{name}: "),
-                    Key::Ability(ability) => write!(out, "[{}]: ", ability_name(ability)),
+                let name = match key {
+                    Key::Field(name) => name.clone(),
+                    Key::Ability(ability) => format!("[{}]", ability_name(ability)),
                 };
-                show(ty, out);
+                // A method is written as its key and what it takes.
+                if let Ty::Method { needs, function } = ty {
+                    show_signature(&name, Some(needs), function, out);
+                } else {
+                    let _ = write!(out, "{name}: ");
+                    show(ty, out);
+                }
             }
             out.push('}');
         }
@@ -108,27 +155,15 @@ fn show(ty: &Ty, out: &mut String) {
             show(member, out);
             out.push('>');
         }
-        Ty::Method { needs, function } => {
-            out.push_str("method(");
-            show(needs, out);
-            out.push_str(") ");
-            show(function, out);
-        }
+        // A method away from its key has no form of its own: it is shown
+        // as a function that takes its receiver.
+        Ty::Method { needs, function } => show_signature("fn", Some(needs), function, out),
         Ty::List(member) => {
             out.push_str("List<");
             show(member, out);
             out.push('>');
         }
-        Ty::Function { params, ret, row } => {
-            out.push_str("fn(");
-            show_members(params, out);
-            out.push_str("): ");
-            show(ret, out);
-            if !row.is_empty() {
-                let names: Vec<&str> = row.iter().map(ability_name).collect();
-                let _ = write!(out, " with {}", names.join(", "));
-            }
-        }
+        Ty::Function { .. } | Ty::Generic { .. } => show_signature("fn", None, ty, out),
         Ty::Union(members) => {
             for (index, member) in members.iter().enumerate() {
                 if index > 0 {
@@ -139,12 +174,6 @@ fn show(ty: &Ty, out: &mut String) {
         }
         Ty::Bound(index) => {
             let _ = write!(out, "G{index}");
-        }
-        Ty::Generic { bounds, function } => {
-            out.push('<');
-            show_all(bounds, ", ", out);
-            out.push('>');
-            show(function, out);
         }
         Ty::Named(Reference::Local(number) | Reference::Parameter(number), _) => {
             let _ = write!(out, "T{number}");

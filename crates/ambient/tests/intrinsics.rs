@@ -139,6 +139,24 @@ fn what_is_never_null_has_nothing_to_fall_back_from() {
 }
 
 #[test]
+fn a_method_and_a_generic_function_are_shown_as_they_are_written() {
+    let method = refused(
+        "fn main(counter: { count: int, add(self: { count: int }, times: int): int with throw }): int => counter;",
+    );
+    let generic =
+        refused("fn main(pick: fn<T, U: { count: int }>(one: T, other: U): T): int => pick;");
+
+    assert!(
+        method.contains("`{add(self: {count: int}, times: int): int with throw, count: int}`"),
+        "{method}"
+    );
+    assert!(
+        generic.contains("`fn<G0, G1: {count: int}>(one: G0, other: G1): G0`"),
+        "{generic}"
+    );
+}
+
+#[test]
 fn a_type_is_shown_with_the_names_it_was_written_with() {
     let tuple = refused("fn main(): (name: string, count: int) => 1;");
     let function = refused("fn main(): fn(note: string): null with throw | null => 1;");

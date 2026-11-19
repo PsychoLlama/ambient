@@ -171,18 +171,14 @@ impl<'a> Writer<'a> {
                 Doc::Row(vec![ability, list("(", self.all(args), ")")])
             }
             Expr::Field { target, key } => {
-                let key = match key {
-                    Key::Field(name) => name.clone(),
-                    Key::Ability(_) => self.key(key),
-                };
-                Doc::Row(vec![self.atom(target), text(format!(".{key}"))])
+                Doc::Row(vec![self.atom(target), text(self.member(key))])
             }
             Expr::Send {
                 target,
                 method,
                 args,
             } => {
-                let method = text(format!(".{}", self.key(method)));
+                let method = text(self.member(method));
                 Doc::Row(vec![
                     self.atom(target),
                     method,
@@ -255,6 +251,14 @@ impl<'a> Writer<'a> {
         match key {
             Key::Field(name) => name.clone(),
             Key::Ability(ability) => format!("[{}]", self.name(ability)),
+        }
+    }
+
+    /// A key after what holds it: `.name`, or `[ability]`.
+    fn member(&self, key: &Key<Reference>) -> String {
+        match key {
+            Key::Field(name) => format!(".{name}"),
+            Key::Ability(_) => self.key(key),
         }
     }
 
