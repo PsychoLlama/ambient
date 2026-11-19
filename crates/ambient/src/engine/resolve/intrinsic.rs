@@ -4,8 +4,9 @@
 //!
 //! The node has fewer nodes inside it than the call that was written:
 //! the name is gone, and so is the function a body was written as. So
-//! each node that is left out is noted, and the one a cast adds, which
-//! is how a node of the resolved tree is still found in the text.
+//! each node that is left out is noted, and those a cast adds to hold
+//! what it was given, which is how a node of the resolved tree is still
+//! found in the text.
 
 use ambient_runtime::FAULT_PACKAGE;
 
@@ -39,6 +40,17 @@ pub(super) fn numbered<N>(body: &Expr<N>, nodes: &[*const Expr<N>]) -> Vec<u32> 
         pending[from..].reverse();
     }
     found
+}
+
+/// Each cast of `pairs` by its number in `body`, with the number of the
+/// binding whose value it is paired with: the node before that value.
+pub(super) fn stood<N>(
+    body: &Expr<N>,
+    pairs: &[(*const Expr<N>, *const Expr<N>)],
+) -> Vec<(u32, u32)> {
+    let number = |node: *const Expr<N>| numbered(body, &[node]).first().copied();
+    let pair = |(cast, value): &(_, _)| Some((number(*cast)?, number(*value)?.checked_sub(1)?));
+    pairs.iter().filter_map(pair).collect()
 }
 
 /// A call of an intrinsic, as it was written.
@@ -125,18 +137,10 @@ impl Resolver<'_> {
                 Expr::AbilityId(self.ability(ability)?)
             }
             Intrinsic::Cast => {
-                let ([ty], [value]) = (written.types, args) else {
-                    return Err(self.misused(path, "is written `cast::<T>(value)`"));
+                let ([ty], [value, fallback]) = (written.types, args) else {
+                    return Err(self.misused(path, "is written `cast::<T>(value, fallback)`"));
                 };
-                // A cast that is written gives null where the type
-                // does not describe the value: a node nothing wrote.
-                let otherwise = Box::new(Expr::Null);
-                self.added.push(std::ptr::from_ref(&*otherwise));
-                Expr::Cast {
-                    value: Box::new(self.expr(value)?),
-                    ty: self.ty(ty)?,
-                    otherwise,
-                }
+                self.cast(value, ty, fallback)?
             }
             Intrinsic::Contain => Expr::Boundary(Box::new(self.only_body(path, args)?)),
             Intrinsic::Group => Expr::Group(Box::new(self.only_body(path, args)?)),
@@ -153,6 +157,54 @@ impl Resolver<'_> {
             }
             Intrinsic::All => Expr::All(self.bodies(path, args)?),
             Intrinsic::First => Expr::First(self.bodies(path, args)?),
+        })
+    }
+
+    /// A cast as it is written: a call, so what it falls back to is
+    /// evaluated before it, whether the value passes or not. A cast in
+    /// a tree takes that as a branch, so one that could do anything is
+    /// held first, after the value.
+    fn cast(&mut self, value: &Expr, ty: &Type, fallback: &Expr) -> Result<Expr<Reference>, Error> {
+        let ty = self.ty(ty)?;
+        let value = Box::new(self.expr(value)?);
+        if fallback.is_settled() {
+            let otherwise = Box::new(self.expr(fallback)?);
+            return Ok(Expr::Cast {
+                value,
+                ty,
+                otherwise,
+            });
+        }
+        let local = |number: usize| Box::new(Expr::Name(Reference::Local(number)));
+        let held = self.next;
+        self.next += 1;
+        let fallback = Box::new(self.expr(fallback)?);
+        let other = self.next;
+        self.next += 1;
+        let cast = Box::new(Expr::Cast {
+            value: local(held),
+            ty,
+            otherwise: local(other),
+        });
+        let inner = Box::new(Expr::Let {
+            name: "__fallback".to_owned(),
+            value: fallback,
+            body: cast,
+        });
+        // The outer binding is where the call was, and nothing wrote
+        // the rest. An error in the cast is one in the call: the node
+        // before the value, which the binding holds first.
+        if let Expr::Let { body: cast, .. } = &*inner {
+            self.added.push(std::ptr::from_ref(&*inner));
+            self.added.push(std::ptr::from_ref(&**cast));
+            cast.children(&mut |name| self.added.push(std::ptr::from_ref(name)));
+            self.stood
+                .push((std::ptr::from_ref(&**cast), std::ptr::from_ref(&*value)));
+        }
+        Ok(Expr::Let {
+            name: "__cast".to_owned(),
+            value,
+            body: inner,
         })
     }
 

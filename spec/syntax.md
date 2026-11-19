@@ -57,7 +57,8 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - `${` and `}` in a string hold a value, and the string is its pieces [joined](operations.md) with each value's `to_text` [method](methods.md) called; `\$` writes the sign itself.
 - A condition, `?`, a value, `:`, and another value is a match of the condition that gives the first where it is true.
 - A parameter of a function written in place may be a pattern: the argument is matched against it where the body begins.
-- A [cast](types.md) is a call of the [intrinsic](definitions.md#intrinsics) `cast` with its type written out, and gives the value at that type, or `null`.
+- A [cast](types.md) is a call of the [intrinsic](definitions.md#intrinsics) `cast` with its type written out, a value, and a fallback. It gives the value at that type, or the fallback.
+- A cast's fallback is an argument like any other: it is evaluated after the value and before the test, whether the value passes or not.
 - A value, `??`, and another value is a match of the first: the first where it is not `null`, and the second where it is, evaluated only then.
 - `??` binds looser than every operator and tighter than `?`. A first value that is never `null` is an error, as an arm that is never taken is.
 - A [comptime](comptime.md) call is `comptime` before the call.

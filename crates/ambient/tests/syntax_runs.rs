@@ -159,7 +159,7 @@ fn a_return_in_a_scope_gives_the_scope_its_value() {
             let bounded = contain(fn() {
                 return caught * 2;
             });
-            return cast::<int>(bounded) ?? 0;
+            return cast::<int>(bounded, 0);
         }
     ";
 
@@ -188,7 +188,7 @@ fn a_cast_narrows_unknown_or_gives_what_it_is_otherwise() {
     let source = r#"
         type Item = { name: string, qty: int };
 
-        fn parse(value: unknown): Item => cast::<Item>(value) ?? { name: "?", qty: 0 };
+        fn parse(value: unknown): Item => cast::<Item>(value, null) ?? { name: "?", qty: 0 };
 
         fn main(): int => parse({ name: "tea", qty: 2 }).qty + parse(7).qty;
     "#;
@@ -247,7 +247,7 @@ fn a_using_releases_what_it_binds_when_its_block_ends() {
                 using { name } = noting(log, "b");
                 return first.name + name + log.read();
             });
-            return (cast::<string>(seen) ?? "?") + ":" + log.read();
+            return cast::<string>(seen, "?") + ":" + log.read();
         }
     "#;
 
@@ -396,7 +396,7 @@ fn a_let_that_states_a_type_holds_its_value_to_it_and_tests_nothing() {
             let add: fn(number: int): int = fn(n) => n + 1;
             let none: List<int> = [];
             let wide: int | null = 2;
-            return add(none.length()) + (cast::<int>(wide) ?? 0);
+            return add(none.length()) + cast::<int>(wide, 0);
         }
     ";
 
@@ -475,14 +475,48 @@ fn what_follows_a_miss_runs_only_on_a_miss() {
 }
 
 #[test]
-fn a_cast_is_null_where_the_type_does_not_describe_the_value() {
+fn a_cast_gives_its_fallback_where_the_type_does_not_describe_the_value() {
     let source = r#"
         fn seen(value: unknown): string =>
-            cast::<string>(value) ?? "${cast::<int>(value) ?? -1}";
+            cast::<string>(value, "${cast::<int>(value, -1)}");
         fn main(): string => seen("text") + seen(7) + seen(null);
     "#;
 
     assert_eq!(text(source), "text7-1");
+}
+
+#[test]
+fn a_cast_s_fallback_is_evaluated_whether_the_value_passes_or_not() {
+    let source = r#"
+        fn main(): string {
+            let log = cell::<string>("");
+            let noted = fn(): int {
+                log.update(fn(text) => text + "!");
+                return 0;
+            };
+            let passed = cast::<int>(1, noted());
+            let failed = cast::<int>("one", noted());
+            return "${passed}${failed}${log.read()}";
+        }
+    "#;
+
+    assert_eq!(text(source), "10!!");
+}
+
+#[test]
+fn a_fallback_outside_the_type_tells_a_null_that_passed_from_a_failure() {
+    let source = r#"
+        tag not_one;
+        fn told(value: unknown): string =>
+            match cast::<int | null>(value, not_one) {
+                not_one => "neither",
+                null => "null",
+                let number: int => "${number}",
+            };
+        fn main(): string => told(null) + " " + told(7) + " " + told("seven");
+    "#;
+
+    assert_eq!(text(source), "null 7 neither");
 }
 
 #[test]

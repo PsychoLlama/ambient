@@ -20,7 +20,7 @@ pub fn read(text: string): Map<int> with throw {
 }
 
 fn count_of(name: string, held: Json): int with throw =>
-    cast::<int>(held) ?? fail(not_a_ledger, "`${name}` does not hold a count");
+    cast::<int>(held, null) ?? fail(not_a_ledger, "`${name}` does not hold a count");
 
 /// The text of a file that holds `counts`.
 pub fn write(counts: Map<int>): string => json.write(map.of::<Json>(counts.entries()));

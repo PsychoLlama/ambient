@@ -32,7 +32,7 @@ pub fn main(): int with console, env, fs, http {
 /// The notes a file keeps: a JSON array of strings. A file that is
 /// missing, or holds something else, keeps none.
 fn kept(path: string): List<string> with fs.read {
-    let text = cast::<string>(fs.read!(path)) ?? "[]";
+    let text = cast::<string>(fs.read!(path), "[]");
     match catch(fn() => json.parse(text)) {
         let notes: List<json.Json> => {
             return notes.fold([], fn(found: List<string>, note: json.Json): List<string> =>

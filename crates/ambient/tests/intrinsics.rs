@@ -68,6 +68,27 @@ fn an_error_after_a_call_of_one_is_where_it_was_written() {
 }
 
 #[test]
+fn a_cast_takes_a_value_and_what_to_give_otherwise() {
+    assert_eq!(
+        refused("fn main(value: unknown): int | null => cast::<int>(value);"),
+        "app:main.main: `cast` is written `cast::<T>(value, fallback)`"
+    );
+}
+
+#[test]
+fn an_error_in_a_cast_that_holds_its_fallback_is_at_the_call() {
+    let source = "fn main(value: unknown): string =>\n  cast::<int>(value, [1].length());";
+
+    let checked = check(&app(source)).1;
+
+    assert!(
+        checked.err.starts_with("error: app/src/main.ab:2:3: "),
+        "{}",
+        checked.err
+    );
+}
+
+#[test]
 fn a_construct_takes_its_body_as_a_function_written_in_place() {
     let written = "fn main(): int | Error => contain(fn() => 1 / 1);";
     let handed = "fn one(): int => 1;\nfn main(): int | Error => contain(one);";
@@ -87,7 +108,7 @@ fn a_cell_holds_what_its_first_value_is_unless_it_says() {
             let either = cell::<int | null>(null);
             count.update(fn(held) => held + 1);
             either.update(fn(_) => 40);
-            return count.read() + (cast::<int>(either.read()) ?? 0);
+            return count.read() + (cast::<int>(either.read(), 0));
         }
     ";
 

@@ -191,7 +191,7 @@ fn loader(externs: List<Extern>, bindings: List<Bound>, built: Built): string wi
 fn declarations(entry: Reference, externs: List<Extern>): string with build.signature, build.doc, throw {
     let main = signature(entry);
     // The entry's doc comment is what its `run` is, to whoever calls it.
-    let about = cast::<string>(build.doc!(entry)) ?? "Runs the program's entry.";
+    let about = cast::<string>(build.doc!(entry), "Runs the program's entry.");
     let natives = externs.map(fn(native: Extern): string {
         let takes = signature(native.definition);
         return "  /** `${native.path}` of package `${native.package}`. */\n"

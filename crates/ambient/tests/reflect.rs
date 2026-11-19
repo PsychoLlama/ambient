@@ -104,7 +104,7 @@ fn a_tool_is_told_the_modules_of_a_package_and_what_each_defines() {
     let said = told(
         r#"fn report(of: Build): Files with build.modules, build.definitions {
             let modules = build.modules!("app").map(fn(path: List<string>): string => path.join_with("."));
-            let defined = cast::<List<Reference>>(build.definitions!("app", ["main"])) ?? [];
+            let defined = cast::<List<Reference>>(build.definitions!("app", ["main"]), []);
             return file("${modules.join_with(" ")}: ${names(defined)}");
         }"#,
         "modules definitions",
@@ -117,7 +117,7 @@ fn a_tool_is_told_the_modules_of_a_package_and_what_each_defines() {
 fn a_tool_is_told_what_a_definition_reaches_in_the_order_it_is_met() {
     let said = told(
         r"fn report(of: Build): Files with build.reach {
-            return file(names(cast::<List<Reference>>(build.reach!(of.entry)) ?? []));
+            return file(names(cast::<List<Reference>>(build.reach!(of.entry), [])));
         }",
         "reach",
     );
@@ -131,7 +131,7 @@ fn a_tool_runs_a_function_as_a_run_of_its_own() {
         r#"fn doubled(of: int): int => of * 2;
         fn report(of: Build): Files with build.run {
             match build.run!(comptime tree.reference(doubled), [21]) {
-                let ran: Ran => { return file("${cast::<int>(ran.gave) ?? 0}"); }
+                let ran: Ran => { return file("${cast::<int>(ran.gave, 0)}"); }
                 let error: Error => { return file(error.message); }
             }
         }"#,
@@ -202,7 +202,7 @@ fn a_tool_is_told_the_digest_of_bytes() {
 fn a_tool_keeps_bytes_under_their_digest_and_is_given_them_back() {
     let said = told(
         r#"fn report(of: Build): Files with build.keep, build.kept {
-            let back = cast::<bytes>(build.kept!(build.keep!("hello".to_bytes()))) ?? "lost".to_bytes();
+            let back = cast::<bytes>(build.kept!(build.keep!("hello".to_bytes())), null) ?? "lost".to_bytes();
             return [{ path: "told.txt", bytes: back }];
         }"#,
         "keep kept",
@@ -215,7 +215,7 @@ fn a_tool_keeps_bytes_under_their_digest_and_is_given_them_back() {
 fn a_tool_is_told_the_doc_comment_of_a_definition() {
     let said = told(
         r#"fn report(of: Build): Files with build.doc {
-            let doc = fn(of: Reference): string => cast::<string>(build.doc!(of)) ?? "none";
+            let doc = fn(of: Reference): string => cast::<string>(build.doc!(of), "none");
             return file("${doc(comptime tree.reference(helper))}, ${doc(of.entry)}");
         }"#,
         "doc",

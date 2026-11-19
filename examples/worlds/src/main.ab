@@ -20,8 +20,8 @@ fn game(): int with random.bits, console.print {
 
 /// The events a file holds, if it holds a recording.
 fn kept(path: string): List<replay.Event> with fs.read_bytes, throw {
-    let encoded = cast::<bytes>(fs.read_bytes!(path)) ?? fail(unreadable, "${path} cannot be read");
-    return cast::<List<replay.Event>>(exchange.decode(encoded)) ?? fail(unreadable, "${path} is no recording");
+    let encoded = cast::<bytes>(fs.read_bytes!(path), null) ?? fail(unreadable, "${path} cannot be read");
+    return cast::<List<replay.Event>>(exchange.decode(encoded), null) ?? fail(unreadable, "${path} is no recording");
 }
 
 /// Plays the game and keeps what the world said in a file; or, if the
@@ -41,7 +41,7 @@ pub fn main(): int with console.print, console.warn, env.args, fs.exists, fs.rea
             }
             let tape = replay.blank();
             let total = observe(replay.recorder(tape), fn() => game());
-            let encoded = cast::<bytes>(exchange.encode(tape.events.read())) ?? fail(unreadable, "the game cannot be kept");
+            let encoded = cast::<bytes>(exchange.encode(tape.events.read()), null) ?? fail(unreadable, "the game cannot be kept");
             fs.write_bytes!(path, encoded);
             console.print!("recorded a game of ${total}");
             return 0;

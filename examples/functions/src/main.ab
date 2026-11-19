@@ -47,7 +47,7 @@ fn loaded(compiled: bytes): Function | Error with code.load {
     match code.load!(compiled) {
         let error: Error => { return error; }
         let loaded: unknown => {
-            let function = cast::<Function>(loaded) ?? unfit;
+            let function = cast::<Function>(loaded, unfit);
             return function == unfit ? unsuited() : function;
         }
     }

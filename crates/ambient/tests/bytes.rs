@@ -125,7 +125,7 @@ fn bytes_written_out_are_a_pattern_and_a_type() {
                 _ => { return "unknown"; }
             }
         }
-        fn png(value: unknown): bool => (cast::<Png>(value) ?? null) != null;
+        fn png(value: unknown): bool => cast::<Png>(value, null) != null;
 
         fn main(): string {
             let found = [kind(0x[89 50]), kind(0x[FF D8]), kind("P".to_bytes())].join_with(" ");

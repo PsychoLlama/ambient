@@ -118,7 +118,7 @@ fn a_match_cannot_brand_what_was_not() {
     ";
     let cast = "
         type(nominal) Meters;
-        fn main(): int => (cast::<int & Meters>(5) ?? Meters(0)) + 0;
+        fn main(): int => (cast::<int & Meters>(5, null) ?? Meters(0)) + 0;
     ";
     for (source, function) in [(source, "meters"), (cast, "main")] {
         let wrong = wrong(source, function);

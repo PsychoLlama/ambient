@@ -40,7 +40,7 @@ fn deployed(current: Cell<Answer>, request: http.Request): http.Response with co
     match code.unpack(request.body) {
         let error: Error => { return http.text(400, "${error.message}\n"); }
         let loaded: unknown => {
-            let next = cast::<Answer>(loaded) ?? unfit;
+            let next = cast::<Answer>(loaded, unfit);
             if next == unfit {
                 return http.text(400, "not a way to answer a request\n");
             }

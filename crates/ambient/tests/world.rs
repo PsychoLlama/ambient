@@ -71,7 +71,7 @@ fn a_file_that_is_missing_is_an_error_a_program_matches_on() {
 
         fn main(): string with fs.read, fs.write {
             fs.write!("notes.txt", "kept");
-            let found = cast::<string>(fs.read!("notes.txt")) ?? "";
+            let found = cast::<string>(fs.read!("notes.txt"), "");
             match fs.read!("missing.txt") {
                 let text: string => { return text; }
                 let error: Error => {
@@ -371,7 +371,7 @@ fn a_file_that_is_not_text_is_read_and_written_as_bytes() {
             let image = bytes.of([137, 80, 78, 71]) ?? "".to_bytes();
             let _ = fs.write_bytes!("logo.png", image);
             let _ = fs.append_bytes!("logo.png", "!".to_bytes());
-            let held = cast::<bytes>(fs.read_bytes!("logo.png")) ?? "".to_bytes();
+            let held = cast::<bytes>(fs.read_bytes!("logo.png"), null) ?? "".to_bytes();
             match fs.read!("logo.png") {
                 let text: string => { return text; }
                 let error: Error => {

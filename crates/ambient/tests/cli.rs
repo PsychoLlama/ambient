@@ -121,7 +121,7 @@ fn an_error_is_reported_at_the_expression_that_is_wrong() {
     // A test that cannot tell what it is asked: any record passes it.
     assert_eq!(
         wrong_at(
-            "use ambient.map.{Map};\nfn f(v: unknown): int =>\n  cast::<int>(cast::<Map<int>>(v)) ?? 0;"
+            "use ambient.map.{Map};\nfn f(v: unknown): int =>\n  cast::<int>(cast::<Map<int>>(v, null), 0);"
         ),
         "3:15"
     );
@@ -238,8 +238,27 @@ fn generated_code_is_written_out_as_it_would_be_read() {
         world.err,
         "error: app/src/main.ab:6:1: app:main.made: `intrinsics.join` is not defined for `int, \"two\"`
 in the code the call gave:
-    fn made(_0: int): int => intrinsics.join(cast::<int>(1) ?? 0, \"two\")
-                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    fn made(_0: int): int => intrinsics.join(cast::<int>(1, 0), \"two\")
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+"
+    );
+}
+
+#[test]
+fn a_generated_cast_whose_other_branch_does_something_is_written_as_a_match() {
+    let sum = "code.operate(\"add\", [code.literal(1), code.literal(\"two\")])";
+    let cast = format!("code.cast(code.literal(1), tree.integer, {sum})");
+
+    let (_, world) = check(&app(&generating(&cast, "")));
+    assert_eq!(
+        world.err,
+        "error: app/src/main.ab:6:1: app:main.made: `+` is not defined for `1, \"two\"`
+in the code the call gave:
+    fn made(_0: int): int => match 1 {
+        let passed: int => passed,
+        _ => 1 + \"two\",
+             ^^^^^^^^^
+    }
 "
     );
 }
@@ -267,7 +286,7 @@ fn an_error_nothing_catches_ends_the_program_and_is_reported() {
         }
         fn main(): int with throw {
             let caught = catch(fn() => small(10));
-            let first = cast::<int>(caught) ?? small(3);
+            let first = cast::<int>(caught, null) ?? small(3);
             return first + small(12);
         }
     "#;

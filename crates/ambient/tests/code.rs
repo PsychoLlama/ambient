@@ -40,7 +40,7 @@ const CALLED: &str = r#"
         match code.unpack(packed) {
             let error: Error => { return error.message; }
             let loaded: unknown => {
-                let greet = cast::<fn(text: string): string>(loaded) ?? other;
+                let greet = cast::<fn(text: string): string>(loaded, other);
                 return greet("ada");
             }
         }
@@ -52,7 +52,7 @@ fn a_function_is_packed_and_loaded_where_it_was_never_written() {
     let sender = format!(
         "{SENT}
         fn main(): null with code.pack, fs.write_bytes {{
-            let _ = fs.write_bytes!(\"greet.pack\", cast::<bytes>(code.pack!(greet)) ?? 0x[]);
+            let _ = fs.write_bytes!(\"greet.pack\", cast::<bytes>(code.pack!(greet), 0x[]));
             return null;
         }}"
     );
@@ -61,7 +61,7 @@ fn a_function_is_packed_and_loaded_where_it_was_never_written() {
     let receiver = format!(
         "{CALLED}
         fn main(): string with code.compile, code.load, fs.read_bytes =>
-            called(cast::<bytes>(fs.read_bytes!(\"greet.pack\")) ?? 0x[]);"
+            called(cast::<bytes>(fs.read_bytes!(\"greet.pack\"), 0x[]));"
     );
     let (gave, _) = run(&receiver, &sent);
     assert_eq!(gave, text("hello, ADA!"));
@@ -71,7 +71,7 @@ fn a_function_is_packed_and_loaded_where_it_was_never_written() {
 fn a_program_loads_what_it_packed_itself() {
     let source = format!(
         "{SENT} {CALLED}
-        fn main(): string with code => called(cast::<bytes>(code.pack!(greet)) ?? 0x[]);"
+        fn main(): string with code => called(cast::<bytes>(code.pack!(greet), 0x[]));"
     );
     assert_eq!(run(&source, &Scripted::default()).0, text("hello, ADA!"));
 }
@@ -81,7 +81,7 @@ fn a_loaded_function_is_only_what_its_cast_says() {
     let source = format!(
         "{CALLED}
         fn count(name: string): int => name.length();
-        fn main(): string with code => called(cast::<bytes>(code.pack!(count)) ?? 0x[]);"
+        fn main(): string with code => called(cast::<bytes>(code.pack!(count), 0x[]));"
     );
     assert_eq!(
         run(&source, &Scripted::default()).0,
@@ -129,8 +129,8 @@ fn a_loaded_function_does_what_its_caller_provides() {
             console.print!(word.to_upper());
         }
         fn main(): null with code, console.print {
-            let loaded = code.unpack(cast::<bytes>(code.pack!(shout)) ?? 0x[]);
-            let shout = cast::<fn(text: string): null with console.print>(loaded) ?? quiet;
+            let loaded = code.unpack(cast::<bytes>(code.pack!(shout), 0x[]));
+            let shout = cast::<fn(text: string): null with console.print>(loaded, quiet);
             shout("loaded");
         }
     "#;
@@ -150,7 +150,7 @@ fn a_program_goes_on_with_the_code_it_was_last_given() {
 
         fn deploy(current: Cell<Answer>, packed: bytes): null with code.compile, code.load {
             let loaded = code.unpack(packed);
-            let _ = current.update(fn(now: Answer): Answer => cast::<Answer>(loaded) ?? now);
+            let _ = current.update(fn(now: Answer): Answer => cast::<Answer>(loaded, now));
         }
 
         fn main(): string with code {
@@ -158,7 +158,7 @@ fn a_program_goes_on_with_the_code_it_was_last_given() {
             let before = current.read()("ada");
             deploy(current, 0x[00]);
             let kept = current.read()("ada");
-            deploy(current, cast::<bytes>(code.pack!(second)) ?? 0x[]);
+            deploy(current, cast::<bytes>(code.pack!(second), 0x[]));
             return "${before}; ${kept}; ${current.read()("ada")}";
         }
     "#;
@@ -173,10 +173,10 @@ fn what_was_compiled_is_kept_and_loaded_without_the_compiler() {
         fn other(name: string): string => \"not that function\";
 
         fn main(): string with code, fs {{
-            let packed = cast::<bytes>(code.pack!(greet)) ?? 0x[];
-            let _ = fs.write_bytes!(\"greet.code\", cast::<bytes>(code.compile!(packed)) ?? 0x[]);
-            let kept = cast::<bytes>(fs.read_bytes!(\"greet.code\")) ?? 0x[];
-            let greet = cast::<fn(text: string): string>(code.load!(kept)) ?? other;
+            let packed = cast::<bytes>(code.pack!(greet), 0x[]);
+            let _ = fs.write_bytes!(\"greet.code\", cast::<bytes>(code.compile!(packed), 0x[]));
+            let kept = cast::<bytes>(fs.read_bytes!(\"greet.code\"), 0x[]);
+            let greet = cast::<fn(text: string): string>(code.load!(kept), other);
             return greet(\"ada\");
         }}"
     );
@@ -195,7 +195,7 @@ fn only_what_this_compiler_compiled_is_loaded() {
             }}
         }}
         fn main(): string with code =>
-            said(code.load!(cast::<bytes>(code.pack!(greet)) ?? 0x[])) + \"; \" + said(code.load!(0x[]));"
+            said(code.load!(cast::<bytes>(code.pack!(greet), 0x[]))) + \"; \" + said(code.load!(0x[]));"
     );
     let gave = run(&source, &Scripted::default()).0;
     assert_eq!(gave, text("refused; refused"));

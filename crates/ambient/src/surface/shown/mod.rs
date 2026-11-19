@@ -125,7 +125,8 @@ impl<'a> Writer<'a> {
     fn atom(&mut self, expr: &'a Expr<Reference>) -> Doc {
         let loose = match expr {
             Expr::Operation { operator, operands } => infix(*operator, operands).is_some(),
-            Expr::Cast { .. } | Expr::Lambda { .. } | Expr::Match { .. } | Expr::Let { .. } => true,
+            Expr::Cast { otherwise, .. } => !otherwise.is_settled(),
+            Expr::Lambda { .. } | Expr::Match { .. } | Expr::Let { .. } => true,
             _ => false,
         };
         let doc = self.expr(expr);
@@ -189,15 +190,7 @@ impl<'a> Writer<'a> {
                 value,
                 ty,
                 otherwise,
-            } => {
-                let cast = text(format!("cast::<{}>", type_shown(ty)));
-                let mut row = vec![cast, list("(", vec![self.expr(value)], ")")];
-                // Null is what a cast gives with nothing after it.
-                if !matches!(**otherwise, Expr::Null) {
-                    row.extend([text(" ?? "), self.atom(otherwise)]);
-                }
-                Doc::Row(row)
-            }
+            } => self.cast(value, ty, otherwise),
             Expr::Operation { operator, operands } => self.operation(*operator, operands),
             Expr::Provide {
                 bundle,
@@ -234,6 +227,27 @@ impl<'a> Writer<'a> {
             }
             _ => text("…"),
         }
+    }
+
+    /// A cast, whose other branch is taken only where the value does
+    /// not pass. Written as a call it is evaluated first, which is the
+    /// same where evaluating it does nothing; where it might, the cast
+    /// is written as the match it is.
+    fn cast(&mut self, value: &'a Expr<Reference>, ty: &Ty, otherwise: &'a Expr<Reference>) -> Doc {
+        let ty = type_shown(ty);
+        if otherwise.is_settled() {
+            let given = vec![self.expr(value), self.expr(otherwise)];
+            return Doc::Row(vec![text(format!("cast::<{ty}>")), list("(", given, ")")]);
+        }
+        let subject = self.atom(value);
+        let passes = text(format!("let passed: {ty} => passed,"));
+        let fails = Doc::Row(vec![
+            text("_ =>"),
+            Doc::Body(Box::new(self.expr(otherwise))),
+            text(","),
+        ]);
+        let arms = Doc::Block(vec![passes, fails]);
+        Doc::Row(vec![text("match "), subject, text(" "), arms])
     }
 
     /// An operation: between its operands if it has an operator, and

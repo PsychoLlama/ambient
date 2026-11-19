@@ -16,11 +16,11 @@ pub fn find(name: string, pages: List<Page>): string | null {
 
 /// The files of `pages` that are pages.
 fn pages(): List<Page> with build.list, build.read {
-    let files = cast::<List<string>>(build.list!("pages")) ?? [];
+    let files = cast::<List<string>>(build.list!("pages"), []);
     return files
         .filter(fn(file: string): bool => file.ends_with(".md"))
         .map(fn(file: string): Page =>
-            { name: file.replace(".md", ""), text: cast::<string>(build.read!("pages/${file}")) ?? "" });
+            { name: file.replace(".md", ""), text: cast::<string>(build.read!("pages/${file}"), "") });
 }
 
 /// A function that gives `value`, and takes nothing.

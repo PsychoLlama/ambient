@@ -12,8 +12,8 @@ pub fn echo(request: http.Request): http.Response with throw =>
 /// Adds up a JSON array of numbers. Anything else throws, which the
 /// server answers for it.
 pub fn sum(request: http.Request): http.Response with throw {
-    let numbers = cast::<List<json.Json>>(json.parse(request.body.to_text() ?? "")) ?? [];
-    let add = fn(total: int, number: json.Json): int => total + (cast::<int>(number) ?? 0);
+    let numbers = cast::<List<json.Json>>(json.parse(request.body.to_text() ?? ""), []);
+    let add = fn(total: int, number: json.Json): int => total + cast::<int>(number, 0);
     return http.json(200, numbers.fold(0, add));
 }
 

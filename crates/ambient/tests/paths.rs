@@ -14,7 +14,7 @@ fn path(expr: &str) -> String {
 
 /// What a function of a path gives for each of `paths`, null as `-`.
 fn each(function: &str, paths: [&str; 4]) -> String {
-    let calls = paths.map(|path| format!("(cast::<string>(path.{function}(\"{path}\")) ?? \"-\")"));
+    let calls = paths.map(|path| format!("(cast::<string>(path.{function}(\"{path}\"), \"-\"))"));
     path(&format!("[{}].join_with(\" \")", calls.join(", ")))
 }
 

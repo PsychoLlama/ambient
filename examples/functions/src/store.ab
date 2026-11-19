@@ -17,7 +17,7 @@ fn file(name: string, kind: string): string | null {
 fn read(name: string, kind: string): bytes | null with fs.read_bytes {
     match file(name, kind) {
         null => { return null; }
-        let file: string => { return cast::<bytes>(fs.read_bytes!(file)) ?? null; }
+        let file: string => { return cast::<bytes>(fs.read_bytes!(file), null); }
     }
 }
 

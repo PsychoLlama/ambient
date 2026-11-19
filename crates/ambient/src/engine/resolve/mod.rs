@@ -4,9 +4,10 @@
 mod expr;
 mod intrinsic;
 mod lookup;
+mod resolved;
 mod types;
 
-use serde::{Deserialize, Serialize};
+pub use self::resolved::Resolved;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -15,45 +16,12 @@ use std::sync::Arc;
 use super::scope::{Members, Scope};
 use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
-use crate::hash::{Hash, Hasher, digest};
+use crate::hash::{Hasher, digest};
 use crate::surface::{
     Ability, Annotation, ContractDefinition, Definition, DefinitionKind, Expr, Extern, ExternKind,
     Function, Param, Path, Reference, Target, Type, TypeDefinition, TypeParam,
 };
 use crate::symbol::{ModuleId, Namespace, Symbol};
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Resolved {
-    pub definition: Definition<Reference>,
-    /// A digest of `definition`, kept so no later stage re-derives it.
-    pub digest: Hash,
-    /// The nodes of the body as written that are no node of the
-    /// resolved one, each by its number there, in order: what a call
-    /// of an intrinsic leaves out. See [`Self::written`].
-    pub skipped: Vec<u32>,
-    /// The nodes of the resolved body that nothing wrote, each by its
-    /// number there, in order: what a call of an intrinsic adds.
-    pub added: Vec<u32>,
-}
-
-impl Resolved {
-    /// The node of the body as written that the node numbered
-    /// `resolved` of the resolved body was made from.
-    #[must_use]
-    pub fn written(&self, resolved: usize) -> usize {
-        let number = |node: &u32| usize::try_from(*node).unwrap_or(usize::MAX);
-        // A node nothing wrote is where the node before it is.
-        let added = self.added.iter().map(number);
-        let mut written = resolved - added.filter(|added| *added <= resolved).count();
-        for skipped in self.skipped.iter().map(number) {
-            if skipped > written {
-                break;
-            }
-            written += 1;
-        }
-        written
-    }
-}
 
 impl Engine<'_> {
     /// A definition with every name replaced by what it refers to.
@@ -98,12 +66,16 @@ impl Engine<'_> {
                 let added = body_of(&definition)
                     .map(|body| intrinsic::numbered(body, &resolver.added))
                     .unwrap_or_default();
+                let stood = body_of(&definition)
+                    .map(|body| intrinsic::stood(body, &resolver.stood))
+                    .unwrap_or_default();
                 let digest = digest("resolved", &definition);
                 Ok(Resolved {
                     definition,
                     digest,
                     skipped,
                     added,
+                    stood,
                 })
             })
         })
@@ -158,6 +130,7 @@ impl Engine<'_> {
             digest: digest("resolved", definition),
             skipped: Vec::new(),
             added: Vec::new(),
+            stood: Vec::new(),
         }))
     }
 
@@ -237,6 +210,9 @@ struct Resolver<'a> {
     dropped: Vec<*const Expr>,
     /// The nodes of the resolved tree that nothing wrote.
     added: Vec<*const Expr<Reference>>,
+    /// The casts an error is not reported at, each with the value of
+    /// the binding it is reported at instead.
+    stood: Vec<(*const Expr<Reference>, *const Expr<Reference>)>,
     /// The members of the generated modules the definition names
     /// something through, as far as they have been asked for.
     given: Given,
@@ -260,6 +236,7 @@ impl<'a> Resolver<'a> {
             blamed: None,
             dropped: Vec::new(),
             added: Vec::new(),
+            stood: Vec::new(),
             given: Given::new(),
             wanted: RefCell::default(),
         }

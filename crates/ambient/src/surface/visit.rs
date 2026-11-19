@@ -154,6 +154,16 @@ impl<N> Pattern<N> {
 }
 
 impl<N> Expr<N> {
+    /// Whether evaluating this is nothing anyone could tell: a literal,
+    /// `null`, or a name. A cast's other branch that is one is the same
+    /// evaluated before the cast or only where it is taken.
+    #[must_use]
+    pub fn is_settled(&self) -> bool {
+        matches!(self, Expr::Null | Expr::Literal(_) | Expr::Name(_))
+    }
+}
+
+impl<N> Expr<N> {
     /// Calls `visit` with every name in the expression: those a node
     /// holds itself, then those of the expressions inside it.
     pub fn names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {

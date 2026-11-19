@@ -105,10 +105,10 @@ const PACKS: &str = r#"
         fn greet(name: string): string => "hello, ${name}";
 
         fn main(): null with code, console.print {
-            match code.unpack(cast::<bytes>(code.pack!(greet)) ?? 0x[]) {
+            match code.unpack(cast::<bytes>(code.pack!(greet), 0x[])) {
                 let error: Error => { console.print!(error.message); }
                 let loaded: unknown => {
-                    let greet = cast::<fn(text: string): string>(loaded) ?? other;
+                    let greet = cast::<fn(text: string): string>(loaded, other);
                     console.print!(greet("ada"));
                 }
             }
