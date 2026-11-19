@@ -127,10 +127,13 @@ pub fn unit(parts: &Parts, has: &BTreeSet<Hash>) -> Result<Vec<u8>, String> {
     assemble(parts, Shape::Unit(has), &[])
 }
 
-/// The functions a module defines besides the runtime's: each a body
-/// and where it calls the runtime, with its type.
+/// A function a module defines besides the runtime's: its body and
+/// where that calls the runtime, with its type.
+type Defined = (Vec<u8>, Calls, u32);
+
+/// The functions a module defines besides the runtime's.
 struct Own {
-    bodies: Vec<(Vec<u8>, Calls, u32)>,
+    bodies: Vec<Defined>,
     /// Where each of [`Parts::codes`] is among them.
     positions: Vec<u64>,
     /// How many of them are compiled functions: the rest lay the
@@ -164,6 +167,16 @@ fn compiled(parts: &Parts) -> Result<Own, String> {
     Ok(own)
 }
 
+impl Own {
+    /// Adds the functions that lay the module out, and gives the
+    /// module's first data.
+    fn lay(&mut self, plan: &Statics, globals: &Globals, ty: u32) -> Result<Vec<u8>, String> {
+        let (bodies, held) = layout(plan, self, globals, ty)?;
+        self.bodies.extend(bodies);
+        Ok(held)
+    }
+}
+
 fn assemble(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Vec<u8>, String> {
     Ok(assembled(parts, shape, host)?.0)
 }
@@ -182,20 +195,22 @@ pub fn pieces(parts: &Parts, host: &[&'static str]) -> Result<Vec<Carried>, Stri
 type Assembled = (Vec<u8>, Vec<Carried>);
 
 /// The functions that lay a module out, and give a unit back: each
-/// a body and where it calls the runtime, with its type.
+/// a body and where it calls the runtime, with its type. With them,
+/// the module's first data: the text of the plan, and after it
+/// whatever the first of those functions reads.
 fn layout(
     plan: &Statics,
     own: &Own,
     globals: &Globals,
     init_type: u32,
-) -> Result<Vec<(Vec<u8>, Calls, u32)>, String> {
-    let (init, calls) = initializer(plan, &own.positions, own.compiled, globals)?;
-    let mut bodies = vec![(init.into_raw_body(), calls, init_type)];
+) -> Result<(Vec<Defined>, Vec<u8>), String> {
+    let init = initializer(plan, &own.positions, own.compiled, globals)?;
+    let mut bodies = vec![(init.body.into_raw_body(), init.calls, init_type)];
     if plan.loaded {
         let (drop, calls) = reclaimer(plan, own.compiled, globals)?;
         bodies.push((drop.into_raw_body(), calls, init_type + 1));
     }
-    Ok(bodies)
+    Ok((bodies, [plan.text.as_slice(), &init.stream].concat()))
 }
 
 fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assembled, String> {
@@ -224,7 +239,7 @@ fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assem
         table: Some(0),
         ..globals.clone()
     };
-    let draft = layout(&plan, &own, &draft, init_type)?;
+    let (draft, _) = layout(&plan, &own, &draft, init_type)?;
     let called = own
         .bodies
         .iter()
@@ -246,7 +261,7 @@ fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assem
         (globals.base, globals.table) = (Some(next_global), Some(next_global + 1));
     }
     globals.setup = runtime.setup();
-    own.bodies.extend(layout(&plan, &own, &globals, init_type)?);
+    let held = own.lay(&plan, &globals, init_type)?;
 
     let mut functions = FunctionSection::new();
     let mut code = CodeSection::new();
@@ -299,7 +314,7 @@ fn assembled(parts: &Parts, shape: Shape, host: &[&'static str]) -> Result<Assem
     let mut elements = ElementSection::new();
     elements.passive(Elements::Functions(table.into()));
     let mut data = DataSection::new();
-    data.passive(plan.text);
+    data.passive(held);
     runtime.fill(&mut elements, &mut data);
 
     let mut module = Module::new();

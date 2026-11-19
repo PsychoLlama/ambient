@@ -16,6 +16,7 @@ A program carries the code it reaches and nothing else, the [runtime](backends.m
 
 - Every program carries what calling, counting, and allocating need. That is the fixed cost of the language, and it is kept small.
 - The floor does not grow with the runtime: a release that adds operations leaves it as it was.
+- What a program holds of a [definition](definitions.md) beside its code is data. Laying a program out is one piece of code that reads it, however many definitions there are.
 - A piece a program carries is part of the program: calling one is a call like any other, never a call out to a runtime loaded beside it.
 - Where the checker knows a value's type it picks the operation for that type. Only code that does not know reaches a piece that handles every shape.
 - A program that performs no [task](tasks.md) operation carries no scheduler.

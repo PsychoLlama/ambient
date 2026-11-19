@@ -23,6 +23,7 @@ mod locals;
 mod module;
 mod resume;
 mod runtime;
+mod stream;
 mod units;
 
 pub use emit::{NAME, Wasm};

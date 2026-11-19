@@ -93,6 +93,25 @@ fn only_a_program_that_can_suspend_is_compiled_to() {
     assert!(carries(b::all([b::int(1), b::int(2)]), "amb_frame_push"));
 }
 
+/// A list of `count` functions, each a definition of its own.
+fn functions(count: i64) -> Expr {
+    let param = [("value", Some(ty::int()))];
+    let function = |index| b::lambda(param.clone(), b::add(b::name("value"), b::int(index)));
+    b::list((0..count).map(function))
+}
+
+/// The most one more definition adds to a program: its code, its
+/// hash and the name of its type, and an entry for each word it is
+/// laid out in. Storing each of those words by code took a hundred
+/// bytes more. Lower it when a definition takes less.
+const DEFINITION: usize = 330;
+
+#[test]
+fn a_definition_is_laid_out_from_data() {
+    let each = (size(functions(200), BARE) - size(functions(100), BARE)) / 100;
+    assert!(each <= DEFINITION, "{each} bytes");
+}
+
 #[test]
 #[ignore = "prints what the floor is made of"]
 #[allow(clippy::print_stderr)]
