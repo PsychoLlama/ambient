@@ -218,7 +218,7 @@ fn generics_are_inferred_or_written_out() {
 #[test]
 fn a_key_names_what_a_record_holds_without_a_field() {
     let source = r#"
-        key display(): string;
+        contract display(): string;
         type Display = { [display]: fn(): string };
 
         fn show(value: Display): string => value[display]();

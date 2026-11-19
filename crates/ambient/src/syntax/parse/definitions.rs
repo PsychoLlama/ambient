@@ -178,18 +178,13 @@ impl Parser {
             };
             return Ok((name, DefinitionKind::Ability(ability)));
         }
-        if self.eat_word("key") {
+        if self.eat_word("contract") {
             return self.key();
         }
         if self.eat_word("tag") {
             let name = self.name()?;
             self.expect(";")?;
             return Ok((name, DefinitionKind::Tag));
-        }
-        if self.eat_word("brand") {
-            let name = self.name()?;
-            self.expect(";")?;
-            return Ok((name, DefinitionKind::Brand));
         }
         if self.eat_word("extern") {
             return self.native();
@@ -258,6 +253,14 @@ impl Parser {
     }
 
     fn type_definition(&mut self) -> Parsed<(String, DefinitionKind)> {
+        // `type(nominal) Name;`: a brand, which has no structure to say.
+        if self.eat("(") {
+            self.expect_word("nominal")?;
+            self.expect(")")?;
+            let name = self.name()?;
+            self.expect(";")?;
+            return Ok((name, DefinitionKind::Brand));
+        }
         let name = self.name()?;
         let params = if self.eat("<") {
             self.list(">", Self::name)?
@@ -282,7 +285,7 @@ impl Parser {
         Ok((name, DefinitionKind::Type(TypeDefinition { params, ty })))
     }
 
-    /// `key name: Type;`, or `key name(params): Type;` for a key that
+    /// `contract name: Type;`, or `contract name(params): Type;` for a key that
     /// holds a function.
     fn key(&mut self) -> Parsed<(String, DefinitionKind)> {
         let name = self.name()?;
@@ -302,10 +305,10 @@ impl Parser {
 
     /// `extern fn name(params): Type with row;` or
     /// `extern handler name for ability with row;`, which may be
-    /// `extern suspending handler`.
+    /// `extern handler(suspending)`.
     fn native(&mut self) -> Parsed<(String, DefinitionKind)> {
-        let suspends = self.eat_word("suspending");
-        let (name, kind) = if !suspends && self.eat_word("fn") {
+        let mut suspends = false;
+        let (name, kind) = if self.eat_word("fn") {
             let name = self.name()?;
             let params = self.params()?;
             let ret = self.returns()?;
@@ -313,6 +316,11 @@ impl Parser {
             (name, ExternKind::Function { params, ret, row })
         } else {
             self.expect_word("handler")?;
+            if self.eat("(") {
+                self.expect_word("suspending")?;
+                self.expect(")")?;
+                suspends = true;
+            }
             let name = self.name()?;
             self.expect_word("for")?;
             let ability = self.path()?;

@@ -277,7 +277,7 @@ fn a_derived_type_follows_the_type_it_was_derived_from() {
 #[test]
 fn a_derived_type_keeps_the_brands_and_names_it_was_handed() {
     let main = "
-        brand Email;
+        type(nominal) Email;
         type Chain = { next: Chain | null, owner: string & Email };
         type Linked = comptime partial(Chain);
         type Written = { next: Chain | null, owner: string & Email | null };

@@ -16,7 +16,7 @@ The package that declares an extern keeps its JavaScript in a directory `js`, wh
 ```js
 // js/main.js, beside src/main.ab
 export const said = (line) => console.log(line);
-// One that gives a promise answers later: its extern is declared `suspending`.
+// One that gives a promise answers later: its extern is declared `handler(suspending)`.
 export const slept = (ms) => new Promise((wake) => setTimeout(wake, ms, null));
 // A function it is handed is one it calls, while it runs.
 export const applied = (work, to) => work(to);
@@ -33,7 +33,7 @@ use js.{binding};
 #[binding("Math.max")]
 extern fn larger(one: int, other: int): int;
 
-brand Address;
+type(nominal) Address;
 #[binding({ new: "URL" })]
 extern fn address(text: string): Address;
 #[binding({ property: "hostname" })]

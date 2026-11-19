@@ -30,7 +30,7 @@ fn refused(source: &str) -> Error {
 }
 
 const DURATION: &str = "
-    brand Duration;
+    type(nominal) Duration;
     fn seconds(count: int): int & Duration => Duration(count * 1000);
     fn wait(length: int & Duration): int => length / 1000;
 ";
@@ -61,8 +61,8 @@ fn a_value_without_the_brand_is_not_one_with_it() {
 #[test]
 fn brands_are_told_apart_and_gather() {
     let source = "
-        brand Checked;
-        brand Trimmed;
+        type(nominal) Checked;
+        type(nominal) Trimmed;
         fn checked(text: string): string & Checked => Checked(text);
         fn trimmed(text: string & Checked): string & Checked & Trimmed => Trimmed(text.trim());
         fn kept(text: string & Trimmed & Checked): string => text;
@@ -81,7 +81,7 @@ fn brands_are_told_apart_and_gather() {
 #[test]
 fn a_literal_is_branded_as_its_primitive() {
     let source = "
-        brand Port;
+        type(nominal) Port;
         fn port(): int & Port => Port(8080);
         fn main(): int => [port(), Port(80)].length() + port();
     ";
@@ -91,7 +91,7 @@ fn a_literal_is_branded_as_its_primitive() {
 #[test]
 fn a_match_tests_what_is_under_a_brand() {
     let source = "
-        brand Meters;
+        type(nominal) Meters;
         fn shown(length: int & Meters | string): string {
             match length {
                 let meters: int & Meters => { return \"${meters} m\"; }
@@ -107,7 +107,7 @@ fn a_match_tests_what_is_under_a_brand() {
 fn a_match_cannot_brand_what_was_not() {
     // Every integer passes the test, and not every one is in meters.
     let source = "
-        brand Meters;
+        type(nominal) Meters;
         fn meters(length: int & Meters | int): int & Meters {
             match length {
                 let meters: int & Meters => { return meters; }
@@ -117,7 +117,7 @@ fn a_match_cannot_brand_what_was_not() {
         fn main(): int => meters(5);
     ";
     let cast = "
-        brand Meters;
+        type(nominal) Meters;
         fn main(): int => (cast::<int & Meters>(5) ?? Meters(0)) + 0;
     ";
     for (source, function) in [(source, "meters"), (cast, "main")] {
@@ -130,7 +130,7 @@ fn a_match_cannot_brand_what_was_not() {
 fn only_a_brand_is_put_on_a_type() {
     let both = "fn main(): int & string => 1;";
     assert!(matches!(refused(both), Error::Intersection { .. }));
-    let twice = "brand A; brand B; fn main(): A & B | null => null;";
+    let twice = "type(nominal) A; type(nominal) B; fn main(): A & B | null => null;";
     assert!(matches!(refused(twice), Error::Intersection { .. }));
 }
 
@@ -139,7 +139,7 @@ fn only_its_module_brands_a_value() {
     let file = |(path, text): (&str, &str)| (PathBuf::from(path), text.to_owned());
     let files: BTreeMap<PathBuf, String> = [
         ("app/ambient.toml", "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\""),
-        ("app/src/units.ab", "pub brand Meters;\npub fn meters(n: int): int & Meters => Meters(n);"),
+        ("app/src/units.ab", "pub type(nominal) Meters;\npub fn meters(n: int): int & Meters => Meters(n);"),
         (
             "app/src/main.ab",
             "use pkg.units;\nuse pkg.units.{Meters};\nfn fine(): int & Meters => units.meters(1);\nfn main(): int => Meters(1);",

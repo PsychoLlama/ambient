@@ -26,10 +26,11 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 
 ## Definitions
 
-- A definition is written with the keyword of its [kind](definitions.md): `fn`, `type`, `ability`, `key`, `tag`, `extern`, `target`.
-- A native handler that may suspend is written `extern suspending handler`.
+- A definition is written with the keyword of its [kind](definitions.md): `fn`, `type`, `ability`, `contract`, `tag`, `extern`, `target`.
+- Only `pub` comes before the keyword. Anything else said of a definition's kind is a word in parentheses after the keyword, as `type(nominal)` is.
+- A native handler that may suspend is written `extern handler(suspending)`.
 - An extern says what it performs as a function does: `with` and a row, after what it gives or the ability it handles.
-- A word that only begins a definition is not reserved: `key`, `tag`, `ability`, `target`, `extern`, `use`, and `mod` may name anything, since nothing else begins where a definition does.
+- A word that only begins a definition is not reserved: `contract`, `tag`, `ability`, `target`, `extern`, `use`, and `mod` may name anything, since nothing else begins where a definition does.
 - `pub` before one makes it public, and a `///` comment before one is its doc comment.
 - An [annotation](annotations.md) is written before a definition, after its doc comment: `#[`, the key, the value in parentheses, and `]`. A definition may have several.
 - An annotation written with no value holds `null`.
@@ -66,7 +67,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - Type arguments are written out after `::` in angle brackets.
 - An [operation](operations.md) is a call of the [intrinsic](definitions.md#intrinsics) of its name, whether or not it has an operator too. The standard library wraps each that has none in a function, and other code calls that.
 - Operators are those of [operations](operations.md) and, built from them, the other comparisons, `&&`, `||`, and `!`; the last three evaluate only the operands they need.
-- A brand is declared `brand Name;`, a type and a brand are intersected with `&`, which binds tighter than `|`, and `Name(value)` brands a value.
+- A brand is declared `type(nominal) Name;`, a type and a brand are intersected with `&`, which binds tighter than `|`, and `Name(value)` brands a value.
 - Bytes are written `0x[` and `]` around pairs of hexadecimal digits, a byte each, with any space between pairs: `0x[89 50 4E 47]`, and `0x[]` for none.
 - `+` between two strings, two lists, or two bytes values joins them, as between two numbers it adds; nothing else is joined, and nothing converts.
 - `-` before a value is a call of its `negate` [method](methods.md), which the standard library gives the numbers; before a number written out it is part of the literal.
@@ -82,7 +83,8 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 
 ## Scopes
 
-- A [provide](handlers.md) is `provide`, a bundle, and a body; `provide only` is one in only-mode.
+- A [provide](handlers.md) is `provide`, a bundle, and a body; `provide(restricted)` is one in only-mode.
+- `restricted` is reserved, so those parentheses are never a bundle of that name.
 - `using` and a binding registers a [cleanup](cleanup.md).
 - Every other construct that takes a body is a call of an [intrinsic](definitions.md#intrinsics): `contain` for a [boundary](values.md), `observe` for a [recording](handlers.md), and `group`, `spawn`, `all`, and `first` of the standard library's `tasks` module for [tasks](tasks.md).
 - Each takes its body, or each of its branches, as a function of no parameters, so nothing written in one reads as running in order with what is around it. A recording takes its observer before its body.

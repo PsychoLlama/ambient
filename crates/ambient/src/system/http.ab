@@ -27,11 +27,11 @@ pub type Response = { status: int, headers: List<Header>, body: bytes };
 
 /// A listener the world holds. It stops listening when it is closed,
 /// or when nothing holds it any more.
-pub brand Listener;
+pub type(nominal) Listener;
 
 /// The way to answer one request. A request nothing can answer any
 /// more is let go, which ends its connection.
-pub brand Reply;
+pub type(nominal) Reply;
 
 /// What listens, and the port it listens on.
 pub type Server = { port: int, listener: Listener };

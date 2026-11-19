@@ -42,7 +42,7 @@ const PROGRAM: &str = r#"
     ability sleep(milliseconds: int): null;
 
     extern handler said for say;
-    extern suspending handler slept for sleep;
+    extern handler(suspending) slept for sleep;
 
     extern fn applied(work: fn(int): int, to: int): int;
     extern fn echoed(text: string): null with say;
@@ -50,7 +50,7 @@ const PROGRAM: &str = r#"
     #[binding({ build: "digest" })]
     extern fn version(): string;
 
-    brand Address;
+    type(nominal) Address;
     #[binding({ new: "URL" })]
     extern fn address(text: string): Address;
     #[binding({ property: "hostname" })]
@@ -167,7 +167,7 @@ fn build(output: &Path) {
 const LOADER: &str = r"
     ability fetch(): unknown;
 
-    extern suspending handler fetched for fetch;
+    extern handler(suspending) fetched for fetch;
 
     target page { fetch: fetched }
 

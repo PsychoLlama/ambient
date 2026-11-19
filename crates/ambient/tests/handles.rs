@@ -43,8 +43,8 @@ fn file(number: u64) -> Value {
 /// backend's host heard were dropped, in order.
 fn run(body: &str) -> (Value, Vec<Vec<u64>>) {
     let source = format!(
-        "brand File;
-        brand Other;
+        "type(nominal) File;
+        type(nominal) Other;
         extern fn open(number: int): File;
         extern fn number(file: File): int;
         {body}"

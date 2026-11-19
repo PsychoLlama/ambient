@@ -35,7 +35,7 @@ pub fn main(): int with console.print, console.warn, env.args, fs.exists, fs.rea
         let path => {
             if fs.exists!(path) {
                 let replaying = comptime replay.replays(game);
-                let total = provide only replaying(replay.holding(kept(path))) => game();
+                let total = provide(restricted) replaying(replay.holding(kept(path))) => game();
                 console.print!("played back a game of ${total}");
                 return 0;
             }

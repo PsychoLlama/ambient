@@ -10,7 +10,7 @@ pub ability sleep(milliseconds: int): null;
 
 /// Something of a page's, which only the page can use: the program
 /// holds it and hands it back.
-brand Element;
+type(nominal) Element;
 
 /// The page's own, by what JavaScript calls each. The build writes
 /// their JavaScript from these lines, so the package holds none.
@@ -21,7 +21,7 @@ extern fn append(to: Element, text: string): null;
 
 /// Waiting is JavaScript of this package's (`js/main.js`), since it
 /// answers later.
-extern suspending handler slept for sleep;
+extern handler(suspending) slept for sleep;
 
 /// What a page offers this program, and `host` says how a program
 /// under it is built: the module, and the JavaScript that loads it.

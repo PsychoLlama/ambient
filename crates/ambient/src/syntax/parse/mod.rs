@@ -15,11 +15,28 @@ use crate::surface::{Expr, Path, Type};
 pub(super) type Parsed<T> = Result<T, SyntaxError>;
 
 /// Words that never name anything. A word that only begins a definition
-/// (`key`, `tag`, `ability`, `target`, `extern`, `use`, `mod`) is
+/// (`contract`, `tag`, `ability`, `target`, `extern`, `use`, `mod`) is
 /// not one: nothing else begins where a definition does.
 const RESERVED: [&str; 19] = [
-    "fn", "let", "return", "if", "else", "for", "match", "type", "pub", "with", "provide", "only",
-    "comptime", "using", "true", "false", "null", "never", "unknown",
+    "fn",
+    "let",
+    "return",
+    "if",
+    "else",
+    "for",
+    "match",
+    "type",
+    "pub",
+    "with",
+    "provide",
+    "restricted",
+    "comptime",
+    "using",
+    "true",
+    "false",
+    "null",
+    "never",
+    "unknown",
 ];
 
 /// A function in a block, while its body is read. A use of its name

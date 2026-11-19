@@ -12,7 +12,7 @@ pub type Date = {
 /// A length of time: an integer of milliseconds that was made as
 /// one, so a count of anything else is not taken for one. It is used
 /// as the integer it is, and added to a moment gives a moment.
-pub brand Duration;
+pub type(nominal) Duration;
 
 /// How long this many milliseconds are.
 pub fn milliseconds(count: int): int & Duration => Duration(count);

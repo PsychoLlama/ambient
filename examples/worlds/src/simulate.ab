@@ -105,7 +105,7 @@ fn withdraw(): int with balance {
 /// What `withdraw` leaves in the world a seed makes up.
 fn left(seed: int): int with throw {
     let simulating = comptime simulates(withdraw);
-    return provide only simulating(seeded(seed)) => withdraw();
+    return provide(restricted) simulating(seeded(seed)) => withdraw();
 }
 
 fn test_a_seed_makes_the_same_world_every_time(): null with check, throw {

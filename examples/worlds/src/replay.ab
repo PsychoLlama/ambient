@@ -56,7 +56,7 @@ pub fn mistyped(): never with throw => fail(diverged, "what was recorded is not 
 /// for each ability the function named to the call takes. A program
 /// provided these performs nothing of its own.
 ///
-/// `provide only (comptime replay.replays(work))(tape) => work()`
+/// `provide(restricted) (comptime replay.replays(work))(tape) => work()`
 pub fn replays(of: tree.Type): tree.Expr {
     match of {
         let work: { function: List<tree.Type>, returns: tree.Type, takes: List<tree.Ability> } => {
@@ -97,7 +97,7 @@ fn recorded(): (int, Tape) {
 fn test_a_recording_is_played_back_with_no_world(): null with check, throw {
     let (total, tape) = recorded();
     let replaying = comptime replays(game);
-    let again = provide only replaying(tape) => game();
+    let again = provide(restricted) replaying(tape) => game();
 
     check!(total == 24, "the game was played");
     check!(again == total, "the replay gives what the game gave");
@@ -111,7 +111,7 @@ fn test_a_program_that_does_otherwise_has_diverged(): null with check, throw {
     // so they are written inside what catches.
     let outcome = catch(fn() {
         let replaying = comptime replays(game);
-        return provide only replaying(tape) => other();
+        return provide(restricted) replaying(tape) => other();
     });
 
     match outcome {

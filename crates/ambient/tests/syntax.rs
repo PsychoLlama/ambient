@@ -163,7 +163,7 @@ fn a_type_is_written_as_its_values_are() {
             name(): string,
             [label]: string,
         };
-        key label: string;
+        contract label: string;
     ";
     let own = ty::apply("Shape", [ty::named("T")]);
     let scale = ty::method(own.clone(), ty::function([ty::named("T")], own));
@@ -249,10 +249,32 @@ fn an_extern_function_says_what_it_performs() {
 
 #[test]
 fn a_native_handler_says_whether_it_suspends() {
-    let source = "extern suspending handler read for log.read;";
+    let source = "extern handler(suspending) read for log.read;";
     let read = b::native_handler("read", "log.read").suspending();
 
     assert_eq!(parse(source).unwrap(), built([read.into()]));
+}
+
+#[test]
+fn what_is_said_of_a_kind_follows_its_keyword_in_brackets() {
+    let source = "pub type(nominal) Meters;";
+
+    assert_eq!(parse(source).unwrap(), built([b::brand("Meters").public()]));
+}
+
+#[test]
+fn a_provide_is_restricted_by_the_word_and_by_no_bundle_in_brackets() {
+    let source = "fn main(): int {
+        let bundle = {};
+        return provide(restricted) bundle => provide (bundle) => 1;
+    }";
+    let inner = b::with(b::name("bundle"), b::int(1));
+    let outer = b::with_only(b::name("bundle"), inner);
+
+    assert_eq!(
+        parse(source).unwrap(),
+        built([main(b::let_("bundle", b::record([]), outer))])
+    );
 }
 
 // What is not text

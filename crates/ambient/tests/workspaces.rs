@@ -113,7 +113,7 @@ fn two_lines_of_a_package_are_two_members_under_two_names() {
 /// What `app` gives when it hands a branded value that the member
 /// `old` made to the member `new`, each a package with the ID given.
 fn exchanged(old: &str, new: &str) -> Result<i32, String> {
-    const UNITS: &str = "pub brand Meters;
+    const UNITS: &str = "pub type(nominal) Meters;
         pub fn meters(n: int): int & Meters => Meters(n);
         pub fn length(m: int & Meters): int => m;";
     let app = package("app", "app")
