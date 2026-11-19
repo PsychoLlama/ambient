@@ -39,7 +39,7 @@ fn bytes_that_encode_no_string_miss() {
 #[test]
 fn bytes_are_read_joined_and_sliced_as_a_list_is() {
     let made = r#"(bytes.of([1, 2, 255]) as bytes else "".to_bytes())"#;
-    let source = |expr: &str| format!("import ambient.bytes;\nfn main(): string => {expr};");
+    let source = |expr: &str| format!("use ambient.bytes;\nfn main(): string => {expr};");
     let gives = |expr: &str| run(&source(expr)).unwrap();
     let text = |text: &str| Value::String(text.to_owned());
     assert_eq!(
@@ -69,7 +69,7 @@ fn bytes_are_read_joined_and_sliced_as_a_list_is() {
 #[test]
 fn a_list_with_a_member_that_is_no_byte_is_no_bytes() {
     let source =
-        |list: &str| format!("import ambient.bytes;\nfn main(): bool => bytes.of({list}) == null;");
+        |list: &str| format!("use ambient.bytes;\nfn main(): bool => bytes.of({list}) == null;");
     assert_eq!(run(&source("[0, 256]")), Ok(Value::Bool(true)));
     assert_eq!(run(&source("[0, -1]")), Ok(Value::Bool(true)));
     assert_eq!(run(&source("[0, 255]")), Ok(Value::Bool(false)));

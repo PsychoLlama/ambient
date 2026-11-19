@@ -1,4 +1,4 @@
-import ambient.Error;
+use ambient.Error;
 
 /// Nothing is at the path.
 pub tag not_found;

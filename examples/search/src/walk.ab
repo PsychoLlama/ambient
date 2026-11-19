@@ -1,5 +1,5 @@
-import system.fs;
-import ambient.Error;
+use system.fs;
+use ambient.Error;
 
 /// Every file under a directory, at any depth, in order. What cannot be
 /// listed is taken to be a file.

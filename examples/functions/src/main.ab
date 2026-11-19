@@ -1,11 +1,10 @@
-import ambient.{catch, Error};
-import system.code;
-import system.console;
-import system.env;
-import system.fs;
-import system.http;
-import system.http.{Request, Response};
-import pkg.store;
+use ambient.{catch, Error};
+use system.code;
+use system.console;
+use system.env;
+use system.fs;
+use system.http.{self, Request, Response};
+use pkg.store;
 
 /// What can be published: a way to answer a request. Its row is all it
 /// may do, so a function that was sent reads no file, sends nothing,

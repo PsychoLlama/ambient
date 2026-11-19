@@ -1,11 +1,11 @@
-import ambient.errors.{fail, throw};
-import ambient.Error;
-import pkg.replay;
-import system.console;
-import system.env;
-import system.exchange;
-import system.fs;
-import system.random;
+use ambient.errors.{fail, throw};
+use ambient.Error;
+use pkg.replay;
+use system.console;
+use system.env;
+use system.exchange;
+use system.fs;
+use system.random;
 
 /// The file is not a recording of the game.
 tag unreadable;

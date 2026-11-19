@@ -17,10 +17,10 @@ type Files = BTreeMap<PathBuf, String>;
 /// A program for a page, and the tool its target is built by: the
 /// module, and a line for each extern it imports with its host code.
 const PAGE: &str = r#"
-    import ambient.build;
-    import ambient.build.{Build, Compiled, Extern, Files};
-    import ambient.tree.{Reference};
-    import ambient.Error;
+    use ambient.build;
+    use ambient.build.{Build, Compiled, Extern, Files};
+    use ambient.tree.{Reference};
+    use ambient.Error;
 
     ability say(text: string): null;
     extern handler said for say;
@@ -220,11 +220,11 @@ fn a_file_a_build_gives_is_under_its_directory() {
 /// A tool that says what its entry takes and gives, as far as counting
 /// what it takes.
 const SIGNED: &str = r#"
-    import ambient.build;
-    import ambient.build.{Build, Files};
-    import ambient.tree;
-    import ambient.tree.{Reference, Type, Ability};
-    import ambient.Error;
+    use ambient.build;
+    use ambient.build.{Build, Files};
+    use ambient.tree;
+    use ambient.tree.{Reference, Type, Ability};
+    use ambient.Error;
 
     target page built by describe {}
 

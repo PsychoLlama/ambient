@@ -1,4 +1,4 @@
-import ambient.time.{Duration};
+use ambient.time.{Duration};
 
 /// Milliseconds since the start of 1970, by the system's clock.
 pub ability now(): int;

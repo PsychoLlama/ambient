@@ -17,9 +17,9 @@ type Files = BTreeMap<PathBuf, String>;
 
 /// A program that prints what a comptime call read of `path`.
 const READS: &str = r#"
-    import system.console;
-    import ambient.build;
-    import ambient.Error;
+    use system.console;
+    use ambient.build;
+    use ambient.Error;
 
     fn read(path: string): string with build.read {
         match build.read!(path) {

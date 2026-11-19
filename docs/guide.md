@@ -18,7 +18,7 @@ hello/
 ```
 
 ```ab
-import system.console;
+use system.console;
 
 pub fn main(): null with console.print {
     console.print!("hello, world");
@@ -142,9 +142,9 @@ The built-in shapes have methods too, written in the standard library: `"a b".sp
 A function cannot touch the world. What it can do beyond computing is named in its header after `with`, and performed with `!`:
 
 ```ab
-import system.console;
-import system.fs;
-import ambient.Error;
+use system.console;
+use system.fs;
+use ambient.Error;
 
 /// Prints a file, or why it could not.
 fn show(path: string): null with console.print, fs.read {
@@ -169,7 +169,7 @@ pub fn main(): null with console.print, fs.read {
 Any code can supply an ability to what it calls, which is how a test replaces the world:
 
 ```ab
-import system.console;
+use system.console;
 
 fn greet(name: string): null with console.print {
     console.print!("hello, ${name}");
@@ -215,9 +215,9 @@ pub fn main(): string {
 - `using name = value;` binds a value that carries its own cleanup, which runs when the block ends however it ends.
 
 ```ab
-import ambient.cleanup.{dispose};
-import system.console;
-import ambient.Error;
+use ambient.cleanup.{dispose};
+use system.console;
+use ambient.Error;
 
 fn risky(by: int): int => 100 / by;
 
@@ -241,7 +241,7 @@ Inside `try`, `provide`, and the other scopes, `return` gives that scope its val
 A failure the caller is not expected to deal with is thrown. `fail` throws an error of a kind, `catch` gives what a function gives or the error it threw, and an error nothing catches ends the program with its trace.
 
 ```ab
-import ambient.{catch, fail, throw, Error};
+use ambient.{catch, fail, throw, Error};
 
 tag too_big;
 
@@ -261,8 +261,8 @@ pub fn main(): string {
 A function that can fail gives a union, and the caller that cannot go on returns. `let ... else` says so without nesting: the rest of the block is where the value fits, and the arms are where it does not.
 
 ```ab
-import system.fs;
-import ambient.Error;
+use system.fs;
+use ambient.Error;
 
 fn first_line(path: string): string with fs.read {
     let text: string = fs.read!(path) else {
@@ -298,7 +298,7 @@ pub fn main(): int {
 Those are written out, one task each. For as many tasks as a list has members, `ambient.tasks` runs a list of functions: `tasks.map` works on every item at once, `tasks.gather` gives what each function of a list gives, and `tasks.race` what the first one does.
 
 ```ab
-import ambient.tasks;
+use ambient.tasks;
 
 fn slow(n: int): int => n * n;
 
@@ -308,9 +308,9 @@ pub fn main(): int => tasks.map([1, 2, 3, 4], slow).sum();
 Whatever waits on the world suspends its task and blocks nothing: sleeping, running a command, reading a line, sending a request. So tasks wait together, and a sleep beside other work in a `first` is a limit on it. Nothing takes a timeout.
 
 ```ab
-import ambient.time;
-import system.clock;
-import system.http;
+use ambient.time;
+use system.clock;
+use system.http;
 
 fn status(url: string): string with http.send =>
     match http.get(url) {
@@ -332,8 +332,8 @@ pub fn main(): string with http.send, clock.sleep =>
 A server is a function from a request to a response. `http.serve` runs it for each request, a number of them at a time, until the server is closed.
 
 ```ab
-import system.console;
-import system.http;
+use system.console;
+use system.http;
 
 fn answer(request: http.Request): http.Response =>
     http.text(200, "you asked for ${request.url}\n");
@@ -358,8 +358,8 @@ A body is `bytes`, since not everything sent is text: `request.body.to_text()` i
 `system.code` packs a function, with everything it reaches, into bytes. `code.compile!` is the compiler: it checks a pack as its source was checked, and gives code for this machine as bytes. `code.load!` adds compiled code to the program that is running, and `code.unpack` does both. What is loaded is `unknown` until a cast says what it must be.
 
 ```ab
-import system.code;
-import system.console;
+use system.code;
+use system.console;
 
 type Answer = fn(string): string;
 
@@ -393,10 +393,10 @@ Compiled code can be kept, in a file or anywhere bytes go, and loaded later with
 Hashing is a function, not an ability: it does nothing to the world. The time is an ability, and what is made of it is not.
 
 ```ab
-import ambient.base64;
-import ambient.time;
-import system.clock;
-import system.crypto;
+use ambient.base64;
+use ambient.time;
+use system.clock;
+use system.crypto;
 
 pub fn main(): string with clock.now {
     let signed = crypto.hmac(crypto.sha256, "key".to_bytes(), "message".to_bytes());
@@ -410,8 +410,8 @@ pub fn main(): string with clock.now {
 A test is a function that takes nothing and whose name begins with `test_`. `ambient test` runs each one and reports every `check` that does not hold.
 
 ```ab
-import system.console;
-import ambient.test.{check};
+use system.console;
+use ambient.test.{check};
 
 fn greet(name: string): null with console.print {
     console.print!("hello, ${name}");
@@ -461,7 +461,7 @@ Import a module by path; its public definitions are reached through its name, or
 | `ambient.cleanup`                                            | the `dispose` key a `using` reads                                                                                         |
 
 ```ab
-import ambient.map;
+use ambient.map;
 
 pub fn main(): string {
     let stock = map.of([("tea", 3), ("milk", 1)]);
@@ -473,8 +473,8 @@ pub fn main(): string {
 JSON is read into ordinary values: a list is a `List<Json>`, an object a `Map<Json>`. Text that is not JSON throws.
 
 ```ab
-import ambient.json;
-import ambient.{catch, Error};
+use ambient.json;
+use ambient.{catch, Error};
 
 pub fn main(): string {
     let read = catch(fn() => json.parse("{\"name\": \"web\", \"ports\": [80, 443]}"));

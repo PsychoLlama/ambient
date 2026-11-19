@@ -1,8 +1,8 @@
-import ambient.code;
-import ambient.errors.{fail, throw};
-import ambient.iterator;
-import ambient.test.{check};
-import ambient.tree;
+use ambient.code;
+use ambient.errors.{fail, throw};
+use ambient.iterator;
+use ambient.test.{check};
+use ambient.tree;
 
 /// Where a made-up world draws from: a number that each draw moves on,
 /// so a world is everything that follows from where it began.

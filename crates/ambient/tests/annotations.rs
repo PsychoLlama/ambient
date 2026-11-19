@@ -19,12 +19,12 @@ use support::{program, value};
 /// A tool that gives one file: the notes its entry reaches, in the
 /// order the build gives them.
 const TOOL: &str = r#"
-    import ambient.build;
-    import ambient.code;
-    import ambient.tree;
-    import ambient.build.{Build, Annotation, Files};
-    import ambient.tree.{Reference};
-    import ambient.Error;
+    use ambient.build;
+    use ambient.code;
+    use ambient.tree;
+    use ambient.build.{Build, Annotation, Files};
+    use ambient.tree.{Reference};
+    use ambient.Error;
 
     tag note;
     tag other;

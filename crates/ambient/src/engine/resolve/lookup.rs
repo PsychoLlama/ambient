@@ -49,7 +49,7 @@ impl Resolver<'_> {
                     return Ok(symbol.clone());
                 }
                 // A name imported from a generated module comes
-                // before a prelude's, as any import does.
+                // before a prelude's, as any use does.
                 if let Some(Lazy::Member(module, member)) = self.scope.generated.get(name) {
                     let members = self.made(module).ok_or_else(unknown)?;
                     if let Some(member) = members.0.get(&(namespace, member.clone())) {

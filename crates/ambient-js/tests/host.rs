@@ -33,9 +33,9 @@ use ambient::workspace::Workspace;
 /// of them no one wrote: a module of the package is generated.
 const PACKAGE: &str = "app";
 const PROGRAM: &str = r#"
-    import ambient.iterator;
-    import js.{binding, host};
-    import pkg.web;
+    use ambient.iterator;
+    use js.{binding, host};
+    use pkg.web;
 
     ability say(text: string): null;
     ability sleep(milliseconds: int): null;
@@ -90,9 +90,9 @@ const PROGRAM: &str = r#"
 /// A module of bindings no one wrote: `web` is the call of this, which
 /// gives an extern bound to a function JavaScript has.
 const BINDINGS: &str = r#"
-    import ambient.code;
-    import ambient.tree;
-    import js.{binding};
+    use ambient.code;
+    use ambient.tree;
+    use js.{binding};
 
     pub fn all(): tree.Module => [
         code.named_extern("larger", [tree.integer, tree.integer], tree.integer, [
@@ -135,7 +135,7 @@ fn build(output: &Path) {
         ("app/src/bindings.ab", BINDINGS),
         (
             "app/src/web.ab",
-            "import pkg.bindings; comptime bindings.all();",
+            "use pkg.bindings; comptime bindings.all();",
         ),
         ("app/js/main.js", HOSTED),
     ] {

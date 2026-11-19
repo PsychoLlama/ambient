@@ -1,7 +1,6 @@
-import system.fs;
-import ambient.Error;
-import pkg.item;
-import pkg.item.{Item};
+use system.fs;
+use ambient.Error;
+use pkg.item.{self, Item};
 
 /// The items a file keeps, in order. A file that is not there keeps none.
 pub fn load(path: string): List<Item> | Error with fs.read, fs.exists {

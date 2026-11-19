@@ -1,8 +1,8 @@
-import system.code;
-import system.console;
-import system.env;
-import system.http;
-import pkg.site;
+use system.code;
+use system.console;
+use system.env;
+use system.http;
+use pkg.site;
 
 /// Sends `site.answer`, as it is written now, to a server that is
 /// running: `ambient run . --entry deploy.main -- [url]`.

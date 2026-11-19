@@ -1,4 +1,4 @@
-import pkg.Error;
+use pkg.Error;
 
 /// Where an error went: the calls its throw left, nearest first.
 pub type Trace = List<{ definition: string, position: int }>;

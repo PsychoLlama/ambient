@@ -234,7 +234,7 @@ fn a_key_names_what_a_record_holds_without_a_field() {
 #[test]
 fn a_using_releases_what_it_binds_when_its_block_ends() {
     let source = r#"
-        import ambient.cleanup.{dispose};
+        use ambient.cleanup.{dispose};
 
         fn noting(log: Cell<string>, name: string): { name: string, [dispose](): null } {
             return { name, [dispose]() { log.update(fn(text) => text ++ name); } };
@@ -295,7 +295,7 @@ fn a_value_written_into_a_string_is_asked_for_its_text() {
 #[test]
 fn a_module_in_a_row_is_every_ability_of_it() {
     let source = r#"
-        import system.console;
+        use system.console;
 
         fn speak(): null with console {
             console.print!("a");
@@ -405,7 +405,7 @@ fn a_let_that_states_a_type_holds_its_value_to_it_and_tests_nothing() {
 #[test]
 fn a_for_runs_its_block_for_every_item() {
     let source = "
-        import ambient.iterator.range;
+        use ambient.iterator.range;
 
         fn main(): int {
             let total = cell<int>(0);

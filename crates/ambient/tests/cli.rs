@@ -27,9 +27,9 @@ fn a_package_is_its_manifest_and_a_module_for_each_file() {
         (
             "app/src/main.ab",
             r"
-            import system.console;
-            import pkg.text.greeting;
-            import words.loud;
+            use system.console;
+            use pkg.text.greeting;
+            use words.loud;
 
             fn main(): int with console.print {
                 console.print!(loud(greeting.hello()));
@@ -121,7 +121,7 @@ fn an_error_is_reported_at_the_expression_that_is_wrong() {
     // A test that cannot tell what it is asked: any record passes it.
     assert_eq!(
         wrong_at(
-            "import ambient.map.{Map};\nfn f(v: unknown): int =>\n  (v as Map<int> else null) as int else 0;"
+            "use ambient.map.{Map};\nfn f(v: unknown): int =>\n  (v as Map<int> else null) as int else 0;"
         ),
         "3:6"
     );
@@ -202,8 +202,8 @@ fn a_frame_in_a_lambda_is_where_the_lambda_is_written() {
 /// body `body`, and what follows it.
 fn generating(body: &str, rest: &str) -> String {
     format!(
-        "import ambient.code;
-import ambient.tree;
+        "use ambient.code;
+use ambient.tree;
 fn make(): tree.Function =>
     code.define([tree.integer], tree.integer, [], fn(given: List<code.Code>): code.Code =>
         {body});
@@ -242,7 +242,7 @@ fn a_frame_in_generated_code_is_where_the_call_is() {
 #[test]
 fn an_error_nothing_catches_ends_the_program_and_is_reported() {
     let source = r#"
-        import ambient.{catch, fail, throw};
+        use ambient.{catch, fail, throw};
         tag too_big;
 
         fn small(n: int): int with throw {
@@ -286,7 +286,7 @@ fn testing(files: &Files, only: Option<&str>) -> (i32, Scripted) {
 #[test]
 fn a_test_is_a_function_that_takes_nothing_and_says_what_holds() {
     let source = r#"
-        import ambient.test.{check};
+        use ambient.test.{check};
 
         fn double(n: int): int => n * 2;
 
@@ -324,12 +324,12 @@ fn a_test_a_generated_module_was_given_is_run() {
         ("app/ambient.toml", "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\""),
         (
             "app/src/make.ab",
-            "import ambient.code; import ambient.tree; import ambient.test.{check};
+            "use ambient.code; use ambient.tree; use ambient.test.{check};
             pub fn all(): tree.Module => [code.named(\"test_made\", code.define(
                 [], tree.nil, [comptime tree.reference(check)], fn(given: List<code.Code>): code.Code =>
                     code.perform(comptime tree.reference(check), [code.literal(false), code.literal(\"made\")])))];",
         ),
-        ("app/src/made.ab", "import pkg.make; comptime make.all();"),
+        ("app/src/made.ab", "use pkg.make; comptime make.all();"),
     ];
     let (code, world) = test(&files.into_iter().map(file).collect());
 
@@ -344,7 +344,7 @@ fn a_test_a_generated_module_was_given_is_run() {
 #[test]
 fn a_test_that_throws_fails_with_what_it_threw() {
     let source = r#"
-        import ambient.{fail, throw};
+        use ambient.{fail, throw};
         tag unready;
         fn test_throws(): null with throw { fail(unready, "not yet"); }
     "#;
@@ -402,8 +402,8 @@ fn only_the_tests_asked_for_are_run() {
 #[test]
 fn a_test_reaches_no_world_it_is_not_given() {
     let source = r#"
-        import system.console;
-        import ambient.test.{check};
+        use system.console;
+        use ambient.test.{check};
 
         fn greet(): null with console.print { console.print!("hello"); }
 

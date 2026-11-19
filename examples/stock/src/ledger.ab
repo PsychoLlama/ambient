@@ -1,9 +1,7 @@
-import ambient.map;
-import ambient.map.{Map};
-import ambient.json;
-import ambient.json.{Json};
-import ambient.{catch, fail, throw, Error};
-import ambient.test.{check};
+use ambient.map.{self, Map};
+use ambient.json.{self, Json};
+use ambient.{catch, fail, throw, Error};
+use ambient.test.{check};
 
 /// The file holds something other than a count under each name.
 pub tag not_a_ledger;

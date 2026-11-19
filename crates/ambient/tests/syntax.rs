@@ -70,7 +70,7 @@ fn a_function_that_is_a_comptime_call_is_generated() {
 
 #[test]
 fn a_module_that_is_a_comptime_call_is_generated() {
-    let source = "import pkg.bind; comptime bind.all();";
+    let source = "use pkg.bind; comptime bind.all();";
     let call = b::call(b::name("bind.all"), []);
     let module = b::module().import("pkg.bind").define(b::generates(call));
 
@@ -190,13 +190,25 @@ fn a_type_is_written_as_its_values_are() {
 
 #[test]
 fn imports_name_modules_and_what_is_taken_from_them() {
-    let source = "import pkg.a; import pkg.b as c; import pkg.d.{e, f as g}; pub import pkg.h.i;";
+    let source = "use pkg.a; use pkg.b as c; use pkg.d.{e, f as g}; pub use pkg.h.i;";
     let module = b::module()
         .import("pkg.a")
         .import_as("pkg.b", "c")
         .import("pkg.d.e")
         .import_as("pkg.d.f", "g")
         .export("pkg.h.i");
+
+    assert_eq!(parse(source).unwrap(), module.build().unwrap());
+}
+
+#[test]
+fn a_group_of_imports_nests_and_names_what_it_is_under() {
+    let source = "use pkg.{a, b.{self, c as d, e.{f}}};";
+    let module = b::module()
+        .import("pkg.a")
+        .import("pkg.b")
+        .import_as("pkg.b.c", "d")
+        .import("pkg.b.e.f");
 
     assert_eq!(parse(source).unwrap(), module.build().unwrap());
 }

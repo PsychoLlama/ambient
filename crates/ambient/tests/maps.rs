@@ -12,7 +12,7 @@ use support::text::{int, text};
 fn over(ret: &str, body: &str) -> String {
     format!(
         r#"
-        import ambient.map;
+        use ambient.map;
         fn main(): {ret} {{
             let d = map.of([("b", 2), ("a", 1), ("c", 3)]);
             {body}
@@ -33,7 +33,7 @@ fn an_entry_tells_a_null_value_from_no_value() {
     let read = |key: &str| {
         format!(
             r#"
-            import ambient.map;
+            use ambient.map;
             fn main(): string {{
                 let d = map.of::<int | null>([("none", null)]);
                 match d.entry("{key}") {{
@@ -73,7 +73,7 @@ fn edits(sets: &[u8], removes: &[u8]) -> String {
     let edits = set.chain(remove).collect::<Vec<_>>().concat();
     format!(
         r#"
-        import ambient.map;
+        use ambient.map;
         fn main(): string => map.empty::<int>(){edits}
             .entries().iter().fold("", fn(text: string, entry: (string, int)): string {{
                 let (key, value) = entry;

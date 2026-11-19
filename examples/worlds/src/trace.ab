@@ -1,6 +1,6 @@
-import ambient.code;
-import ambient.test.{check};
-import ambient.tree;
+use ambient.code;
+use ambient.test.{check};
+use ambient.tree;
 
 /// A value as a line of a trace shows it. What has no short form is
 /// an ellipsis.

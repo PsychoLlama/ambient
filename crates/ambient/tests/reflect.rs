@@ -18,11 +18,11 @@ use support::scripted::Scripted;
 /// What every tool here starts with: a target built by `report`, which
 /// each test writes to give one file of what it was told.
 const HEAD: &str = r#"
-    import ambient.build;
-    import ambient.tree;
-    import ambient.build.{Build, Files, Ran};
-    import ambient.tree.{Reference};
-    import ambient.Error;
+    use ambient.build;
+    use ambient.tree;
+    use ambient.build.{Build, Files, Ran};
+    use ambient.tree.{Reference};
+    use ambient.Error;
 
     target page built by report {}
 

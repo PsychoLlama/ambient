@@ -1,11 +1,10 @@
-import system.console;
-import system.env;
-import system.fs;
-import ambient.Error;
-import ambient.test.{check};
-import pkg.item;
-import pkg.item.{Item};
-import pkg.store;
+use system.console;
+use system.env;
+use system.fs;
+use ambient.Error;
+use ambient.test.{check};
+use pkg.item.{self, Item};
+use pkg.store;
 
 /// Keeps a list of things to do in a file: `add <text>`, `done <number>`,
 /// and `list`, which is what no command means.

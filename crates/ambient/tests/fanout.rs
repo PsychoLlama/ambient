@@ -12,10 +12,10 @@ use support::scripted::Scripted;
 /// task sleeps, and how long it took.
 fn timed(body: &str) -> (String, i64) {
     let source = format!(
-        "import ambient.iterator;
-        import ambient.tasks;
-        import ambient.time;
-        import system.clock;
+        "use ambient.iterator;
+        use ambient.tasks;
+        use ambient.time;
+        use system.clock;
 
         fn nap(length: int): int with clock.sleep {{
             clock.sleep!(time.milliseconds(length));

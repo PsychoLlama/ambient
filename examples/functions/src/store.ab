@@ -1,7 +1,7 @@
-import ambient.bytes;
-import system.crypto;
-import system.fs;
-import system.path;
+use ambient.bytes;
+use system.crypto;
+use system.fs;
+use system.path;
 
 /// The name a function is kept and called by: the hash of its pack.
 pub fn name(packed: bytes): string => crypto.hash(crypto.sha256, packed).hex();

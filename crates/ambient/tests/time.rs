@@ -8,9 +8,7 @@ use support::text::text;
 
 /// What `expr`, a string, gives with `ambient.time` imported.
 fn time(expr: &str) -> String {
-    text(&format!(
-        "import ambient.time;\nfn main(): string => {expr};"
-    ))
+    text(&format!("use ambient.time;\nfn main(): string => {expr};"))
 }
 
 /// A moment written, then read back and written again.

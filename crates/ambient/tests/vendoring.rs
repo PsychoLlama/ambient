@@ -18,7 +18,7 @@ const SEVEN: &str = "pub fn seven(): int => 7;";
 fn app() -> Package {
     let app = package("app", "app").on("numbers", "n", "path = \"../far/numbers\"");
     app.library(
-        "import numbers.seven;
+        "use numbers.seven;
         pub fn main(): int => seven();",
     )
 }
@@ -105,12 +105,12 @@ fn a_copy_goes_to_the_workspace_and_every_member_that_was_opened_depends_on_it()
     let far = "path = \"../../far/numbers\"";
     let twice = package("work/twice", "t")
         .on("n", "n", far)
-        .library("import n.seven; pub fn fourteen(): int => seven() + seven();");
+        .library("use n.seven; pub fn fourteen(): int => seven() + seven();");
     let app = package("work/app", "app")
         .on("numbers", "n", far)
         .on("twice", "t", "version = \"1.0.0\"")
         .library(
-            "import numbers.seven; import twice.fourteen;
+            "use numbers.seven; use twice.fourteen;
             pub fn main(): int => seven() + fourteen();",
         );
     let mut files = files(None, [app, twice, numbers()]);

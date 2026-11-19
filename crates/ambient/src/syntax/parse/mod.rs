@@ -15,7 +15,7 @@ use crate::surface::{Expr, Path, Type};
 pub(super) type Parsed<T> = Result<T, SyntaxError>;
 
 /// Words that never name anything. A word that only begins a definition
-/// (`key`, `tag`, `ability`, `target`, `extern`, `import`, `module`) is
+/// (`key`, `tag`, `ability`, `target`, `extern`, `use`, `mod`) is
 /// not one: nothing else begins where a definition does.
 const RESERVED: [&str; 25] = [
     "fn", "let", "return", "if", "else", "for", "match", "type", "pub", "with", "as", "try",

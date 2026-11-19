@@ -1,4 +1,4 @@
-import pkg.errors;
+use pkg.errors;
 
 /// Says that something a test relies on holds, and what it is. A test
 /// goes on after one that does not, so it reports every one.

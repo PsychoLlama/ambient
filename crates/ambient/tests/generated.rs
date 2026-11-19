@@ -14,8 +14,8 @@ use support::value;
 
 /// A function that makes one that multiplies, and one made with it.
 const SCALED: &str = "
-    import ambient.code;
-    import ambient.tree;
+    use ambient.code;
+    use ambient.tree;
     fn times(left: int, right: int): int => left * right;
     fn scaled(by: int): tree.Function =>
         code.define([tree.integer], tree.integer, [], fn(given: List<code.Code>): code.Code =>
@@ -59,8 +59,8 @@ fn a_generated_function_has_the_hash_of_the_function_written_out() {
 /// A function of two of one type that gives the first, generated, and
 /// the same written out.
 const FIRST: &str = "
-    import ambient.code;
-    import ambient.tree;
+    use ambient.code;
+    use ambient.tree;
     fn at(of: List<tree.Type>): tree.Type => of.get(0) as tree.Type else tree.none;
     fn chooser(): tree.Function =>
         code.generic([null], fn(types: List<tree.Type>): tree.Function =>
@@ -135,8 +135,8 @@ fn a_generated_body_nests_as_deep_as_a_written_one_may() {
 /// parameter `x`; and `main`, which calls it with seven.
 fn of_seven(returns: &str, body: &str) -> String {
     format!(
-        "import ambient.code;
-        import ambient.tree;
+        "use ambient.code;
+        use ambient.tree;
         fn at(codes: List<code.Code>, place: int): code.Code =>
             codes.get(place) as code.Code else code.literal(null);
         fn make(): tree.Function =>
@@ -171,8 +171,8 @@ fn generated_code_calls_a_method() {
 #[test]
 fn generated_code_provides_handlers() {
     let main = "
-        import ambient.code;
-        import ambient.tree;
+        use ambient.code;
+        use ambient.tree;
         ability ask(): int;
         fn asked(): int with ask => ask!() + 1;
         fn make(): tree.Function =>

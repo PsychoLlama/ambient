@@ -15,7 +15,7 @@ use support::value;
 
 /// A function that reads a record type, and a type for it to read.
 const FIELDS: &str = "
-    import ambient.tree;
+    use ambient.tree;
     type User = { name: string, age: int };
     fn fields(of: tree.Type): string {
         match of {
@@ -52,7 +52,7 @@ fn the_result_is_a_constant_of_the_program() {
 #[test]
 fn a_type_is_a_tree_all_the_way_down() {
     let source = "
-        import ambient.tree;
+        use ambient.tree;
         type Shape = { sides: int | null, names: List<string> };
         fn count(of: tree.Type): int {
             match of {
@@ -93,7 +93,7 @@ fn only_the_name_of_a_type_is_handed_as_a_tree() {
 #[test]
 fn a_type_that_refers_to_itself_is_named_where_it_does() {
     let source = "
-        import ambient.tree;
+        use ambient.tree;
         type Chain = { next: Chain | null };
         fn named(of: tree.Type): string {
             match of {
@@ -131,7 +131,7 @@ fn a_result_is_not_reused_once_the_type_has_changed() {
 
 /// A function that gives a record type with every field optional.
 const PARTIAL: &str = "
-    import ambient.tree;
+    use ambient.tree;
     type User = { name: string, age: int };
     fn partial(of: tree.Type): tree.Type {
         match of {
@@ -203,7 +203,7 @@ fn a_derived_type_refers_to_itself_by_a_reference() {
     // The call does not name the type, so it is no cycle: the tree
     // does, as that of a type written to refer to itself would.
     let source = "
-        import ambient.tree;
+        use ambient.tree;
         fn chain(): tree.Type => { union: [
             tree.nil,
             { record: [{ name: \"next\", holds: {
@@ -227,7 +227,7 @@ fn a_derived_type_refers_to_itself_by_a_reference() {
 #[test]
 fn a_type_that_refers_to_itself_with_arguments_has_a_tree() {
     let source = "
-        import ambient.tree;
+        use ambient.tree;
         type Chain<T> = null | { value: T, next: Chain<T> };
         type Ints = Chain<int>;
         fn same(of: tree.Type): tree.Type => of;
@@ -247,7 +247,7 @@ fn a_type_that_refers_to_itself_with_arguments_has_a_tree() {
 #[test]
 fn a_derived_type_names_no_type_parameter() {
     let main = "
-        import ambient.tree;
+        use ambient.tree;
         fn open(): tree.Type => { list: { parameter: 0 } };
         type Open = comptime open();
         fn main(of: Open): int => 1;
@@ -293,7 +293,7 @@ fn a_derived_type_keeps_the_brands_and_names_it_was_handed() {
 #[test]
 fn a_function_is_handed_a_reference_to_what_its_call_names() {
     let source = "
-        import ambient.tree;
+        use ambient.tree;
         fn double(n: int): int => n * 2;
         fn described(of: tree.Reference): string => \"${of.kind} ${of.name}\";
         fn main(): string => comptime described(double);
@@ -305,8 +305,8 @@ fn a_function_is_handed_a_reference_to_what_its_call_names() {
 #[test]
 fn a_function_comes_by_a_reference_to_what_its_module_names() {
     let source = "
-        import ambient.tree;
-        import ambient.json;
+        use ambient.tree;
+        use ambient.json;
         fn parser(): tree.Reference => comptime tree.reference(json.parse);
         fn name(of: tree.Reference): string => of.name;
         fn main(): string => name(parser());
@@ -317,7 +317,7 @@ fn a_function_comes_by_a_reference_to_what_its_module_names() {
 
 /// A function that gives code: a function that calls another twice.
 const TWICE: &str = "
-    import ambient.tree;
+    use ambient.tree;
     fn double(n: int): int => n * 2;
     fn twice(of: tree.Reference): tree.Expr {
         let once: tree.Expr = { call: { definition: of }, given: [{ local: 0 }] };
@@ -365,7 +365,7 @@ fn spliced_code_is_checked_as_code_written_there() {
 #[test]
 fn spliced_code_names_what_the_body_does_not() {
     let main = "
-        import ambient.json;
+        use ambient.json;
         fn parser(): tree.Expr => { definition: comptime tree.reference(json.write) };
         fn main(): string {
             let write = comptime parser();
@@ -379,7 +379,7 @@ fn spliced_code_names_what_the_body_does_not() {
 #[test]
 fn an_error_in_spliced_code_is_at_the_call_and_shown_in_the_code() {
     let main = "
-        import ambient.tree;
+        use ambient.tree;
         fn wrong(): tree.Expr => { operation: \"add\", on: [{ literal: 1 }, { literal: \"two\" }] };
         fn main(): int => 2 * comptime wrong();
     ";
@@ -455,7 +455,7 @@ fn sibling_functions_in_a_tree_keep_their_own_parameters() {
 
 /// Abilities, and a function that takes them.
 const ASKS: &str = "
-    import ambient.tree;
+    use ambient.tree;
     pub ability ask(question: string): int;
     pub ability tell(answer: int): null;
     fn work(): int with ask, tell {
@@ -518,7 +518,7 @@ fn builders_put_code_together_without_counting_locals() {
     // A function of two that holds their sum and calls `double` on it,
     // inside a function that ignores its own parameter.
     let main = "
-        import ambient.code;
+        use ambient.code;
         fn add(a: int, b: int): int => a + b;
         fn summed(add: tree.Reference, double: tree.Reference): tree.Expr {
             let inner = code.function([tree.integer, tree.integer], fn(pair) {
@@ -540,7 +540,7 @@ fn builders_put_code_together_without_counting_locals() {
 /// to `shown` of another package, which is written as `other`.
 fn splices_from(other: &str, store: &MemoryStore) -> Result<(), Error> {
     let main = "
-        import ambient.tree;
+        use ambient.tree;
         fn shown(): tree.Expr => {
             definition: { package: \"other\", module: [], name: \"shown\", kind: \"value\" },
         };

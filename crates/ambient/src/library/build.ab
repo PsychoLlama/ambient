@@ -1,6 +1,6 @@
-import pkg.errors;
-import pkg.Error;
-import pkg.tree.{Reference, Type};
+use pkg.errors;
+use pkg.Error;
+use pkg.tree.{Reference, Type};
 
 /// Nothing of the package is at the path.
 pub tag not_found;

@@ -8,15 +8,13 @@ use support::text::text;
 
 /// What `expr`, a string, gives with `ambient.url` imported.
 fn url(expr: &str) -> String {
-    text(&format!(
-        "import ambient.url;\nfn main(): string => {expr};"
-    ))
+    text(&format!("use ambient.url;\nfn main(): string => {expr};"))
 }
 
 /// The parts of a URL read from `text`, in one line.
 fn parts(source: &str) -> String {
     text(&format!(
-        r#"import ambient.url;
+        r#"use ambient.url;
         fn pair(pair: (string, string)): string {{
             let (name, value) = pair;
             return "${{name}}={{value}}".replace("{{value}}", value);
@@ -86,7 +84,7 @@ fn text_is_encoded_and_read_back() {
 /// Where `reference` leads from `http://a/b/c/d?q=1`, as text.
 fn from_base(reference: &str) -> String {
     text(&format!(
-        r#"import ambient.url;
+        r#"use ambient.url;
         fn main(): string {{
             match (url.parse("http://a/b/c/d?q=1"), url.parse("{reference}")) {{
                 (let base: url.Url, let reference: url.Url) => {{

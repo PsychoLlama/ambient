@@ -1,7 +1,7 @@
-import ambient.test.{check};
-import pkg.site;
-import system.console;
-import system.env;
+use ambient.test.{check};
+use pkg.site;
+use system.console;
+use system.env;
 
 /// Prints the page an argument names, or the names of them all.
 pub fn main(): int with console.print, console.warn, env.args {

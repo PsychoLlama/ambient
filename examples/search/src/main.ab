@@ -1,9 +1,9 @@
-import system.console;
-import system.env;
-import system.fs;
-import ambient.Error;
-import pkg.walk;
-import pkg.report.{Match, describe};
+use system.console;
+use system.env;
+use system.fs;
+use ambient.Error;
+use pkg.walk;
+use pkg.report.{Match, describe};
 
 /// Prints each line under a directory that contains a word, and how many
 /// there were. Exits with 1 if there were none, as `grep` does.

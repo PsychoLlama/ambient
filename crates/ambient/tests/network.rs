@@ -35,7 +35,7 @@ fn request(method: &str, url: &str, body: &str) -> Request {
 #[test]
 fn a_request_is_sent_and_its_response_read() {
     let source = r#"
-        import system.http;
+        use system.http;
 
         fn main(): string with http.send {
             match http.post("http://example.test/items", "milk".to_bytes()) {
@@ -70,8 +70,8 @@ fn a_request_is_sent_and_its_response_read() {
 #[test]
 fn a_body_that_is_not_text_is_sent_and_read() {
     let source = r#"
-        import system.http;
-        import ambient.bytes;
+        use system.http;
+        use ambient.bytes;
 
         fn main(): string with http.send {
             let sent = bytes.of([0, 255]) as bytes else "".to_bytes();
@@ -99,7 +99,7 @@ fn a_body_that_is_not_text_is_sent_and_read() {
 #[test]
 fn a_request_nothing_answers_is_an_error_a_program_matches_on() {
     let source = r#"
-        import system.http;
+        use system.http;
 
         fn main(): string with http.send {
             match http.get("http://nowhere.test/") {
@@ -120,8 +120,8 @@ fn a_request_nothing_answers_is_an_error_a_program_matches_on() {
 #[test]
 fn requests_are_sent_together() {
     let source = r#"
-        import system.clock;
-        import system.http;
+        use system.clock;
+        use system.http;
 
         fn status(url: string): int with http.send {
             match http.get(url) {
@@ -153,7 +153,7 @@ fn requests_are_sent_together() {
 
 /// A server that greets by the path it was asked for, and fails on one.
 const SERVER: &str = r#"
-    import system.http;
+    use system.http;
 
     fn greet(request: http.Request): http.Response with throw {
         if request.url == "/fail" {
@@ -228,7 +228,7 @@ fn a_request_the_handler_fails_on_is_answered_and_the_server_goes_on() {
 fn what_a_program_holds_no_longer_the_world_gives_up() {
     // The request is never answered, and the server never closed.
     let source = r#"
-        import system.http;
+        use system.http;
 
         fn main(): string with http {
             match http.listen!("127.0.0.1", 8080) {

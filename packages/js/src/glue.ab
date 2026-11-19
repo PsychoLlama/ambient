@@ -1,9 +1,8 @@
 /// The JavaScript a build writes for an extern that is bound to
 /// something JavaScript has: a function of what the extern takes.
-import ambient.errors.{fail, throw};
-import ambient.tree;
-import ambient.tree.{Brand, Type};
-import pkg.{unwritable};
+use ambient.errors.{fail, throw};
+use ambient.tree.{self, Brand, Type};
+use pkg.{unwritable};
 
 /// What a function or an extern takes and gives.
 pub type Signature = { function: List<Type>, returns: Type, takes: List<tree.Ability> };

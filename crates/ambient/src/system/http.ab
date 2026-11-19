@@ -1,7 +1,7 @@
-import ambient.Error;
-import ambient.json.{Json, write};
-import ambient.iterator.{range};
-import ambient.tasks.{gather};
+use ambient.Error;
+use ambient.json.{Json, write};
+use ambient.iterator.{range};
+use ambient.tasks.{gather};
 
 /// No response came: the host was not found, or would not connect.
 pub tag unreachable;

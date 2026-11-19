@@ -12,8 +12,8 @@ use support::scripted::Scripted;
 /// it leaves.
 fn run(rest: &str, world: &Scripted) -> (Value, Scripted) {
     let source = format!(
-        "import system.code;
-        import system.fs;
+        "use system.code;
+        use system.fs;
 
         {rest}"
     );
@@ -122,7 +122,7 @@ fn only_a_function_that_captured_nothing_is_packed() {
 #[test]
 fn a_loaded_function_does_what_its_caller_provides() {
     let source = r#"
-        import system.console;
+        use system.console;
 
         fn quiet(word: string): null with console.print => null;
         fn shout(word: string): null with console.print {

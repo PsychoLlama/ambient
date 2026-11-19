@@ -1,10 +1,9 @@
-import system.console;
-import ambient.map;
-import ambient.map.{Map};
-import system.env;
-import system.fs;
-import ambient.test.{check};
-import ambient.Error;
+use system.console;
+use ambient.map.{self, Map};
+use system.env;
+use system.fs;
+use ambient.test.{check};
+use ambient.Error;
 
 /// Prints the words a file uses most, and how often it uses each.
 pub fn main(): int with console.print, console.warn, env.args, fs.read {

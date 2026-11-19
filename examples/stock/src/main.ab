@@ -1,8 +1,8 @@
-import system.console;
-import system.env;
-import system.fs;
-import ambient.{catch, throw, Error};
-import pkg.ledger;
+use system.console;
+use system.env;
+use system.fs;
+use ambient.{catch, throw, Error};
+use pkg.ledger;
 
 /// Keeps how many of each thing there are, in a JSON file: `add <name>
 /// <count>`, `take <name> <count>`, and `list`, which is what no command

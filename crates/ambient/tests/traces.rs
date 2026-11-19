@@ -172,7 +172,7 @@ fn a_fault_that_ends_a_program_reaches_its_host_with_its_trace() {
 fn caught_frames(main: &str) -> i64 {
     support::text::int(&format!(
         r#"
-        import ambient.{{catch, fail, throw, Error}};
+        use ambient.{{catch, fail, throw, Error}};
         tag broken;
 
         fn breaks(): int with throw {{ fail(broken, "no"); return 0; }}

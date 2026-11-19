@@ -1,9 +1,8 @@
-import ambient.json;
-import ambient.test.{check};
-import ambient.url;
-import system.http;
-import system.http.{Request, Response};
-import system.path;
+use ambient.json;
+use ambient.test.{check};
+use ambient.url;
+use system.http.{self, Request, Response};
+use system.path;
 
 /// The notes that are kept, in the order they were added.
 pub ability load(): List<string>;

@@ -1,4 +1,4 @@
-import ambient.Error;
+use ambient.Error;
 
 /// What was given is not code that can be sent, compiled, or loaded;
 /// the message says which.

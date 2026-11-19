@@ -50,8 +50,8 @@ fn started(executable: &[u8], world: Scripted) -> (i32, Scripted) {
 }
 
 const GREETS: &str = r#"
-    import system.console;
-    import system.env;
+    use system.console;
+    use system.env;
 
     fn main(): int with console.print, env.args {
         console.print!("hello, " ++ env.args!().join_with(" and "));
@@ -98,8 +98,8 @@ fn a_fault_in_an_executable_is_reported_where_it_was_written() {
 }
 
 const PACKS: &str = r#"
-        import system.code;
-        import system.console;
+        use system.code;
+        use system.console;
 
         fn other(name: string): string => "not that function";
         fn greet(name: string): string => "hello, ${name}";

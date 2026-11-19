@@ -1,4 +1,4 @@
-import ambient.bytes.{of};
+use ambient.bytes.{of};
 
 /// Sixty-four bits nothing could have guessed, as an integer.
 ///

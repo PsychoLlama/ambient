@@ -1,8 +1,8 @@
-import system.code;
-import system.console;
-import system.env;
-import system.http;
-import pkg.samples;
+use system.code;
+use system.console;
+use system.env;
+use system.http;
+use pkg.samples;
 
 /// Sends one of `samples` to a server that is running, and prints
 /// where it can be called:

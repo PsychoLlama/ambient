@@ -1,4 +1,4 @@
-import system.http;
+use system.http;
 
 /// What the site answers. Change this, run `deploy.main`, and the
 /// server that is running answers the new way without stopping.

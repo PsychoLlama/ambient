@@ -10,8 +10,8 @@ use support::text::{int, text};
 /// `main` over bits that follow from a seed, with the module imported.
 fn seeded(ret: &str, body: &str) -> String {
     format!(
-        "import system.random;
-        import ambient.iterator.{{range}};
+        "use system.random;
+        use ambient.iterator.{{range}};
         fn main(): {ret} => random.seeded(7, fn() {{ {body} }});"
     )
 }

@@ -1,4 +1,4 @@
-import ambient.Error;
+use ambient.Error;
 
 /// What was given is not plain data, or is no encoding of any.
 pub tag invalid;

@@ -1,10 +1,10 @@
-import ambient.json;
-import ambient.{catch, Error};
-import system.console;
-import system.env;
-import system.fs;
-import system.http;
-import pkg.routes;
+use ambient.json;
+use ambient.{catch, Error};
+use system.console;
+use system.env;
+use system.fs;
+use system.http;
+use pkg.routes;
 
 /// Serves notes over HTTP, kept in a file of JSON: `notes [port]`. See
 /// `routes.answer` for what it answers.

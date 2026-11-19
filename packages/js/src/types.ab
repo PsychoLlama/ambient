@@ -1,7 +1,6 @@
 /// TypeScript for what a JavaScript host sees of a program: the types
 /// of the values that cross to it, as `host/values.js` makes them.
-import ambient.tree;
-import ambient.tree.{Field, Type};
+use ambient.tree.{self, Field, Type};
 
 /// What no type here says more of.
 fn opaque(): string => "unknown";

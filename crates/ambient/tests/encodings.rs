@@ -9,7 +9,7 @@ use support::text::text;
 /// What `expr`, a string, gives with the encodings imported.
 fn gives(expr: &str) -> String {
     text(&format!(
-        "import ambient.base64;\nimport ambient.bytes;\nfn main(): string => {expr};"
+        "use ambient.base64;\nuse ambient.bytes;\nfn main(): string => {expr};"
     ))
 }
 
@@ -94,9 +94,9 @@ fn hexadecimal_is_read_in_either_case_and_written_in_lower() {
 #[test]
 fn every_byte_is_written_and_read_back() {
     let source = r#"
-        import ambient.base64;
-        import ambient.bytes;
-        import ambient.iterator.{range};
+        use ambient.base64;
+        use ambient.bytes;
+        use ambient.iterator.{range};
 
         fn main(): bool {
             let all = bytes.of(range(0, 256).to_list()) as bytes else "".to_bytes();

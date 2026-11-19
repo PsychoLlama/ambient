@@ -14,8 +14,8 @@ use support::scripted::Scripted;
 /// A target, and the tool it is built by: a list of what the build
 /// steps gave it.
 const WEB: &str = r#"
-    import ambient.build.{Build, File, Files};
-    import ambient.tree.{Reference};
+    use ambient.build.{Build, File, Files};
+    use ambient.tree.{Reference};
 
     pub target page built by bundle {}
 
@@ -28,9 +28,9 @@ const WEB: &str = r#"
 /// A package of styles: the key a rule is written under, and the step
 /// that gathers every rule a program reaches into one file.
 const STYLES: &str = r#"
-    import ambient.build;
-    import ambient.build.{Build, Annotation, Files};
-    import ambient.tree.{Reference};
+    use ambient.build;
+    use ambient.build.{Build, Annotation, Files};
+    use ambient.tree.{Reference};
 
     pub tag rule;
 
@@ -86,8 +86,8 @@ fn text(world: &Scripted, path: &str) -> String {
 /// An app that says two rules to the styles, under a target that
 /// extends the one the styles' step is for.
 const STYLED: &str = r#"
-    import web.{page};
-    import styles.{rule};
+    use web.{page};
+    use styles.{rule};
 
     target mine extends page {}
 
@@ -123,7 +123,7 @@ fn a_step_runs_for_no_program_that_does_not_reach_its_package() {
 #[test]
 fn a_step_runs_for_no_target_but_its_own() {
     let apart = STYLED
-        .replace("import web.{page};", "import web.{bundle};")
+        .replace("use web.{page};", "use web.{bundle};")
         .replace(
             "target mine extends page {}",
             "target mine built by bundle {}",

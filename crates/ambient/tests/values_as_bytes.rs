@@ -11,8 +11,8 @@ use support::scripted::Scripted;
 /// What `main`, with this body, gives under the command-line target.
 fn gives(body: &str) -> Value {
     let source = format!(
-        "import system.exchange;
-        import ambient.Error;
+        "use system.exchange;
+        use ambient.Error;
         fn main(): unknown {{ {body} }}"
     );
     Scripted::default().program(&source).0.unwrap()

@@ -25,8 +25,8 @@ fn rewritten<const N: usize>(written: [&str; N]) -> [String; N] {
     let texts: Vec<String> = written.into_iter().map(literal).collect();
     let source = format!(
         r#"
-        import ambient.json;
-        import ambient.{{catch, Error}};
+        use ambient.json;
+        use ambient.{{catch, Error}};
 
         fn rewrite(text: string): string {{
             match catch(fn() => json.write(json.parse(text))) {{
@@ -126,8 +126,8 @@ fn text_that_is_not_json_says_where_it_stops_being() {
 #[test]
 fn a_member_is_reached_by_name_and_by_position() {
     let source = r#"
-        import ambient.json;
-        import ambient.{catch, throw};
+        use ambient.json;
+        use ambient.{catch, throw};
 
         fn main(): int => catch(sum) as int else 0;
 
@@ -197,10 +197,10 @@ fn a_value_is_told_apart_by_the_type_it_is_asked_for() {
     // No value can be tested for a map, which holds methods; the
     // test made is the nearest that can be, and tells as much here.
     let source = r#"
-        import ambient.json;
-        import ambient.json.{Json};
-        import ambient.map.{Map};
-        import ambient.{catch, throw};
+        use ambient.json;
+        use ambient.json.{Json};
+        use ambient.map.{Map};
+        use ambient.{catch, throw};
 
         fn kind(value: Json): string {
             match value {
@@ -226,7 +226,7 @@ fn a_cast_that_every_value_passes_tests_nothing() {
     // No value can be tested for JSON, and none need be: what is cast
     // is JSON already, so what the cast falls back to is never reached.
     let source = r"
-        import ambient.json.{Json, write};
+        use ambient.json.{Json, write};
 
         fn kept(value: Json): Json => value as Json else null;
         fn main(): string => write(kept([1, 2]));

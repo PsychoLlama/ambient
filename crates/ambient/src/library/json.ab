@@ -1,6 +1,5 @@
-import pkg.map;
-import pkg.map.{Map};
-import pkg.errors.{fail, throw};
+use pkg.map.{self, Map};
+use pkg.errors.{fail, throw};
 
 /// Text that is not JSON. The message says where and what was expected.
 pub tag malformed;

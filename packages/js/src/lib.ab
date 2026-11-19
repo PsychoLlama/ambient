@@ -8,15 +8,12 @@
 /// at the module's path, which exports a function for each extern by
 /// its name. An extern annotated with `binding` needs none: the build
 /// writes its function.
-import ambient.build;
-import ambient.tree;
-import ambient.build.{Build, Annotation, Compiled, Extern, File, Files, Word};
-import ambient.errors.{fail, throw};
-import ambient.tree.{Reference, Type};
-import pkg.glue;
-import pkg.glue.{Built, Signature};
-import pkg.types;
-import ambient.Error;
+use ambient.build.{self, Build, Annotation, Compiled, Extern, File, Files, Word};
+use ambient.errors.{fail, throw};
+use ambient.tree.{self, Reference, Type};
+use pkg.glue.{self, Built, Signature};
+use pkg.types;
+use ambient.Error;
 
 /// The world of a program a JavaScript host runs, before anything is
 /// bound in it.

@@ -15,7 +15,7 @@ use support::scripted::Scripted;
 /// `numbers` gives.
 fn app() -> Package {
     package("app", "app").library(
-        "import numbers.seven;
+        "use numbers.seven;
         pub fn main(): int => seven();",
     )
 }
@@ -41,12 +41,12 @@ fn a_package_at_a_directory_a_member_depends_on_is_a_member_too() {
     // dependency all the same.
     let twice = package("twice", "t")
         .on("n", "n", "version = \"1.0.0\"")
-        .library("import n.seven; pub fn fourteen(): int => seven() + seven();");
+        .library("use n.seven; pub fn fourteen(): int => seven() + seven();");
     let app = app()
         .on("numbers", "n", "path = \"../numbers\"")
         .on("twice", "t", "path = \"../twice\"")
         .library(
-            "import numbers.seven; import twice.fourteen;
+            "use numbers.seven; use twice.fourteen;
             pub fn main(): int => seven() + fourteen();",
         );
     let files = files(None, [app, twice, package("numbers", "n").library(SEVEN)]);
@@ -59,7 +59,7 @@ fn packages_may_depend_on_each_other() {
     let even = package("even", "e")
         .on("odd", "o", "path = \"../odd\"")
         .library(
-            "import odd.is_odd;
+            "use odd.is_odd;
             pub fn is_even(n: int): bool {
                 if n == 0 { return true; }
                 return is_odd(n - 1);
@@ -68,7 +68,7 @@ fn packages_may_depend_on_each_other() {
     let odd = package("odd", "o")
         .on("even", "e", "path = \"../even\"")
         .library(
-            "import even.is_even;
+            "use even.is_even;
             pub fn is_odd(n: int): bool {
                 if n == 0 { return false; }
                 return is_even(n - 1);
@@ -77,7 +77,7 @@ fn packages_may_depend_on_each_other() {
     let app = package("app", "app")
         .on("even", "e", "path = \"../even\"")
         .library(
-            "import even.is_even;
+            "use even.is_even;
             pub fn main(): int {
                 if is_even(10) { return 1; }
                 return 0;
@@ -94,7 +94,7 @@ fn side_by_side(old: &str, new: &str) -> Result<i32, String> {
         .on("numbers", "n", &format!("version = \"{old}\""))
         .on("numbers_next", "n", &format!("version = \"{new}\""))
         .library(
-            "import numbers.seven; import numbers_next.seventy;
+            "use numbers.seven; use numbers_next.seventy;
             pub fn main(): int => seven() + seventy();",
         );
     let old = Package::versioned("old", "n", old).library(SEVEN);
@@ -120,7 +120,7 @@ fn exchanged(old: &str, new: &str) -> Result<i32, String> {
         .on("units", old, "version = \"1.0.0\"")
         .on("units_next", new, "version = \"2.0.0\"")
         .library(
-            "import units.meters; import units_next.length;
+            "use units.meters; use units_next.length;
             pub fn main(): int => length(meters(7));",
         );
     let old = Package::versioned("old", old, "1.0.0").library(UNITS);
@@ -274,7 +274,7 @@ fn adding_a_dependency_writes_what_the_package_says_of_itself() {
 #[test]
 fn a_dependency_is_added_under_the_name_asked_for() {
     let app = package("app", "app").library(
-        "import sevens.seven;
+        "use sevens.seven;
         pub fn main(): int => seven();",
     );
     let files = files(None, [app, package("numbers", "n").library(SEVEN)]);

@@ -1,8 +1,8 @@
-import ambient.code;
-import ambient.errors.{catch, fail, throw};
-import ambient.test.{check};
-import ambient.tree;
-import ambient.Error;
+use ambient.code;
+use ambient.errors.{catch, fail, throw};
+use ambient.test.{check};
+use ambient.tree;
+use ambient.Error;
 
 /// What a recording reports of one perform: the ability, what it was
 /// given, and what came back.

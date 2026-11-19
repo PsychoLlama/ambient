@@ -16,8 +16,8 @@ use support::value;
 /// A module of what makes definitions, with `all` for what it gives.
 fn make(all: &str) -> String {
     format!(
-        "import ambient.code;
-        import ambient.tree;
+        "use ambient.code;
+        use ambient.tree;
         pub fn times(left: int, right: int): int => left * right;
         pub fn scaled(by: int): tree.Function =>
             code.define([tree.integer], tree.integer, [], fn(given: List<code.Code>): code.Code =>
@@ -29,7 +29,7 @@ fn make(all: &str) -> String {
 /// A program of three modules: `make`, which gives `all`; `made`,
 /// which is the call of it; and `main`.
 fn program(all: &str, main: &str) -> Workspace {
-    let made = "import pkg.make; comptime make.all();";
+    let made = "use pkg.make; comptime make.all();";
     modules(&[("make", &make(all)), ("made", made), ("main", main)])
 }
 
@@ -49,14 +49,14 @@ fn refused(all: &str, main: &str) -> Error {
 
 #[test]
 fn a_module_has_the_definitions_its_call_gives() {
-    let main = "import pkg.made; fn main(): made.Count => made.double(made.triple(7));";
+    let main = "use pkg.made; fn main(): made.Count => made.double(made.triple(7));";
 
     assert_eq!(support::run_in(&program(BOTH, main)), Ok(Value::Int(42)));
 }
 
 #[test]
 fn what_a_call_gives_is_imported_by_name() {
-    let main = "import pkg.made.{double, Count}; fn main(): Count => double(4);";
+    let main = "use pkg.made.{double, Count}; fn main(): Count => double(4);";
 
     assert_eq!(support::run_in(&program(BOTH, main)), Ok(Value::Int(8)));
 }
@@ -71,7 +71,7 @@ fn a_generated_definition_refers_to_one_beside_it_by_name() {
             return code.call(double, [code.call(double, given)]);
         })),
     ]";
-    let main = "import pkg.made; fn main(): int => made.quadruple(3);";
+    let main = "use pkg.made; fn main(): int => made.quadruple(3);";
 
     assert_eq!(support::run_in(&program(all, main)), Ok(Value::Int(12)));
 }
@@ -80,7 +80,7 @@ fn a_generated_definition_refers_to_one_beside_it_by_name() {
 fn a_generated_ability_has_the_type_parameters_its_tree_says() {
     let all = "[code.named_generic_ability(\"echo\", [null], fn(types: List<tree.Type>): (List<tree.Type>, tree.Type) =>
         (types, types.get(0) as tree.Type else tree.none))]";
-    let main = "import pkg.made.{echo};
+    let main = "use pkg.made.{echo};
         fn asks(): int with echo => echo!(40) + echo!(\"two\").length() - 1;
         fn main(): int => provide { [echo]<T>(said: T): T => said } => asks();";
 
@@ -91,7 +91,7 @@ fn a_generated_ability_has_the_type_parameters_its_tree_says() {
 fn a_generated_type_has_the_type_parameters_its_tree_says() {
     let all = "[code.named_generic(\"Pair\", 1, fn(types: List<tree.Type>): tree.Type =>
         { tuple: types ++ types })]";
-    let main = "import pkg.made.{Pair};
+    let main = "use pkg.made.{Pair};
         fn main(): int {
             let pair: Pair<int> = (40, 2);
             let (left, right) = pair;
@@ -122,7 +122,7 @@ fn a_definition_has_a_name_a_program_could_write() {
     // A dot would make an ability or a tag one of another module.
     for name in ["", "__made", "sub.double", "two words", "9lives"] {
         let all = format!("[code.named(\"{name}\", scaled(2))]");
-        let refused = refused(&all, "import pkg.made; fn main(): int => made.double(1);");
+        let refused = refused(&all, "use pkg.made; fn main(): int => made.double(1);");
 
         let Error::NotCode { why, .. } = refused else {
             panic!("{name:?}: {refused}");
@@ -133,7 +133,7 @@ fn a_definition_has_a_name_a_program_could_write() {
 
 #[test]
 fn a_generated_definition_has_the_hash_of_one_written_out() {
-    let main = "import pkg.make.{times}; fn written(n: int): int => times(n, 2);";
+    let main = "use pkg.make.{times}; fn written(n: int): int => times(n, 2);";
     let workspace = program(BOTH, main);
     let store = MemoryStore::new();
     let engine = Engine::new(&workspace, &store);
@@ -151,8 +151,8 @@ fn a_call_gives_abilities_and_what_performs_them() {
     ]";
     let asks = "fn asks(): tree.Reference =>
         { package: \"app\", module: [\"made\"], name: \"ask\", kind: \"ability\" };";
-    let call = "import pkg.make; comptime make.all();";
-    let main = "import pkg.made;
+    let call = "use pkg.make; comptime make.all();";
+    let main = "use pkg.made;
         fn main(): int => provide { [made.ask](n) => n + 1 } => made.asked() + made.ask!(20);";
     let maker = format!("{} {asks}", make(all));
     let workspace = modules(&[("make", &maker), ("made", call), ("main", main)]);
@@ -163,7 +163,7 @@ fn a_call_gives_abilities_and_what_performs_them() {
 #[test]
 fn a_call_gives_tags() {
     let all = "[code.named_tag(\"ready\"), code.named_tag(\"spent\")]";
-    let main = "import pkg.made;
+    let main = "use pkg.made;
         fn state(): made.ready | made.spent => made.ready;
         fn main(): bool => state() == made.ready && state() != made.spent;";
 
@@ -175,14 +175,14 @@ fn a_call_gives_as_many_definitions_as_it_likes() {
     let all = "@range(0, 300)
         .map(fn(at: int): tree.Definition => code.named(\"scale_${at}\", scaled(at)))
         .to_list()";
-    let main = "import pkg.made; fn main(): int => made.scale_299(2);";
+    let main = "use pkg.made; fn main(): int => made.scale_299(2);";
 
     assert_eq!(support::run_in(&program(all, main)), Ok(Value::Int(598)));
 }
 
 #[test]
 fn a_module_has_nothing_its_call_did_not_give() {
-    let main = "import pkg.made; fn main(): int => made.halve(4);";
+    let main = "use pkg.made; fn main(): int => made.halve(4);";
 
     assert!(matches!(refused(BOTH, main), Error::UnknownName { .. }));
 }
@@ -190,7 +190,7 @@ fn a_module_has_nothing_its_call_did_not_give() {
 #[test]
 fn what_is_not_public_stays_in_its_module() {
     let all = "[{ name: \"double\", public: false, function: scaled(2) }]";
-    let main = "import pkg.made; fn main(): int => made.double(4);";
+    let main = "use pkg.made; fn main(): int => made.double(4);";
 
     assert!(matches!(refused(all, main), Error::PrivateName { .. }));
 }
@@ -198,7 +198,7 @@ fn what_is_not_public_stays_in_its_module() {
 #[test]
 fn a_call_gives_one_definition_of_a_name() {
     let all = "[code.named(\"double\", scaled(2)), code.named(\"double\", scaled(3))]";
-    let main = "import pkg.made; fn main(): int => made.double(4);";
+    let main = "use pkg.made; fn main(): int => made.double(4);";
 
     assert!(matches!(refused(all, main), Error::GeneratedTwice { .. }));
 }
@@ -210,19 +210,19 @@ fn a_generated_module_names_only_what_could_be_named_there() {
         "[code.named(\"reach\", code.define([], tree.any, [], fn(given: List<code.Code>): code.Code =>
             code.definition({hidden})))]"
     );
-    let main = "import pkg.made; fn main(): unknown => made.reach();";
+    let main = "use pkg.made; fn main(): unknown => made.reach();";
 
     assert!(matches!(refused(&all, main), Error::Unnameable { .. }));
 }
 
 #[test]
 fn a_call_cannot_depend_on_what_it_gives() {
-    let call = "import pkg.make; comptime make.all();";
+    let call = "use pkg.make; comptime make.all();";
     let maker = format!(
-        "import pkg.made; {}",
+        "use pkg.made; {}",
         make("[code.named(\"again\", scaled(made.double(1)))]")
     );
-    let main = "import pkg.made; fn main(): int => made.again(4);";
+    let main = "use pkg.made; fn main(): int => made.again(4);";
     let workspace = modules(&[("make", &maker), ("made", call), ("main", main)]);
     let store = MemoryStore::new();
     let checked = Engine::new(&workspace, &store).check(&value("main", "main"));
@@ -234,12 +234,12 @@ fn a_call_cannot_depend_on_what_it_gives() {
 /// uses it in `six`.
 fn circling() -> Workspace {
     let maker = format!(
-        "import pkg.made; import pkg.made.{{triple}};
+        "use pkg.made; use pkg.made.{{triple}};
         pub fn six(): int => made.double(triple(1)); {}",
         make(BOTH)
     );
-    let call = "import pkg.make; comptime make.all();";
-    let main = "import pkg.make; fn main(): int => make.six();";
+    let call = "use pkg.make; comptime make.all();";
+    let main = "use pkg.make; fn main(): int => make.six();";
     modules(&[("make", &maker), ("made", call), ("main", main)])
 }
 
@@ -271,7 +271,7 @@ fn whatever_is_asked_for_first_a_module_is_made_the_same() {
 
 #[test]
 fn an_import_from_a_generated_module_names_what_it_has() {
-    let main = "import pkg.made.{halve}; fn main(): int => 1;";
+    let main = "use pkg.made.{halve}; fn main(): int => 1;";
     let workspace = program(BOTH, main);
     let store = MemoryStore::new();
     let engine = Engine::new(&workspace, &store);
@@ -282,7 +282,7 @@ fn an_import_from_a_generated_module_names_what_it_has() {
 
 #[test]
 fn a_generated_module_is_made_once_for_a_store() {
-    let main = "import pkg.made; fn main(): int => made.double(21);";
+    let main = "use pkg.made; fn main(): int => made.double(21);";
     let workspace = program(BOTH, main);
     let store = MemoryStore::new();
     let build = || {
@@ -312,8 +312,8 @@ fn a_module_is_given_an_extern_and_the_brand_it_mints_under() {
     use ambient::core::Tree;
 
     let maker = format!("pub tag note;\n{}", make(NATIVE));
-    let made = "import pkg.make; comptime make.all();";
-    let main = "import pkg.made; fn main(text: string): made.Address => made.address(text);";
+    let made = "use pkg.make; comptime make.all();";
+    let main = "use pkg.made; fn main(text: string): made.Address => made.address(text);";
     let workspace = modules(&[("make", &maker), ("made", made), ("main", main)]);
     let store = MemoryStore::new();
     let engine = Engine::new(&workspace, &store);

@@ -19,7 +19,7 @@ const SEVEN: &str = "pub fn seven(): int => 7;";
 fn app(rev: &str) -> Package {
     let app = package("app", "app").on("numbers", "n", &pinned(GIT, rev));
     app.library(
-        "import numbers.seven;
+        "use numbers.seven;
         pub fn main(): int => seven();",
     )
 }
@@ -167,7 +167,7 @@ fn a_lock_holds_what_every_member_declares_and_nothing_else() {
 /// at two commits: one that gives 7 and one that gives 70.
 fn following() -> Files {
     let app = package("app", "app").on("numbers", "n", &branch(GIT, "main"));
-    let app = app.library("import numbers.seven; pub fn main(): int => seven();");
+    let app = app.library("use numbers.seven; pub fn main(): int => seven();");
     let two = package("two", "n").library("pub fn seven(): int => 70;");
     files(None, [app, numbers("one"), two])
 }
@@ -231,7 +231,7 @@ fn two_pins_of_one_package_are_two_instances() {
     let app = app(&rev('1'))
         .on("numbers_next", "n", &pinned(GIT, &rev('2')))
         .library(
-            "import numbers.seven; import numbers_next.seventy;
+            "use numbers.seven; use numbers_next.seventy;
             pub fn main(): int => seven() + seventy();",
         );
     let files = files(None, [app, numbers("one"), two]);
@@ -282,9 +282,9 @@ fn a_fetched_package_pins_what_it_depends_on_into_the_same_lock() {
     let far = "https://example.com/far";
     let twice = package("one", "t")
         .on("n", "n", &pinned(far, &rev('5')))
-        .library("import n.seven; pub fn fourteen(): int => seven() + seven();");
+        .library("use n.seven; pub fn fourteen(): int => seven() + seven();");
     let app = package("app", "app").on("twice", "t", &pinned(GIT, &rev('1')));
-    let app = app.library("import twice.fourteen; pub fn main(): int => fourteen();");
+    let app = app.library("use twice.fourteen; pub fn main(): int => fourteen();");
     let files = files(None, [app, twice, numbers("five")]);
     let commits = [(GIT, &*rev('1'), "one"), (far, &*rev('5'), "five")];
     let after = Remote::new(&files, commits).written(&run()).unwrap();

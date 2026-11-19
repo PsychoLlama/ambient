@@ -1,7 +1,7 @@
-import ambient.code;
-import ambient.tree;
-import ambient.Error;
-import ambient.build;
+use ambient.code;
+use ambient.tree;
+use ambient.Error;
+use ambient.build;
 
 /// A page: the name its file has, and what the file holds.
 pub type Page = { name: string, text: string };

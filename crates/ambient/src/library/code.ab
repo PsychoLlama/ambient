@@ -1,4 +1,4 @@
-import pkg.tree.{any, Arm, Definition, Kind, Entry, Expr, Function, Operation, Pattern, Reference, Said, Shaped, Type};
+use pkg.tree.{any, Arm, Definition, Kind, Entry, Expr, Function, Operation, Pattern, Reference, Said, Shaped, Type};
 
 /// Code that is not yet anywhere: the tree it is, once it is told how
 /// many locals are bound around it. Putting code together from these

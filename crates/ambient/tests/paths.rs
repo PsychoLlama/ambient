@@ -9,9 +9,7 @@ use support::text::text;
 
 /// What `expr` gives, with `system.path` imported.
 fn path(expr: &str) -> String {
-    text(&format!(
-        "import system.path;\nfn main(): string => {expr};"
-    ))
+    text(&format!("use system.path;\nfn main(): string => {expr};"))
 }
 
 /// What a function of a path gives for each of `paths`, null as `-`.

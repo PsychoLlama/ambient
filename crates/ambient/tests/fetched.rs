@@ -88,7 +88,7 @@ fn opened(scratch: &Scratch, state: &str) -> Project {
     scratch.write("app/ambient.toml", &manifest);
     scratch.write(
         "app/src/main.ab",
-        "import numbers.seven; pub fn main(): int => seven();",
+        "use numbers.seven; pub fn main(): int => seven();",
     );
     let kept = Kept::under(scratch.0.join("kept"));
     let project = open_from(&Disk, &kept, &scratch.0.join("app")).unwrap();

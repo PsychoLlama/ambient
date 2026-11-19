@@ -1,10 +1,8 @@
-import ambient.errors.{catch, throw};
-import ambient.test.{check};
-import ambient.Error;
-import pkg.bind;
-import pkg.bind.{invoke};
-import pkg.web;
-import pkg.web.{hosted};
+use ambient.errors.{catch, throw};
+use ambient.test.{check};
+use ambient.Error;
+use pkg.bind.{self, invoke};
+use pkg.web.{self, hosted};
 
 /// A host for a test: it answers each name with something of the type
 /// the manifest gives it, but for `title`.

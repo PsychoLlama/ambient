@@ -1,5 +1,5 @@
-import ambient.iterator;
-import js.{binding, host};
+use ambient.iterator;
+use js.{binding, host};
 
 /// Writes a line where a page can show it.
 pub ability say(text: string): null;

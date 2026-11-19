@@ -13,9 +13,9 @@ use support::scripted::{Scripted, check};
 /// A lint that wants every function of what it covers named in more
 /// than one letter, and the functions it is run over.
 const SHORT: &str = r#"
-    import ambient.build;
-    import ambient.build.{Diagnostic, Diagnostics, Module, Selection};
-    import ambient.tree.{Reference};
+    use ambient.build;
+    use ambient.build.{Diagnostic, Diagnostics, Module, Selection};
+    use ambient.tree.{Reference};
 
     fn named(found: Diagnostics, of: Reference): Diagnostics =>
         of.name.length() > 1 ? found : found.push({ on: of, message: "`${of.name}` says nothing" });

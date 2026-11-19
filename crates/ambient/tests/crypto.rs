@@ -11,8 +11,8 @@ use support::scripted::Scripted;
 /// What `expr`, a string, gives under the command-line target.
 fn gives(row: &str, expr: &str) -> String {
     let source = format!(
-        "import system.crypto;
-        import system.random;
+        "use system.crypto;
+        use system.random;
         fn main(): string {row} => {expr};"
     );
     match &Scripted::default().program(&source).0 {

@@ -8,8 +8,8 @@ use crate::host::{Failure, World};
 use crate::project::MANIFEST;
 
 /// The module a new package begins with.
-const MAIN: &str = r#"import system.console;
-import ambient.test.{check};
+const MAIN: &str = r#"use system.console;
+use ambient.test.{check};
 
 /// What the program says to someone.
 fn greeting(name: string): string => "hello, ${name}";

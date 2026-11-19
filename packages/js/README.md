@@ -3,7 +3,7 @@
 An Ambient package that builds a program for a JavaScript host. A target that extends `host` is built by this package's tool:
 
 ```
-import js.{host};
+use js.{host};
 
 pub ability say(text: string): null;
 extern handler said for say;
@@ -28,7 +28,7 @@ export const echoed = (line, call) =>
 An extern whose native side is something JavaScript already has needs no file. It is annotated with what it is, and the build writes its function:
 
 ```
-import js.{binding};
+use js.{binding};
 
 @binding("Math.max") extern fn larger(one: int, other: int): int;
 

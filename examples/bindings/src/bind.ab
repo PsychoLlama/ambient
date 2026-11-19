@@ -1,11 +1,10 @@
-import ambient.code;
-import ambient.errors.{catch, fail, throw};
-import ambient.json;
-import ambient.json.{Json};
-import ambient.map.{Map};
-import ambient.tree;
-import ambient.Error;
-import ambient.build;
+use ambient.code;
+use ambient.errors.{catch, fail, throw};
+use ambient.json.{self, Json};
+use ambient.map.{Map};
+use ambient.tree;
+use ambient.Error;
+use ambient.build;
 
 /// Asks the host for what it offers under a name: the one way out of
 /// the program, which says nothing of what is asked or what comes

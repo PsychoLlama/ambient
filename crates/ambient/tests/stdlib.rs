@@ -100,7 +100,7 @@ fn an_iterator_is_walked_for_what_a_function_does() {
             range(0, 5).each(fn(n) => seen.update(fn(total) => total + n));
             return seen.read();
         }
-        import ambient.iterator.range;
+        use ambient.iterator.range;
     ";
 
     assert_eq!(int(source), 10);
@@ -118,7 +118,7 @@ fn iterators_are_numbered_chained_and_skipped() {
 #[test]
 fn an_iterator_is_asked_about_its_items() {
     let source = "
-        import ambient.iterator.range;
+        use ambient.iterator.range;
 
         fn main(): int {
             let found = range(1, 100).find(fn(n) => n * n > 50) as int else 0;

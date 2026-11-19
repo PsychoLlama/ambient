@@ -9,6 +9,9 @@ use crate::surface::{
 };
 use crate::syntax::{Placed, SyntaxError, place};
 
+/// A path a `use` takes, and the name it is taken under if not its own.
+type Used = (Path, Option<String>);
+
 impl Parser {
     /// The whole file.
     pub(in crate::syntax) fn module(mut self) -> Parsed<crate::syntax::Source> {
@@ -44,10 +47,10 @@ impl Parser {
             place::lift(&mut annotation.value, &self.positions, at, &mut Vec::new());
         }
         let public = self.eat_word("pub");
-        if self.eat_word("import") {
+        if self.eat_word("use") {
             return self.import(module, public);
         }
-        if public && self.eat_word("module") {
+        if public && self.eat_word("mod") {
             let path = self.path()?;
             self.expect(";")?;
             return Ok(module.expose(&path.to_string()));
@@ -91,26 +94,11 @@ impl Parser {
         Ok(annotations)
     }
 
-    /// `import a.b;`, `import a.b as c;`, or `import a.{b, c as d};`.
+    /// `use a.b;`, `use a.b as c;`, or `use a.{self, b, c as d, e.{f}};`.
     fn import(&mut self, mut module: ModuleBuilder, public: bool) -> Parsed<ModuleBuilder> {
-        let mut prefix = vec![self.name()?];
-        let mut taken: Vec<(Path, Option<String>)> = Vec::new();
-        loop {
-            if !self.eat(".") {
-                let alias = self.alias()?;
-                taken.push((Path(prefix), alias));
-                break;
-            }
-            if self.eat("{") {
-                taken = self.list("}", |parser| {
-                    let mut path = prefix.clone();
-                    path.push(parser.name()?);
-                    Ok((Path(path), parser.alias()?))
-                })?;
-                break;
-            }
-            prefix.push(self.name()?);
-        }
+        let first = self.name()?;
+        let mut taken = Vec::new();
+        self.used(vec![first], &mut taken)?;
         self.expect(";")?;
         for (path, alias) in taken {
             let path = path.to_string();
@@ -122,6 +110,31 @@ impl Parser {
             };
         }
         Ok(module)
+    }
+
+    /// What a `use` takes under `prefix`, whose last name was just
+    /// read: that path, or each member of a group after it. A group
+    /// nests, and `self` in one is the path the group is under.
+    fn used(&mut self, mut prefix: Vec<String>, taken: &mut Vec<Used>) -> Parsed<()> {
+        while self.eat(".") {
+            if !self.eat("{") {
+                prefix.push(self.name()?);
+                continue;
+            }
+            self.list("}", |parser| {
+                let name = parser.name()?;
+                if name == "self" {
+                    taken.push((Path(prefix.clone()), parser.alias()?));
+                    return Ok(());
+                }
+                let mut path = prefix.clone();
+                path.push(name);
+                parser.used(path, taken)
+            })?;
+            return Ok(());
+        }
+        taken.push((Path(prefix), self.alias()?));
+        Ok(())
     }
 
     fn alias(&mut self) -> Parsed<Option<String>> {

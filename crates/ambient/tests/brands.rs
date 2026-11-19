@@ -142,7 +142,7 @@ fn only_its_module_brands_a_value() {
         ("app/src/units.ab", "pub brand Meters;\npub fn meters(n: int): int & Meters => Meters(n);"),
         (
             "app/src/main.ab",
-            "import pkg.units;\nimport pkg.units.{Meters};\nfn fine(): int & Meters => units.meters(1);\nfn main(): int => Meters(1);",
+            "use pkg.units;\nuse pkg.units.{Meters};\nfn fine(): int & Meters => units.meters(1);\nfn main(): int => Meters(1);",
         ),
     ]
     .into_iter()
