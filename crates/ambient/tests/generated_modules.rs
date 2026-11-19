@@ -17,6 +17,7 @@ use support::value;
 fn make(all: &str) -> String {
     format!(
         "use ambient.code;
+        use ambient.iterator;
         use ambient.tree;
         pub fn times(left: int, right: int): int => left * right;
         pub fn scaled(by: int): tree.Function =>
@@ -172,7 +173,7 @@ fn a_call_gives_tags() {
 
 #[test]
 fn a_call_gives_as_many_definitions_as_it_likes() {
-    let all = "@range(0, 300)
+    let all = "iterator.range(0, 300)
         .map(fn(at: int): tree.Definition => code.named(\"scale_${at}\", scaled(at)))
         .to_list()";
     let main = "use pkg.made; fn main(): int => made.scale_299(2);";

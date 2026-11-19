@@ -8,6 +8,7 @@
 //! be made by a [`crate::builder`], which is what rejects ill-formed trees.
 
 mod data;
+pub mod intrinsic;
 mod operator;
 mod shape;
 pub mod shown;
@@ -137,6 +138,9 @@ pub enum DefinitionKind<N = Path> {
     /// A brand: a name for a mark on a type, told from every other by
     /// where it is declared. See "Brands" in `spec/types.md`.
     Brand,
+    /// A name the compiler knows: a call of it is a node of a tree,
+    /// and it is nothing else. See [`intrinsic::Intrinsic`].
+    Intrinsic,
     Extern(Extern<N>),
     Target(Target<N>),
 }
@@ -154,6 +158,7 @@ impl<N> DefinitionKind<N> {
             | Self::Generated(_)
             | Self::Module(_)
             | Self::Extern(_)
+            | Self::Intrinsic
             | Self::Target(_) => Namespace::Value,
             Self::Ability(_) => Namespace::Ability,
             Self::Key(_) => Namespace::Key,

@@ -77,7 +77,7 @@ impl Operator {
         Self::Race,
     ];
 
-    /// The word for the operator: what `@word(...)` writes it by, and
+    /// The word for the operator: the name of its intrinsic, and
     /// what a tree of code names it by.
     #[must_use]
     pub fn name(self) -> &'static str {
@@ -129,22 +129,22 @@ impl Operator {
             Self::Less => "<",
             Self::Equal => "==",
             Self::Join => "++",
-            Self::Length => "@length",
-            Self::Get => "@get",
-            Self::Push => "@push",
-            Self::Slice => "@slice",
-            Self::ToInt => "@to_int",
-            Self::ToFloat => "@to_float",
-            Self::ToText => "@to_text",
-            Self::ToBytes => "@to_bytes",
-            Self::Code => "@code",
-            Self::Character => "@character",
-            Self::Iterator => "@iterator",
-            Self::Iterate => "@iterate",
-            Self::Range => "@range",
-            Self::Step => "@step",
-            Self::Gather => "@gather",
-            Self::Race => "@race",
+            Self::Length => "intrinsics.length",
+            Self::Get => "intrinsics.get",
+            Self::Push => "intrinsics.push",
+            Self::Slice => "intrinsics.slice",
+            Self::ToInt => "intrinsics.to_int",
+            Self::ToFloat => "intrinsics.to_float",
+            Self::ToText => "intrinsics.to_text",
+            Self::ToBytes => "intrinsics.to_bytes",
+            Self::Code => "intrinsics.code",
+            Self::Character => "intrinsics.character",
+            Self::Iterator => "intrinsics.iterator",
+            Self::Iterate => "intrinsics.iterate",
+            Self::Range => "intrinsics.range",
+            Self::Step => "intrinsics.step",
+            Self::Gather => "intrinsics.gather",
+            Self::Race => "intrinsics.race",
         }
     }
 }

@@ -20,9 +20,9 @@ pub(super) enum Token {
 }
 
 /// Every mark, longest first, so the first that fits is the one meant.
-const MARKS: [&str; 34] = [
+const MARKS: [&str; 33] = [
     "...", "=>", "==", "!=", "<=", ">=", "&&", "||", "++", "::", "(", ")", "{", "}", "[", "]", "<",
-    ">", ",", ";", ":", ".", "=", "+", "-", "*", "/", "%", "!", "|", "&", "?", "@", "#",
+    ">", ",", ";", ":", ".", "=", "+", "-", "*", "/", "%", "!", "|", "&", "?", "#",
 ];
 
 pub(super) struct Lexed {

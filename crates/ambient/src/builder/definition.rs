@@ -185,6 +185,19 @@ pub fn tag(name: &str) -> Definition {
     }
 }
 
+/// A public intrinsic: a name the compiler knows, which only the
+/// standard library declares.
+#[must_use]
+pub fn intrinsic(name: &str) -> Definition {
+    Definition {
+        name: name.to_owned(),
+        public: true,
+        doc: None,
+        annotations: Vec::new(),
+        kind: DefinitionKind::Intrinsic,
+    }
+}
+
 /// A private brand: a mark on a type, told from every other by where
 /// the brand is declared.
 #[must_use]
@@ -445,6 +458,7 @@ impl ModuleBuilder {
                     check_extern(&definition.name, native)?;
                     Namespace::Value
                 }
+                DefinitionKind::Intrinsic => Namespace::Value,
                 DefinitionKind::Target(target) => {
                     check_target(target)?;
                     Namespace::Value

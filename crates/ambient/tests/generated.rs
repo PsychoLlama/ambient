@@ -15,6 +15,7 @@ use support::value;
 /// A function that makes one that multiplies, and one made with it.
 const SCALED: &str = "
     use ambient.code;
+    use ambient.iterator;
     use ambient.tree;
     fn times(left: int, right: int): int => left * right;
     fn scaled(by: int): tree.Function =>
@@ -122,7 +123,7 @@ fn a_generated_body_nests_as_deep_as_a_written_one_may() {
     let main = "
         fn nested(): tree.Function =>
             code.define([tree.integer], tree.integer, [], fn(given: List<code.Code>): code.Code =>
-                @range(0, 300).fold(given.first() as code.Code else code.literal(0), fn(inner: code.Code, at: int): code.Code =>
+                iterator.range(0, 300).fold(given.first() as code.Code else code.literal(0), fn(inner: code.Code, at: int): code.Code =>
                     code.call(code.definition(comptime tree.reference(times)), [inner, code.literal(1)])));
         fn deep = comptime nested();
         fn main(): int => deep(7);

@@ -1,12 +1,14 @@
+use pkg.intrinsics;
+
 /// The float nearest this integer.
-pub fn to_float(self: int): float => @to_float(self);
+pub fn to_float(self: int): float => intrinsics.to_float(self);
 
 /// The character whose scalar value this integer is, or null if it is
 /// the value of none.
-pub fn to_character(self: int): string | null => @character(self);
+pub fn to_character(self: int): string | null => intrinsics.character(self);
 
 /// This integer in decimal.
-pub fn to_text(self: int): string => @to_text(self);
+pub fn to_text(self: int): string => intrinsics.to_text(self);
 
 /// This integer with the other sign, which `-` before a value means.
 pub fn negate(self: int): int => 0 - self;

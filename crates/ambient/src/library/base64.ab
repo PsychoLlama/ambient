@@ -1,3 +1,5 @@
+use pkg.intrinsics;
+
 /// Bytes as Base64: four characters for every three bytes, padded with
 /// `=` to a multiple of four.
 pub fn encode(data: bytes): string => written(data, "+/", "=");
@@ -26,7 +28,7 @@ pub fn decode(text: string): bytes | null {
         let held = digit(from) * 262144 + digit(from + 1) * 4096 + digit(from + 2) * 64 + digit(from + 3);
         return [held / 65536, held / 256 % 256, held % 256].get(at % 3) as int else 0;
     };
-    return @to_bytes(@range(0, digits.length() * 3 / 4).map(byte).to_list());
+    return intrinsics.to_bytes(intrinsics.range(0, digits.length() * 3 / 4).map(byte).to_list());
 }
 
 /// `data` with `last` as the characters for 62 and 63, and each
@@ -42,7 +44,7 @@ fn written(data: bytes, last: string, pad: string): string {
         let fourth = left > 2 ? symbol(held % 64) : pad;
         return symbol(held / 262144) ++ symbol(held / 4096 % 64) ++ third ++ fourth;
     };
-    return @range(0, (data.length() + 2) / 3).map(fn(at: int): string => quad(at * 3)).to_list().join_with("");
+    return intrinsics.range(0, (data.length() + 2) / 3).map(fn(at: int): string => quad(at * 3)).to_list().join_with("");
 }
 
 /// The text without the padding it ends with.

@@ -61,6 +61,15 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 - A definition with an identity is reached like any other: imported, exported, and found by its [symbol](symbols.md). Nothing refers to one by spelling its identity.
 - TODO: nothing maps an old identity to a new one, so a rename or a move parts values and programs made before it from those made after.
 
+## Intrinsics
+
+- An intrinsic is a name the compiler knows: a definition with no content, which only the standard library declares.
+- A call of one is a node of the [tree](trees.md) it is written in: an [operation](operations.md), or a construct that takes a body. That node is what is hashed, checked, and compiled, and nothing of the call is.
+- An intrinsic is named as any definition is: imported, re-exported, and shadowed by a definition or a local of the same name. No word of the language is reserved for one.
+- An intrinsic is not a value: it is called where it is named, and is never handed on.
+- A construct takes a body as a function of no parameters written in place. The body runs where the call is written, and what its `return` gives is the body's.
+- The standard library declares every intrinsic in one module, and gives those a program calls again where they belong.
+
 ## Tags
 
 - A tag is a definition with an identity and nothing else.

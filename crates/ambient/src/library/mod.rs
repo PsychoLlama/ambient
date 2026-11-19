@@ -7,6 +7,7 @@
 use ambient_runtime::{FAULT_PACKAGE, Fault};
 
 use crate::builder::{self as b, ModuleBuilder, ty};
+use crate::surface::intrinsic::{self, Intrinsic};
 use crate::symbol::ModuleId;
 use crate::workspace::{Workspace, WorkspaceError};
 
@@ -63,6 +64,7 @@ pub fn module() -> ModuleBuilder {
     let kinds = Fault::ALL.iter().filter_map(|fault| fault.describe());
     let tags = kinds.map(|(kind, _)| kind);
     let paths = SOURCES.map(|(path, _)| path).into_iter();
+    let paths = paths.chain([intrinsic::MODULE]);
     let module = paths.fold(b::module(), ModuleBuilder::expose);
     // What is thrown is reached where `Error` is.
     let shared = ["throw", "fail", "catch"].map(|name| format!("pkg.errors.{name}"));
@@ -73,6 +75,12 @@ pub fn module() -> ModuleBuilder {
         .define(b::type_("Frame", frame).public())
         .define(b::type_("Error", error).public());
     tags.fold(module, |module, tag| module.define(b::tag(tag).public()))
+}
+
+/// The module of intrinsics: every name the compiler knows.
+fn intrinsics() -> ModuleBuilder {
+    let named = Intrinsic::names().map(b::intrinsic);
+    named.fold(b::module(), ModuleBuilder::define)
 }
 
 /// Adds the standard library to a workspace, as the prelude of every
@@ -87,6 +95,10 @@ pub fn install(workspace: &mut Workspace) -> Result<(), WorkspaceError> {
         .build()
         .map_err(|error| WorkspaceError::Library(error.to_string()))?;
     workspace.set(id.clone(), module)?;
+    let intrinsics = intrinsics()
+        .build()
+        .map_err(|error| WorkspaceError::Library(error.to_string()))?;
+    workspace.set(ModuleId::new(FAULT_PACKAGE, intrinsic::MODULE), intrinsics)?;
     for (path, source) in SOURCES {
         let module = crate::syntax::parse(source)
             .map_err(|error| WorkspaceError::Library(format!("{path}.ab:{error}")))?;

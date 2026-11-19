@@ -1,45 +1,47 @@
+use pkg.intrinsics;
+
 /// The size of the string in bytes.
-pub fn length(self: string): int => @length(self);
+pub fn length(self: string): int => intrinsics.length(self);
 
 /// This string followed by `other`.
-pub fn join(self: string, other: string): string => @join(self, other);
+pub fn join(self: string, other: string): string => intrinsics.join(self, other);
 
 /// The string between two positions, or null if they are out of range,
 /// out of order, or inside a character.
-pub fn slice(self: string, start: int, end: int): string | null => @slice(self, start, end);
+pub fn slice(self: string, start: int, end: int): string | null => intrinsics.slice(self, start, end);
 
 /// This string, which is what writing it into another asks for.
 pub fn to_text(self: string): string => self;
 
 /// The bytes of the string's UTF-8 encoding.
-pub fn to_bytes(self: string): bytes => @to_bytes(self);
+pub fn to_bytes(self: string): bytes => intrinsics.to_bytes(self);
 
 /// The integer the whole string is, or null if it is not one.
-pub fn to_int(self: string): int | null => @to_int(self);
+pub fn to_int(self: string): int | null => intrinsics.to_int(self);
 
 /// The float the whole string is, or null if it is not one.
-pub fn to_float(self: string): float | null => @to_float(self);
+pub fn to_float(self: string): float | null => intrinsics.to_float(self);
 
 /// The scalar value of the string's one character, or null if it holds
 /// none or more than one.
-pub fn code(self: string): int | null => @code(self);
+pub fn code(self: string): int | null => intrinsics.code(self);
 
 /// The characters of the string, in order.
-pub fn chars(self: string): Iterator<string> => @iterate(self);
+pub fn chars(self: string): Iterator<string> => intrinsics.iterate(self);
 
 /// Whether the string holds nothing.
-pub fn is_empty(self: string): bool => @length(self) == 0;
+pub fn is_empty(self: string): bool => intrinsics.length(self) == 0;
 
 /// Whether the string begins with `prefix`.
 pub fn starts_with(self: string, prefix: string): bool =>
-    match @slice(self, 0, @length(prefix)) {
+    match intrinsics.slice(self, 0, intrinsics.length(prefix)) {
         null => false,
         let head => head == prefix,
     };
 
 /// Whether the string ends with `suffix`.
 pub fn ends_with(self: string, suffix: string): bool =>
-    match @slice(self, @length(self) - @length(suffix), @length(self)) {
+    match intrinsics.slice(self, intrinsics.length(self) - intrinsics.length(suffix), intrinsics.length(self)) {
         null => false,
         let tail => tail == suffix,
     };
@@ -48,11 +50,11 @@ pub fn ends_with(self: string, suffix: string): bool =>
 pub fn find(self: string, part: string): int | null => find_from(self, part, 0);
 
 fn find_from(text: string, part: string, at: int): int | null {
-    let end = at + @length(part);
-    if @length(text) < end {
+    let end = at + intrinsics.length(part);
+    if intrinsics.length(text) < end {
         return null;
     }
-    match @slice(text, at, end) {
+    match intrinsics.slice(text, at, end) {
         null => {}
         let found => {
             if found == part {
@@ -73,7 +75,7 @@ pub fn contains(self: string, part: string): bool =>
 /// What is left of the string from a position on, or nothing if the
 /// position is not one.
 fn from(text: string, start: int): string =>
-    match @slice(text, start, @length(text)) {
+    match intrinsics.slice(text, start, intrinsics.length(text)) {
         null => "",
         let rest => rest,
     };
@@ -81,7 +83,7 @@ fn from(text: string, start: int): string =>
 /// What is in the string before a position, or nothing if the position
 /// is not one.
 fn before(text: string, end: int): string =>
-    match @slice(text, 0, end) {
+    match intrinsics.slice(text, 0, end) {
         null => "",
         let head => head,
     };
@@ -89,7 +91,7 @@ fn before(text: string, end: int): string =>
 /// The pieces of the string between each `separator`. A separator that
 /// holds nothing separates nothing.
 pub fn split(self: string, separator: string): List<string> {
-    if @length(separator) == 0 {
+    if intrinsics.length(separator) == 0 {
         return [self];
     }
     return split_into(self, separator, []);
@@ -97,10 +99,10 @@ pub fn split(self: string, separator: string): List<string> {
 
 fn split_into(text: string, separator: string, pieces: List<string>): List<string> {
     match find(text, separator) {
-        null => { return @push(pieces, text); }
+        null => { return intrinsics.push(pieces, text); }
         let at => {
-            let rest = from(text, at + @length(separator));
-            return split_into(rest, separator, @push(pieces, before(text, at)));
+            let rest = from(text, at + intrinsics.length(separator));
+            return split_into(rest, separator, intrinsics.push(pieces, before(text, at)));
         }
     }
 }
@@ -110,19 +112,19 @@ fn split_into(text: string, separator: string, pieces: List<string>): List<strin
 pub fn lines(self: string): List<string> {
     let pieces = split(self, "\n").iter().map(fn(line: string): string {
         if ends_with(line, "\r") {
-            return before(line, @length(line) - 1);
+            return before(line, intrinsics.length(line) - 1);
         }
         return line;
     }).to_list();
-    match @get(pieces, @length(pieces) - 1) {
-        "" => { return from_list(pieces, @length(pieces) - 1); }
+    match intrinsics.get(pieces, intrinsics.length(pieces) - 1) {
+        "" => { return from_list(pieces, intrinsics.length(pieces) - 1); }
         _ => { return pieces; }
     }
 }
 
 /// The first `count` of `pieces`.
 fn from_list(pieces: List<string>, count: int): List<string> =>
-    match @slice(pieces, 0, count) {
+    match intrinsics.slice(pieces, 0, count) {
         null => pieces,
         let kept => kept,
     };
@@ -133,7 +135,7 @@ fn is_space(character: string): bool =>
 /// The position of the first character at or after `at` that is not
 /// space.
 fn leading(text: string, at: int): int {
-    match @slice(text, at, at + 1) {
+    match intrinsics.slice(text, at, at + 1) {
         null => {}
         let character => {
             if is_space(character) {
@@ -147,7 +149,7 @@ fn leading(text: string, at: int): int {
 /// The position after the last character before `end` that is not
 /// space.
 fn trailing(text: string, end: int): int {
-    match @slice(text, end - 1, end) {
+    match intrinsics.slice(text, end - 1, end) {
         null => {}
         let character => {
             if is_space(character) {
@@ -161,7 +163,7 @@ fn trailing(text: string, end: int): int {
 /// The string without the space at its ends.
 pub fn trim(self: string): string {
     let start = leading(self, 0);
-    let end = trailing(self, @length(self));
+    let end = trailing(self, intrinsics.length(self));
     if end <= start {
         return "";
     }
@@ -173,7 +175,7 @@ pub fn repeat(self: string, count: int): string {
     if count < 1 {
         return "";
     }
-    return @join(self, repeat(self, count - 1));
+    return intrinsics.join(self, repeat(self, count - 1));
 }
 
 /// The string with `other` wherever `part` was. A part that holds
@@ -183,17 +185,17 @@ pub fn replace(self: string, part: string, other: string): string =>
 
 /// How many characters the string has, which its length in bytes is
 /// only for text that is all ASCII.
-pub fn count(self: string): int => @iterate(self).count();
+pub fn count(self: string): int => intrinsics.iterate(self).count();
 
 /// The string after as many of `fill`, a character, as make it `width`
 /// characters; itself if it is that wide already.
 pub fn pad_start(self: string, width: int, fill: string): string =>
-    @join(repeat(fill, width - count(self)), self);
+    intrinsics.join(repeat(fill, width - count(self)), self);
 
 /// The string before as many of `fill`, a character, as make it
 /// `width` characters; itself if it is that wide already.
 pub fn pad_end(self: string, width: int, fill: string): string =>
-    @join(self, repeat(fill, width - count(self)));
+    intrinsics.join(self, repeat(fill, width - count(self)));
 
 /// This string with each character whose scalar value is from `low` to
 /// `high` moved `by` that many values.
@@ -205,7 +207,7 @@ fn shifted(text: string, low: int, high: int, by: int): string {
         }
         return (code + by).to_character() as string else character;
     };
-    return @iterate(text).map(moved).to_list().join_with("");
+    return intrinsics.iterate(text).map(moved).to_list().join_with("");
 }
 
 /// This string with the letters `A` to `Z` in lower case. No other

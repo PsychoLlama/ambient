@@ -149,7 +149,9 @@ impl<'a> Writer<'a> {
             Expr::Null => text("null"),
             Expr::Literal(literal) => text(literal.to_string()),
             Expr::Name(name) => text(self.name(name)),
-            Expr::AbilityId(ability) => text(format!("@ability_id({})", self.name(ability))),
+            Expr::AbilityId(ability) => {
+                text(format!("intrinsics.ability_id({})", self.name(ability)))
+            }
             Expr::List(items) => list("[", self.all(items), "]"),
             Expr::Tuple(members) => list("(", self.all(members), ")"),
             Expr::Record(fields) => {
@@ -231,7 +233,7 @@ impl<'a> Writer<'a> {
             let operator = text(format!(" {} ", operator.written()));
             return Doc::Row(vec![self.atom(left), operator, self.atom(right)]);
         }
-        let word = text(format!("@{}", operator.name()));
+        let word = text(format!("intrinsics.{}", operator.name()));
         Doc::Row(vec![word, list("(", self.all(operands), ")")])
     }
 

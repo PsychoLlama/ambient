@@ -208,6 +208,7 @@ impl Engine<'_> {
                 | DefinitionKind::Derived(_)
                 | DefinitionKind::Tag
                 | DefinitionKind::Brand
+                | DefinitionKind::Intrinsic
                 | DefinitionKind::Ability(_)
                 | DefinitionKind::Key(_)
                 | DefinitionKind::Extern(_)
@@ -381,9 +382,11 @@ impl Engine<'_> {
             }
             // Resolution leaves no tag or brand: one is a type by then.
             // And the call of a generated module is no definition of it.
-            DefinitionKind::Tag | DefinitionKind::Brand | DefinitionKind::Module(_) => {
-                Err(Error::UnknownSymbol(symbol.clone()))
-            }
+            // Nothing of an intrinsic is checked: a call of one is.
+            DefinitionKind::Tag
+            | DefinitionKind::Brand
+            | DefinitionKind::Intrinsic
+            | DefinitionKind::Module(_) => Err(Error::UnknownSymbol(symbol.clone())),
             DefinitionKind::Target(_) => {
                 let bindings = self.bindings(symbol)?;
                 key.bytes(&encode(&bindings));

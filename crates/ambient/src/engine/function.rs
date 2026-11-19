@@ -17,7 +17,7 @@ use crate::checker;
 use crate::core::Open;
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, encode};
-use crate::surface::{Function, Reference};
+use crate::surface::{DefinitionKind, Function, Reference};
 use crate::symbol::{Namespace, Symbol};
 
 /// A checked function, kept with the runs its content came from.
@@ -141,18 +141,40 @@ impl Engine<'_> {
                     .collect::<Result<_, Error>>()?,
             })
         })?;
-        if let Some(at) = checked.noted.at {
-            self.blamed.borrow_mut().insert(symbol.clone(), at);
+        self.note(symbol, &checked.noted);
+        checked.result.clone().map(Arc::new)
+    }
+
+    /// Keeps what checking a function noted beside its tree: where its
+    /// first error is, the code a comptime call gave that it is in,
+    /// and what each expression was made from.
+    fn note(&self, symbol: &Symbol, noted: &checker::Noted) {
+        // A node of what was checked is numbered as the resolved body
+        // has it, and is kept as the text does.
+        let resolved = self.resolve(&symbol.lambda(&[])).ok();
+        let written = matches!(
+            resolved
+                .as_deref()
+                .map(|resolved| &resolved.definition.kind),
+            Some(DefinitionKind::Function(_))
+        );
+        let resolved = resolved.filter(|_| written);
+        let place = |node: usize| resolved.as_ref().map_or(node, |found| found.written(node));
+        if let Some(at) = noted.at {
+            self.blamed.borrow_mut().insert(symbol.clone(), place(at));
         }
-        if let Some(given) = &checked.noted.given {
+        if let Some(given) = &noted.given {
             let given = given.clone();
             self.spliced.borrow_mut().insert(symbol.clone(), given);
         }
         let mut origins = self.origins.borrow_mut();
         if !origins.contains_key(symbol) {
-            origins.insert(symbol.clone(), checked.noted.origins.clone());
+            let mut made = noted.origins.clone();
+            for node in made.values_mut().flatten() {
+                let at = place(usize::try_from(*node).unwrap_or(usize::MAX));
+                *node = u32::try_from(at).unwrap_or(u32::MAX);
+            }
+            origins.insert(symbol.clone(), made);
         }
-        drop(origins);
-        checked.result.clone().map(Arc::new)
     }
 }

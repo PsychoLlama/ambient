@@ -40,6 +40,13 @@ pub enum Error {
     PrivateName { symbol: Symbol, path: Path },
     /// An ability is named where a value is expected. It is performed.
     NotPerformed { symbol: Symbol, path: Path },
+    /// An intrinsic is named where it is not called, or called with
+    /// what it does not take.
+    Intrinsic {
+        symbol: Symbol,
+        path: Path,
+        reason: String,
+    },
     /// A call passes the wrong number of arguments.
     Arity {
         symbol: Symbol,
@@ -265,6 +272,7 @@ impl Error {
             | Self::UnknownName { symbol, .. }
             | Self::PrivateName { symbol, .. }
             | Self::NotPerformed { symbol, .. }
+            | Self::Intrinsic { symbol, .. }
             | Self::Arity { symbol, .. }
             | Self::Mismatch { symbol, .. }
             | Self::NotCallable { symbol, .. }

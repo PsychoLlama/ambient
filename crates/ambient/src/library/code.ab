@@ -1,3 +1,4 @@
+use pkg.intrinsics;
 use pkg.tree.{any, Arm, Definition, Kind, Entry, Expr, Function, Operation, Pattern, Reference, Said, Shaped, Type};
 
 /// Code that is not yet anywhere: the tree it is, once it is told how
@@ -65,7 +66,7 @@ fn binds(pattern: Pattern): int {
 pub fn arm(pattern: Pattern, body: fn(List<Code>): Code): Case =>
     fn(depth: int): Arm {
         let count = binds(pattern);
-        let locals = @range(0, count).map(fn(at: int): Code => local(depth + at)).to_list();
+        let locals = intrinsics.range(0, count).map(fn(at: int): Code => local(depth + at)).to_list();
         return { pattern: pattern, gives: body(locals)(depth + count) };
     };
 
@@ -148,7 +149,7 @@ pub fn bind(value: Code, body: fn(Code): Code): Code =>
 pub fn function(params: List<Type>, body: fn(List<Code>): Code): Code =>
     fn(depth: int): Expr {
         let count = params.length();
-        let locals = @range(0, count).map(fn(at: int): Code => local(depth + at)).to_list();
+        let locals = intrinsics.range(0, count).map(fn(at: int): Code => local(depth + at)).to_list();
         return { function: params, body: body(locals)(depth + count) };
     };
 
@@ -161,7 +162,7 @@ pub fn lambda(param: Type, body: fn(Code): Code): Code =>
 /// parameters: what a function gives for `fn name = comptime ...;`.
 pub fn define(params: List<Type>, returns: Type, takes: List<Reference>, body: fn(List<Code>): Code): Function {
     let count = params.length();
-    let locals = @range(0, count).map(fn(at: int): Code => local(at)).to_list();
+    let locals = intrinsics.range(0, count).map(fn(at: int): Code => local(at)).to_list();
     return { generic: [], params, returns, takes, body: body(locals)(count) };
 }
 
@@ -173,7 +174,7 @@ fn parameter(at: int): Type => { parameter: at };
 /// its bound or null: the function `make` gives, which is handed the
 /// type each parameter is.
 pub fn generic(bounds: List<Type | null>, make: fn(List<Type>): Function): Function {
-    let made = make(@range(0, bounds.length()).map(parameter).to_list());
+    let made = make(intrinsics.range(0, bounds.length()).map(parameter).to_list());
     return { generic: bounds, params: made.params, returns: made.returns, takes: made.takes, body: made.body };
 }
 
@@ -186,7 +187,7 @@ pub fn named_type(name: string, means: Type): Definition => { name, public: true
 /// A public type of a generated module with `parameters` type
 /// parameters: what `means` gives, which is handed the type each is.
 pub fn named_generic(name: string, parameters: int, means: fn(List<Type>): Type): Definition =>
-    { name, public: true, means: means(@range(0, parameters).map(parameter).to_list()), parameters };
+    { name, public: true, means: means(intrinsics.range(0, parameters).map(parameter).to_list()), parameters };
 
 /// A public ability of a generated module, by the name it has there
 /// and what it takes and gives.
@@ -198,7 +199,7 @@ pub fn named_ability(name: string, takes: List<Type>, returns: Type): Definition
 /// handed the type each is, and gives what the ability takes and
 /// gives.
 pub fn named_generic_ability(name: string, bounds: List<Type | null>, signature: fn(List<Type>): (List<Type>, Type)): Definition {
-    let (takes, returns) = signature(@range(0, bounds.length()).map(parameter).to_list());
+    let (takes, returns) = signature(intrinsics.range(0, bounds.length()).map(parameter).to_list());
     return { name, public: true, ability: takes, returns, generic: bounds };
 }
 

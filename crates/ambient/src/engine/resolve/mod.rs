@@ -2,6 +2,7 @@
 //! symbols. See `spec/symbols.md`.
 
 mod expr;
+mod intrinsic;
 mod lookup;
 
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,27 @@ pub struct Resolved {
     pub definition: Definition<Reference>,
     /// A digest of `definition`, kept so no later stage re-derives it.
     pub digest: Hash,
+    /// The nodes of the body as written that are no node of the
+    /// resolved one, each by its number there, in order: what a call
+    /// of an intrinsic leaves out. See [`Self::written`].
+    pub skipped: Vec<u32>,
+}
+
+impl Resolved {
+    /// The node of the body as written that the node numbered
+    /// `resolved` of the resolved body was made from.
+    #[must_use]
+    pub fn written(&self, resolved: usize) -> usize {
+        let before = |skipped: &&u32| usize::try_from(**skipped).unwrap_or(usize::MAX);
+        let mut written = resolved;
+        for skipped in self.skipped.iter().map(|skipped| before(&skipped)) {
+            if skipped > written {
+                break;
+            }
+            written += 1;
+        }
+        written
+    }
 }
 
 impl Engine<'_> {
@@ -62,9 +84,17 @@ impl Engine<'_> {
             self.stage(Stage::Resolve, symbol, key, || {
                 let mut resolver = Resolver::new(&scoped.scope, symbol, &package);
                 resolver.given = given;
-                let definition = resolver.definition(definition)?;
+                let written = definition;
+                let definition = resolver.definition(written)?;
+                let skipped = body_of(written)
+                    .map(|body| intrinsic::numbered(body, &resolver.dropped))
+                    .unwrap_or_default();
                 let digest = digest("resolved", &definition);
-                Ok(Resolved { definition, digest })
+                Ok(Resolved {
+                    definition,
+                    digest,
+                    skipped,
+                })
             })
         })
     }
@@ -116,6 +146,7 @@ impl Engine<'_> {
         Ok(std::sync::Arc::new(Resolved {
             definition: definition.clone(),
             digest: digest("resolved", definition),
+            skipped: Vec::new(),
         }))
     }
 
@@ -139,6 +170,18 @@ impl Engine<'_> {
         resolver.given = given.ok()?;
         resolver.definition(definition).err()?;
         function.body.index_of(resolver.blamed?)
+    }
+}
+
+/// The body of a definition whose nodes are numbered: a function's, or
+/// the call a definition is whatever it gives.
+fn body_of(definition: &Definition) -> Option<&Expr> {
+    match &definition.kind {
+        DefinitionKind::Function(function) => Some(&function.body),
+        DefinitionKind::Derived(call)
+        | DefinitionKind::Generated(call)
+        | DefinitionKind::Module(call) => Some(call),
+        _ => None,
     }
 }
 
@@ -179,6 +222,8 @@ struct Resolver<'a> {
     next: usize,
     /// The innermost expression the first error was at.
     blamed: Option<*const Expr>,
+    /// The nodes as written that the resolved tree has no node for.
+    dropped: Vec<*const Expr>,
     /// The members of the generated modules the definition names
     /// something through, as far as they have been asked for.
     given: Given,
@@ -200,6 +245,7 @@ impl<'a> Resolver<'a> {
             locals: Vec::new(),
             next: 0,
             blamed: None,
+            dropped: Vec::new(),
             given: Given::new(),
             wanted: RefCell::default(),
         }
@@ -233,6 +279,7 @@ impl<'a> Resolver<'a> {
             DefinitionKind::Tag => tag(self.package, self.symbol),
             // And a brand the type of what is minted under it.
             DefinitionKind::Brand => brand(self.package, self.symbol),
+            DefinitionKind::Intrinsic => DefinitionKind::Intrinsic,
             DefinitionKind::Key(key) => DefinitionKind::Key(KeyDefinition {
                 ty: self.ty(&key.ty)?,
             }),

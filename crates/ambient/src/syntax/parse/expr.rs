@@ -4,7 +4,7 @@ use super::super::lex::Token;
 use super::patterns::Mode;
 use super::{Parsed, Parser};
 use crate::literal::Literal;
-use crate::surface::{Arm, CellOp, Expr, Key, Operator, Path, Pattern, Type, TypeParam};
+use crate::surface::{Arm, Expr, Key, Operator, Path, Pattern, Type, TypeParam};
 
 /// The binary operators, loosest first. Each level binds to the left,
 /// but comparison, which does not chain.
@@ -239,41 +239,9 @@ impl Parser {
                 Ok(Expr::List(self.list("]", Self::expr)?))
             }
             Token::Mark("{") => self.record(),
-            Token::Mark("@") => self.operation(),
             Token::Word(word) => self.word(&word),
             _ => self.unexpected("an expression"),
         }
-    }
-
-    /// `@name(operands)`: an operation that has no operator.
-    fn operation(&mut self) -> Parsed<Expr> {
-        self.advance();
-        let at = self.position();
-        let Token::Word(word) = self.advance() else {
-            return self.fail_at(at, "expected the name of an operation after `@`");
-        };
-        self.expect("(")?;
-        if word == "ability_id" {
-            let ability = self.path()?;
-            self.expect(")")?;
-            return Ok(Expr::AbilityId(ability));
-        }
-        let operands = self.list(")", Self::expr)?;
-        let cell = |operation| Expr::Cell {
-            operation,
-            ty: None,
-            args: operands.clone(),
-        };
-        let operator = match word.as_str() {
-            "read" => return Ok(cell(CellOp::Read)),
-            "replace" => return Ok(cell(CellOp::Replace)),
-            "wait" => return Ok(cell(CellOp::Wait)),
-            word => match Operator::named(word) {
-                Some(operator) => operator,
-                None => return self.fail_at(at, format!("`@{word}` is not an operation")),
-            },
-        };
-        Ok(operation(operator, operands))
     }
 
     fn literal_expr(&mut self, literal: Literal) -> Expr {

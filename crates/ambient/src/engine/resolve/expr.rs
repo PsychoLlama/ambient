@@ -33,7 +33,7 @@ impl Resolver<'_> {
         })
     }
 
-    fn exprs(&mut self, exprs: &[Expr]) -> Result<Vec<Expr<Reference>>, Error> {
+    pub(super) fn exprs(&mut self, exprs: &[Expr]) -> Result<Vec<Expr<Reference>>, Error> {
         exprs.iter().map(|expr| self.expr(expr)).collect()
     }
 
@@ -51,14 +51,17 @@ impl Resolver<'_> {
         Ok(match expr {
             Expr::Null => Expr::Null,
             Expr::Literal(literal) => Expr::Literal(literal.clone()),
-            Expr::Name(path) => Expr::Name(self.name(path)?),
+            Expr::Name(path) => Expr::Name(self.value(path, self.name(path)?)?),
             Expr::Instantiate { function, args } => Expr::Instantiate {
-                function: self.name(function)?,
+                function: self.value(function, self.name(function)?)?,
                 args: self.types(args)?,
             },
-            Expr::Call { callee, args } => Expr::Call {
-                callee: Box::new(self.expr(callee)?),
-                args: self.exprs(args)?,
+            Expr::Call { callee, args } => match self.intrinsic(callee, args) {
+                Some(node) => node?,
+                None => Expr::Call {
+                    callee: Box::new(self.expr(callee)?),
+                    args: self.exprs(args)?,
+                },
             },
             Expr::Record(fields) => Expr::Record(
                 fields

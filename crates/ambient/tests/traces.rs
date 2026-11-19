@@ -178,7 +178,7 @@ fn caught_frames(main: &str) -> i64 {
         fn breaks(): int with throw {{ fail(broken, "no"); return 0; }}
         fn frames(caught: int | Error): int {{
             match caught {{
-                let error: Error => {{ return @length(error.trace); }}
+                let error: Error => {{ return error.trace.length(); }}
                 let other: int => {{ return other; }}
             }}
         }}

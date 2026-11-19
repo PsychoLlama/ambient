@@ -18,7 +18,8 @@ impl fmt::Display for Error {
             | Self::DuplicateName { .. }
             | Self::UnknownName { .. }
             | Self::PrivateName { .. }
-            | Self::NotPerformed { .. } => self.fmt_name(f),
+            | Self::NotPerformed { .. }
+            | Self::Intrinsic { .. } => self.fmt_name(f),
             Self::Arity {
                 symbol,
                 callee,
@@ -89,10 +90,8 @@ impl fmt::Display for Error {
             | Self::Ungranted { .. }
             | Self::ComptimeAbilities(_)
             | Self::EntryAbilities(_) => self.fmt_ability(f),
-            Self::UntypedParameter { symbol, name } => {
-                write!(f, "{symbol}: parameter `{name}` needs a type")
-            }
-            Self::Untestable { .. }
+            Self::UntypedParameter { .. }
+            | Self::Untestable { .. }
             | Self::Uncontractive(_)
             | Self::NotExhaustive { .. }
             | Self::UnreachableArm { .. } => self.fmt_type(f),
@@ -113,6 +112,9 @@ impl Error {
     /// The errors about what a type may be.
     fn fmt_type(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UntypedParameter { symbol, name } => {
+                write!(f, "{symbol}: parameter `{name}` needs a type")
+            }
             Self::NotExhaustive { symbol, remaining } => {
                 write!(f, "{symbol}: match does not handle `{remaining}`")
             }
@@ -171,6 +173,11 @@ impl Error {
                 f,
                 "{symbol}: `{path}` is an ability, which is performed: `{path}!(...)`"
             ),
+            Self::Intrinsic {
+                symbol,
+                path,
+                reason,
+            } => write!(f, "{symbol}: `{path}` {reason}"),
             _ => Ok(()),
         }
     }

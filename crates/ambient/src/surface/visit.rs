@@ -406,7 +406,7 @@ impl<N> Definition<N> {
                 function.body.names(visit);
             }
             DefinitionKind::Key(key) => key.ty.names(visit),
-            DefinitionKind::Tag | DefinitionKind::Brand => {}
+            DefinitionKind::Tag | DefinitionKind::Brand | DefinitionKind::Intrinsic => {}
             DefinitionKind::Ability(ability) => {
                 for bound in ability.type_params.iter().filter_map(|p| p.bound.as_ref()) {
                     bound.names(visit);

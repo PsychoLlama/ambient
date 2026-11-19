@@ -1,8 +1,10 @@
+use pkg.intrinsics;
+
 /// This float with its fraction dropped, or null if that is no integer.
-pub fn to_int(self: float): int | null => @to_int(self);
+pub fn to_int(self: float): int | null => intrinsics.to_int(self);
 
 /// The shortest decimal that reads back as this float.
-pub fn to_text(self: float): string => @to_text(self);
+pub fn to_text(self: float): string => intrinsics.to_text(self);
 
 /// This float with the other sign, which `-` before a value means.
 pub fn negate(self: float): float => -1.0 * self;
@@ -19,10 +21,10 @@ pub fn max(self: float, other: float): float => self < other ? other : self;
 /// The greatest whole number that is not more than this float. One too
 /// large to have a fraction, or that is no number, is itself.
 pub fn floor(self: float): float {
-    let whole: int = @to_int(self) else {
+    let whole: int = intrinsics.to_int(self) else {
         null => { return self; }
     };
-    let near = @to_float(whole);
+    let near = intrinsics.to_float(whole);
     return self < near ? near - 1.0 : near;
 }
 

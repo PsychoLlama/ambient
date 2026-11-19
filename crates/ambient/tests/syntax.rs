@@ -85,14 +85,6 @@ fn a_generated_module_is_written_with_nothing_else() {
 }
 
 #[test]
-fn an_operation_with_an_operator_is_also_written_by_its_word() {
-    let worded = parse("fn main(): int => @add(1, @multiply(2, 3));").unwrap();
-    let infix = parse("fn main(): int => 1 + 2 * 3;").unwrap();
-
-    assert_eq!(worded, infix);
-}
-
-#[test]
 fn a_block_is_its_statements_nested_in_order() {
     let source = "fn main(): int { let a = 1; side(); let (b, _) = (a, 2); return b; }";
     let pair = pat::tuple([pat::bind("b"), pat::any()]);
