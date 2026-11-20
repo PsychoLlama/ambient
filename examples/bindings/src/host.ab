@@ -1,5 +1,5 @@
 use ambient.errors.{catch, throw};
-use ambient.test.{check};
+use ambient.test.{check, unmet};
 use ambient.Error;
 use pkg.bind.{self, invoke};
 use pkg.web.{self, hosted};
@@ -22,19 +22,19 @@ fn answering<T>(body: fn(): T with invoke, throw): T with throw =>
 /// its row.
 fn later(by: int): int with web.now, web.add => web.add!(web.now!(), by);
 
-fn test_each_thing_the_host_offers_is_an_ability_of_its_own(): null with check {
+fn test_each_thing_the_host_offers_is_an_ability_of_its_own(): null with unmet {
     let at = provide { [web.now]() => 1700, [web.add](left, right) => left + right } => later(5);
-    check!(at == 1705, "a handler for each is all a program needs");
+    check(at == 1705, "a handler for each is all a program needs");
 }
 
-fn test_the_host_is_asked_by_name(): null with check, throw {
-    check!(answering(fn() => hosted(fn() => later(5))) == 1705, "the arguments reach the host in order");
-    check!(answering(fn() => hosted(fn() => web.confirm!("sure?"))), "each has the type the manifest gives it");
+fn test_the_host_is_asked_by_name(): null with unmet, throw {
+    check(answering(fn() => hosted(fn() => later(5))) == 1705, "the arguments reach the host in order");
+    check(answering(fn() => hosted(fn() => web.confirm!("sure?"))), "each has the type the manifest gives it");
 }
 
-fn test_a_host_that_gives_another_type_is_caught(): null with check {
+fn test_a_host_that_gives_another_type_is_caught(): null with unmet {
     match catch(fn() => answering(fn() => hosted(fn() => web.title!()))) {
-        let error: Error => { check!(error.kind == bind.mistyped, "the handler says what was wrong"); }
-        _ => { check!(false, "a title that is a number is no title"); }
+        let error: Error => { check(error.kind == bind.mistyped, "the handler says what was wrong"); }
+        _ => { check(false, "a title that is a number is no title"); }
     }
 }

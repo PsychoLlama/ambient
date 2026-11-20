@@ -2,7 +2,7 @@ use system.console;
 use ambient.map.{self, Map};
 use system.env;
 use system.fs;
-use ambient.test.{check};
+use ambient.test.{check, unmet};
 use ambient.Error;
 
 /// Prints the words a file uses most, and how often it uses each.
@@ -51,13 +51,13 @@ fn line(entry: (word: string, times: int)): string {
     return "${times} ${word}";
 }
 
-fn test_counts_each_word(): null with check {
+fn test_counts_each_word(): null with unmet {
     let counts = count("a b\na  c");
-    check!(counts.get("a") == 2, "a word on two lines is counted twice");
-    check!(counts.size() == 3, "spaces and line endings separate words");
+    check(counts.get("a") == 2, "a word on two lines is counted twice");
+    check(counts.size() == 3, "spaces and line endings separate words");
 }
 
-fn test_the_most_counted_come_first(): null with check {
+fn test_the_most_counted_come_first(): null with unmet {
     let top = most(count("b a b c c c"), 2);
-    check!(top.map(line).join_with(",") == "3 c,2 b", "the two most counted, most first");
+    check(top.map(line).join_with(",") == "3 c,2 b", "the two most counted, most first");
 }

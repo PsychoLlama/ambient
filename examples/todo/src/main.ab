@@ -2,7 +2,7 @@ use system.console;
 use system.env;
 use system.fs;
 use ambient.Error;
-use ambient.test.{check};
+use ambient.test.{check, unmet};
 use pkg.item.{self, Item};
 use pkg.store;
 
@@ -61,7 +61,7 @@ fn show(items: List<Item>): null with console.print {
     }
 }
 
-fn test_a_command_changes_the_items(): null with check {
+fn test_a_command_changes_the_items(): null with unmet {
     let items = store.parse("[ ] tea\n[x] milk\nnot an item\n");
     let lines = fn(changed: List<Item> | string): string =>
         match changed {
@@ -69,8 +69,8 @@ fn test_a_command_changes_the_items(): null with check {
             let changed: List<Item> => changed.map(item.write).join_with(","),
         };
 
-    check!(lines(change(items, [])) == "[ ] tea,[x] milk", "no command changes nothing");
-    check!(lines(change(items, ["add", "jam"])) == "[ ] tea,[x] milk,[ ] jam", "add adds last");
-    check!(lines(change(items, ["done", "1"])) == "[x] tea,[x] milk", "done marks by number");
-    check!(lines(change(items, ["done", "3"])) == "there is no item 3", "done refuses a number past the end");
+    check(lines(change(items, [])) == "[ ] tea,[x] milk", "no command changes nothing");
+    check(lines(change(items, ["add", "jam"])) == "[ ] tea,[x] milk,[ ] jam", "add adds last");
+    check(lines(change(items, ["done", "1"])) == "[x] tea,[x] milk", "done marks by number");
+    check(lines(change(items, ["done", "3"])) == "there is no item 3", "done refuses a number past the end");
 }

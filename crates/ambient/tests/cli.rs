@@ -338,16 +338,16 @@ fn testing(files: &Files, only: Option<&str>) -> (i32, Scripted) {
 #[test]
 fn a_test_is_a_function_that_takes_nothing_and_says_what_holds() {
     let source = r#"
-        use ambient.test.{check};
+        use ambient.test.{check, equal, unmet};
 
         fn double(n: int): int => n * 2;
 
-        fn test_doubles(): null with check {
-            check!(double(2) == 4, "two doubles to four");
+        fn test_doubles(): null with unmet {
+            check(double(2) == 4, "two doubles to four");
         }
-        fn test_is_wrong(): null with check {
-            check!(double(2) == 5, "two doubles to five");
-            check!(double(0) == 1, "nothing doubles to one");
+        fn test_is_wrong(): null with unmet {
+            check(double(2) == 5, "two doubles to five");
+            equal(double(0), 1, "nothing doubles to one");
         }
         fn test_faults(): int => 1 / (double(0));
         fn test_takes(n: int): int => n;
@@ -361,6 +361,8 @@ fn a_test_is_a_function_that_takes_nothing_and_says_what_holds() {
 FAIL  app:main.test_is_wrong
       does not hold: two doubles to five
       does not hold: nothing doubles to one
+        found: 0
+        expected: 1
 FAIL  app:main.test_faults
       divide_by_zero: an integer was divided by zero
         in app:main.test_faults at app/src/main.ab:13:36
@@ -376,10 +378,10 @@ fn a_test_a_generated_module_was_given_is_run() {
         ("app/ambient.toml", "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\""),
         (
             "app/src/make.ab",
-            "use ambient.code; use ambient.tree; use ambient.test.{check};
+            "use ambient.code; use ambient.tree; use ambient.test.{unmet};
             pub fn all(): tree.Module => [code.named(\"test_made\", code.define(
-                [], tree.nil, [comptime tree.reference(check)], fn(given: List<code.Code>): code.Code =>
-                    code.perform(comptime tree.reference(check), [code.literal(false), code.literal(\"made\")])))];",
+                [], tree.nil, [comptime tree.reference(unmet)], fn(given: List<code.Code>): code.Code =>
+                    code.perform(comptime tree.reference(unmet), [code.record([(\"what\", code.literal(\"made\"))])])))];",
         ),
         ("app/src/made.ab", "use pkg.make; comptime make.all();"),
     ];
@@ -455,15 +457,15 @@ fn only_the_tests_asked_for_are_run() {
 fn a_test_reaches_no_world_it_is_not_given() {
     let source = r#"
         use system.console;
-        use ambient.test.{check};
+        use ambient.test.{check, unmet};
 
         fn greet(): null with console.print { console.print!("hello"); }
 
         fn test_reaches(): null with console.print { greet(); }
-        fn test_provides(): null with check {
+        fn test_provides(): null with unmet {
             let said = cell::<string>("");
             provide { [console.print](text) { said.update(fn(_) => text); } } { greet(); }
-            check!(said.read() == "hello", "it greets");
+            check(said.read() == "hello", "it greets");
         }
     "#;
     let (code, world) = test(&app(source));

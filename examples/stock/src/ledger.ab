@@ -1,7 +1,7 @@
 use ambient.map.{self, Map};
 use ambient.json.{self, Json};
 use ambient.{catch, fail, throw, Error};
-use ambient.test.{check};
+use ambient.test.{check, unmet};
 
 /// The file holds something other than a count under each name.
 pub tag not_a_ledger;
@@ -57,23 +57,23 @@ fn after(command: List<string>): string {
     }
 }
 
-fn test_a_command_changes_the_counts(): null with check {
-    check!(after([]) == "{\"tea\":2}", "no command changes nothing");
-    check!(after(["add", "jam", "3"]) == "{\"jam\":3,\"tea\":2}", "add counts a new name");
-    check!(after(["add", "tea", "1"]) == "{\"tea\":3}", "add counts on from what is there");
-    check!(after(["take", "tea", "2"]) == "{}", "taking the last of a name forgets it");
-    check!(after(["take", "tea", "3"]) == "there are not 3 of tea", "take refuses more than there is");
-    check!(after(["add", "tea", "some"]) == "`some` is not a count", "a count is a number");
+fn test_a_command_changes_the_counts(): null with unmet {
+    check(after([]) == "{\"tea\":2}", "no command changes nothing");
+    check(after(["add", "jam", "3"]) == "{\"jam\":3,\"tea\":2}", "add counts a new name");
+    check(after(["add", "tea", "1"]) == "{\"tea\":3}", "add counts on from what is there");
+    check(after(["take", "tea", "2"]) == "{}", "taking the last of a name forgets it");
+    check(after(["take", "tea", "3"]) == "there are not 3 of tea", "take refuses more than there is");
+    check(after(["add", "tea", "some"]) == "`some` is not a count", "a count is a number");
 }
 
-fn test_a_file_that_is_no_ledger_is_refused(): null with check {
+fn test_a_file_that_is_no_ledger_is_refused(): null with unmet {
     let refused = fn(text: string): string =>
         match catch(fn() => read(text)) {
             let error: Error => error.message,
             _ => "read",
         };
 
-    check!(refused("[1]") == "the file does not hold an object", "an array is no ledger");
-    check!(refused("{\"tea\": \"two\"}") == "`tea` does not hold a count", "a count is an integer");
-    check!(refused("{\"tea\": ") == "expected a value at line 1, column 9", "text that is not JSON says where");
+    check(refused("[1]") == "the file does not hold an object", "an array is no ledger");
+    check(refused("{\"tea\": \"two\"}") == "`tea` does not hold a count", "a count is an integer");
+    check(refused("{\"tea\": ") == "expected a value at line 1, column 9", "text that is not JSON says where");
 }

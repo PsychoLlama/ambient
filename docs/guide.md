@@ -414,22 +414,22 @@ pub fn main(): string with clock.now {
 
 ## Testing
 
-A test is a function that takes nothing and whose name begins with `test_`. `ambient test` runs each one and reports every `check` that does not hold.
+A test is a function that takes nothing and whose name begins with `test_`. `ambient test` runs each one and reports everything in it that does not hold. `check` takes whether something holds, and `equal` two values, which it reports when they differ. Both are functions over one ability, `unmet`, which is what a test's row names.
 
 ```ab
 use system.console;
-use ambient.test.{check};
+use ambient.test.{equal, unmet};
 
 fn greet(name: string): null with console.print {
     console.print!("hello, ${name}");
 }
 
-fn test_greets_by_name(): null with check {
+fn test_greets_by_name(): null with unmet {
     let said = cell::<string>("");
     provide { [console.print](text) { said.update(fn(_) => text); } } {
         greet("you");
     }
-    check!(said.read() == "hello, you", "it greets by name");
+    equal(said.read(), "hello, you", "it greets by name");
 }
 
 pub fn main(): null with console.print {

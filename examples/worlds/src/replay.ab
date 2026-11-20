@@ -1,6 +1,6 @@
 use ambient.code;
 use ambient.errors.{catch, fail, throw};
-use ambient.test.{check};
+use ambient.test.{check, unmet};
 use ambient.tree;
 use ambient.Error;
 
@@ -94,17 +94,17 @@ fn recorded(): (total: int, tape: Tape) {
     return (total, tape);
 }
 
-fn test_a_recording_is_played_back_with_no_world(): null with check, throw {
+fn test_a_recording_is_played_back_with_no_world(): null with unmet, throw {
     let (total, tape) = recorded();
     let replaying = comptime replays(game);
     let again = provide(restricted) replaying(tape) => game();
 
-    check!(total == 24, "the game was played");
-    check!(again == total, "the replay gives what the game gave");
-    check!(tape.played.read() == 3, "every event was played back");
+    check(total == 24, "the game was played");
+    check(again == total, "the replay gives what the game gave");
+    check(tape.played.read() == 3, "every event was played back");
 }
 
-fn test_a_program_that_does_otherwise_has_diverged(): null with check, throw {
+fn test_a_program_that_does_otherwise_has_diverged(): null with unmet, throw {
     let (total, tape) = recorded();
     let other = fn(): int with roll, say => roll!(4);
     // The handlers throw to whatever is bound where they are written,
@@ -115,7 +115,7 @@ fn test_a_program_that_does_otherwise_has_diverged(): null with check, throw {
     });
 
     match outcome {
-        let error: Error => { check!(error.kind == diverged, "the replay says it diverged"); }
-        _ => { check!(false, "a game that rolls another die is not the one recorded"); }
+        let error: Error => { check(error.kind == diverged, "the replay says it diverged"); }
+        _ => { check(false, "a game that rolls another die is not the one recorded"); }
     }
 }

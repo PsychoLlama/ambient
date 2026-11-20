@@ -109,12 +109,12 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - Running every test therefore runs only those a change reaches: a spec's hash covers all it refers to, and one whose hash and observations are as before is not run again.
 - A harness is a handler of the spec ability, so another may list, choose among, or time the same tests.
 - The harness finds the modules that offer tests in the package's definition tables; no file is named in a special way.
-- The test target binds a check, given a failure as a value: what was expected and what was found. Richer assertions are library functions over it.
+- The test target binds one ability, which is given a failure as a value: what did not hold, and whatever more it holds, as what was found and what was expected. Every assertion is a library function over it, and nothing written is one.
 - A check that does not hold fails its test and the test goes on, so one run reports every check that does not hold; a [fault](values.md) fails it and ends it.
 - A test reaches no world: one whose function needs an ability provides it, which is how a test says what the world holds.
 - A test of real effects is made repeatable by library code over [recording](handlers.md): its first run records what the world answered, and later runs are answered from that.
 - A recording is source, kept beside its test and read as any file is; the [store](build.md) holds only results, and whoever points a build at a store trusts it.
 - A run may be of only the specs whose module path and description hold a given text.
-- TODO: little of this is built. A test is a function that takes nothing and whose name begins with `test_`, and the check is given text. A test that passed is not run again while its hash is the same; one that failed always is.
+- TODO: little of this is built. A test is a function that takes nothing and whose name begins with `test_`. A test that passed is not run again while its hash is the same; one that failed always is.
 - TODO: a spec's function has the row the library gives it, so a test that needs more provides it inside; whether a spec may be written over any row is undecided.
 - TODO: a test that never ends is never stopped.

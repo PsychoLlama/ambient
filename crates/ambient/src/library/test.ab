@@ -1,15 +1,35 @@
 use pkg.errors;
 
-/// Says that something a test relies on holds, and what it is. A test
-/// goes on after one that does not, so it reports every one.
-pub ability check(holds: bool, what: string): null;
+/// What a test relied on that did not hold. One that says more holds
+/// more: what was `found` and what was `expected` are reported beside
+/// it, as [`equal`] gives them.
+pub type Failure = { what: string };
 
-extern handler checked for check;
+/// Says that something a test relies on did not hold. A test goes on
+/// after it, so it reports every one. Every assertion is a function
+/// over this.
+pub ability unmet(failure: Failure): null;
+
+/// Fails the test unless `holds`, saying `what` should have.
+pub fn check(holds: bool, what: string): null with unmet {
+    if !holds {
+        unmet!({ what: what });
+    }
+}
+
+/// Fails the test unless `found` is `expected`, saying both.
+pub fn equal<T>(found: T, expected: T, what: string): null with unmet {
+    if !(found == expected) {
+        unmet!({ what: what, found: found, expected: expected });
+    }
+}
+
+extern handler told for unmet;
 extern handler thrown for errors.throw;
 
-/// The world of a test: nothing but a way to say what should hold. A
+/// The world of a test: nothing but a way to say what did not hold. A
 /// test that needs more provides it.
 pub target tests {
-    check: checked,
+    unmet: told,
     errors.throw: thrown,
 }

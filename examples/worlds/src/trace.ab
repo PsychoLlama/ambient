@@ -1,5 +1,5 @@
 use ambient.code;
-use ambient.test.{check};
+use ambient.test.{check, unmet};
 use ambient.tree;
 
 /// A value as a line of a trace shows it. What has no short form is
@@ -57,7 +57,7 @@ fn game(): int with roll, say {
     return total;
 }
 
-fn test_each_perform_is_told_by_name(): null with check {
+fn test_each_perform_is_told_by_name(): null with unmet {
     let lines = cell::<List<string>>([]);
     let tell = fn(line: string): null {
         lines.update(fn(told: List<string>): List<string> => told.push(line));
@@ -71,8 +71,8 @@ fn test_each_perform_is_told_by_name(): null with check {
         return provide tracing(tell) => game();
     };
 
-    check!(total == 24, "the game is played in the world outside the trace");
-    check!(
+    check(total == 24, "the game is played in the world outside the trace");
+    check(
         lines.read() == ["roll(6) = 5", "roll(20) = 19", "say(\"rolled 24\") = null"],
         "each perform is told as it was written",
     );

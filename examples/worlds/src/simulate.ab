@@ -1,7 +1,7 @@
 use ambient.code;
 use ambient.errors.{fail, throw};
 use ambient.iterator;
-use ambient.test.{check};
+use ambient.test.{check, unmet};
 use ambient.tree;
 
 /// Where a made-up world draws from: a number that each draw moves on,
@@ -108,15 +108,15 @@ fn left(seed: int): int with throw {
     return provide(restricted) simulating(seeded(seed)) => withdraw();
 }
 
-fn test_a_seed_makes_the_same_world_every_time(): null with check, throw {
-    check!(left(7) == left(7), "one seed is one world");
+fn test_a_seed_makes_the_same_world_every_time(): null with unmet, throw {
+    check(left(7) == left(7), "one seed is one world");
 }
 
-fn test_many_worlds_find_what_one_would_not(): null with check, throw {
+fn test_many_worlds_find_what_one_would_not(): null with unmet, throw {
     let overdrawn = iterator.range(0, 200).find(fn(seed: int): bool => left(seed) < 0 - 10);
 
     match overdrawn {
-        null => { check!(false, "no world of two hundred overdrew the account"); }
-        let seed => { check!(left(seed) < 0 - 10, "the world that overdrew it does so again"); }
+        null => { check(false, "no world of two hundred overdrew the account"); }
+        let seed => { check(left(seed) < 0 - 10, "the world that overdrew it does so again"); }
     }
 }

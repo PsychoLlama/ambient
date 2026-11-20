@@ -9,7 +9,7 @@ use crate::project::MANIFEST;
 
 /// The module a new package begins with.
 const MAIN: &str = r#"use system.console;
-use ambient.test.{check};
+use ambient.test.{check, unmet};
 
 /// What the program says to someone.
 fn greeting(name: string): string => "hello, ${name}";
@@ -18,8 +18,8 @@ pub fn main(): null with console.print {
     console.print!(greeting("world"));
 }
 
-fn test_a_greeting_names_who_it_greets(): null with check {
-    check!(greeting("you") == "hello, you", "it greets by name");
+fn test_a_greeting_names_who_it_greets(): null with unmet {
+    check(greeting("you") == "hello, you", "it greets by name");
 }
 "#;
 

@@ -1,5 +1,5 @@
 use ambient.json;
-use ambient.test.{check};
+use ambient.test.{check, unmet};
 use ambient.url;
 use system.http.{self, Request, Response};
 use system.path;
@@ -80,7 +80,7 @@ fn answers(kept: List<string>, requests: List<(method: string, url: string, body
     } => requests.map(asked);
 }
 
-fn test_notes_are_listed_added_and_forgotten(): null with check {
+fn test_notes_are_listed_added_and_forgotten(): null with unmet {
     let said = answers(["milk"], [
         ("POST", "/notes", "eggs\n"),
         ("GET", "/notes", ""),
@@ -89,14 +89,14 @@ fn test_notes_are_listed_added_and_forgotten(): null with check {
         ("GET", "/notes", ""),
     ]);
 
-    check!(said.get(0) == "201 1", "adding says where the note is");
-    check!(said.get(1) == "200 [\"milk\",\"eggs\"]", "every note is listed, in order");
-    check!(said.get(2) == "200 \"eggs\"", "a note is given by its position");
-    check!(said.get(3) == "204 ", "forgetting a note says nothing");
-    check!(said.get(4) == "200 [\"eggs\"]", "a forgotten note is gone");
+    check(said.get(0) == "201 1", "adding says where the note is");
+    check(said.get(1) == "200 [\"milk\",\"eggs\"]", "every note is listed, in order");
+    check(said.get(2) == "200 \"eggs\"", "a note is given by its position");
+    check(said.get(3) == "204 ", "forgetting a note says nothing");
+    check(said.get(4) == "200 [\"eggs\"]", "a forgotten note is gone");
 }
 
-fn test_what_cannot_be_answered_says_why(): null with check {
+fn test_what_cannot_be_answered_says_why(): null with unmet {
     let said = answers([], [
         ("GET", "/elsewhere", ""),
         ("GET", "/notes/7", ""),
@@ -106,5 +106,5 @@ fn test_what_cannot_be_answered_says_why(): null with check {
     ]);
     let statuses = said.map(fn(line: string): string => line.slice(0, 3) ?? "");
 
-    check!(statuses.join_with(" ") == "404 404 404 400 405", statuses.join_with(" "));
+    check(statuses.join_with(" ") == "404 404 404 400 405", statuses.join_with(" "));
 }

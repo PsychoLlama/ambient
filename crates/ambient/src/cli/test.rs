@@ -2,6 +2,8 @@
 //! own. See "Testing" in `docs/spec/packages.md`.
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::path::Path;
 use std::rc::Rc;
 
@@ -124,18 +126,98 @@ fn tests(project: &Project, engine: &Engine) -> Result<Vec<Symbol>, Error> {
     Ok(tests)
 }
 
-/// The native code a test's target binds: a check that does not hold
-/// adds what it was for to `unmet`, and the test goes on.
+/// The native code a test's target binds: a failure a test tells of
+/// is added to `unmet`, and the test goes on.
 fn checks(unmet: &Rc<RefCell<Vec<String>>>) -> Natives {
     let unmet = Rc::clone(unmet);
-    Natives::new().with(FAULT_PACKAGE, "test.checked", move |args| {
-        match args {
-            [Value::Bool(true), _] => {}
-            [Value::Bool(false), Value::String(what)] => {
-                unmet.borrow_mut().push(format!("does not hold: {what}"));
-            }
-            _ => return Err("a check takes whether it holds and what it is".to_owned()),
-        }
+    Natives::new().with(FAULT_PACKAGE, "test.told", move |args| {
+        let [Value::Record(failure)] = args else {
+            return Err("a test tells of a failure, which is a record".to_owned());
+        };
+        unmet.borrow_mut().push(told(failure));
         Ok(Value::Null)
     })
+}
+
+/// What is said of a failure: what did not hold, and under it what
+/// was found and what was expected, if it holds them.
+fn told(failure: &BTreeMap<String, Value>) -> String {
+    let what = match failure.get("what") {
+        Some(Value::String(what)) => what.as_str(),
+        _ => "a check",
+    };
+    let mut said = format!("does not hold: {what}");
+    for part in ["found", "expected"] {
+        if let Some(value) = failure.get(part) {
+            let _ = write!(said, "\n  {part}: {}", written(value));
+        }
+    }
+    said
+}
+
+/// A value as a person reads it, written as source is where source
+/// can write it.
+fn written(value: &Value) -> String {
+    let all = |values: &[Value]| values.iter().map(written).collect::<Vec<_>>().join(", ");
+    match value {
+        Value::Null => "null".to_owned(),
+        Value::Bool(value) => value.to_string(),
+        Value::Int(value) => value.to_string(),
+        Value::Float(value) => format!("{value:?}"),
+        Value::String(text) => format!("{text:?}"),
+        Value::Bytes(bytes) => {
+            let bytes: Vec<String> = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+            format!("0x[{}]", bytes.join(" "))
+        }
+        Value::Tag { tag, .. } => tag.clone(),
+        Value::Tuple(members) => format!("({})", all(members)),
+        Value::List(members) => format!("[{}]", all(members)),
+        Value::Record(fields) => {
+            let fields = fields
+                .iter()
+                .map(|(name, value)| format!("{name}: {}", written(value)));
+            format!("{{ {} }}", fields.collect::<Vec<_>>().join(", "))
+        }
+        Value::Handle { brand, .. } => format!("a handle of `{brand}`"),
+        Value::Function(_) | Value::Method(_) => "a function".to_owned(),
+        Value::Iterator(..) => "an iterator".to_owned(),
+        Value::Cell | Value::Token | Value::Types => "what only its program holds".to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::{Value, told, written};
+
+    #[test]
+    fn a_value_is_written_as_source_writes_it() {
+        let record = BTreeMap::from([("on".to_owned(), Value::Bool(true))]);
+        let value = Value::List(vec![
+            Value::Tuple(vec![Value::Int(1), Value::String("a\"b".to_owned())]),
+            Value::Record(record),
+            Value::Bytes(vec![0x89, 0x50]),
+            Value::Null,
+        ]);
+
+        assert_eq!(
+            written(&value),
+            r#"[(1, "a\"b"), { on: true }, 0x[89 50], null]"#
+        );
+    }
+
+    #[test]
+    fn a_failure_says_what_was_found_and_expected_if_it_holds_them() {
+        let what = ("what".to_owned(), Value::String("both lights".to_owned()));
+        let plain = BTreeMap::from([what.clone()]);
+        let found = ("found".to_owned(), Value::Int(1));
+        let differs = BTreeMap::from([what, found, ("expected".to_owned(), Value::Int(2))]);
+
+        assert_eq!(told(&plain), "does not hold: both lights");
+        assert_eq!(
+            told(&differs),
+            "does not hold: both lights\n  found: 1\n  expected: 2"
+        );
+    }
 }

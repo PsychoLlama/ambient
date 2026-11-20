@@ -1,5 +1,5 @@
 use ambient.json;
-use ambient.test.{check};
+use ambient.test.{check, unmet};
 use ambient.time;
 use pkg.{Log, context};
 use pkg.level.{self, Level};
@@ -53,9 +53,9 @@ fn label(of: Level): string =>
 /// written plainly again.
 fn paint(code: string, text: string): string => "${RESET}\u{1b}[${code}m${text}${RESET}";
 
-fn test_a_log_is_a_line_for_a_terminal(): null with check {
+fn test_a_log_is_a_line_for_a_terminal(): null with unmet {
     let entry = { level: level.warn, message: "up\nand running", origin: ["app"], context: context([]) };
     let stamp = paint(DIM, "[01:02:03.004]");
     let expected = "${stamp} ${paint(YELLOW, "WARN")}  up\n${stamp}       and running ${paint(DIM, "app")}";
-    check!(line(entry, 3723004) == expected, "a later line of a message is under the first");
+    check(line(entry, 3723004) == expected, "a later line of a message is under the first");
 }
