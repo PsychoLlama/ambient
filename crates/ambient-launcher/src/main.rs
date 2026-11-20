@@ -4,12 +4,12 @@
 
 use std::process::ExitCode;
 
-use ambient_host::host::{System, World};
-use ambient_host::launch;
-
 fn main() -> ExitCode {
-    launch::own(launch::start).unwrap_or_else(|| {
-        System::new(Vec::new()).warn("error: this file carries no program\n");
-        ExitCode::FAILURE
+    ambient_launcher::launched(
+        std::env::args_os().skip(1),
+        ambient_host::native::Natives::new,
+    )
+    .map_or(ExitCode::FAILURE, |code| {
+        ExitCode::from(u8::try_from(code).unwrap_or(1))
     })
 }

@@ -63,32 +63,75 @@ fn identify() {
     println!("cargo::rustc-env=AMBIENT_BUILD={:016x}", hasher.finish());
 }
 
-/// Builds the launcher, the file `ambient build` puts a program
-/// after, for the machine the command is being built for and as the
-/// command is: a release build of one is of the other, stripped and
-/// optimized as a whole, since every executable carries it.
-fn launcher(cargo: &std::ffi::OsStr, out: &Path) {
-    println!("cargo::rerun-if-changed=../ambient-launcher");
+/// What a build of the launcher is told, whatever it is building.
+fn launching(cargo: &std::ffi::OsStr, verb: &str, target: &Path) -> Command {
     let machine = env::var("TARGET").unwrap_or_default();
-    let release = env::var("PROFILE").is_ok_and(|profile| profile == "release");
-    let target = out.join("launching");
     let mut build = Command::new(cargo);
     build
-        .args(["build", "--locked", "--package", "ambient-launcher"])
+        .args([verb, "--locked", "--package", "ambient-launcher"])
         .args(["--target", &machine, "--target-dir"])
-        .arg(&target)
+        .arg(target)
         // Flags meant for this build's own scripts do not apply.
         .env_remove("CARGO_ENCODED_RUSTFLAGS");
-    if release {
+    // The command holds what this makes, twice over, so what says
+    // where its lines came from is left out of even a build to debug.
+    build.args(["--config", "profile.dev.debug=false"]);
+    if env::var("PROFILE").is_ok_and(|profile| profile == "release") {
         build.args(["--release", "--config", "profile.release.lto=true"]);
         build.args(["--config", "profile.release.codegen-units=1"]);
         build.args(["--config", "profile.release.strip=true"]);
     }
-    run(&mut build, "building the launcher");
+    build
+}
+
+/// Builds the launcher for the machine the command is being built for
+/// and as the command is: a release build of one is of the other,
+/// stripped and optimized as a whole, since every executable carries
+/// it.
+///
+/// It is built as the file `ambient build` puts a program after, and
+/// as an archive for the machine's linker to join with the native
+/// bundles a program reaches, beside the libraries of the system such
+/// a link needs: see "Native code" in `docs/spec/linking.md`.
+fn launcher(cargo: &std::ffi::OsStr, out: &Path) {
+    println!("cargo::rerun-if-changed=../ambient-launcher");
+    let target = out.join("launching");
+    run(
+        &mut launching(cargo, "build", &target),
+        "building the launcher",
+    );
+    let machine = env::var("TARGET").unwrap_or_default();
+    let release = env::var("PROFILE").is_ok_and(|profile| profile == "release");
     let profile = if release { "release" } else { "debug" };
-    let made = target.join(&machine).join(profile).join("ambient-launcher");
-    let copied = fs::copy(made, out.join("launcher"));
-    assert!(copied.is_ok(), "the launcher was not where it was built");
+    let made = target.join(machine).join(profile);
+    let files = [
+        ("ambient-launcher", "launcher"),
+        ("libambient_launcher.a", "launcher.a"),
+    ];
+    for (file, kept) in files {
+        let copied = fs::copy(made.join(file), out.join(kept));
+        assert!(copied.is_ok(), "the launcher was not where it was built");
+    }
+    // The compiler says which libraries an archive of it is linked
+    // with, and only when asked as it makes one.
+    let mut asking = launching(cargo, "rustc", &target);
+    asking.args(["--lib", "--", "--print", "native-static-libs"]);
+    let said = asking.output().map(|ran| ran.stderr).unwrap_or_default();
+    let said = String::from_utf8_lossy(&said);
+    let named = |line: &str| {
+        let (_, libraries) = line.split_once("native-static-libs: ")?;
+        Some(libraries.trim().to_owned())
+    };
+    let libraries = said.lines().find_map(named);
+    assert!(
+        libraries.is_some(),
+        "the compiler did not say what the launcher links with:\n{said}"
+    );
+    let written = fs::write(
+        out.join("launcher.libraries"),
+        libraries.unwrap_or_default(),
+    );
+    assert!(written.is_ok(), "the launcher's libraries were not written");
 }
 
 fn main() {

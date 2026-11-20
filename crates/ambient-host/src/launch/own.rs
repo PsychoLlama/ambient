@@ -2,10 +2,11 @@
 //! world of this process.
 
 use std::cell::RefCell;
+use std::ffi::OsString;
 use std::process::ExitCode;
 use std::rc::Rc;
 
-use super::carried;
+use super::{FAILED, carried};
 use crate::host::{System, World};
 
 /// The program the file of this process carries, if it carries one.
@@ -21,14 +22,23 @@ fn program() -> Option<Vec<u8>> {
 /// The program is started with everything the process was given: no
 /// argument is the launcher's.
 pub fn own(start: impl FnOnce(&[u8], &Rc<RefCell<dyn World>>) -> i32) -> Option<ExitCode> {
+    let code = own_given(std::env::args_os().skip(1), start)?;
+    Some(ExitCode::from(u8::try_from(code).unwrap_or(1)))
+}
+
+/// [`own`], for a process that is told its arguments, each after the
+/// name it was started by: one whose `main` is not this language's is
+/// not everywhere told them any other way.
+pub fn own_given(
+    args: impl Iterator<Item = OsString>,
+    start: impl FnOnce(&[u8], &Rc<RefCell<dyn World>>) -> i32,
+) -> Option<i32> {
     let program = program()?;
     // An argument that is not text cannot be handed to the program.
-    let text = |arg: std::ffi::OsString| arg.into_string().ok();
-    let Some(args) = std::env::args_os().skip(1).map(text).collect() else {
+    let Some(args) = args.map(|arg| arg.into_string().ok()).collect() else {
         System::new(Vec::new()).warn("error: an argument is not text\n");
-        return Some(ExitCode::FAILURE);
+        return Some(FAILED);
     };
     let world: Rc<RefCell<dyn World>> = Rc::new(RefCell::new(System::new(args)));
-    let code = start(&program, &world);
-    Some(ExitCode::from(u8::try_from(code).unwrap_or(1)))
+    Some(start(&program, &world))
 }
