@@ -22,12 +22,22 @@ const ID: &str = "0123456789abcdef0123456789abcdef";
 
 /// A package whose `main` gives what a function of its bundle gives.
 /// Nothing reaches `absent`, and the bundle has no function for it.
-const SOURCE: &str = "extern fn double(n: int): int;
+/// Its target `world` binds an ability to a handler of the bundle.
+const SOURCE: &str = "use system.{cli};
+
+extern fn double(n: int): int;
 extern fn absent(n: int): int;
 
 fn unused(): int => absent(1);
 
 pub fn main(): int => double(21);
+
+pub ability triple(n: int): int;
+extern handler tripled for triple;
+pub target world extends cli { triple: tripled }
+pub target apart { triple: tripled }
+
+pub fn tripling(): int with triple => triple!(14);
 ";
 
 /// A directory of this test's own, removed when it is dropped.
@@ -58,7 +68,7 @@ impl Drop for Scratch {
 /// A bundle for the package, in C: `double` reads its argument where
 /// it lies and makes what it gives, through the runtime.
 fn bundle(scratch: &Scratch) {
-    let double = symbol(ID, "main.double");
+    let (double, tripled) = (symbol(ID, "main.double"), symbol(ID, "main.tripled"));
     let source = format!(
         "#include <stdint.h>
 struct amb_call;
@@ -67,6 +77,9 @@ int64_t amb_int_value(uint64_t);
 uint64_t amb_int_new(int64_t);
 uint64_t {double}(struct amb_call *call, uint64_t args) {{
   return amb_int_new(amb_int_value(amb_word_at(args, 0)) * 2);
+}}
+uint64_t {tripled}(struct amb_call *call, uint64_t args) {{
+  return amb_int_new(amb_int_value(amb_word_at(args, 0)) * 3);
 }}
 "
     );
@@ -121,8 +134,35 @@ fn a_program_that_reaches_a_bundle_is_run_by_what_was_linked_with_it() {
     let run = Command::Run {
         path: scratch.0.join("app"),
         entry: "main.main".to_owned(),
+        target: None,
         args: Vec::new(),
     };
 
     assert_eq!(executed(&scratch, &run), 42);
+}
+
+#[test]
+fn a_target_of_the_package_binds_a_handler_of_its_bundle() {
+    let scratch = Scratch::new();
+    let run = Command::Run {
+        path: scratch.0.join("app"),
+        entry: "main.tripling".to_owned(),
+        target: Some("main.world".to_owned()),
+        args: Vec::new(),
+    };
+
+    assert_eq!(executed(&scratch, &run), 42);
+}
+
+#[test]
+fn a_program_is_not_run_under_a_target_that_is_no_command_lines() {
+    let scratch = Scratch::new();
+    let run = Command::Run {
+        path: scratch.0.join("app"),
+        entry: "main.tripling".to_owned(),
+        target: Some("main.apart".to_owned()),
+        args: Vec::new(),
+    };
+
+    assert_eq!(executed(&scratch, &run), 1);
 }

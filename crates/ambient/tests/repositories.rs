@@ -42,6 +42,7 @@ fn run() -> Command {
     Command::Run {
         path: PathBuf::from("app"),
         entry: "main.main".to_owned(),
+        target: None,
         args: Vec::new(),
     }
 }

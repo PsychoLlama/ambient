@@ -56,6 +56,11 @@ pub enum Command {
         /// The function to run: a module path and a name.
         #[arg(long, default_value = "main.main")]
         entry: String,
+        /// Runs the program under this target of the package, a
+        /// module path and a name, which extends the command-line
+        /// target: what binds a native handler of a package.
+        #[arg(long)]
+        target: Option<String>,
         /// What the program is started with.
         #[arg(last = true)]
         args: Vec<String>,
@@ -139,6 +144,10 @@ pub enum Command {
     },
 }
 
+/// What running says of a target the command line cannot be the
+/// world of.
+const UNRUN: &str = "a program is run under the command-line target, or one that extends it";
+
 /// What a command works with.
 pub struct Session<'a> {
     pub files: &'a dyn Files,
@@ -161,19 +170,24 @@ impl Session<'_> {
     pub fn execute(&self, command: &Command) -> i32 {
         let done = match command {
             Command::Add { on, name, path } => self.add(path, on, name.as_deref()),
-            Command::Run { path, entry, .. } => self.run(path, entry),
+            Command::Run {
+                path,
+                entry,
+                target,
+                ..
+            } => self.run(path, entry, target.as_deref()),
             Command::Build {
                 path,
                 entry,
                 output,
                 target: None,
-            } => self.build(path, entry, output.as_deref()),
+            } => self.build(path, entry, None, output.as_deref()),
             Command::Build {
                 path,
                 entry,
                 output,
                 target: Some(target),
-            } => self.build_under(path, entry, target, output.as_deref()),
+            } => self.build(path, entry, Some(target), output.as_deref()),
             Command::Check { path } => self.check(path).map(|()| 0),
             Command::Init { path } => self.init(path),
             Command::Update { name, path } => self.update(path, name.as_deref()),
@@ -208,14 +222,36 @@ impl Session<'_> {
         Ok(project)
     }
 
-    fn run(&self, path: &Path, entry: &str) -> Result<i32, Vec<String>> {
+    /// The target a program of `project` is run or built under on a
+    /// command line: the one `named` in its package, or the
+    /// command-line target itself. Nothing, if the one named does not
+    /// extend that one: such a target is built by a tool of its own.
+    fn target(
+        project: &Project,
+        engine: &Engine,
+        named: Option<&str>,
+    ) -> Result<Option<Symbol>, Vec<String>> {
+        let standard = crate::system::target();
+        let Some(named) = named else {
+            return Ok(Some(standard));
+        };
+        let target = entry_of(project, named);
+        let extends = engine.extends(&target, &standard);
+        let extends = extends.map_err(|error| vec![report(project, engine, &error)])?;
+        Ok(extends.then_some(target))
+    }
+
+    fn run(&self, path: &Path, entry: &str, target: Option<&str>) -> Result<i32, Vec<String>> {
         let project = self.open(path)?;
         let engine = self.engine(&project);
         let launch = Launch {
             project: &project,
             engine: &engine,
         };
-        let linked = launch.link(&entry_of(&project, entry), &crate::system::target())?;
+        let Some(target) = Self::target(&project, &engine, target)? else {
+            return Err(vec![UNRUN.to_owned()]);
+        };
+        let linked = launch.link(&entry_of(&project, entry), &target)?;
         let said = |problem: String| vec![problem];
         // A program that reaches a native bundle is run by what was
         // linked with it, which this process was not.

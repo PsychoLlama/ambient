@@ -84,6 +84,42 @@ impl Engine<'_> {
         self.built_by(target, &mut Vec::new())
     }
 
+    /// Whether `target` is `base`, or extends it through however many
+    /// targets: whether a program under it is one under `base` with
+    /// bindings added and replaced.
+    ///
+    /// # Errors
+    ///
+    /// Fails if `target` is not a target, or extends itself.
+    pub fn extends(&self, target: &Symbol, base: &Symbol) -> Result<bool, Error> {
+        self.extending(target, base, &mut Vec::new())
+    }
+
+    fn extending(
+        &self,
+        target: &Symbol,
+        base: &Symbol,
+        visiting: &mut Vec<Symbol>,
+    ) -> Result<bool, Error> {
+        if target == base {
+            return Ok(true);
+        }
+        if visiting.contains(target) {
+            return Err(Error::TargetCycle(target.clone()));
+        }
+        let resolved = self.resolve(target)?;
+        let DefinitionKind::Target(definition) = &resolved.definition.kind else {
+            return Err(Error::NotTarget(target.clone()));
+        };
+        visiting.push(target.clone());
+        let mut found = false;
+        for extended in abilities(&definition.extends) {
+            found = found || self.extending(&extended, base, visiting)?;
+        }
+        visiting.pop();
+        Ok(found)
+    }
+
     fn built_by(
         &self,
         target: &Symbol,

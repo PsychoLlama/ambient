@@ -151,6 +151,7 @@ pub fn run(files: &dyn Files) -> (i32, Scripted) {
     let command = Command::Run {
         path: PathBuf::from("app"),
         entry: "main.main".to_owned(),
+        target: None,
         args: Vec::new(),
     };
     Scripted::default().execute(files, &command)

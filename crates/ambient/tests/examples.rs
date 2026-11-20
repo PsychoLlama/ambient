@@ -77,6 +77,7 @@ fn the_tally_counts_the_words_of_a_file() {
     let command = Command::Run {
         path: example("tally"),
         entry: "main.main".to_owned(),
+        target: None,
         args: Vec::new(),
     };
     let (code, world) = world.execute(&Disk, &command);
@@ -90,6 +91,7 @@ fn the_stock_keeps_its_counts_in_a_file_of_json() {
     let command = Command::Run {
         path: example("stock"),
         entry: "main.main".to_owned(),
+        target: None,
         args: Vec::new(),
     };
     let world = Scripted {
@@ -125,6 +127,7 @@ fn the_notes_are_served_and_kept_in_a_file_of_json() {
     let command = Command::Run {
         path: example("notes"),
         entry: "main.main".to_owned(),
+        target: None,
         args: Vec::new(),
     };
     let (code, world) = world.execute(&Disk, &command);
@@ -149,6 +152,7 @@ fn entry_saying(name: &str, entry: &str, world: Scripted) -> Scripted {
     let command = Command::Run {
         path: example(name),
         entry: entry.to_owned(),
+        target: None,
         args: Vec::new(),
     };
     let (code, world) = world.execute(&Disk, &command);
@@ -161,6 +165,7 @@ fn entry(name: &str, entry: &str, world: Scripted) -> Scripted {
     let command = Command::Run {
         path: example(name),
         entry: entry.to_owned(),
+        target: None,
         args: Vec::new(),
     };
     let (code, world) = world.execute(&Disk, &command);
@@ -274,6 +279,7 @@ fn the_worlds_play_a_game_back_from_what_was_recorded() {
         let command = Command::Run {
             path: example("worlds"),
             entry: "main.main".to_owned(),
+            target: None,
             args: Vec::new(),
         };
         let world = Scripted {

@@ -63,6 +63,7 @@ fn run(files: &Files, store: &MemoryStore) -> (String, String) {
     let command = Command::Run {
         path: PathBuf::from("app"),
         entry: "main.main".to_owned(),
+        target: None,
         args: Vec::new(),
     };
     let (_, world) = Scripted::default().execute_over(files, store, &command);

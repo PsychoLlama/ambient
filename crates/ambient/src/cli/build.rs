@@ -46,10 +46,15 @@ impl Session<'_> {
     /// Makes an executable of `entry` of the package at `path`: at
     /// `output`, or else in the directory the command was run in,
     /// named for the package.
+    ///
+    /// The program is under `target` of the package, if one is named:
+    /// a target that extends the command-line target, and so is built
+    /// as that one is. Any other is built by [`Self::build_under`].
     pub(super) fn build(
         &self,
         path: &Path,
         entry: &str,
+        target: Option<&str>,
         output: Option<&Path>,
     ) -> Result<i32, Vec<String>> {
         let project = self.open(path)?;
@@ -58,7 +63,10 @@ impl Session<'_> {
             project: &project,
             engine: &engine,
         };
-        let linked = launch.link(&entry_of(&project, entry), &crate::system::target())?;
+        let Some(target) = Self::target(&project, &engine, target)? else {
+            return self.build_under(path, entry, target.unwrap_or_default(), output);
+        };
+        let linked = launch.link(&entry_of(&project, entry), &target)?;
         let link = self.linking(&project, &linked.parts);
         let link = link.map_err(|problem| vec![problem])?;
 
