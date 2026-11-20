@@ -23,12 +23,13 @@ An extern is a definition implemented in native code. Ambient declares the inter
 
 - Native code can construct any [value shape](values.md), mint handles, and call function values it is given.
 - Native code performs the abilities in its declared row with the same bindings Ambient code would get.
-- Native code runs only when called; it has no initialisation and no background behaviour.
+- Native code reaches its program only when called. It has no initialisation, and what it leaves working can do one thing to the program: answer a wait.
 - Native code is handed its arguments and the bindings of its caller, and gives back a value or raises a [fault](values.md).
 - Native code is also handed the program that called it, and can [load](backends.md) a function into it; what it gets back is that function as a value.
 - A suspending native handler may suspend the [task](tasks.md) that performed it while it waits on the host.
 - It suspends by saying it will answer later. Other tasks run, and the perform ends when the host gives the answer: a value, or a fault.
-- Native code still runs only when called: whatever does the waiting belongs to the host, which hands the answer over when it next calls in.
+- Whatever does the waiting is outside the program: the host's, or a thread the native code keeps. The host hands the answer over when it next calls in.
+- Only the program's own thread touches a [value](values.md). A thread native code keeps holds none, and gives its answer as what the host can make a value of.
 - A task cancelled while it waits leaves the wait. The host is told it may stop, and an answer that comes anyway is dropped.
 - A handle's type is a [brand](types.md) declared alongside the extern that mints it.
 
@@ -74,4 +75,5 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - Only externs the entry reaches are linked into a program.
 - That a package contains native code needs its workspace's [approval](releases.md#approvals), as its [build grants](comptime.md) do.
 - Definition hashes do not cover native code; a package's snapshot does.
+- TODO: a [comptime](comptime.md) call and a [test](packages.md#testing) reach no bundle, since what runs them was linked before the package was known.
 - TODO: no bundle is read; a program reaches only the native code of its [target](targets.md)'s own package.

@@ -54,6 +54,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 ## Running
 
 - The command line runs a function of a package as a program under the `system` package's command-line [target](targets.md), and exits with what it gives if that is an integer.
+- It may instead be run under a target the package names that extends that one. That is how a program binds a package's [native handler](externs.md), which only a target can.
 - A [fault](values.md) that ends the program is reported as its error: the kind, the message, and the definitions its trace names.
 - Checking a package checks every definition of it and of the packages it depends on, and reports each that is wrong. Each is reported by file, line, and column.
 - Built definitions are kept in one [store](build.md) for every project on the machine, since a definition is kept by its content.
@@ -66,6 +67,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A [fault](values.md) is reported as it is when run from the package: the executable carries the name of each definition it holds and the place of each expression that can fault, as they were when it was built.
 - An executable never reads a [store](build.md) and never writes one.
 - A build may instead be of a function under a target the package names, which gives what that target's [tool](tools.md#builds) does: a WebAssembly module and whatever its [host](targets.md#webassembly-hosts) loads it with.
+- A target that extends the command-line target is built as that one is: an executable.
 - What loads the program holds no compiler: an executable carries only what running needs, and can [load](exchange.md) compiled code as a program run from its package can.
 - A program that packs or compiles code needs the compiler as it runs, so what loads that one is the compiler's own executable.
 - An executable whose program [packs](targets.md#code) code carries the trees of what it could pack; one that does not carries none.
