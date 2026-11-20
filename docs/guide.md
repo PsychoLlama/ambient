@@ -360,6 +360,39 @@ A body is `bytes`, since not everything sent is text: `request.body.to_text()` i
 
 `examples/notes` is a whole one, with tests that call its routes with requests as values.
 
+A server that is asked to stop leaves when it chooses. `process.signal` waits to be asked, so serving beside it in a `first` is serving until then:
+
+```ab
+use system.console;
+use system.http;
+use system.process;
+use ambient.tasks;
+
+fn answer(request: http.Request): http.Response => http.text(200, "hello\n");
+
+fn served(server: http.Server): string with http {
+    http.serve(server, 16, answer);
+    return "closed";
+}
+
+fn asked(): string with process.signal {
+    let _ = process.signal!();
+    return "asked to stop";
+}
+
+pub fn main(): null with http, process.signal, console.print {
+    match http.listen!("127.0.0.1", 8080) {
+        let server: http.Server => {
+            console.print!(tasks.first(fn() => served(server), fn() => asked()));
+            http.close!(server);
+        }
+        let error: Error => { console.print!(error.message); }
+    }
+}
+```
+
+What is below HTTP is there too. `system.net` connects and listens by TCP and on Unix sockets, and sends datagrams; a connection is a `system.stream.Stream`, read a piece at a time. `http.stream` gives a response whose body is such a stream, for one that does not end; `fs.watch` gives a watcher whose next change a task waits for. Each waits as `http.accept` does, so a `clock.sleep` beside one in a `first` is its timeout.
+
 ## Changing a running program
 
 `system.code` packs a function, with everything it reaches, into bytes. `code.compile!` is the compiler: it checks a pack as its source was checked, and gives code for this machine as bytes. `code.load!` adds compiled code to the program that is running, and `code.unpack` does both. What is loaded is `unknown` until a cast says what it must be.
@@ -445,27 +478,29 @@ A test is given no world: it provides what the code under test needs, as above, 
 
 Import a module by path; its public definitions are reached through its name, or taken by name in braces. Two packages come with the compiler: `ambient` is what runs anywhere, and `system` is what a program on a machine can reach.
 
-| Module                                                       | What it has                                                                                                               |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `ambient.string`, `list`, `int`, `float`, `iterator`, `cell` | the methods of each shape                                                                                                 |
-| `ambient.map`                                                | `Map<V>`: values by string key, read in key order                                                                         |
-| `ambient.url`                                                | `Url`, `parse`, `write`, `query`, `write_query`, `encode`, `decode`                                                       |
-| `ambient.json`                                               | `Json`, `parse`, `write`, `get`, `at`                                                                                     |
-| `ambient.bytes`                                              | the methods of `bytes`, and `of`, `from_hex`                                                                              |
-| `ambient.base64`                                             | `encode`, `encode_url`, `decode`                                                                                          |
-| `ambient.time`                                               | `Date`, `date`, `moment`, `weekday`, `write`, `read`, `seconds`, `minutes`, `hours`, `days`                               |
-| `ambient.tasks`                                              | `map`, `gather`, `race`                                                                                                   |
-| `system.console`                                             | `write`, `print`, `warn`, `read_line`                                                                                     |
-| `system.env`                                                 | `args`, `variable`, `variables`, `directory`                                                                              |
-| `system.fs`                                                  | `read`, `write`, `append`, and each with `_bytes`; `list`, `exists`, `info`, `remove`, `make_directory`, `rename`, `copy` |
-| `system.path`                                                | `parts`, `join`, `name`, `parent`, `extension`, `stem`, `is_absolute`                                                     |
-| `system.clock`                                               | `now`, `elapsed`, `sleep`                                                                                                 |
-| `system.process`                                             | `exit`, `run`, `command`                                                                                                  |
-| `system.http`                                                | `send`, `get`, `post`, `post_json`, `listen`, `serve`, `accept`, `respond`, `close`, `text`, `json`                       |
-| `system.code`                                                | `pack`, `compile`, `load`, `unpack`                                                                                       |
-| `system.random`                                              | `bits`, `between`, `fraction`, `chance`, `pick`, `shuffle`, `bytes`, `seeded`                                             |
-| `system.crypto`                                              | `hash`, `hmac`, `same`, and the tags `sha256`, `sha512`, `sha1`                                                           |
-| `ambient.cleanup`                                            | the `dispose` key a `using` reads                                                                                         |
+| Module                                                       | What it has                                                                                                                                             |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ambient.string`, `list`, `int`, `float`, `iterator`, `cell` | the methods of each shape                                                                                                                               |
+| `ambient.map`                                                | `Map<V>`: values by string key, read in key order                                                                                                       |
+| `ambient.url`                                                | `Url`, `parse`, `write`, `query`, `write_query`, `encode`, `decode`                                                                                     |
+| `ambient.json`                                               | `Json`, `parse`, `write`, `get`, `at`                                                                                                                   |
+| `ambient.bytes`                                              | the methods of `bytes`, and `of`, `from_hex`                                                                                                            |
+| `ambient.base64`                                             | `encode`, `encode_url`, `decode`                                                                                                                        |
+| `ambient.time`                                               | `Date`, `date`, `moment`, `weekday`, `write`, `read`, `seconds`, `minutes`, `hours`, `days`                                                             |
+| `ambient.tasks`                                              | `map`, `gather`, `race`                                                                                                                                 |
+| `system.console`                                             | `write`, `print`, `warn`, `read_line`                                                                                                                   |
+| `system.env`                                                 | `args`, `variable`, `variables`, `directory`                                                                                                            |
+| `system.fs`                                                  | `read`, `write`, `append`, and each with `_bytes`; `list`, `exists`, `info`, `remove`, `make_directory`, `rename`, `copy`; `watch`, `change`, `unwatch` |
+| `system.path`                                                | `parts`, `join`, `name`, `parent`, `extension`, `stem`, `is_absolute`                                                                                   |
+| `system.clock`                                               | `now`, `elapsed`, `sleep`                                                                                                                               |
+| `system.process`                                             | `exit`, `run`, `command`, `signal`                                                                                                                      |
+| `system.http`                                                | `send`, `get`, `post`, `post_json`, `open`, `stream`, `send_trusting`, `listen`, `serve`, `accept`, `respond`, `close`, `text`, `json`                  |
+| `system.stream`                                              | `Stream`, `read`, `write`, `close`, `read_all`, `write_text`                                                                                            |
+| `system.net`                                                 | `connect`, `connect_unix`, `listen`, `listen_unix`, `accept`, `bind`, `join`, `send_to`, `receive`, `close`                                             |
+| `system.code`                                                | `pack`, `compile`, `load`, `unpack`                                                                                                                     |
+| `system.random`                                              | `bits`, `between`, `fraction`, `chance`, `pick`, `shuffle`, `bytes`, `seeded`                                                                           |
+| `system.crypto`                                              | `hash`, `hmac`, `same`, and the tags `sha256`, `sha512`, `sha1`                                                                                         |
+| `ambient.cleanup`                                            | the `dispose` key a `using` reads                                                                                                                       |
 
 ```ab
 use ambient.map;
