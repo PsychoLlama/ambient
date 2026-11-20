@@ -15,7 +15,7 @@ cranelift-codegen = "0.136"
 cranelift-frontend = "0.136"
 cranelift-native = "0.136"
 memmap2 = "0.9"
-object = { version = "0.40", default-features = false, features = ["read_core", "elf", "macho", "std", "unaligned"] }
+object = { version = "0.41", default-features = false, features = ["read_core", "elf", "macho", "std", "unaligned"] }
 wasm-encoder = "0.263"
 wasmparser = { version = "0.263", default-features = false, features = ["std"] }
 wasmtime = { version = "49", default-features = false, features = ["cranelift", "runtime", "std"] }
