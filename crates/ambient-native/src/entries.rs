@@ -95,6 +95,19 @@ macro_rules! entries {
             /// message of `length` bytes. Zero if the task has left
             /// the wait.
             fn amb_bundle_refuse(ticket: u64, message: *const u8, length: u64) -> u64;
+            /// Whether the task of a ticket waits still, from any
+            /// thread: zero once it has left the wait or was answered.
+            /// A thread asks before it takes more of the world for an
+            /// answer, since what it takes for a task that has left is
+            /// the bundle's to keep for the next.
+            fn amb_bundle_waiting(ticket: u64) -> u64;
+            /// Has `dropped` called with the number of each handle of
+            /// `brand`, a tag, that the program holds no longer: on
+            /// the program's thread, before native code next runs,
+            /// when no task can run, or when a call is over. It calls
+            /// nothing of the runtime. Said again of a brand, the
+            /// later function is the one called.
+            fn amb_bundle_dropping(call: *mut Call, brand: Word, dropped: Dropped);
             /// The handler bound for an ability of the extern's row,
             /// named by its package's ID and its module path and name,
             /// borrowed for the call. Zero if the row has none such.

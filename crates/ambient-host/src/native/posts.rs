@@ -172,11 +172,26 @@ pub unsafe extern "C" fn amb_bundle_refuse(ticket: u64, message: *const u8, leng
     u64::from(post(ticket, Post::Refused(message.into_owned())))
 }
 
+/// Whether the task that waits by a ticket [`super::amb_bundle_later`]
+/// gave waits still, from any thread: zero once it has left the wait
+/// or a post was taken for it.
+#[unsafe(no_mangle)]
+pub extern "C" fn amb_bundle_waiting(ticket: u64) -> u64 {
+    let named = held(&NAMED);
+    u64::from(
+        named
+            .get(&ticket)
+            .is_some_and(|posts| posts.strong_count() > 0),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use ambient_runtime::Word;
+
+    use super::amb_bundle_waiting;
 
     use super::{Data, Post, Posts, post};
 
@@ -218,6 +233,19 @@ mod tests {
 
         assert!(!posted(after));
         assert!(matches!(posts.take(), Some((None, _))));
+    }
+
+    #[test]
+    fn a_thread_is_told_whether_its_task_waits_still() {
+        let posts = Arc::new(Posts::default());
+        let (left, answered) = (posts.name(7), posts.name(8));
+        let waits = |name| amb_bundle_waiting(name) != 0;
+        assert!(waits(left) && waits(answered));
+
+        posts.forsake(7);
+        assert!(posted(answered));
+
+        assert!(!waits(left) && !waits(answered));
     }
 
     #[test]

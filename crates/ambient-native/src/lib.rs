@@ -35,6 +35,10 @@ pub type Data = core::ffi::c_void;
 /// zero fails the task that waits.
 pub type Make = unsafe extern "C" fn(data: *mut Data) -> Word;
 
+/// What is told of each handle of a brand that its program holds no
+/// longer: the number the bundle minted it with.
+pub type Dropped = unsafe extern "C" fn(number: u64);
+
 /// The layout number, written out: the one place it is.
 #[macro_export]
 macro_rules! layout {

@@ -52,6 +52,9 @@ pub struct Program {
     pub(super) waits: Option<Answers>,
     /// What threads of native bundles post for waits of this program.
     pub(super) posts: Arc<Posts>,
+    /// What a native bundle asked to be told of the handles of a
+    /// brand, by the brand's text.
+    pub(super) dropping: RefCell<HashMap<Vec<u8>, ambient_native::Dropped>>,
     /// The calls that are to be answered, by ticket.
     pub(super) asked: RefCell<HashMap<u64, Asked>>,
     /// What answers the questions native code passes on, for the
@@ -110,6 +113,7 @@ impl Program {
             open: parts.open,
             waits: natives.waits(),
             posts: Arc::default(),
+            dropping: RefCell::default(),
             asked: RefCell::default(),
             questions: Cell::new(None),
         };

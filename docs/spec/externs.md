@@ -31,6 +31,7 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - Whatever does the waiting is outside the program: the host's, or a thread the native code keeps. The host hands the answer over when it next calls in.
 - Only the program's own thread touches a [value](values.md). A thread native code keeps holds none, and gives its answer as what the host can make a value of.
 - A task cancelled while it waits leaves the wait. The host is told it may stop, and an answer that comes anyway is dropped.
+- A thread native code keeps may ask whether its task waits still. What it has taken of the world for a task that left is its own to keep for the next: nothing gives it back.
 - A handle's type is a [brand](types.md) declared alongside the extern that mints it.
 
 ## Calling back

@@ -28,6 +28,7 @@ fn named(rust: &str) -> Option<&'static str> {
         "*constWord" => "const uint64_t *",
         "*mutCall" => "struct amb_call *",
         "Make" => "amb_make",
+        "Dropped" => "amb_dropped",
         "*mutData" => "void *",
         _ => return None,
     })
@@ -68,6 +69,8 @@ pub fn header(id: &str, externs: &[String], tags: &[String]) -> String {
          // What makes the answer to a wait, on the program's thread, of\n\
          // what a thread of the bundle handed over. Zero fails the task.\n\
          typedef uint64_t (*amb_make)(void *data);\n\n\
+         // What is told the number of a handle its program holds no longer.\n\
+         typedef void (*amb_dropped)(uint64_t number);\n\n\
          // What says the layout this bundle was built for: a program of\n\
          // another asks for a name this is not, and does not link.\n\
          __attribute__((weak)) const unsigned char {built} = 0;\n\n\

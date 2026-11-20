@@ -15,6 +15,7 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 - No cast creates a handle.
 - A handle is the brand and a number its host knows it by; two handles are the same when both are.
 - A host is told when a program holds a handle no longer, so that what it stood for can be closed. It is told before native code next runs, or when no task can run, or when the program is over, whichever is first.
+- Native code that mints handles is told the same of a brand it asks about, at the same moments.
 - What a program still holds when it is over goes with it, and its host is not told of each.
 
 ## Sharing

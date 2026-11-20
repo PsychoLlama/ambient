@@ -109,8 +109,15 @@ impl Program {
                 return;
             }
             let number = ambient_runtime::amb_handle_number();
-            let Some(waits) = &self.waits else { continue };
             let text = value::Inspect::string(&mut Host, brand);
+            // A bundle is told of the brands it asked about.
+            let asked = self.dropping.borrow().get(&text).copied();
+            if let Some(dropped) = asked {
+                // SAFETY: the bundle said it may be called for as long
+                // as the program is.
+                unsafe { dropped(number) };
+            }
+            let Some(waits) = &self.waits else { continue };
             let text = String::from_utf8_lossy(&text);
             let (package, brand) = text.split_once('\0').unwrap_or(("", &text));
             waits.borrow_mut().dropped(package, brand, number);

@@ -11,6 +11,7 @@
 use std::borrow::Cow;
 use std::slice;
 
+use ambient_native::Dropped;
 use ambient_runtime::{Kind, UNWIND, Word};
 
 use super::host::{ANSWERING, Call, Running, UNCALLABLE, UNWOUND, bound};
@@ -99,6 +100,29 @@ pub unsafe extern "C" fn amb_bundle_later(call: *mut Calling) -> u64 {
             call.failed = Some(refused);
             0
         }
+    }
+}
+
+/// Has `dropped` called with the number of each handle of `brand`
+/// that the program holds no longer, as a host is told of its own
+/// ([`super::Waits::dropped`]) and at the same moments.
+///
+/// # Safety
+///
+/// `call` is what the function running was handed, `brand` is a tag,
+/// and `dropped` may be called for as long as the program is.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_bundle_dropping(call: *mut Calling, brand: Word, dropped: Dropped) {
+    // SAFETY: the caller's to uphold; a tag's bytes are read for as
+    // long as it is held, which the call does.
+    unsafe {
+        let call = behind(call);
+        let length = usize::try_from(ambient_runtime::amb_length(brand)).unwrap_or(0);
+        let text = slice::from_raw_parts(ambient_runtime::amb_string_bytes(brand), length);
+        call.program
+            .dropping
+            .borrow_mut()
+            .insert(text.to_vec(), dropped);
     }
 }
 
@@ -191,7 +215,7 @@ mod tests {
                 use super::*;
                 #[allow(clippy::wildcard_imports)]
                 use crate::native::posts::*;
-                use ambient_native::{Data, Make};
+                use ambient_native::{Data, Dropped, Make};
                 type Call = Calling;
                 $(let _: unsafe extern "C" fn($($ty),*) $(-> $gives)? = $name;)*
             }

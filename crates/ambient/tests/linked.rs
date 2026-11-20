@@ -110,7 +110,8 @@ static uint64_t made(void *data) {{
 }}
 static void *answering(void *data) {{
   struct wait *wait = data;
-  if (!amb_bundle_answer(wait->ticket, made, wait)) free(wait);
+  if (!amb_bundle_waiting(wait->ticket) || !amb_bundle_answer(wait->ticket, made, wait))
+    free(wait);
   return 0;
 }}
 uint64_t {answered}(struct amb_call *call, uint64_t args) {{

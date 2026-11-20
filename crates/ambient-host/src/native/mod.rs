@@ -14,8 +14,8 @@ mod values;
 mod waits;
 
 pub use bundle::{
-    Bundled, Calling, PLACED, amb_bundle_call, amb_bundle_fail, amb_bundle_handler,
-    amb_bundle_later,
+    Bundled, Calling, PLACED, amb_bundle_call, amb_bundle_dropping, amb_bundle_fail,
+    amb_bundle_handler, amb_bundle_later,
 };
 pub use externs::Externs;
 pub use host::{
@@ -24,7 +24,7 @@ pub use host::{
 };
 pub use load::Program;
 pub use natives::{NativeFn, Natives, Observation, Offered};
-pub use posts::{Posts, amb_bundle_answer, amb_bundle_refuse};
+pub use posts::{Posts, amb_bundle_answer, amb_bundle_refuse, amb_bundle_waiting};
 pub use values::{Host, Inside, encode};
 pub use waits::{Answer, Answers, Waits};
 

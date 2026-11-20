@@ -5,6 +5,8 @@
 
 mod support;
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use ambient::backend::native::{Bundled, Calling, Natives, amb_bundle_call};
 use ambient::builder::{self as b, ty};
 use ambient::surface::{Definition, Expr, Type};
@@ -37,6 +39,27 @@ ambient_native::natives! {
     fn main_refuse(call, _args) {
         unsafe { ambient_native::fail(call, "no") }
     }
+
+    /// A file the bundle knows as `MINTED`, of which it asks to be
+    /// told when the program holds it no longer.
+    fn main_mint(call, _args) {
+        let brand = b"app\0main.File";
+        unsafe {
+            let brand = ambient_native::amb_tag(brand.as_ptr(), brand.len() as u64);
+            ambient_native::amb_bundle_dropping(call, brand, closed);
+            ambient_native::amb_handle_new(brand, MINTED)
+        }
+    }
+}
+
+/// The number of the one file the bundle mints.
+const MINTED: u64 = 7;
+
+/// The number of the file the bundle was last told was dropped.
+static CLOSED: AtomicU64 = AtomicU64::new(0);
+
+unsafe extern "C" fn closed(number: u64) {
+    CLOSED.store(number, Ordering::Relaxed);
 }
 
 /// What the function it is handed gives of the integer beside it.
@@ -48,7 +71,8 @@ unsafe extern "C" fn apply(call: *mut Calling, args: Word) -> Word {
 }
 
 fn natives() -> Natives {
-    let functions: [(&str, Bundled); 4] = [
+    let functions: [(&str, Bundled); 5] = [
+        ("main.mint", main_mint),
         ("main.double", main_double),
         ("main.size", main_size),
         ("main.apply", apply),
@@ -78,6 +102,8 @@ fn outcome(body: Expr) -> Outcome {
         takes("size", [ty::string()]),
         takes("apply", [ty::function([ty::int()], ty::int()), ty::int()]),
         takes("refuse", []),
+        b::brand("File"),
+        b::extern_function("mint").returns(ty::named("File")).into(),
     ];
     let main = b::function("main").returns(ty::int()).body(body);
     run_natively(externs.into_iter().chain([main]), &natives())
@@ -88,6 +114,14 @@ fn a_bundled_function_reads_an_argument_and_makes_what_it_gives() {
     let body = b::call(b::name("double"), [b::int(21)]);
 
     assert_eq!(outcome(body), Ok(Value::Int(42)));
+}
+
+#[test]
+fn a_bundle_is_told_of_a_handle_its_program_dropped() {
+    let body = b::let_("file", b::call(b::name("mint"), []), b::int(42));
+
+    assert_eq!(outcome(body), Ok(Value::Int(42)));
+    assert_eq!(CLOSED.load(Ordering::Relaxed), MINTED);
 }
 
 #[test]
