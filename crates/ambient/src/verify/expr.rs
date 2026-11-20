@@ -173,11 +173,14 @@ impl Body<'_, '_> {
             } => self.merge(left, right, keys, methods)?,
             Expr::Let { value, body } => {
                 let value = self.infer(value)?;
+                // What follows a value that is never given is never
+                // reached, as the checker has it.
+                let ends = self.verifier.env.normalize(&value) == Ty::Never;
                 let scope = self.locals.len();
                 self.locals.push(Some(value));
                 let ty = self.infer(body)?;
                 self.leave(scope);
-                ty
+                if ends { Ty::Never } else { ty }
             }
             Expr::Primitive { operation, args } => self.primitive(*operation, args)?,
             Expr::Match { subject, arms } => self.matching(subject, arms)?,

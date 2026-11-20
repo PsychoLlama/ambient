@@ -120,19 +120,37 @@ impl Checker<'_> {
         body.index_of(self.blamed?)
     }
 
+    /// A binding of `value` around `body`, which is held to `expected`
+    /// if anything is. What follows a value of type `never` is never
+    /// reached: it is held to nothing, and the binding is `never` too.
+    /// So a block may end in a call that does not return.
+    pub(super) fn binding(
+        &mut self,
+        value: &Expr<Reference>,
+        body: &Expr<Reference>,
+        expected: Option<&Ty>,
+    ) -> Result<(core::Expr, Ty), Error> {
+        let (value, ty) = self.infer(value)?;
+        let ends = self.env.normalize(&ty) == Ty::Never;
+        self.bind_local(ty);
+        let (body, ty) = match expected.filter(|_| !ends) {
+            Some(expected) => (self.check(body, expected)?, expected.clone()),
+            None => self.infer(body)?,
+        };
+        let core = core::Expr::Let {
+            value: Box::new(value),
+            body: Box::new(body),
+        };
+        Ok((core, if ends { Ty::Never } else { ty }))
+    }
+
     fn check_node(&mut self, expr: &Expr<Reference>, expected: &Ty) -> Result<core::Expr, Error> {
         // What a binding or a match gives is what its last part gives.
         // That part is held to what is expected, so an error is at it
         // and not at the whole.
         match expr {
             Expr::Let { value, body, .. } => {
-                let (value, ty) = self.infer(value)?;
-                self.bind_local(ty);
-                let body = self.check(body, expected)?;
-                return Ok(core::Expr::Let {
-                    value: Box::new(value),
-                    body: Box::new(body),
-                });
+                return Ok(self.binding(value, body, Some(expected))?.0);
             }
             Expr::Match { subject, arms } => {
                 return Ok(self.matching(subject, arms, Some(expected))?.0);

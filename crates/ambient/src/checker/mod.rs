@@ -440,16 +440,7 @@ impl<'a> Checker<'a> {
                 (core::Expr::List(cores), Ty::List(Box::new(member)))
             }
             Expr::Field { target, key } => self.read(target, key)?,
-            Expr::Let { value, body, .. } => {
-                let (value, ty) = self.infer(value)?;
-                self.bind_local(ty);
-                let (body, ty) = self.infer(body)?;
-                let core = core::Expr::Let {
-                    value: Box::new(value),
-                    body: Box::new(body),
-                };
-                (core, ty)
-            }
+            Expr::Let { value, body, .. } => self.binding(value, body, None)?,
             Expr::Operation { operator, operands } => self.operation(*operator, operands)?,
             Expr::Match { subject, arms } => self.matching(subject, arms, None)?,
             Expr::Lambda { .. } => self.lambda(expr, None, &[])?,

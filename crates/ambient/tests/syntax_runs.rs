@@ -167,6 +167,24 @@ fn a_return_in_a_scope_gives_the_scope_its_value() {
 }
 
 #[test]
+fn a_statement_that_does_not_return_ends_its_path() {
+    let source = r#"
+        ability stop(code: int): never;
+
+        fn named(code: int): string with stop {
+            match code {
+                0 => { return "none"; }
+                _ => { stop!(code + 1); }
+            }
+        }
+
+        fn main(): int => provide { [stop](code) => code } { return named(41).length(); };
+    "#;
+
+    assert_eq!(int(source), 42);
+}
+
+#[test]
 fn tasks_are_functions_and_cells_are_shared() {
     let source = r"
         use ambient.tasks;
