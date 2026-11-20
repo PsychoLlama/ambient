@@ -97,7 +97,7 @@ pub(super) const EXTERN: &str = "amb_x_";
 pub(super) const BUILT: &str = "amb_built_";
 
 /// `text` with whatever a C name cannot hold made an underscore.
-fn plain(text: &str) -> String {
+pub(super) fn plain(text: &str) -> String {
     let plain = |c: char| if c.is_ascii_alphanumeric() { c } else { '_' };
     text.chars().map(plain).collect()
 }
@@ -190,7 +190,17 @@ impl Session<'_> {
                 continue;
             };
             let bundle = project.natives[package].get(MACHINE).ok_or_else(|| {
-                format!("package `{package}` has no native bundle for `{MACHINE}`")
+                // A platform is named as the compiler names it, which
+                // is seldom what its author guessed.
+                let has: Vec<&str> = project.natives[package]
+                    .keys()
+                    .map(String::as_str)
+                    .collect();
+                let said = "has no native bundle for";
+                format!(
+                    "package `{package}` {said} `{MACHINE}`, only for `{}`",
+                    has.join("`, `")
+                )
             })?;
             let directory = &project.packages[package].directory;
             // What a member keeps in its directory is used as it is;

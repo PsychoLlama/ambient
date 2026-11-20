@@ -11,7 +11,7 @@ use std::path::Path;
 use ambient_native::{ENTRIES, Entry, FALSE, LAYOUT, NULL, TRUE, kind};
 
 use super::Session;
-use super::linking::{built, symbol};
+use super::linking::{built, plain, symbol};
 use crate::surface::DefinitionKind;
 use crate::symbol::PackageId;
 use crate::workspace::Sources;
@@ -54,10 +54,11 @@ fn prototype(entry: &Entry) -> String {
     said
 }
 
-/// The header for the package of `id`, whose externs are `externs`:
-/// each by its module path and name.
+/// The header for the package of `id`, whose externs are `externs`
+/// and whose tags and brands are `tags`: each by its module path and
+/// name.
 #[must_use]
-pub fn header(id: &str, externs: &[String]) -> String {
+pub fn header(id: &str, externs: &[String], tags: &[String]) -> String {
     let mut said = format!(
         "// What a native bundle of the Ambient package {id} is written\n\
          // against, for layout {LAYOUT}. Written by `ambient header`: do not edit.\n\
@@ -94,6 +95,17 @@ pub fn header(id: &str, externs: &[String]) -> String {
             symbol(id, path)
         );
     }
+    if !tags.is_empty() {
+        said.push_str(
+            "\n// The text of each tag and brand of the package, as `amb_tag` takes\n\
+             // it and `amb_string_bytes` gives it: `sizeof` it, less one, is its\n\
+             // length.\n",
+        );
+    }
+    for path in tags {
+        let name = plain(path);
+        let _ = writeln!(said, "#define AMB_TAG_{name} \"{id}\" \"\\0\" \"{path}\"");
+    }
     said.push_str("\n#endif\n");
     said
 }
@@ -103,7 +115,7 @@ impl Session<'_> {
     pub(super) fn header(&self, path: &Path) -> Result<i32, Vec<String>> {
         let project = self.open(path)?;
         let root = PackageId(project.root.clone());
-        let mut externs = Vec::new();
+        let (mut externs, mut tags) = (Vec::new(), Vec::new());
         for read in project
             .modules
             .iter()
@@ -112,16 +124,19 @@ impl Session<'_> {
             let Some(module) = project.workspace.module(&read.module) else {
                 continue;
             };
-            let declared = module.definitions().iter();
-            let declared =
-                declared.filter(|definition| matches!(definition.kind, DefinitionKind::Extern(_)));
-            externs.extend(declared.map(|definition| {
+            for definition in module.definitions() {
                 let namespace = definition.kind.namespace();
-                read.module.symbol(namespace, &definition.name).identity()
-            }));
+                let identity = read.module.symbol(namespace, &definition.name).identity();
+                match definition.kind {
+                    DefinitionKind::Extern(_) => externs.push(identity),
+                    DefinitionKind::Tag | DefinitionKind::Brand => tags.push(identity),
+                    _ => {}
+                }
+            }
         }
         externs.sort();
-        let said = header(&project.workspace.identity(&root), &externs);
+        tags.sort();
+        let said = header(&project.workspace.identity(&root), &externs, &tags);
         self.world.borrow_mut().write(&said);
         Ok(0)
     }
@@ -145,12 +160,19 @@ mod tests {
 
     #[test]
     fn a_header_has_a_prototype_for_each_extern_of_the_package() {
-        let said = header("7c1e", &["net.connect".to_owned()]);
+        let said = header("7c1e", &["net.connect".to_owned()], &[]);
 
         assert!(
             said.contains("uint64_t amb_x_7c1e_net_connect(struct amb_call *call, uint64_t args);")
         );
         assert!(said.contains("uint64_t amb_int_new(int64_t value);"));
         assert!(said.contains("void amb_release(uint64_t value);"));
+    }
+
+    #[test]
+    fn a_header_has_the_text_of_each_tag_and_brand_of_the_package() {
+        let said = header("7c1e", &[], &["net.Stream".to_owned()]);
+
+        assert!(said.contains("#define AMB_TAG_net_Stream \"7c1e\" \"\\0\" \"net.Stream\"\n"));
     }
 }
