@@ -258,6 +258,39 @@ pub fn fetched(
     snapshots.keep(digest, &bytes)
 }
 
+/// What a build told there is no network says where it would fetch.
+pub const OFFLINE: &str = "it is not kept here, and this build was told there is no network";
+
+/// A machine's snapshots with no network: what it keeps is found, and
+/// nothing is fetched. See "Fetching" in `docs/spec/releases.md`.
+pub struct Offline<'a>(pub &'a dyn Snapshots);
+
+impl Snapshots for Offline<'_> {
+    fn held(&self, snapshot: &Hash) -> Option<PathBuf> {
+        self.0.held(snapshot)
+    }
+
+    fn resolve(&self, source: &Source) -> Result<String, String> {
+        Err(format!("{}: {OFFLINE}", source.git))
+    }
+
+    fn fetch(&self, commit: Commit) -> Result<Hash, String> {
+        Err(format!("{}: {OFFLINE}", commit.git))
+    }
+
+    fn bytes(&self, url: &str) -> Result<Vec<u8>, String> {
+        Err(format!("{url}: {OFFLINE}"))
+    }
+
+    fn kept(&self, digest: &str) -> Option<PathBuf> {
+        self.0.kept(digest)
+    }
+
+    fn keep(&self, digest: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+        self.0.keep(digest, bytes)
+    }
+}
+
 /// A machine that keeps nothing and fetches nothing.
 pub struct Nowhere;
 

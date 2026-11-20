@@ -30,7 +30,9 @@ pub use error::ProjectError;
 pub use fetch::Kept;
 pub use files::{Disk, Files};
 use git::Git;
-pub use locked::{Commit, LOCK, Lock, Locked, Nowhere, Snapshots, Source, digest, fetched};
+pub use locked::{
+    Commit, LOCK, Lock, Locked, Nowhere, OFFLINE, Offline, Snapshots, Source, digest, fetched,
+};
 pub use manifest::{Bundle, Dependency, Manifest, Package};
 pub use members::covered;
 use members::{Members, normal};

@@ -44,6 +44,9 @@ use crate::workspace::Sources;
 #[derive(Debug, Parser)]
 #[command(name = "ambient", version)]
 pub struct Cli {
+    /// Fetches nothing: a build fails where it would have to.
+    #[arg(long, global = true)]
+    pub offline: bool,
     #[command(subcommand)]
     pub command: Command,
 }
@@ -103,6 +106,21 @@ pub enum Command {
         /// The package's directory.
         #[arg(default_value = ".")]
         path: PathBuf,
+    },
+    /// Fetches what a build of a package reads, for building later
+    /// with no network: every package the workspace's lock holds, and
+    /// the native bundles for this machine that the entry reaches.
+    Fetch {
+        /// The package's directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// The function a build will run: a module path and a name.
+        /// With none, only packages are fetched.
+        #[arg(long)]
+        entry: Option<String>,
+        /// The target the build will be under, as `run` takes it.
+        #[arg(long)]
+        target: Option<String>,
     },
     /// Says the C header a native bundle of a package is written
     /// against: what it may call, and a prototype for each extern.
@@ -201,6 +219,11 @@ impl Session<'_> {
             Command::Init { path } => self.init(path),
             Command::Update { name, path } => self.update(path, name.as_deref()),
             Command::Vendor { name, path } => self.vendor(path, name.as_deref()),
+            Command::Fetch {
+                path,
+                entry,
+                target,
+            } => self.fetch(path, entry.as_deref(), target.as_deref()),
             Command::Header { path } => self.header(path),
             Command::Snapshot { path } => self.snapshot(path),
             Command::Test { path, only } => self.test(path, only.as_deref()),
@@ -249,6 +272,32 @@ impl Session<'_> {
         let extends = engine.extends(&target, &standard);
         let extends = extends.map_err(|error| vec![report(project, engine, &error)])?;
         Ok(extends.then_some(target))
+    }
+
+    /// Fetches what a build of `entry` of the package at `path` reads:
+    /// opening it fetches the packages, and asking what is to be
+    /// linked fetches the native bundles.
+    fn fetch(
+        &self,
+        path: &Path,
+        entry: Option<&str>,
+        target: Option<&str>,
+    ) -> Result<i32, Vec<String>> {
+        let project = self.open(path)?;
+        let Some(entry) = entry else {
+            return Ok(0);
+        };
+        let engine = self.engine(&project);
+        let launch = Launch {
+            project: &project,
+            engine: &engine,
+        };
+        let Some(target) = Self::target(&project, &engine, target)? else {
+            return Err(vec![UNRUN.to_owned()]);
+        };
+        let linked = launch.link(&entry_of(&project, entry), &target)?;
+        let reached = self.linking(&project, &linked.parts);
+        reached.map(|_| 0).map_err(|problem| vec![problem])
     }
 
     fn run(&self, path: &Path, entry: &str, target: Option<&str>) -> Result<i32, Vec<String>> {

@@ -60,6 +60,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - It may instead be run under a target the package names that extends that one. That is how a program binds a package's [native handler](externs.md), which only a target can.
 - A [fault](values.md) that ends the program is reported as its error: the kind, the message, and the definitions its trace names.
 - Checking a package checks every definition of it, and of the packages it depends on what those reach, and reports each that is wrong. Each is reported by file, line, and column.
+- TODO: checking a package checks every definition of each package it depends on, reached or not.
 - A definition of a dependency that no member reaches is therefore never read, and can be wrong without anyone who depends on its package being told.
 - Built definitions are kept in one [store](build.md) for every project on the machine, since a definition is kept by its content.
 

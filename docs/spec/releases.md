@@ -65,6 +65,7 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 - Fetching runs no code of the package fetched.
 - A command fetches everything given entries reach, for a machine that will build without a network. A build told there is none fails where it would fetch.
 - TODO: locking a package in a git repository fetches it, since a snapshot is a hash of its files.
+- TODO: every snapshot a lock holds is fetched when its workspace is opened, reached or not. Only a file named by its digest waits for a build to read it.
 
 ## Vendoring
 
@@ -90,4 +91,4 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 ## Unbuilt
 
 - TODO: git dependencies, the lock, fetching, and vendoring are built, and what [packages](packages.md) says of members. There are no releases, publishers, or registries, so nothing is selected, and no closure is recorded.
-- TODO: a build grant and a build step are taken as soon as they are declared, by a fetched package as by a member.
+- TODO: a build grant, a build step, and a native bundle are taken as soon as they are declared, by a fetched package as by a member.

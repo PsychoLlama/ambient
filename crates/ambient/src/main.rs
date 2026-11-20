@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use ambient::cli::{Cli, Command, Linker, Machine, Session, Unlinked};
 use ambient::host::{System, World};
-use ambient::project::{Disk, Kept, Nowhere, Snapshots};
+use ambient::project::{Disk, Kept, Nowhere, Offline, Snapshots};
 use ambient::store::{DiskStore, MemoryStore, Store};
 use clap::Parser;
 
@@ -44,6 +44,12 @@ fn main() -> ExitCode {
         Some(root) => Box::new(Kept::under(root.join("snapshots"))),
         None => Box::new(Nowhere),
     };
+    let offline = Offline(snapshots.as_ref());
+    let snapshots: &dyn Snapshots = if cli.offline {
+        &offline
+    } else {
+        snapshots.as_ref()
+    };
     // Without somewhere to keep it, nothing is linked.
     let linker: Box<dyn Linker> = match cache() {
         Some(root) => Box::new(Machine::under(root.join("linked"))),
@@ -52,7 +58,7 @@ fn main() -> ExitCode {
     let session = Session {
         files: &Disk,
         store: store.as_ref(),
-        snapshots: snapshots.as_ref(),
+        snapshots,
         world,
         launcher,
         linker: linker.as_ref(),

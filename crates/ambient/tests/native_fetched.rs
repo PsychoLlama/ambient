@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use ambient::backend::native::MACHINE;
 use ambient::cli::{Command, Link, Linker};
 use ambient::hash::Hash;
-use ambient::project::{Commit, Snapshots, Source, digest};
+use ambient::project::{Commit, OFFLINE, Offline, Snapshots, Source, digest};
 use ambient::store::MemoryStore;
 use support::packages::Files;
 use support::scripted::Scripted;
@@ -108,7 +108,7 @@ fn listed() -> Files {
 
 /// What building `entry` of `files` on `mirror` exits with, the
 /// bundles the linker was handed, and what was said went wrong.
-fn built(files: &Files, mirror: &Mirror, entry: &str) -> (i32, Vec<PathBuf>, String) {
+fn built(files: &Files, mirror: &dyn Snapshots, entry: &str) -> (i32, Vec<PathBuf>, String) {
     let build = Command::Build {
         path: PathBuf::from("app"),
         entry: entry.to_owned(),
@@ -199,4 +199,30 @@ fn a_bundle_with_nowhere_to_fetch_it_from_is_said_to_have_none() {
 
     assert_eq!(code, 1);
     assert!(said.contains("nothing says where to fetch"), "{said}");
+}
+
+#[test]
+fn what_was_fetched_beforehand_is_built_with_no_network() {
+    let mirror = serving(BUNDLE);
+    let fetch = Command::Fetch {
+        path: PathBuf::from("app"),
+        entry: Some("main.main".to_owned()),
+        target: None,
+    };
+    let store = MemoryStore::new();
+    let fetched = Scripted::default().execute_from(&listed(), &store, &mirror, &fetch);
+
+    assert_eq!((fetched.0, fetched.1.err.as_str()), (0, ""));
+    assert_eq!(built(&listed(), &Offline(&mirror), "main.main").0, 0);
+    assert_eq!(*mirror.asked.borrow(), [URL]);
+}
+
+#[test]
+fn a_build_with_no_network_fails_where_it_would_fetch() {
+    let mirror = serving(BUNDLE);
+    let (code, _, said) = built(&listed(), &Offline(&mirror), "main.main");
+
+    assert_eq!(code, 1);
+    assert!(said.contains(OFFLINE), "{said}");
+    assert!(mirror.asked.borrow().is_empty());
 }
