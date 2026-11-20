@@ -48,6 +48,9 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A dependency is listed by its local name, with the ID of the package and where it is: a directory, or what [selects](releases.md#selection) a release.
 - A dependency at a directory is on the package there, whose ID must be the one declared. It states no version: the package there is a member, as it is.
 - A file of the package is one under its sources or one its manifest lists. Nothing else in its directory is part of it, and no [comptime](comptime.md) call reads anything else.
+- The manifest may list a file by the digest of its content and somewhere to fetch it from, in place of keeping it. A snapshot covers the digest, so such a file is as fixed as one that is kept.
+- Where a file is fetched from is a hint, as a [snapshot's](releases.md#git-dependencies) is: the digest is what is held to.
+- A member's file listed by digest may also be given a place in its directory. What is there is used as it is, which is how such a file is worked on; with nothing there it is fetched.
 - No package's ID is the standard library's, or the [`system`](targets.md) package's.
 - Every package reaches the standard library under the name `ambient`, and the `system` package under its own, without declaring them.
 
@@ -56,7 +59,8 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - The command line runs a function of a package as a program under the `system` package's command-line [target](targets.md), and exits with what it gives if that is an integer.
 - It may instead be run under a target the package names that extends that one. That is how a program binds a package's [native handler](externs.md), which only a target can.
 - A [fault](values.md) that ends the program is reported as its error: the kind, the message, and the definitions its trace names.
-- Checking a package checks every definition of it and of the packages it depends on, and reports each that is wrong. Each is reported by file, line, and column.
+- Checking a package checks every definition of it, and of the packages it depends on what those reach, and reports each that is wrong. Each is reported by file, line, and column.
+- A definition of a dependency that no member reaches is therefore never read, and can be wrong without anyone who depends on its package being told.
 - Built definitions are kept in one [store](build.md) for every project on the machine, since a definition is kept by its content.
 
 ## Building

@@ -47,7 +47,8 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 
 ## Locks
 
-- A workspace has one lock: each snapshot it builds that is not a member, by package ID, publisher, and version, with where it was fetched from.
+- A workspace has one lock: each snapshot its members' declarations lead to, by package ID, publisher, and version, with where it was fetched from.
+- A lock holds what is declared, whether or not anything reaches it. Naming a dependency in a module therefore never changes a lock, and what a dependency is pinned to was settled when it was declared.
 - A build reads the lock and selects nothing. A declaration the lock does not satisfy is selected for, and the lock written.
 - Every command settles the lock against the declarations of every member: an entry none of them leads to is dropped. Editing a manifest therefore never leaves a workspace that does not build.
 - A lock is a list in a fixed order, one entry to each snapshot a declaration leads to, so that changes made apart merge.
@@ -58,8 +59,12 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 
 ## Fetching
 
-- A machine keeps snapshots by hash in one place, shared by every workspace. Nothing is installed into a workspace.
+- A machine keeps snapshots by hash in one place, shared by every workspace. Nothing is installed into a workspace, and no command installs.
+- A snapshot's files are fetched when a build first reads one of its modules, so a locked package nothing reaches is never fetched.
+- A [file named by its digest](packages.md#layout) is fetched when a build first reads it, and kept by that digest.
 - Fetching runs no code of the package fetched.
+- A command fetches everything given entries reach, for a machine that will build without a network. A build told there is none fails where it would fetch.
+- TODO: locking a package in a git repository fetches it, since a snapshot is a hash of its files.
 
 ## Vendoring
 

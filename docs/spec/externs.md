@@ -70,8 +70,10 @@ An extern is a definition implemented in native code. Ambient declares the inter
 ## Distribution
 
 - A bundle is distributed compiled. Building a program links bundles and runs no code of the package they came with, so nothing a package does to make one happens on the machine of whoever depends on it.
-- A package's manifest names the bundle for each platform it supports by the digest of its content, so a [snapshot](packages.md) fixes native code without holding it.
-- A [build](tools.md#builds) reads only the bundle for the platform it is for.
+- A bundle is a [file named by its digest](packages.md#layout), which the manifest lists for a platform. A [snapshot](packages.md) therefore fixes the native code of every platform without holding any, and a [lock](releases.md#locks) says nothing of platforms.
+- A package has one bundle to a platform. What a program lacks of it costs nothing, so a package is divided only to divide what is fetched.
+- A bundle changes only when its package's snapshot does. Nothing a package brings is run to fetch one, to link one, or after.
+- A [build](tools.md#builds) reads only the bundle for the platform it is for, and only if its entry reaches an extern of the package.
 - Only externs the entry reaches are linked into a program.
 - That a package contains native code needs its workspace's [approval](releases.md#approvals), as its [build grants](comptime.md) do.
 - Definition hashes do not cover native code; a package's snapshot does.
