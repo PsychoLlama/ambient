@@ -22,7 +22,7 @@ A tool is a function a build runs to make something other than a program's defin
 - A definition: its tree, its interface, its [annotations](annotations.md), and its [metadata](trees.md). A module's definitions, and a package's modules.
 - What a definition reaches: its definitions, its externs, and the annotations of a key, [in order](annotations.md#collecting).
 - Compiling an entry under a target for a backend, which gives the module and the externs it imports.
-- An extern's [host code](externs.md#bundles) for a platform, from the package that declares it.
+- An extern's [host code](externs.md#native-bundles) for a platform, from the package that declares it.
 - Running a function under a target, as a memoized run of its own, which gives its result or its fault. It takes what its own package is granted, whoever asked.
 - The bytes at a URL, given their digest. The digest is what is verified, so what was fetched once is never fetched again.
 - The digest of bytes, which is how a tool names what it made.

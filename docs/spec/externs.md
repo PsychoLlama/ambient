@@ -58,24 +58,24 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - A program's native code is fixed when it is built. Nothing native is [loaded](linking.md#loading) into a running program, and none is [sent](exchange.md).
 - A program therefore comes by a new extern only by being built again, while its Ambient code is replaced as it runs.
 
-## Bundles
+## Native bundles
 
 - A native bundle is machine code for one platform: a function for each extern it implements, found by the extern's identity.
-- A bundle is [linked](linking.md#bundles) against the runtime as the runtime's own parts are, so its functions take what the runtime hands native code and give what it expects back.
-- A bundle makes and reads [values](values.md) where they lie, through what the runtime gives any host. Nothing is copied to cross into native code.
-- What a bundle is written against is therefore C's way of calling and nothing of one language. A library over it in a language is a convenience, and no bundle needs one.
-- WebAssembly is a platform like any other: a bundle for it is [linked into the module](targets.md#webassembly-hosts).
-- Host code is what a bundle is called for a platform whose language is not compiled, as JavaScript: it is carried as source, a function for each extern.
+- A native bundle is [linked](linking.md#native-bundles) against the runtime as the runtime's own parts are, so its functions take what the runtime hands native code and give what it expects back.
+- A native bundle makes and reads [values](values.md) where they lie, through what the runtime gives any host. Nothing is copied to cross into native code.
+- What a native bundle is written against is therefore C's way of calling and nothing of one language. A library over it in a language is a convenience, and no native bundle needs one.
+- WebAssembly is a platform like any other: a native bundle for it is [linked into the module](targets.md#webassembly-hosts).
+- Host code is what a native bundle is called for a platform whose language is not compiled, as JavaScript: it is carried as source, a function for each extern.
 
 ## Distribution
 
-- A bundle is distributed compiled. Building a program links bundles and runs no code of the package they came with, so nothing a package does to make one happens on the machine of whoever depends on it.
-- A bundle is a [file named by its digest](packages.md#layout), which the manifest lists for a platform. A [snapshot](packages.md) therefore fixes the native code of every platform without holding any, and a [lock](releases.md#locks) says nothing of platforms.
-- A package has one bundle to a platform. What a program lacks of it costs nothing, so a package is divided only to divide what is fetched.
-- A bundle changes only when its package's snapshot does. Nothing a package brings is run to fetch one, to link one, or after.
-- A [build](tools.md#builds) reads only the bundle for the platform it is for, and only if its entry reaches an extern of the package.
+- A native bundle is distributed compiled. Building a program links native bundles and runs no code of the package they came with, so nothing a package does to make one happens on the machine of whoever depends on it.
+- A native bundle is a [file named by its digest](packages.md#layout), which the manifest lists for a platform. A [snapshot](packages.md) therefore fixes the native code of every platform without holding any, and a [lock](releases.md#locks) says nothing of platforms.
+- A package has one native bundle to a platform. What a program lacks of it costs nothing, so a package is divided only to divide what is fetched.
+- A native bundle changes only when its package's snapshot does. Nothing a package brings is run to fetch one, to link one, or after.
+- A [build](tools.md#builds) reads only the native bundle for the platform it is for, and only if its entry reaches an extern of the package.
 - Only externs the entry reaches are linked into a program.
 - That a package contains native code needs its workspace's [approval](releases.md#approvals), as its [build grants](comptime.md) do.
 - Definition hashes do not cover native code; a package's snapshot does.
-- TODO: a [comptime](comptime.md) call and a [test](packages.md#testing) reach no bundle, since what runs them was linked before the package was known.
-- TODO: no bundle is read; a program reaches only the native code of its [target](targets.md)'s own package.
+- TODO: a [comptime](comptime.md) call and a [test](packages.md#testing) reach no native bundle, since what runs them was linked before the package was known.
+- TODO: no native bundle is read; a program reaches only the native code of its [target](targets.md)'s own package.

@@ -46,17 +46,17 @@ A program carries the code it reaches and nothing else, the [runtime](backends.m
 - Comparing that number before sending code is up to whoever sends it. The language makes no promise across it.
 - Adding a piece does not change the number, so a program that is running can load code that uses operations newer than itself.
 
-## Bundles
+## Native bundles
 
-- A [native bundle](externs.md#bundles) is linked as a piece is: it refers to the pieces of the runtime it calls, and a program carries a function of it only if the program reaches that function's extern.
-- A bundle and the runtime it is linked with must agree on the layout of every value, by the number [loaded code](#loading) is held to. A bundle made for another number is not linked.
-- A change of that number therefore asks every bundle to be made again, and nothing more: no bundle is kept working across it.
-- The runtime is the first bundle. What a package's native code may do to a value is what the runtime's own code may, and nothing checks either.
+- A [native bundle](externs.md#native-bundles) is linked as a piece is: it refers to the pieces of the runtime it calls, and a program carries a function of it only if the program reaches that function's extern.
+- A native bundle and the runtime it is linked with must agree on the layout of every value, by the number [loaded code](#loading) is held to. A native bundle made for another number is not linked.
+- A change of that number therefore asks every native bundle to be made again, and nothing more: no native bundle is kept working across it.
+- What a package's native code may do to a value is what the runtime's own code may, and nothing checks either.
 
 ## Native code
 
-- A native executable is linked from what its program reaches of its host: the pieces of the runtime, the native side of each ability its [target](targets.md) binds, and the functions of bundles.
+- A native executable is linked from what its program reaches of its host: the pieces of the runtime, the native side of each ability its [target](targets.md) binds, and the functions of native bundles.
 - The linker is told what the program reaches and never sees its code. The program is carried as it was compiled, so linking changes no [artifact](build.md).
-- Machine code is linked by the linker of the machine that builds. A program that reaches no bundle needs none.
+- Machine code is linked by the linker of the machine that builds. A program that reaches no native bundle needs none.
 - Loaded code brings no machine code of the runtime, so a native program code can be loaded into holds every piece.
-- TODO: a program that reaches no bundle is put after a host linked ahead of time, which holds every piece and the native side of every ability of the standard target.
+- TODO: a program that reaches no native bundle is put after a host linked ahead of time, which holds every piece and the native side of every ability of the standard target.
