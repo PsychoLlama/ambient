@@ -12,7 +12,7 @@ ambient-native = { path = "crates/ambient-native" }
 ambient-runtime = { path = "crates/ambient-runtime" }
 corosensei = "0.3"
 cranelift-codegen = "0.136"
-cranelift-frontend = "0.136"
+cranelift-frontend = "0.137"
 cranelift-native = "0.136"
 memmap2 = "0.9"
 wasm-encoder = "0.263"
