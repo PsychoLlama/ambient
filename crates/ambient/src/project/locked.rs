@@ -103,11 +103,11 @@ impl Locked {
         }
     }
 
-    /// Whether this is what a declaration of the package `id` at
-    /// `source` leads to: the same, at whatever commit if it says none.
-    fn satisfies(&self, id: &str, source: &Source) -> bool {
+    /// Whether this is what a declaration of `source` leads to: the
+    /// same, at whatever commit if it says none.
+    fn satisfies(&self, source: &Source) -> bool {
         let commit = source.rev.as_ref().or(self.source.rev.as_ref());
-        self.id == id && self.source == source.at(commit.cloned().unwrap_or_default())
+        self.source == source.at(commit.cloned().unwrap_or_default())
     }
 }
 
@@ -153,13 +153,13 @@ impl Lock {
         toml::to_string(&Written { snapshot }).unwrap_or_default()
     }
 
-    /// What is locked for a declaration of the package `id` at
-    /// `source`.
+    /// What is locked for a declaration of `source`, which is where
+    /// the ID of the package it means is held.
     #[must_use]
-    pub fn find(&self, id: &str, source: &Source) -> Option<&Locked> {
+    pub fn find(&self, source: &Source) -> Option<&Locked> {
         self.snapshots
             .iter()
-            .find(|locked| locked.satisfies(id, source))
+            .find(|locked| locked.satisfies(source))
     }
 
     /// Locks `locked`, if it is not locked already.
@@ -360,14 +360,13 @@ mod tests {
     #[test]
     fn a_declaration_finds_what_was_locked_for_it() {
         let lock = lock([locked("a", Some("main"), "11")]);
-        let found = |branch, rev| lock.find("a", &source(branch, rev)).is_some();
+        let found = |branch, rev| lock.find(&source(branch, rev)).is_some();
         // A branch is locked at whatever commit it led to.
         assert!(found(Some("main"), None));
         assert!(!found(Some("next"), None));
         assert!(!found(None, None));
         // A commit is locked only as itself.
         assert!(!found(None, Some("11")));
-        assert!(lock.find("b", &source(Some("main"), None)).is_none());
     }
 
     #[test]

@@ -22,7 +22,7 @@ fn a_package_is_its_manifest_and_a_module_for_each_file() {
     let files = files([
         (
             "app/ambient.toml",
-            "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nwords = { id = \"shout\", path = \"../lib\" }",
+            "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nwords = { path = \"../lib\" }",
         ),
         (
             "app/src/main.ab",

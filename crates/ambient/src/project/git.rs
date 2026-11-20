@@ -6,14 +6,13 @@
 use ambient_host::hash::Hash;
 
 use super::members::manifest;
-use super::{Contents, Dependency, Line, Locked, Opening, ProjectError, Source};
+use super::{Contents, Line, Locked, Opening, ProjectError, Source};
 
 /// A dependency in a git repository, and the package that declares
 /// it.
 pub(super) struct Git<'a> {
     pub package: &'a str,
     pub name: &'a str,
-    pub dependency: &'a Dependency,
     pub source: &'a Source,
 }
 
@@ -36,7 +35,7 @@ impl Opening<'_> {
     /// snapshot the lock holds for it, or the member that stands in
     /// for that.
     pub(super) fn git(&mut self, git: &Git) -> Result<String, ProjectError> {
-        let locked = self.lock.find(&git.dependency.id, git.source);
+        let locked = self.lock.find(git.source);
         let locked = locked.cloned().ok_or_else(|| git.lost())?;
         let standing = self.members.standing(&locked.id, Line::of(&locked.version));
         if let Some(directory) = standing.map(|member| member.directory.clone()) {

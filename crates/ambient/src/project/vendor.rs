@@ -89,7 +89,7 @@ pub fn vendored(
         .package
         .ok_or_else(|| refuse(format!("`{name}` is no package")))?;
     // A copy is somewhere else, and its manifest is not changed.
-    if said.dependencies.values().any(|on| on.path.is_some()) {
+    if said.dependencies.values().any(|on| on.path().is_some()) {
         let reason = format!("`{name}` depends on a package by its directory, so a copy would not");
         return Err(refuse(reason));
     }
@@ -135,14 +135,16 @@ pub fn vendored(
             continue;
         };
         for (local, dependency) in &package.dependencies {
-            let path = dependency.path.as_ref();
+            let path = dependency.path();
             let path = path.map(|path| normal(&dependent.directory.join(path)));
             if !path.is_some_and(|path| Members::same(files, &path, &origin.directory)) {
                 continue;
             }
             let declared = &mut manifests.of(&dependent.directory)?["dependencies"][local];
             if let Some(declared) = declared.as_table_like_mut() {
+                // A member that is nowhere is named by its ID.
                 declared.remove("path");
+                declared.insert("id", value(said.id.as_str()));
                 declared.insert("version", value(said.version.to_string()));
             }
         }

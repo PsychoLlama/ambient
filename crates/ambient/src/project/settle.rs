@@ -62,8 +62,8 @@ enum Stale {
     Nothing,
     /// Every source that moves.
     Every,
-    /// The one source of a package, by its ID.
-    One(String, Source),
+    /// The one source.
+    One(Source),
 }
 
 /// What `update` reads again, for the package at `directory`.
@@ -80,10 +80,9 @@ fn stale(
     };
     let package = &members.at(files, directory)?.package;
     let declared = package.dependencies.get(name);
-    let moving =
-        declared.and_then(|dependency| Some((dependency.id.clone(), dependency.source()?)));
-    match moving.filter(|(_, source)| source.moves()) {
-        Some((id, source)) => Ok(Stale::One(id, source)),
+    let moving = declared.and_then(|dependency| dependency.source());
+    match moving.filter(|source| source.moves()) {
+        Some(source) => Ok(Stale::One(source.clone())),
         None => Err(ProjectError::Fixed {
             package: package.name.clone(),
             name: name.clone(),
@@ -159,10 +158,9 @@ impl Settling<'_> {
                 self.git(&Git {
                     package: &declaring.name,
                     name,
-                    dependency,
-                    source: &source,
+                    source,
                 })?;
-            } else if let Some(path) = dependency.path.as_ref().filter(|_| !declaring.fetched) {
+            } else if let Some(path) = dependency.path().filter(|_| !declaring.fetched) {
                 let path = super::normal(&declaring.directory.join(path));
                 if !self.members.holds(self.files, &path) {
                     let member = self.members.at(self.files, &path)?;
@@ -199,23 +197,22 @@ impl Settling<'_> {
     }
 
     /// Whether what is locked for `source` is passed over.
-    fn stale(&self, id: &str, source: &Source) -> bool {
+    fn stale(&self, source: &Source) -> bool {
         let meant = match &self.stale {
             Stale::Nothing => false,
             Stale::Every => true,
-            Stale::One(one, at) => one == id && at == source,
+            Stale::One(one) => one == source,
         };
         source.moves() && meant
     }
 
     /// What is locked for a dependency: what was, or else the commit
-    /// it leads to now and the snapshot there.
+    /// it leads to now, the snapshot there, and the ID the package
+    /// there says, which is where a declaration's package gets one.
     fn locked(&self, git: &Git) -> Result<Locked, ProjectError> {
-        let Git {
-            dependency, source, ..
-        } = git;
-        let found = |lock: &Lock| lock.find(&dependency.id, source).cloned();
-        let held = || found(self.held).filter(|_| !self.stale(&dependency.id, source));
+        let source = git.source;
+        let found = |lock: &Lock| lock.find(source).cloned();
+        let held = || found(self.held).filter(|_| !self.stale(source));
         if let Some(locked) = found(&self.lock).or_else(held) {
             return Ok(locked);
         }
@@ -235,15 +232,6 @@ impl Settling<'_> {
         let snapshot = snapshot.map_err(|reason| git.refuse(reason))?;
         let kept = self.snapshots.held(&snapshot);
         let said = self.said(git, &kept.ok_or_else(|| git.lost())?)?;
-        if said.id != dependency.id {
-            return Err(ProjectError::Mistaken {
-                package: git.package.to_owned(),
-                name: git.name.to_owned(),
-                path: PathBuf::from(&source.git),
-                declared: format!("package `{}`", dependency.id),
-                found: format!("`{}`", said.id),
-            });
-        }
         Ok(Locked {
             id: said.id,
             version: said.version,

@@ -81,28 +81,59 @@ pub struct Package {
     pub native: BTreeMap<String, Bundle>,
 }
 
-/// A package another depends on: which it is, and where to find it.
-#[derive(Clone, Debug, Deserialize)]
+/// A package another depends on: where it is, or which it is. Only a
+/// package that is nowhere is named by its ID, which every other says
+/// in its own manifest. See "Dependencies" in `docs/spec/packages.md`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Dependency {
+    /// The package at a directory, from the directory of this
+    /// manifest: a member of the workspace, as it is.
+    Path(PathBuf),
+    /// The package in a git repository.
+    Git(Source),
+    /// The package of an ID, which a member of the workspace is.
+    Named {
+        id: String,
+        /// The least version of it that will do, whose line is the one
+        /// meant. See "Selection" in `docs/spec/releases.md`.
+        version: Version,
+    },
+}
+
+impl Dependency {
+    /// The directory the package is at, if the dependency names one.
+    #[must_use]
+    pub fn path(&self) -> Option<&Path> {
+        match self {
+            Self::Path(path) => Some(path),
+            _ => None,
+        }
+    }
+
+    /// Where the package is, if it is in a git repository.
+    #[must_use]
+    pub fn source(&self) -> Option<&Source> {
+        match self {
+            Self::Git(source) => Some(source),
+            _ => None,
+        }
+    }
+}
+
+/// A dependency as it is written: every key any kind of one takes.
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Dependency {
-    /// The ID of the package meant.
-    pub id: String,
-    /// The least version of it that will do, whose line is the one
-    /// meant. See "Selection" in `docs/spec/releases.md`.
-    pub version: Option<Version>,
-    /// Where the package is, from the directory of this manifest. One
-    /// that is nowhere is a member of the workspace.
-    pub path: Option<PathBuf>,
-    /// The git repository the package is in.
-    pub git: Option<String>,
-    /// The branch of it that is meant.
-    pub branch: Option<String>,
-    /// The tag of it that is meant.
-    pub tag: Option<String>,
-    /// The commit of it that is meant, written out whole.
-    pub rev: Option<String>,
+struct Declared {
+    id: Option<String>,
+    version: Option<Version>,
+    path: Option<PathBuf>,
+    git: Option<String>,
+    branch: Option<String>,
+    tag: Option<String>,
+    /// A commit, written out whole.
+    rev: Option<String>,
     /// The package's directory in the repository, if not its top.
-    pub directory: Option<PathBuf>,
+    directory: Option<PathBuf>,
 }
 
 /// Whether a path names something under where it starts.
@@ -111,50 +142,59 @@ fn inside(path: &Path) -> bool {
     !path.as_os_str().is_empty() && path.components().all(part)
 }
 
-impl Dependency {
-    /// Where the package is, if it is in a git repository.
-    #[must_use]
-    pub fn source(&self) -> Option<Source> {
-        Some(Source {
-            git: self.git.clone()?,
-            branch: self.branch.clone(),
-            tag: self.tag.clone(),
-            rev: self.rev.clone(),
-            directory: self.directory.clone().unwrap_or_default(),
-        })
-    }
-
-    /// What is wrong with how the dependency says where its package
-    /// is, if anything.
-    fn wrong(&self) -> Option<&'static str> {
-        let whole = |rev: &String| {
-            let digit = |byte: u8| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte);
-            matches!(rev.len(), 40 | 64) && rev.bytes().all(digit)
-        };
+impl Declared {
+    /// The dependency this says, or what is wrong with how it says
+    /// where its package is.
+    fn read(self) -> Result<Dependency, &'static str> {
         let states = [&self.branch, &self.tag, &self.rev];
         let states = states.into_iter().flatten().count();
-        let outside = self.directory.as_deref().is_some_and(|path| !inside(path));
-        match &self.git {
-            Some(_) if self.path.is_some() => Some("says both a `path` and a `git`"),
+        match (self.git, self.path) {
+            (Some(_), Some(_)) => Err("says both a `path` and a `git`"),
             // Nothing is selected among a repository's versions.
-            Some(_) if self.version.is_some() => Some("says both a `version` and a `git`"),
-            Some(_) if states > 1 => Some("says more than one of a `branch`, a `tag`, and a `rev`"),
-            // A name that moves is a branch or a tag.
-            Some(_) if self.rev.as_ref().is_some_and(|rev| !whole(rev)) => {
-                Some("says a `rev` that is not a whole commit")
+            (Some(_), _) if self.version.is_some() => Err("says both a `version` and a `git`"),
+            // The package there says its own.
+            (Some(_), _) if self.id.is_some() => Err("says both an `id` and a `git`"),
+            (Some(_), _) if states > 1 => {
+                Err("says more than one of a `branch`, a `tag`, and a `rev`")
             }
-            Some(_) if outside => Some("says a `directory` that is not in the repository"),
+            (Some(git), _) => {
+                let source = Source {
+                    git,
+                    branch: self.branch,
+                    tag: self.tag,
+                    rev: self.rev,
+                    directory: self.directory.unwrap_or_default(),
+                };
+                wrong(&source).map_or(Ok(Dependency::Git(source)), Err)
+            }
+            (None, _) if states > 0 => Err("says a `branch`, a `tag`, or a `rev`, and no `git`"),
+            (None, _) if self.directory.is_some() => Err("says a `directory` and no `git`"),
             // The package at a directory is a member, as it is.
-            None if self.path.is_some() && self.version.is_some() => {
-                Some("says both a `path` and a `version`")
-            }
-            None if states > 0 => Some("says a `branch`, a `tag`, or a `rev`, and no `git`"),
-            None if self.directory.is_some() => Some("says a `directory` and no `git`"),
-            None if self.path.is_none() && self.version.is_none() => {
-                Some("says neither a `path`, a `version`, nor a `git`")
-            }
-            _ => None,
+            (None, Some(_)) if self.version.is_some() => Err("says both a `path` and a `version`"),
+            (None, Some(_)) if self.id.is_some() => Err("says both an `id` and a `path`"),
+            (None, Some(path)) => Ok(Dependency::Path(path)),
+            (None, None) => match (self.id, self.version) {
+                (Some(id), Some(version)) => Ok(Dependency::Named { id, version }),
+                (None, Some(_)) => Err("says a `version` and no `id`"),
+                (_, None) => Err("says neither a `path`, a `version`, nor a `git`"),
+            },
         }
+    }
+}
+
+/// What is wrong with how a declaration says the state of its
+/// repository, if anything.
+fn wrong(source: &Source) -> Option<&'static str> {
+    let digit = |byte: u8| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte);
+    let whole = |rev: &String| matches!(rev.len(), 40 | 64) && rev.bytes().all(digit);
+    let top = source.directory.as_os_str().is_empty();
+    match &source.rev {
+        // A name that moves is a branch or a tag.
+        Some(rev) if !whole(rev) => Some("says a `rev` that is not a whole commit"),
+        _ if !top && !inside(&source.directory) => {
+            Some("says a `directory` that is not in the repository")
+        }
+        _ => None,
     }
 }
 
@@ -168,7 +208,7 @@ struct Written {
     #[serde(default)]
     preludes: Vec<String>,
     #[serde(default)]
-    dependencies: BTreeMap<String, Dependency>,
+    dependencies: BTreeMap<String, Declared>,
     #[serde(default)]
     grants: Vec<String>,
     #[serde(default)]
@@ -205,13 +245,19 @@ impl Manifest {
     pub fn read(text: &str) -> Result<Self, String> {
         let written: Written = toml::from_str(text).map_err(|error| error.message().to_owned())?;
         let (members, vendored) = (written.members, written.vendored);
+        let mut dependencies = BTreeMap::new();
+        for (name, declared) in written.dependencies {
+            let read = declared.read();
+            let read = read.map_err(|wrong| format!("the dependency `{name}` {wrong}"))?;
+            dependencies.insert(name, read);
+        }
         let package = match (written.name, written.id, written.version) {
             (Some(name), Some(id), Some(version)) => Some(Package {
                 name,
                 id,
                 version,
                 preludes: written.preludes,
-                dependencies: written.dependencies,
+                dependencies,
                 grants: written.grants,
                 files: written.files,
                 steps: written.steps,
@@ -228,11 +274,6 @@ impl Manifest {
                 return Err(format!("a package's manifest says its `{missing}`"));
             }
         };
-        for (name, dependency) in package.iter().flat_map(|package| &package.dependencies) {
-            if let Some(wrong) = dependency.wrong() {
-                return Err(format!("the dependency `{name}` {wrong}"));
-            }
-        }
         for (platform, bundle) in package.iter().flat_map(|package| &package.native) {
             if let Some(wrong) = bundle.wrong() {
                 return Err(format!("the native bundle for `{platform}` {wrong}"));
@@ -325,16 +366,31 @@ mod tests {
     fn a_dependency_says_where_it_is_or_which_version() {
         let package = "name = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n[dependencies]\n";
         let read = |dependency: &str| Manifest::read(&format!("{package}{dependency}")).err();
-        assert_eq!(read("b = { id = \"b\", path = \"../b\" }"), None);
+        let said = |wrong: &str| Some(format!("the dependency `b` says {wrong}"));
+        assert_eq!(read("b = { path = \"../b\" }"), None);
         assert_eq!(read("b = { id = \"b\", version = \"2.1.0\" }"), None);
         assert_eq!(
-            read("b = { id = \"b\", version = \"2.1.0\", path = \"../b\" }"),
-            Some("the dependency `b` says both a `path` and a `version`".to_owned())
+            read("b = { version = \"2.1.0\", path = \"../b\" }"),
+            said("both a `path` and a `version`")
+        );
+        assert_eq!(
+            read("b = { version = \"2.1.0\" }"),
+            said("a `version` and no `id`")
         );
         assert_eq!(
             read("b = { id = \"b\" }"),
-            Some("the dependency `b` says neither a `path`, a `version`, nor a `git`".to_owned())
+            said("neither a `path`, a `version`, nor a `git`")
         );
+    }
+
+    #[test]
+    fn a_dependency_that_says_where_its_package_is_says_no_id() {
+        let package = "name = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n[dependencies]\n";
+        let read =
+            |found: &str| Manifest::read(&format!("{package}b = {{ id = \"b\", {found} }}")).err();
+        let said = |wrong: &str| Some(format!("the dependency `b` says {wrong}"));
+        assert_eq!(read("path = \"../b\""), said("both an `id` and a `path`"));
+        assert_eq!(read("git = \"url\""), said("both an `id` and a `git`"));
     }
 
     #[test]
@@ -343,7 +399,7 @@ mod tests {
         let rev = "0123456789abcdef0123456789abcdef01234567";
         let read = |found: &str| {
             let found = found.replace("REV", rev);
-            let read = Manifest::read(&format!("{package}b = {{ id = \"b\", {found} }}"));
+            let read = Manifest::read(&format!("{package}b = {{ {found} }}"));
             read.err()
                 .map(|said| said.replace("the dependency `b` says ", ""))
         };

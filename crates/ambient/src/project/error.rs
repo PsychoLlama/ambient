@@ -67,15 +67,6 @@ pub enum ProjectError {
         id: String,
         line: Line,
     },
-    /// A dependency says one thing of a package, and the package at
-    /// the directory it names says another.
-    Mistaken {
-        package: String,
-        name: String,
-        path: PathBuf,
-        declared: String,
-        found: String,
-    },
     /// A pinned dependency could not be fetched.
     Fetch {
         package: String,
@@ -160,17 +151,6 @@ impl fmt::Display for ProjectError {
                 f,
                 "{package}: the dependency `{name}` is on package `{id}` in the version line `{line}`, \
                  which no member of the workspace is"
-            ),
-            Self::Mistaken {
-                package,
-                name,
-                path,
-                declared,
-                found,
-            } => write!(
-                f,
-                "{package}: the dependency `{name}` says {declared}, and the package at {} is {found}",
-                path.display()
             ),
             Self::Fetch {
                 package,

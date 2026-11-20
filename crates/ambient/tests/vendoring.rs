@@ -16,7 +16,7 @@ const SEVEN: &str = "pub fn seven(): int => 7;";
 /// An `app` whose `main` gives what `seven` of the package it calls
 /// `numbers` gives, which is at `../far/numbers`.
 fn app() -> Package {
-    let app = package("app", "app").on("numbers", "n", "path = \"../far/numbers\"");
+    let app = package("app", "app").on("numbers", "path = \"../far/numbers\"");
     app.library(
         "use numbers.seven;
         pub fn main(): int => seven();",
@@ -104,11 +104,11 @@ fn a_copy_goes_to_the_workspace_and_every_member_that_was_opened_depends_on_it()
     // too.
     let far = "path = \"../../far/numbers\"";
     let twice = package("work/twice", "t")
-        .on("n", "n", far)
+        .on("n", far)
         .library("use n.seven; pub fn fourteen(): int => seven() + seven();");
     let app = package("work/app", "app")
-        .on("numbers", "n", far)
-        .on("twice", "t", "version = \"1.0.0\"")
+        .on("numbers", far)
+        .named("twice", "t", "1.0.0")
         .library(
             "use numbers.seven; use twice.fourteen;
             pub fn main(): int => seven() + fourteen();",
@@ -136,7 +136,7 @@ fn a_copy_goes_to_the_workspace_and_every_member_that_was_opened_depends_on_it()
 #[test]
 fn a_package_is_vendored_once_and_only_from_outside_the_workspace() {
     let refused = |files: Files| vendored(files).unwrap_err();
-    let inside = app().on("near", "m", "path = \"../near\"");
+    let inside = app().on("near", "path = \"../near\"");
     let near = package("near", "m").library(SEVEN);
     let listed = files(Some(&["app", "near"]), [inside, near, numbers()]);
     let near = Command::Vendor {
@@ -156,7 +156,7 @@ fn a_package_is_vendored_once_and_only_from_outside_the_workspace() {
 
 #[test]
 fn a_package_that_names_a_directory_is_not_copied_away_from_it() {
-    let numbers = numbers().on("other", "o", "path = \"../other\"");
+    let numbers = numbers().on("other", "path = \"../other\"");
     let other = package("far/other", "o");
 
     assert_eq!(

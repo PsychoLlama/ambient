@@ -50,8 +50,8 @@ fn workspace(step: &str, app: &str) -> BTreeMap<PathBuf, String> {
     let manifest = |name: &str, rest: &str| {
         format!("name = \"{name}\"\nid = \"{name}\"\nversion = \"0.1.0\"\n{rest}")
     };
-    let web = "[dependencies]\nweb = { id = \"web\", path = \"../web\" }";
-    let both = format!("{web}\nstyles = {{ id = \"styles\", path = \"../styles\" }}");
+    let web = "[dependencies]\nweb = { path = \"../web\" }";
+    let both = format!("{web}\nstyles = {{ path = \"../styles\" }}");
     let files = [
         ("web/ambient.toml", manifest("web", "")),
         ("web/src/lib.ab", WEB.to_owned()),

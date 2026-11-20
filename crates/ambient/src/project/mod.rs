@@ -308,21 +308,29 @@ impl Opening<'_> {
         // A package that depends on this one finds it open already,
         // so packages may depend on each other.
         for (local, dependency) in &manifest.dependencies {
-            let package = match dependency.source() {
-                Some(source) => self.git(&Git {
+            let package = match dependency {
+                Dependency::Git(source) => self.git(&Git {
                     package: &name,
                     name: local,
-                    dependency,
-                    source: &source,
+                    source,
                 })?,
                 // A snapshot is whole: nothing is beside it.
-                None if snapshot.is_some() && dependency.path.is_some() => {
+                Dependency::Path(_) if snapshot.is_some() => {
                     let reason = format!("the dependency `{local}` names a directory");
                     return Err(ProjectError::Manifest { path, reason });
                 }
-                None => {
-                    let target = self.target(&name, &directory, local, dependency)?;
-                    self.member(&target)?
+                Dependency::Path(at) => self.member(&normal(&directory.join(at)))?,
+                Dependency::Named { id, version } => {
+                    let line = Line::of(version);
+                    let standing = self.members.standing(id, line);
+                    let standing = standing.map(|member| member.directory.clone());
+                    let standing = standing.ok_or_else(|| ProjectError::Absent {
+                        package: name.clone(),
+                        name: local.clone(),
+                        id: id.clone(),
+                        line,
+                    })?;
+                    self.member(&standing)?
                 }
             };
             self.workspace
@@ -347,43 +355,6 @@ impl Opening<'_> {
             self.workspace.lint(&name, tool);
         }
         Ok(name)
-    }
-
-    /// Where the package a dependency of `package` means is: the
-    /// directory it names, or the member that stands in for it.
-    fn target(
-        &mut self,
-        package: &str,
-        directory: &Path,
-        name: &str,
-        dependency: &Dependency,
-    ) -> Result<PathBuf, ProjectError> {
-        let Some(path) = &dependency.path else {
-            // A manifest is not read without one or the other.
-            let least = dependency.version.clone().unwrap_or(Version::new(0, 0, 0));
-            let line = Line::of(&least);
-            let standing = self.members.standing(&dependency.id, line);
-            return standing
-                .map(|member| member.directory.clone())
-                .ok_or_else(|| ProjectError::Absent {
-                    package: package.to_owned(),
-                    name: name.to_owned(),
-                    id: dependency.id.clone(),
-                    line,
-                });
-        };
-        let path = normal(&directory.join(path));
-        let found = &self.members.at(self.files, &path)?.package;
-        if found.id != dependency.id {
-            return Err(ProjectError::Mistaken {
-                package: package.to_owned(),
-                name: name.to_owned(),
-                declared: format!("package `{}`", dependency.id),
-                found: format!("`{}`", found.id),
-                path,
-            });
-        }
-        Ok(path)
     }
 
     /// Reads every source file of a package into the workspace.

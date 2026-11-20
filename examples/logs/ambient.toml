@@ -3,4 +3,4 @@ id = "9d41c7e2b05f4a3c8e6f1a2b7c3d5e90"
 version = "0.1.0"
 
 [dependencies]
-logging = { id = "c4a81f09d6b74e2f9a3570be1d28c6e5", path = "../../packages/logging" }
+logging = { path = "../../packages/logging" }

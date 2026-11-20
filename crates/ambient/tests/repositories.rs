@@ -17,7 +17,7 @@ const SEVEN: &str = "pub fn seven(): int => 7;";
 /// An `app` whose `main` gives what `seven` of the package it calls
 /// `numbers` gives, which it pins at the commit `rev`.
 fn app(rev: &str) -> Package {
-    let app = package("app", "app").on("numbers", "n", &pinned(GIT, rev));
+    let app = package("app", "app").on("numbers", &pinned(GIT, rev));
     app.library(
         "use numbers.seven;
         pub fn main(): int => seven();",
@@ -149,7 +149,7 @@ fn a_pin_that_changes_is_fetched_and_locked_in_place_of_the_old_one() {
 fn a_lock_holds_what_every_member_declares_and_nothing_else() {
     // `app` pins one commit and `tool`, which it never opens, another.
     let two = package("two", "n").library(SEVEN);
-    let tool = package("tool", "tool").on("numbers", "n", &pinned(GIT, &rev('2')));
+    let tool = package("tool", "tool").on("numbers", &pinned(GIT, &rev('2')));
     let members = Some(&["app", "tool"][..]);
     let files = files(members, [app(&rev('1')), tool, numbers("one"), two]);
     let both = remote(&files).written(&run()).unwrap();
@@ -167,7 +167,7 @@ fn a_lock_holds_what_every_member_declares_and_nothing_else() {
 /// An `app` on the branch `main` of `numbers`, and `numbers` as it is
 /// at two commits: one that gives 7 and one that gives 70.
 fn following() -> Files {
-    let app = package("app", "app").on("numbers", "n", &branch(GIT, "main"));
+    let app = package("app", "app").on("numbers", &branch(GIT, "main"));
     let app = app.library("use numbers.seven; pub fn main(): int => seven();");
     let two = package("two", "n").library("pub fn seven(): int => 70;");
     files(None, [app, numbers("one"), two])
@@ -230,7 +230,7 @@ fn an_update_is_of_a_dependency_that_moves() {
 fn two_pins_of_one_package_are_two_instances() {
     let two = package("two", "n").library("pub fn seventy(): int => 70;");
     let app = app(&rev('1'))
-        .on("numbers_next", "n", &pinned(GIT, &rev('2')))
+        .on("numbers_next", &pinned(GIT, &rev('2')))
         .library(
             "use numbers.seven; use numbers_next.seventy;
             pub fn main(): int => seven() + seventy();",
@@ -241,17 +241,10 @@ fn two_pins_of_one_package_are_two_instances() {
 }
 
 #[test]
-fn a_pin_must_be_of_the_package_it_says() {
-    let other = package("one", "m").library(SEVEN);
-    let files = files(None, [app(&rev('1')), other]);
-
-    assert_eq!(
-        ran(&remote(&files)),
-        Err(format!(
-            "error: app: the dependency `numbers` says package `n`, \
-             and the package at {GIT} is `m`\n"
-        ))
-    );
+fn a_lock_holds_the_id_the_package_in_a_repository_says() {
+    // No declaration says one, so a member stands in by what is held.
+    let lock = &locked(&pinning())[&PathBuf::from("app/ambient.lock")];
+    assert!(lock.contains("id = \"n\""), "{lock}");
 }
 
 #[test]
@@ -269,7 +262,7 @@ fn a_dependency_that_cannot_be_fetched_is_reported() {
 
 #[test]
 fn a_fetched_package_names_no_directory() {
-    let numbers = numbers("one").on("other", "o", "path = \"../other\"");
+    let numbers = numbers("one").on("other", "path = \"../other\"");
     let files = files(None, [app(&rev('1')), numbers, package("other", "o")]);
 
     assert_eq!(
@@ -282,9 +275,9 @@ fn a_fetched_package_names_no_directory() {
 fn a_fetched_package_pins_what_it_depends_on_into_the_same_lock() {
     let far = "https://example.com/far";
     let twice = package("one", "t")
-        .on("n", "n", &pinned(far, &rev('5')))
+        .on("n", &pinned(far, &rev('5')))
         .library("use n.seven; pub fn fourteen(): int => seven() + seven();");
-    let app = package("app", "app").on("twice", "t", &pinned(GIT, &rev('1')));
+    let app = package("app", "app").on("twice", &pinned(GIT, &rev('1')));
     let app = app.library("use twice.fourteen; pub fn main(): int => fourteen();");
     let files = files(None, [app, twice, numbers("five")]);
     let commits = [(GIT, &*rev('1'), "one"), (far, &*rev('5'), "five")];

@@ -82,7 +82,7 @@ fn opened(scratch: &Scratch, state: &str) -> Project {
     let repo = scratch.0.join("repo");
     let manifest = format!(
         "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n[dependencies]\n\
-         numbers = {{ id = \"n\", git = \"{}\", {state} directory = \"packages/numbers\" }}",
+         numbers = {{ git = \"{}\", {state} directory = \"packages/numbers\" }}",
         repo.display()
     );
     scratch.write("app/ambient.toml", &manifest);
@@ -160,7 +160,7 @@ fn a_branch_a_repository_lacks_is_reported() {
         "app/ambient.toml",
         &format!(
             "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n[dependencies]\n\
-             numbers = {{ id = \"n\", git = \"{}\", branch = \"absent\" }}",
+             numbers = {{ git = \"{}\", branch = \"absent\" }}",
             scratch.0.join("repo").display()
         ),
     );

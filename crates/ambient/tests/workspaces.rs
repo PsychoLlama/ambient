@@ -27,7 +27,7 @@ fn a_member_stands_in_for_a_dependency_on_its_package() {
     let files = files(
         Some(&["app", "kept/numbers"]),
         [
-            app().on("numbers", "n", "version = \"1.0.0\""),
+            app().named("numbers", "n", "1.0.0"),
             package("kept/numbers", "n").library(SEVEN),
         ],
     );
@@ -40,11 +40,11 @@ fn a_package_at_a_directory_a_member_depends_on_is_a_member_too() {
     // `numbers` is listed nowhere, and stands in for `twice`'s
     // dependency all the same.
     let twice = package("twice", "t")
-        .on("n", "n", "version = \"1.0.0\"")
+        .named("n", "n", "1.0.0")
         .library("use n.seven; pub fn fourteen(): int => seven() + seven();");
     let app = app()
-        .on("numbers", "n", "path = \"../numbers\"")
-        .on("twice", "t", "path = \"../twice\"")
+        .on("numbers", "path = \"../numbers\"")
+        .on("twice", "path = \"../twice\"")
         .library(
             "use numbers.seven; use twice.fourteen;
             pub fn main(): int => seven() + fourteen();",
@@ -56,17 +56,15 @@ fn a_package_at_a_directory_a_member_depends_on_is_a_member_too() {
 
 #[test]
 fn packages_may_depend_on_each_other() {
-    let even = package("even", "e")
-        .on("odd", "o", "path = \"../odd\"")
-        .library(
-            "use odd.is_odd;
+    let even = package("even", "e").on("odd", "path = \"../odd\"").library(
+        "use odd.is_odd;
             pub fn is_even(n: int): bool {
                 if n == 0 { return true; }
                 return is_odd(n - 1);
             }",
-        );
+    );
     let odd = package("odd", "o")
-        .on("even", "e", "path = \"../even\"")
+        .on("even", "path = \"../even\"")
         .library(
             "use even.is_even;
             pub fn is_odd(n: int): bool {
@@ -75,7 +73,7 @@ fn packages_may_depend_on_each_other() {
             }",
         );
     let app = package("app", "app")
-        .on("even", "e", "path = \"../even\"")
+        .on("even", "path = \"../even\"")
         .library(
             "use even.is_even;
             pub fn main(): int {
@@ -91,8 +89,8 @@ fn packages_may_depend_on_each_other() {
 /// each of two versions, and a member is at each.
 fn side_by_side(old: &str, new: &str) -> Result<i32, String> {
     let app = package("app", "app")
-        .on("numbers", "n", &format!("version = \"{old}\""))
-        .on("numbers_next", "n", &format!("version = \"{new}\""))
+        .named("numbers", "n", old)
+        .named("numbers_next", "n", new)
         .library(
             "use numbers.seven; use numbers_next.seventy;
             pub fn main(): int => seven() + seventy();",
@@ -117,8 +115,8 @@ fn exchanged(old: &str, new: &str) -> Result<i32, String> {
         pub fn meters(n: int): int & Meters => Meters(n);
         pub fn length(m: int & Meters): int => m;";
     let app = package("app", "app")
-        .on("units", old, "version = \"1.0.0\"")
-        .on("units_next", new, "version = \"2.0.0\"")
+        .named("units", old, "1.0.0")
+        .named("units_next", new, "2.0.0")
         .library(
             "use units.meters; use units_next.length;
             pub fn main(): int => length(meters(7));",
@@ -149,26 +147,12 @@ fn a_dependency_no_member_stands_in_for_is_refused() {
     let numbers = Package::versioned("numbers", "n", "2.0.0").library(SEVEN);
     let files = files(
         Some(&["app", "numbers"]),
-        [app().on("numbers", "n", "version = \"1.0.0\""), numbers],
+        [app().named("numbers", "n", "1.0.0"), numbers],
     );
 
     let said = "error: app: the dependency `numbers` is on package `n` in the version line `1`, \
                 which no member of the workspace is\n";
     assert_eq!(ran(&files), Err(said.to_owned()));
-}
-
-#[test]
-fn a_dependency_at_a_directory_is_on_the_package_it_says() {
-    let run = |declared: &str| {
-        let numbers = Package::versioned("numbers", "n", "1.2.0").library(SEVEN);
-        let app = app().on("numbers", declared, "path = \"../numbers\"");
-        ran(&files(None, [app, numbers]))
-    };
-
-    assert_eq!(run("n"), Ok(7));
-    let said = "error: app: the dependency `numbers` says package `m`, \
-                and the package at numbers is `n`\n";
-    assert_eq!(run("m"), Err(said.to_owned()));
 }
 
 #[test]
@@ -178,7 +162,7 @@ fn a_workspace_that_does_not_list_a_package_is_not_its_workspace() {
     let files = files(
         Some(&["numbers"]),
         [
-            app().on("numbers", "n", "version = \"1.0.0\""),
+            app().named("numbers", "n", "1.0.0"),
             package("numbers", "n").library(SEVEN),
         ],
     );
@@ -262,12 +246,12 @@ fn added(files: Files, on: &str, name: Option<&str>) -> Result<Files, String> {
 }
 
 #[test]
-fn adding_a_dependency_writes_what_the_package_says_of_itself() {
+fn adding_a_dependency_writes_where_the_package_is_under_its_name() {
     let numbers = Package::versioned("kept/numbers", "n", "1.2.0").library(SEVEN);
     let files = added(files(None, [app(), numbers]), "kept/numbers", None).unwrap();
 
     let manifest = &files[&PathBuf::from("app/ambient.toml")];
-    let written = "numbers = { id = \"n\", path = \"../kept/numbers\" }\n";
+    let written = "numbers = { path = \"../kept/numbers\" }\n";
     assert!(manifest.ends_with(written), "{manifest}");
     assert_eq!(ran(&files), Ok(7));
 }
@@ -288,7 +272,7 @@ fn a_dependency_is_added_under_the_name_asked_for() {
 
 #[test]
 fn a_dependency_is_not_added_over_another() {
-    let app = app().on("numbers", "n", "path = \"../numbers\"");
+    let app = app().on("numbers", "path = \"../numbers\"");
     let files = files(None, [app, package("numbers", "n").library(SEVEN)]);
 
     assert_eq!(

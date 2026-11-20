@@ -131,7 +131,7 @@ fn target() -> BTreeMap<PathBuf, String> {
 fn build(output: &Path) {
     let manifest = format!(
         "name = \"app\"\nid = \"{PACKAGE}\"\nversion = \"0.1.0\"\nfiles = [\"js\"]\n\
-         [dependencies]\njs = {{ id = \"7c1e4b9a02d84f6e9b35a1c8d07e6f24\", path = \"../js\" }}"
+         [dependencies]\njs = {{ path = \"../js\" }}"
     );
     let mut files = target();
     for (path, text) in [

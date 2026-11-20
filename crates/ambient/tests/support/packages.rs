@@ -39,12 +39,18 @@ impl Package {
         }
     }
 
-    /// Depends on the package `id` as `name`, `found` saying where it
-    /// is or which version: `path = ".."` or `version = ".."`.
-    pub fn on(mut self, name: &str, id: &str, found: &str) -> Self {
-        let dependency = format!("{name} = {{ id = \"{id}\", {found} }}\n");
+    /// Depends as `name` on the package `found` says the place of:
+    /// `path = ".."`, or a git repository.
+    pub fn on(mut self, name: &str, found: &str) -> Self {
+        let dependency = format!("{name} = {{ {found} }}\n");
         self.manifest.push_str(&dependency);
         self
+    }
+
+    /// Depends as `name` on the package `id`, which is nowhere: a
+    /// member at `version` or past it.
+    pub fn named(self, name: &str, id: &str, version: &str) -> Self {
+        self.on(name, &format!("id = \"{id}\", version = \"{version}\""))
     }
 
     /// Has `source` for its library module.

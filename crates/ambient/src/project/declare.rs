@@ -1,6 +1,5 @@
-//! Writing a dependency into a manifest, so that an ID is copied by
-//! the command and never by hand. See "Dependencies" in
-//! `docs/spec/packages.md`.
+//! Writing a dependency into a manifest: the directory of a package,
+//! under a name. See "Dependencies" in `docs/spec/packages.md`.
 
 use std::path::Path;
 
@@ -45,7 +44,6 @@ pub fn declared(
         .map(|part| part.to_string_lossy().into_owned())
         .collect();
     let mut dependency = InlineTable::new();
-    dependency.insert("id", package.id.into());
     dependency.insert("path", leads.join("/").into());
 
     let text = files
