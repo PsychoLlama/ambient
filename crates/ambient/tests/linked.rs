@@ -25,7 +25,8 @@ const ID: &str = "0123456789abcdef0123456789abcdef";
 
 /// A package whose `main` gives what a function of its bundle gives.
 /// Nothing reaches `absent`, and the bundle has no function for it.
-/// Its target `world` binds an ability to a handler of the bundle.
+/// Its target `world` binds an ability to a handler of the bundle,
+/// and another to one a thread of the bundle answers.
 const SOURCE: &str = "use system.{cli};
 
 extern fn double(n: int): int;
@@ -37,10 +38,14 @@ pub fn main(): int => double(21);
 
 pub ability triple(n: int): int;
 extern handler tripled for triple;
-pub target world extends cli { triple: tripled }
+pub ability later(n: int): int;
+extern handler(suspending) answered for later;
+pub target world extends cli { triple: tripled, later: answered }
 pub target apart { triple: tripled }
 
 pub fn tripling(): int with triple => triple!(14);
+
+pub fn waiting(): int with later => later!(40) + later!(1) + 1;
 ";
 
 /// A directory of this test's own, removed when it is dropped.
@@ -90,8 +95,32 @@ fn header(scratch: &Scratch) -> String {
 /// header.
 fn bundle(scratch: &Scratch, told: fn(String) -> String) {
     let (double, tripled) = (symbol(ID, "main.double"), symbol(ID, "main.tripled"));
+    let answered = symbol(ID, "main.answered");
     let source = format!(
         "#include \"ambient.h\"
+#include <pthread.h>
+#include <stdlib.h>
+struct wait {{ uint64_t ticket; int64_t number; }};
+static uint64_t made(void *data) {{
+  struct wait *wait = data;
+  uint64_t answer = amb_int_new(wait->number);
+  free(wait);
+  return answer;
+}}
+static void *answering(void *data) {{
+  struct wait *wait = data;
+  if (!amb_bundle_answer(wait->ticket, made, wait)) free(wait);
+  return 0;
+}}
+uint64_t {answered}(struct amb_call *call, uint64_t args) {{
+  struct wait *wait = malloc(sizeof *wait);
+  pthread_t thread;
+  wait->number = amb_int_value(amb_word_at(args, 0));
+  wait->ticket = amb_bundle_later(call);
+  pthread_create(&thread, 0, answering, wait);
+  pthread_detach(thread);
+  return AMB_NULL;
+}}
 uint64_t {double}(struct amb_call *call, uint64_t args) {{
   return amb_int_new(amb_int_value(amb_word_at(args, 0)) * 2);
 }}
@@ -170,6 +199,19 @@ fn a_target_of_the_package_binds_a_handler_of_its_bundle() {
     let run = Command::Run {
         path: scratch.0.join("app"),
         entry: "main.tripling".to_owned(),
+        target: Some("main.world".to_owned()),
+        args: Vec::new(),
+    };
+
+    assert_eq!(executed(&scratch, &run), 42);
+}
+
+#[test]
+fn a_thread_of_a_bundle_answers_a_task_that_waits() {
+    let scratch = Scratch::new();
+    let run = Command::Run {
+        path: scratch.0.join("app"),
+        entry: "main.waiting".to_owned(),
         target: Some("main.world".to_owned()),
         args: Vec::new(),
     };

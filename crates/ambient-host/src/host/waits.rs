@@ -7,11 +7,12 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use super::Command;
 use super::http::{self, Incoming, Request, Response};
 use super::{Failure, PACKAGE, Ran, World, error, optional, output};
-use crate::native::{Answer, Waits};
+use crate::native::{Answer, Posts, Waits};
 use crate::value::Value;
 
 /// Something a world is asked to begin.
@@ -82,6 +83,10 @@ impl Waits for Outcomes {
 
     fn forsake(&mut self, ticket: u64) {
         self.0.borrow_mut().forsake(ticket);
+    }
+
+    fn attend(&mut self, posts: Arc<Posts>) {
+        self.0.borrow_mut().attend(posts);
     }
 
     /// What a handle stood for is given up with it: a server stops

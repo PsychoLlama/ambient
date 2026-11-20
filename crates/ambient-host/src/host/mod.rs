@@ -187,6 +187,10 @@ pub trait World {
     /// Stops the work of `ticket`, if it can be stopped: nothing waits
     /// for it any more.
     fn forsake(&mut self, ticket: u64);
+
+    /// Hands over what threads of native bundles post for the
+    /// program: see [`crate::native::Waits::attend`].
+    fn attend(&mut self, _posts: std::sync::Arc<crate::native::Posts>) {}
 }
 
 /// The error a failure is, as `ambient.Error` describes one: its kind

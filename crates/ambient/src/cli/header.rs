@@ -27,6 +27,8 @@ fn named(rust: &str) -> Option<&'static str> {
         "*constu8" => "const uint8_t *",
         "*constWord" => "const uint64_t *",
         "*mutCall" => "struct amb_call *",
+        "Make" => "amb_make",
+        "*mutData" => "void *",
         _ => return None,
     })
 }
@@ -62,6 +64,9 @@ pub fn header(id: &str, externs: &[String]) -> String {
          #ifndef AMBIENT_H\n#define AMBIENT_H\n#include <stdint.h>\n\n\
          // The call a function is in: what the `amb_bundle_` entries take.\n\
          struct amb_call;\n\n\
+         // What makes the answer to a wait, on the program's thread, of\n\
+         // what a thread of the bundle handed over. Zero fails the task.\n\
+         typedef uint64_t (*amb_make)(void *data);\n\n\
          // What says the layout this bundle was built for: a program of\n\
          // another asks for a name this is not, and does not link.\n\
          __attribute__((weak)) const unsigned char {built} = 0;\n\n\

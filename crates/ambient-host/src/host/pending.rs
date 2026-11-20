@@ -9,6 +9,7 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::io::Write;
 use std::io::{BufRead, Read};
 use std::process::{Child, Stdio};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -17,9 +18,12 @@ use super::network::Network;
 use super::system::failure;
 use super::waits::{Chunk, Done, Line, Work};
 use super::{Command, Failure, Kind, Ran, Response};
+use crate::native::Posts;
 
 /// What a thread sends back.
 pub(super) enum Sent {
+    /// A thread of a native bundle posted an answer.
+    Posted,
     /// What a command wrote to its streams, once both were closed.
     Wrote(u64, Vec<u8>, Vec<u8>),
     /// A line of input, read for a ticket.
@@ -51,6 +55,8 @@ pub(super) struct Pending {
     /// Bytes read for a wait its task left, likewise.
     unread_bytes: VecDeque<Chunk>,
     pub(super) network: Network,
+    /// What threads of native bundles post, which wake this.
+    posts: Option<Arc<Posts>>,
 }
 
 impl Default for Pending {
@@ -67,11 +73,19 @@ impl Default for Pending {
             lines: None,
             unread: VecDeque::new(),
             unread_bytes: VecDeque::new(),
+            posts: None,
         }
     }
 }
 
 impl Pending {
+    /// Has a post wake whoever waits here.
+    pub(super) fn attend(&mut self, posts: Arc<Posts>) {
+        let sender = self.sender.clone();
+        posts.wake_with(Box::new(move || drop(sender.send(Sent::Posted))));
+        self.posts = Some(posts);
+    }
+
     pub(super) fn begin(&mut self, ticket: u64, work: Work) {
         match work {
             Work::Sleep(milliseconds) => {
@@ -186,8 +200,16 @@ impl Pending {
                 self.timers.remove(&(when, ticket));
                 return Some((ticket, Done::Slept));
             }
-            let threads =
-                !self.children.is_empty() || !self.readers.is_empty() || self.network.waits();
+            let posts = self.posts.as_ref();
+            // Nothing is given once a post is in: the program takes
+            // it, and asks again.
+            if posts.is_some_and(|posts| posts.ready()) {
+                return None;
+            }
+            let threads = !self.children.is_empty()
+                || !self.readers.is_empty()
+                || self.network.waits()
+                || posts.is_some_and(|posts| posts.coming());
             let sent = match due {
                 Some((when, _)) if threads => match self.sent.recv_timeout(when - Instant::now()) {
                     Ok(sent) => sent,
@@ -209,6 +231,8 @@ impl Pending {
     /// waited for it has left.
     fn took(&mut self, sent: Sent) {
         match sent {
+            // Woken: `next` looks at the posts itself.
+            Sent::Posted => {}
             Sent::Wrote(ticket, out, err) => {
                 let Some(mut child) = self.children.remove(&ticket) else {
                     return;

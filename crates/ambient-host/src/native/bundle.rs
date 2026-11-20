@@ -82,7 +82,7 @@ pub unsafe extern "C" fn amb_bundle_fail(call: *mut Calling, message: *const u8,
 }
 
 /// Says the call will answer later, and gives the ticket its answer is
-/// to come by. Zero, with the call failed, if the extern was not
+/// to come by: what [`super::amb_bundle_answer`] takes. Zero, with the call failed, if the extern was not
 /// declared `suspending`.
 ///
 /// # Safety
@@ -92,10 +92,14 @@ pub unsafe extern "C" fn amb_bundle_fail(call: *mut Calling, message: *const u8,
 pub unsafe extern "C" fn amb_bundle_later(call: *mut Calling) -> u64 {
     // SAFETY: the caller's to uphold.
     let call = unsafe { behind(call) };
-    call.later().unwrap_or_else(|refused| {
-        call.failed = Some(refused);
-        0
-    })
+    match call.later() {
+        // A thread answers by a number no other program has.
+        Ok(ticket) => call.program.posts.name(ticket),
+        Err(refused) => {
+            call.failed = Some(refused);
+            0
+        }
+    }
 }
 
 /// The handler bound for an ability of the extern's row, named by its
@@ -185,6 +189,9 @@ mod tests {
                 use ambient_runtime::*;
                 #[allow(clippy::wildcard_imports)]
                 use super::*;
+                #[allow(clippy::wildcard_imports)]
+                use crate::native::posts::*;
+                use ambient_native::{Data, Make};
                 type Call = Calling;
                 $(let _: unsafe extern "C" fn($($ty),*) $(-> $gives)? = $name;)*
             }

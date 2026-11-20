@@ -7,6 +7,7 @@ mod externs;
 mod host;
 mod load;
 mod natives;
+mod posts;
 mod stacks;
 mod unit;
 mod values;
@@ -23,6 +24,7 @@ pub use host::{
 };
 pub use load::Program;
 pub use natives::{NativeFn, Natives, Observation, Offered};
+pub use posts::{Posts, amb_bundle_answer, amb_bundle_refuse};
 pub use values::{Host, Inside, encode};
 pub use waits::{Answer, Answers, Waits};
 

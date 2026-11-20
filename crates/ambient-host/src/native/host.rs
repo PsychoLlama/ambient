@@ -155,7 +155,7 @@ impl Running for Nowhere {
 /// One call of native code: the program it was made from, and the
 /// functions it loaded, each held until what it returns is made.
 pub(super) struct Call<'a> {
-    program: &'a Program,
+    pub(super) program: &'a Program,
     pub(super) context: *mut Context,
     held: Vec<Word>,
     /// The ticket it took, if it is to answer later.

@@ -26,6 +26,15 @@ pub struct Call {
     _opaque: [u8; 0],
 }
 
+/// What a bundle hands over for its own function to be called with:
+/// nothing but the bundle reads it.
+pub type Data = core::ffi::c_void;
+
+/// What makes the answer to a wait, on the program's thread, of what
+/// a thread of the bundle handed over. The program owns what it gives;
+/// zero fails the task that waits.
+pub type Make = unsafe extern "C" fn(data: *mut Data) -> Word;
+
 /// The layout number, written out: the one place it is.
 #[macro_export]
 macro_rules! layout {

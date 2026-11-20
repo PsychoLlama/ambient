@@ -210,4 +210,8 @@ impl World for System {
     fn forsake(&mut self, ticket: u64) {
         self.pending.forsake(ticket);
     }
+
+    fn attend(&mut self, posts: std::sync::Arc<crate::native::Posts>) {
+        self.pending.attend(posts);
+    }
 }

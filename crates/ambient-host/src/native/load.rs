@@ -3,12 +3,14 @@
 
 use std::cell::{Cell, RefCell, UnsafeCell};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use ambient_runtime::{Entry, Fault, NULL, Word};
 
 use super::externs::Externs;
 use super::host::{Questions, dispatch};
 use super::natives::{Natives, Observation};
+use super::posts::Posts;
 use super::unit::{Unit, map};
 use super::values::Host;
 use super::waits::{Answers, Asked};
@@ -48,6 +50,8 @@ pub struct Program {
     open: bool,
     /// What brings the answers of native code that answers later.
     pub(super) waits: Option<Answers>,
+    /// What threads of native bundles post for waits of this program.
+    pub(super) posts: Arc<Posts>,
     /// The calls that are to be answered, by ticket.
     pub(super) asked: RefCell<HashMap<u64, Asked>>,
     /// What answers the questions native code passes on, for the
@@ -105,9 +109,18 @@ impl Program {
             cells: Box::default(),
             open: parts.open,
             waits: natives.waits(),
+            posts: Arc::default(),
             asked: RefCell::default(),
             questions: Cell::new(None),
         };
+        // A host that is waiting now is some other program's.
+        if let Some(mut waits) = program
+            .waits
+            .as_ref()
+            .and_then(|waits| waits.try_borrow_mut().ok())
+        {
+            waits.attend(Arc::clone(&program.posts));
+        }
         program.entry.set(program.place(parts, natives, false)?);
         Ok(program)
     }

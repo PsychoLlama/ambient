@@ -7,8 +7,8 @@
 /// Hands every entry point, as a function's signature and what it
 /// does, to the macro named.
 ///
-/// A signature names only `Word`, `Call`, integers, and pointers to
-/// them, which whoever expands this has in scope.
+/// A signature names only `Word`, `Call`, `Make`, `Data`, integers,
+/// and pointers to them, which whoever expands this has in scope.
 #[macro_export]
 macro_rules! entries {
     ($with:ident) => {
@@ -85,6 +85,16 @@ macro_rules! entries {
             /// with the call failed, if the extern is not declared
             /// `suspending`.
             fn amb_bundle_later(call: *mut Call) -> u64;
+            /// Answers the wait of a ticket, from any thread: the one
+            /// entry beside `amb_bundle_refuse` a thread the bundle
+            /// started may call. `make` is called once with `data`, on
+            /// the program's thread, and gives the answer. Zero, with
+            /// `make` never called, if the task has left the wait.
+            fn amb_bundle_answer(ticket: u64, make: Make, data: *mut Data) -> u64;
+            /// Fails the wait of a ticket, from any thread, with a
+            /// message of `length` bytes. Zero if the task has left
+            /// the wait.
+            fn amb_bundle_refuse(ticket: u64, message: *const u8, length: u64) -> u64;
             /// The handler bound for an ability of the extern's row,
             /// named by its package's ID and its module path and name,
             /// borrowed for the call. Zero if the row has none such.
