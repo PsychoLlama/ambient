@@ -209,6 +209,11 @@ impl Parser {
                 self.advance();
                 Ok(word)
             }
+            // Whoever names something with such a word knows the word,
+            // not that the language keeps it.
+            Token::Word(word) => self.fail(format!(
+                "expected a name, found `{word}`, which is reserved"
+            )),
             _ => self.unexpected("a name"),
         }
     }

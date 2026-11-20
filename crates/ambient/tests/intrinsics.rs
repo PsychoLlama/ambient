@@ -96,7 +96,8 @@ fn a_construct_takes_its_body_as_a_function_written_in_place() {
     assert_eq!(int(written), 1);
     assert_eq!(
         refused(handed),
-        "app:main.main: `contain` takes a body: `fn()` and what it gives, written in place"
+        "app:main.main: `contain` takes a body written in place, `fn() => ...`: a function held in \
+         a value is called inside one"
     );
 }
 

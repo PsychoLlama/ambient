@@ -333,7 +333,7 @@ fn no_return_leaves_a_for() {
 fn a_reserved_word_names_nothing() {
     let (_, _, message) = refused("fn main(): int { let match = 1; return match; }");
 
-    assert_eq!(message, "expected a name, found `match`");
+    assert_eq!(message, "expected a name, found `match`, which is reserved");
 }
 
 #[test]

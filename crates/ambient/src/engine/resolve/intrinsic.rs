@@ -236,7 +236,10 @@ impl Resolver<'_> {
                 self.expr(body)
             }
             _ => {
-                let reason = "takes a body: `fn()` and what it gives, written in place";
+                // Most often what was written is the name of a function,
+                // so say what to write around it.
+                let reason = "takes a body written in place, `fn() => ...`: \
+                              a function held in a value is called inside one";
                 Err(self.misused(path, reason))
             }
         }
