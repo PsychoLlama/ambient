@@ -42,11 +42,13 @@ A `main` that gives an integer exits with it. What is built is kept by its conte
 A body is a block of statements, or `=>` and one expression. A block has no value of its own: `return` gives one, and it is always written.
 
 ```ab
+const BIG: int = 10;
+
 fn double(n: int): int => n * 2;
 
 fn describe(n: int): string {
     let twice = double(n);
-    if twice > 10 {
+    if twice > BIG {
         return "big";
     }
     return "small: ${twice}";
@@ -56,6 +58,7 @@ pub fn main(): string => describe(3);
 ```
 
 - The values are `null`, booleans, integers, floats, strings, tags, tuples `(1, "a")`, lists `[1, 2]`, records `{ name: "tea", price: 450 }`, and functions.
+- A `const` names a value for the whole module: `const BIG: int = 10;`. Its name is in capitals, its type is stated, and its value is written out, not computed; what must be computed is a `comptime` call.
 - Nothing is changed in place. `list.push(x)` gives another list; a record is copied with `{ ...old, price: 500 }`.
 - `+` joins two strings, two lists, or two bytes values, and `"${count} left"` writes a value into a string by its `to_text`. Arithmetic on integers faults on overflow and division by zero instead of wrapping.
 - There are no loops. A list or an iterator has `map`, `filter`, `fold`, `each`, and the rest; anything else is a function that calls itself, and a call in tail position takes no stack.

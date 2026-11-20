@@ -39,7 +39,7 @@ syn match ambientFunction '\%(\<fn\s\+\)\@<=\h\w*'
 syn match ambientPerform '\<\h\w*!\ze('
 
 " Words that begin a definition, which are names anywhere else.
-syn match ambientDefine '\%(^\s*\%(pub\s\+\)\=\)\@<=\%(ability\|contract\|tag\|target\|mod\)\>\ze\s\+\h'
+syn match ambientDefine '\%(^\s*\%(pub\s\+\)\=\)\@<=\%(ability\|const\|contract\|tag\|target\|mod\)\>\ze\s\+\h'
 syn match ambientDefine '\%(^\s*\%(pub\s\+\)\=\)\@<=extern\>\ze\s\+\%(fn\|handler\)\>'
 syn match ambientDefine '\%(\<extern\s\+\)\@<=handler\>'
 syn match ambientInclude '\%(^\s*\%(pub\s\+\)\=\)\@<=use\>\ze\s\+\h'
