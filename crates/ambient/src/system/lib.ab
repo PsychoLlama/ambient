@@ -57,6 +57,7 @@ extern handler(suspending) process_run for process.run;
 extern handler(suspending) process_signal for process.signal;
 extern handler random_bits for random.bits;
 extern handler(suspending) http_send for http.send;
+extern handler(suspending) http_open for http.open;
 extern handler http_listen for http.listen;
 extern handler(suspending) http_accept for http.accept;
 extern handler http_respond for http.respond;
@@ -114,6 +115,7 @@ pub target cli {
     process.signal: process_signal,
     random.bits: random_bits,
     http.send: http_send,
+    http.open: http_open,
     http.listen: http_listen,
     http.accept: http_accept,
     http.respond: http_respond,

@@ -10,7 +10,7 @@ use ambient::cli::{Command, Session};
 use ambient::engine::Engine;
 use ambient::host::{
     Address, Change, Done, Entry, Failure, Held, Incoming, Info, Kind, Listening, Open, Opened,
-    Ran, Reach, Reached, Request, Response, Signal, Work, World,
+    Ran, Reach, Reached, Request, Response, Signal, Streamed, Trust, Work, World,
 };
 use ambient::project::{Files, Nowhere, Snapshots};
 use ambient::store::MemoryStore;
@@ -73,6 +73,8 @@ pub struct Scripted {
     /// The changes a watcher sees. It is closed once it has given
     /// them all.
     pub changes: VecDeque<Change>,
+    /// Whom each request whose body was streamed trusted, in order.
+    pub trusted: Vec<Option<Trust>>,
     /// What was let go of, in order.
     pub shut: Vec<Held>,
 }
@@ -398,6 +400,10 @@ impl World for Scripted {
                 self.sent.push(request);
                 (0, Done::Sent(response))
             }
+            Work::Open(request, trust) => {
+                self.trusted.push(trust);
+                (0, Done::Opened(self.opened(request)))
+            }
             Work::Accept(_) => {
                 let request = self.requests.pop_front();
                 let id = i64::try_from(self.requests.len()).unwrap_or(0);
@@ -437,6 +443,24 @@ impl World for Scripted {
 }
 
 impl Scripted {
+    /// The response a request gets, with its body a stream of the
+    /// script: a peer named for the request.
+    fn opened(&mut self, request: Request) -> Result<Streamed, Failure> {
+        let line = format!("{} {}", request.method, request.url);
+        let response = self.responses.get(&line).cloned().ok_or_else(|| Failure {
+            kind: Kind::Unreachable,
+            message: format!("nothing answers {}", request.url),
+        })?;
+        self.sent.push(request);
+        self.peers.insert(line.clone(), response.body);
+        self.streams.push((line, 0));
+        Ok(Streamed {
+            status: response.status,
+            headers: response.headers,
+            body: i64::try_from(self.streams.len()).unwrap_or(0),
+        })
+    }
+
     /// What comes of something of a stream or a socket: a connection
     /// is to a peer of the script, and nothing else is there.
     fn reach(&mut self, reach: Reach) -> Reached {

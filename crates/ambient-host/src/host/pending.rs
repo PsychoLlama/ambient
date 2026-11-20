@@ -24,6 +24,10 @@ use super::watching::{Change, Watches};
 use super::{Command, Failure, Held, Kind, Open, Opened, Ran, Response};
 use crate::native::Posts;
 
+/// A response whose body is still to arrive: its status, its headers,
+/// and what the body is read from.
+pub(super) type Opening = (i64, Vec<(String, String)>, Box<dyn Read + Send>);
+
 /// What a thread sends back.
 pub(super) enum Sent {
     /// A thread of a native bundle posted an answer.
@@ -36,6 +40,8 @@ pub(super) enum Sent {
     Chunk(u64, Chunk),
     /// What came of a request that was sent.
     Response(u64, Result<Response, Failure>),
+    /// The head of a response, and what its body is read from.
+    Opened(u64, Result<Opening, Failure>),
     /// A request a server was sent.
     Request(i64, tiny_http::Request),
     /// Something of a stream or a socket.
@@ -114,6 +120,11 @@ impl Pending {
             Work::ReadLine => self.read_line(ticket),
             Work::Read(most) => self.read(ticket, usize::try_from(most).unwrap_or(0)),
             Work::Send(request) => self.network.send(ticket, request),
+            Work::Open(request, trust) => {
+                if let Err(failure) = self.network.open(ticket, request, trust) {
+                    self.ready.push_back((ticket, Done::Opened(Err(failure))));
+                }
+            }
             Work::Accept(server) => {
                 let done = self.network.accept(ticket, server);
                 self.ready.extend(done.map(|done| (ticket, done)));
@@ -295,6 +306,12 @@ impl Pending {
             Sent::Response(ticket, response) => {
                 if self.network.sent(ticket) {
                     self.ready.push_back((ticket, Done::Sent(response)));
+                }
+            }
+            Sent::Opened(ticket, opened) => {
+                if self.network.sent(ticket) {
+                    let opened = opened.map(|opening| self.reaches.streamed(opening));
+                    self.ready.push_back((ticket, Done::Opened(opened)));
                 }
             }
             Sent::Request(server, request) => {

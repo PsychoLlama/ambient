@@ -117,7 +117,10 @@ A target defines the world a program runs in: a root binding for every ability t
 - Nothing takes a timeout: a sleep beside the work in a first is one.
 - A header's name is lower case wherever the world gives one.
 - A body is [bytes](operations.md#bytes), so anything can be sent and received. Text and JSON are put into a body and read out of one by functions.
-- TODO: a body is held whole; nothing is streamed.
+- A response may instead be given as soon as its status and headers are in, with its body a [stream](#streams-and-sockets) still arriving: how one that does not end is read.
+- A request trusts whom the world does to say who a server is, or says whom instead: the only authorities to trust, as certificates, and the address the server is at whatever its name leads to. Who the server must show it is stays the name in the URL, so a device with a certificate from its maker, for a name that is not its address, is reached and still checked.
+- A connection that could not be secured is an error of a kind of its own.
+- TODO: a request's body, and what a server is sent and answers with, are held whole. Nothing trusts a server by its certificate alone.
 - A server holds a bounded number of requests nothing has accepted; one sent past that is refused as unavailable, and the program never sees it.
 
 ## Streams and sockets

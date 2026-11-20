@@ -16,12 +16,12 @@ use std::thread;
 use std::time::Duration;
 
 use super::net::{Address, Datagram, Held, Open, Opened, Reach, Reached};
-use super::pending::Sent;
+use super::pending::{Opening, Sent};
 use super::queue::{Queue, room};
 use super::reaching::{address, connect, failed, port, reaching, refused, tcp, unix};
 use super::streams::{Event, Halves, Streams};
 use super::system::failure;
-use super::{Failure, Kind};
+use super::{Failure, Kind, Streamed};
 
 /// What a thread of a socket or a stream sends back.
 pub(super) enum Came {
@@ -300,6 +300,23 @@ impl Reaches {
             IpAddr::V6(group) => socket.join_multicast_v6(&group, 0),
         };
         joined.map_err(|error| failed(Kind::Invalid, &error))
+    }
+
+    /// Holds the body of a response as a stream that is only read.
+    /// Nothing ends a read of it but the server: letting go of it lets
+    /// go of what it has read, and its thread ends when the server next
+    /// sends or closes.
+    pub(super) fn streamed(&mut self, (status, headers, read): Opening) -> Streamed {
+        let halves = Halves {
+            read,
+            write: None,
+            shut: Box::new(|| {}),
+        };
+        Streamed {
+            status,
+            headers,
+            body: self.streams.add(halves),
+        }
     }
 
     /// Lets go of what the program held, and answers whatever waited

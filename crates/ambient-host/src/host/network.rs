@@ -6,6 +6,7 @@
 //! [`super::pending`]: a thread blocks, and sends what it got.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::io::Read;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
@@ -14,6 +15,7 @@ use std::thread;
 use ureq::http;
 
 use super::pending::Sent;
+use super::trust::{self, Trust};
 use super::waits::Done;
 use super::{Failure, Incoming, Kind, Listening, Request, Response};
 
@@ -37,6 +39,9 @@ pub(super) struct Network {
     sender: Sender<Sent>,
     /// What sends requests, and keeps connections to send more on.
     agent: ureq::Agent,
+    /// What sends the requests that trust other than the world does,
+    /// each kept to send more that trust the same.
+    trusting: HashMap<Trust, ureq::Agent>,
     /// The tickets of the requests that have no response yet.
     sending: HashSet<u64>,
     listeners: HashMap<i64, Listener>,
@@ -55,10 +60,10 @@ fn failed(kind: Kind, message: &dyn ToString) -> Failure {
 
 impl Network {
     pub(super) fn new(sender: Sender<Sent>) -> Self {
-        let config = ureq::Agent::config_builder().http_status_as_error(false);
         Self {
             sender,
-            agent: config.build().into(),
+            agent: trust::config(ureq::tls::TlsConfig::default()).into(),
+            trusting: HashMap::new(),
             sending: HashSet::new(),
             listeners: HashMap::new(),
             unanswered: HashMap::new(),
@@ -83,6 +88,42 @@ impl Network {
         thread::spawn(move || {
             let _ = sender.send(Sent::Response(ticket, send(&agent, request)));
         });
+    }
+
+    /// Sends a request for the head of its response, trusting whom it
+    /// says. Why it trusts no one, if what it says cannot be read.
+    pub(super) fn open(
+        &mut self,
+        ticket: u64,
+        request: Request,
+        trusted: Option<Trust>,
+    ) -> Result<(), Failure> {
+        let agent = match trusted {
+            None => self.agent.clone(),
+            Some(trusted) => self.trusted_by(trusted)?,
+        };
+        self.sending.insert(ticket);
+        let sender = self.sender.clone();
+        thread::spawn(move || {
+            let opened = begin(&agent, request).map(|response| {
+                let (status, headers) = head(&response);
+                let body = response.into_body().into_with_config().limit(u64::MAX);
+                let body: Box<dyn Read + Send> = Box::new(body.reader());
+                (status, headers, body)
+            });
+            let _ = sender.send(Sent::Opened(ticket, opened));
+        });
+        Ok(())
+    }
+
+    /// What sends the requests that trust so, made if none has yet.
+    fn trusted_by(&mut self, trusted: Trust) -> Result<ureq::Agent, Failure> {
+        if let Some(agent) = self.trusting.get(&trusted) {
+            return Ok(agent.clone());
+        }
+        let agent = trust::agent(&trusted)?;
+        self.trusting.insert(trusted, agent.clone());
+        Ok(agent)
     }
 
     /// Whether a response is still waited for, which it then is not.
@@ -240,8 +281,21 @@ impl Network {
     }
 }
 
-/// Sends a request and reads the whole response.
-fn send(agent: &ureq::Agent, request: Request) -> Result<Response, Failure> {
+/// The head of a response: its status, and its headers. A header that
+/// is not text is not among those the program reads.
+type Head = (i64, Vec<(String, String)>);
+
+fn head(response: &http::Response<ureq::Body>) -> Head {
+    let header = |(name, value): (&http::HeaderName, &http::HeaderValue)| {
+        let value = std::str::from_utf8(value.as_bytes()).ok()?;
+        Some((name.as_str().to_owned(), value.to_owned()))
+    };
+    let headers = response.headers().iter().filter_map(header).collect();
+    (i64::from(response.status().as_u16()), headers)
+}
+
+/// Sends a request, and gives the response once its head is in.
+fn begin(agent: &ureq::Agent, request: Request) -> Result<http::Response<ureq::Body>, Failure> {
     let invalid = |error: http::Error| failed(Kind::Invalid, &error);
     let mut builder = http::Request::builder()
         .method(request.method.as_str())
@@ -250,16 +304,16 @@ fn send(agent: &ureq::Agent, request: Request) -> Result<Response, Failure> {
         builder = builder.header(name, value);
     }
     let request = builder.body(request.body).map_err(invalid)?;
-    let mut response = agent.run(request).map_err(|error| refused(&error))?;
-    // A header that is not text is not among those the program reads.
-    let header = |(name, value): (&http::HeaderName, &http::HeaderValue)| {
-        let value = std::str::from_utf8(value.as_bytes()).ok()?;
-        Some((name.as_str().to_owned(), value.to_owned()))
-    };
-    let headers = response.headers().iter().filter_map(header).collect();
+    agent.run(request).map_err(|error| refused(&error))
+}
+
+/// Sends a request and reads the whole response.
+fn send(agent: &ureq::Agent, request: Request) -> Result<Response, Failure> {
+    let mut response = begin(agent, request)?;
+    let (status, headers) = head(&response);
     let body = response.body_mut().read_to_vec();
     Ok(Response {
-        status: i64::from(response.status().as_u16()),
+        status,
         headers,
         body: body.map_err(|error| failed(Kind::Invalid, &error))?,
     })
@@ -270,6 +324,10 @@ fn refused(error: &ureq::Error) -> Failure {
     use ureq::Error;
     let kind = match error {
         Error::BadUri(_) | Error::Http(_) => Kind::Invalid,
+        Error::Tls(_) | Error::Rustls(_) => Kind::Untrusted,
+        // How a certificate that was not accepted arrives: what the
+        // server showed is not what was to be read.
+        Error::Io(error) if error.kind() == std::io::ErrorKind::InvalidData => Kind::Untrusted,
         Error::HostNotFound | Error::ConnectionFailed | Error::Timeout(_) | Error::Io(_) => {
             Kind::Unreachable
         }

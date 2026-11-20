@@ -35,6 +35,8 @@ stacker = "0.1"
 toml = "1.1"
 toml_edit = "0.25"
 notify = "8"
+rcgen = "0.14"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 signal-hook = { version = "0.3", default-features = false, features = ["iterator"] }
 socket2 = { version = "0.6", features = ["all"] }
 tiny_http = "0.12"

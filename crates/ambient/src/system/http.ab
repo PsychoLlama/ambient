@@ -2,6 +2,7 @@ use ambient.Error;
 use ambient.json.{Json, write};
 use ambient.iterator.{range};
 use ambient.tasks.{gather};
+use pkg.stream.{Stream, read, read_all};
 
 /// No response came: the host was not found, or would not connect.
 pub tag unreachable;
@@ -12,6 +13,10 @@ pub tag invalid;
 
 /// The program may not listen there.
 pub tag denied;
+
+/// The connection could not be secured: the server did not show it
+/// is who the URL names, to an authority that is trusted.
+pub tag untrusted;
 
 /// Any other failure; the message says which.
 pub tag failed;
@@ -24,6 +29,19 @@ pub type Header = (name: string, value: string);
 pub type Request = { method: string, url: string, headers: List<Header>, body: bytes };
 
 pub type Response = { status: int, headers: List<Header>, body: bytes };
+
+/// A response whose body is still arriving: it is read from the stream
+/// a piece at a time, for as long as the server sends.
+pub type Streamed = { status: int, headers: List<Header>, body: Stream };
+
+/// Whom a request trusts, in place of whom the world does.
+///
+/// - `roots` are certificates, as PEM, of the only authorities trusted
+///   to say who a server is, or null for those the world trusts.
+/// - `address` is where the server is, such as `192.168.1.20`, whatever
+///   the URL's host leads to, or null to look the host up. Who the
+///   server must show it is stays the host in the URL.
+pub type Trust = { roots: string | null, address: string | null };
 
 /// A listener the world holds. It stops listening when it is closed,
 /// or when nothing holds it any more.
@@ -43,6 +61,11 @@ pub type Incoming = { request: Request, reply: Reply };
 /// a request that got no response is an error.
 pub ability send(request: Request): Response | Error;
 
+/// Sends a request and gives the response as soon as its status and
+/// headers are in, with its body still arriving. `trust` is whom to
+/// trust, or null for whom the world does.
+pub ability open(request: Request, trust: Trust | null): Streamed | Error;
+
 /// Starts listening on a port of an address of this machine, such as
 /// `127.0.0.1`. Port zero is any free port; the server says which.
 pub ability listen(host: string, port: int): Server | Error;
@@ -60,6 +83,27 @@ pub ability close(server: Server): null;
 /// What a server gives for `url`.
 pub fn get(url: string): Response | Error with send =>
     send!({ method: "GET", url, headers: [], body: "".to_bytes() });
+
+/// What a server gives for `url`, with its body still arriving: how a
+/// response that does not end, such as a stream of events, is read.
+pub fn stream(url: string): Streamed | Error with open =>
+    open!({ method: "GET", url, headers: [], body: "".to_bytes() }, null);
+
+/// Sends a request that trusts as `trust` says, and gives the whole
+/// response.
+pub fn send_trusting(request: Request, trust: Trust): Response | Error with open, read {
+    match open!(request, trust) {
+        let error: Error => { return error; }
+        let streamed: Streamed => {
+            match read_all(streamed.body) {
+                let error: Error => { return error; }
+                let body: bytes => {
+                    return { status: streamed.status, headers: streamed.headers, body };
+                }
+            }
+        }
+    }
+}
 
 /// What a server gives when `body` is posted to `url`.
 pub fn post(url: string, body: bytes): Response | Error with send =>

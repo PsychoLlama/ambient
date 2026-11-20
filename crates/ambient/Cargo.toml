@@ -27,6 +27,8 @@ wasmtime.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
 
 [build-dependencies]
 flate2.workspace = true

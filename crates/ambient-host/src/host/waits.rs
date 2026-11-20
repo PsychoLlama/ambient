@@ -11,9 +11,10 @@ use std::sync::Arc;
 
 use super::Command;
 use super::files;
-use super::http::{self, Incoming, Request, Response};
+use super::http::{self, Incoming, Request, Response, Streamed};
 use super::net::{self, Held, Reach, Reached};
 use super::signals::Signal;
+use super::trust::Trust;
 use super::watching::Change;
 use super::{Failure, PACKAGE, Ran, World, error, optional, output};
 use crate::native::{Answer, Posts, Waits};
@@ -32,6 +33,9 @@ pub enum Work {
     Read(i64),
     /// Send a request, and receive the response to it.
     Send(Request),
+    /// Send a request, and receive the head of the response to it,
+    /// with its body still to arrive.
+    Open(Request, Option<Trust>),
     /// Take the next request a server was sent.
     Accept(i64),
     /// Something of a stream or a socket.
@@ -61,6 +65,9 @@ pub enum Done {
     Read(Chunk),
     /// The response, or why there was none.
     Sent(Result<Response, Failure>),
+    /// The head of the response and its body, a stream, or why there
+    /// was none.
+    Opened(Result<Streamed, Failure>),
     /// The request, or nothing once the server is closed.
     Accepted(Option<Incoming>),
     /// What came of something of a stream or a socket.
@@ -83,6 +90,9 @@ impl Done {
                 .map_err(|failure| failure.message)?
                 .map_or(Value::Null, Value::Bytes),
             Self::Sent(sent) => http::sent(sent),
+            Self::Opened(opened) => {
+                opened.map_or_else(|failure| error("http", &failure), Streamed::value)
+            }
             Self::Accepted(incoming) => incoming.map_or(Value::Null, Incoming::value),
             Self::Reached(reached) => reached.value(),
             Self::Changed(change) => change.map_or(Value::Null, files::change),

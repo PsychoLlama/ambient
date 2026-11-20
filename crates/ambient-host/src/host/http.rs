@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+use super::trust::Trust;
 use super::{Failure, PACKAGE, Work, World, error, int, text};
 use crate::value::Value;
 
@@ -23,6 +24,44 @@ pub struct Response {
     pub status: i64,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+}
+
+/// The head of a response, and the stream its body arrives on, by the
+/// number a world knows it by.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Streamed {
+    pub status: i64,
+    pub headers: Vec<(String, String)>,
+    pub body: i64,
+}
+
+impl Streamed {
+    pub(super) fn value(self) -> Value {
+        record([
+            ("status", Value::Int(self.status)),
+            ("headers", headers(self.headers)),
+            ("body", handle(super::net::STREAM, self.body)),
+        ])
+    }
+}
+
+impl Trust {
+    /// Whom a request trusts, as `system.http` describes it, or
+    /// nothing for whom the world does.
+    fn read(value: &Value) -> Result<Option<Self>, String> {
+        let optional = |name: &str| match field(value, name)? {
+            Value::Null => Ok(None),
+            Value::String(text) => Ok(Some(text.clone())),
+            _ => Err(format!("field `{name}` is not a string")),
+        };
+        if *value == Value::Null {
+            return Ok(None);
+        }
+        Ok(Some(Self {
+            roots: optional("roots")?,
+            address: optional("address")?,
+        }))
+    }
 }
 
 /// A request a server was sent, and what to answer it by.
@@ -206,7 +245,12 @@ pub(super) const HANDLERS: [(&str, Handler); 3] = [
 /// What `send` and `accept` begin.
 pub(super) type Starter = fn(&[Value]) -> Result<Work, String>;
 
-pub(super) const STARTERS: [(&str, Starter); 2] = [
+pub(super) const STARTERS: [(&str, Starter); 3] = [
+    ("http_open", |args| {
+        let request = Request::read(args.first().unwrap_or(&Value::Null))?;
+        let trust = Trust::read(args.get(1).unwrap_or(&Value::Null))?;
+        Ok(Work::Open(request, trust))
+    }),
     ("http_send", |args| {
         let request = Request::read(args.first().unwrap_or(&Value::Null))?;
         Ok(Work::Send(request))

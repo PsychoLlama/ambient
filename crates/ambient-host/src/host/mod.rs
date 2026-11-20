@@ -20,6 +20,7 @@ mod signals;
 mod sockets;
 mod streams;
 mod system;
+mod trust;
 mod waits;
 mod watching;
 
@@ -30,10 +31,11 @@ use std::rc::Rc;
 pub use code::invalid;
 pub use commands::Command;
 pub use files::{Entry, Info};
-pub use http::{Incoming, Listening, Request, Response};
+pub use http::{Incoming, Listening, Request, Response, Streamed};
 pub use net::{Address, Datagram, Held, Open, Opened, Reach, Reached};
 pub use signals::Signal;
 pub use system::System;
+pub use trust::Trust;
 pub use waits::{Chunk, Done, Line, Work};
 pub use watching::{Change, Changed};
 
@@ -54,6 +56,9 @@ pub enum Kind {
     Unreachable,
     /// What was given or received cannot be carried as it is.
     Invalid,
+    /// The connection could not be secured: the server did not show
+    /// it is who it was asked for, to an authority that is trusted.
+    Untrusted,
     Failed,
 }
 
@@ -65,6 +70,7 @@ impl Kind {
             Self::Denied => "denied",
             Self::Unreachable => "unreachable",
             Self::Invalid => "invalid",
+            Self::Untrusted => "untrusted",
             Self::Failed => "failed",
         }
     }
