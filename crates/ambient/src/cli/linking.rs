@@ -87,8 +87,14 @@ impl Linker for Unlinked {
 /// with whatever a C name cannot hold made an underscore.
 #[must_use]
 pub fn symbol(id: &str, path: &str) -> String {
-    format!("amb_x_{}_{}", plain(id), plain(path))
+    format!("{EXTERN}{}_{}", plain(id), plain(path))
 }
+
+/// What begins the name of every function of an extern.
+pub(super) const EXTERN: &str = "amb_x_";
+
+/// What begins the name that says what layout a bundle was built for.
+pub(super) const BUILT: &str = "amb_built_";
 
 /// `text` with whatever a C name cannot hold made an underscore.
 fn plain(text: &str) -> String {
@@ -100,7 +106,7 @@ fn plain(text: &str) -> String {
 /// was built for this layout.
 #[must_use]
 pub fn built(id: &str) -> String {
-    format!("amb_built_{}_{}", plain(id), ambient_native::LAYOUT)
+    format!("{BUILT}{}_{}", plain(id), ambient_native::LAYOUT)
 }
 
 /// One function a program reaches of a native bundle.

@@ -51,6 +51,9 @@ A program carries the code it reaches and nothing else, the [runtime](backends.m
 - A [native bundle](externs.md#native-bundles) is linked as a piece is: it refers to the pieces of the runtime it calls, and a program carries a function of it only if the program reaches that function's extern.
 - A native bundle and the runtime it is linked with must agree on the layout of every value, by the number [loaded code](#loading) is held to. A native bundle made for another number is not linked.
 - A change of that number therefore asks every native bundle to be made again, and nothing more: no native bundle is kept working across it.
+- A native bundle shares names with the rest of a program only where it must: the functions of its externs, and what it calls of the runtime. Whatever else it holds is its own.
+- So a native bundle may carry the library of the language it was written in, though the host and another native bundle carry the same one. Each keeps its copy, and a program carries only what its functions reach of it.
+- A native bundle that defines a part of the runtime is not linked: it would use its own in place of its program's.
 - What a package's native code may do to a value is what the runtime's own code may, and nothing checks either.
 
 ## Native code

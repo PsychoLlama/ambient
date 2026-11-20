@@ -12,6 +12,7 @@ mod launch;
 mod linking;
 mod machine;
 mod package;
+mod sealing;
 mod test;
 mod trace;
 

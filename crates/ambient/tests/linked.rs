@@ -2,7 +2,8 @@
 //! See "Native code" in `docs/spec/linking.md`.
 //!
 //! These tests compile a bundle written in C with the machine's `cc`,
-//! under the system's temporary directory, and remove what they wrote.
+//! or one in Rust with `rustc`, under the system's temporary directory,
+//! and remove what they wrote.
 
 #![allow(clippy::unwrap_used)]
 
@@ -139,6 +140,38 @@ uint64_t {tripled}(struct amb_call *call, uint64_t args) {{
     assert!(compiled.unwrap().success());
 }
 
+/// A bundle for the package in Rust, as an archive: it holds the
+/// standard library of its language, as the launcher does, and its
+/// `double` is worked out on a thread of that library.
+fn archive(scratch: &Scratch) {
+    let source = format!(
+        "#![allow(non_upper_case_globals)]
+unsafe extern \"C\" {{
+    fn amb_int_new(value: i64) -> u64;
+    fn amb_int_value(value: u64) -> i64;
+    fn amb_word_at(value: u64, index: u64) -> u64;
+}}
+#[unsafe(no_mangle)]
+pub static {built}: u8 = 0;
+#[unsafe(no_mangle)]
+pub extern \"C\" fn {double}(_call: *mut u8, args: u64) -> u64 {{
+    let number = unsafe {{ amb_int_value(amb_word_at(args, 0)) }};
+    let doubled = std::thread::spawn(move || number * 2).join();
+    unsafe {{ amb_int_new(doubled.unwrap_or(0)) }}
+}}
+",
+        built = built(ID),
+        double = symbol(ID, "main.double"),
+    );
+    let source = scratch.write("app/native/app.rs", &source);
+    let compiled = Process::new("rustc")
+        .args(["--edition", "2024", "--crate-type", "staticlib", "-o"])
+        .arg(scratch.0.join("app/native/libapp.a"))
+        .arg(source)
+        .status();
+    assert!(compiled.unwrap().success());
+}
+
 /// What `command` gives of the package and its bundle, written under
 /// `scratch`.
 fn executed(scratch: &Scratch, command: &Command) -> i32 {
@@ -147,13 +180,24 @@ fn executed(scratch: &Scratch, command: &Command) -> i32 {
 
 /// The same, of a bundle whose author was told `told` of the header.
 fn executed_told(scratch: &Scratch, command: &Command, told: fn(String) -> String) -> i32 {
+    package(scratch, "native/app.o");
+    bundle(scratch, told);
+    executed_of(scratch, command)
+}
+
+/// Writes the package, whose bundle is the file at `path` in it.
+fn package(scratch: &Scratch, path: &str) {
     let manifest = format!(
         "name = \"app\"\nid = \"{ID}\"\nversion = \"0.1.0\"\n\n\
-         [native.{MACHINE}]\npath = \"native/app.o\"\n"
+         [native.{MACHINE}]\npath = \"{path}\"\n"
     );
     scratch.write("app/ambient.toml", &manifest);
     scratch.write("app/src/main.ab", SOURCE);
-    bundle(scratch, told);
+}
+
+/// What `command` gives of the package and bundle written under
+/// `scratch`.
+fn executed_of(scratch: &Scratch, command: &Command) -> i32 {
     let session = Session {
         files: &Disk,
         store: &MemoryStore::new(),
@@ -230,6 +274,37 @@ fn a_program_is_not_run_under_a_target_that_is_no_command_lines() {
     };
 
     assert_eq!(executed(&scratch, &run), 1);
+}
+
+/// The launcher holds the same library, and each keeps its own.
+#[test]
+fn a_bundle_that_holds_its_languages_library_is_linked() {
+    let scratch = Scratch::new();
+    let run = Command::Run {
+        path: scratch.0.join("app"),
+        entry: "main.main".to_owned(),
+        target: None,
+        args: Vec::new(),
+    };
+
+    package(&scratch, "native/libapp.a");
+    archive(&scratch);
+    assert_eq!(executed_of(&scratch, &run), 42);
+}
+
+/// Sealed, such a bundle would use its own runtime and say nothing.
+#[test]
+fn a_bundle_that_brings_a_runtime_of_its_own_is_not_linked() {
+    let scratch = Scratch::new();
+    let build = Command::Build {
+        path: scratch.0.join("app"),
+        entry: "main.main".to_owned(),
+        output: Some(scratch.0.join("out")),
+        target: None,
+    };
+    let brings = |header: String| header + "int64_t amb_int_value(uint64_t value) { return 0; }\n";
+
+    assert_eq!(executed_told(&scratch, &build, brings), 1);
 }
 
 #[test]

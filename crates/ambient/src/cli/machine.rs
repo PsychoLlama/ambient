@@ -15,6 +15,7 @@ use ambient_host::hash::Hasher;
 use ambient_host::parts::BUILD;
 
 use super::linking::{LIBRARIES, Link, Linker};
+use super::sealing::seal;
 
 /// The machine's own linker, and where what it makes is kept.
 pub struct Machine {
@@ -82,10 +83,18 @@ impl Machine {
         let made = place.join(format!("launcher.{}.partial", std::process::id()));
 
         let linker = env::var_os("CC").unwrap_or_else(|| "cc".into());
+        // Each bundle is sealed first, so that it shares only the
+        // names of its externs with the launcher and the others.
+        let sealed: Vec<PathBuf> = (0..link.bundles.len())
+            .map(|number| place.join(format!("bundle-{number}.{}.o", std::process::id())))
+            .collect();
+        for (bundle, sealed) in link.bundles.iter().zip(&sealed) {
+            seal(&linker, bundle, sealed)?;
+        }
         let mut command = Command::new(&linker);
         // A bundle refers to the launcher's runtime, so the archive is
         // read after it.
-        command.arg(&main).args(&link.bundles).arg(&archive);
+        command.arg(&main).args(&sealed).arg(&archive);
         command.args(link.libraries.iter().chain(&[PRUNE.to_owned()]));
         command.args(STRIP);
         command
@@ -98,6 +107,11 @@ impl Machine {
                 linker.to_string_lossy()
             )
         })?;
+        // A sealed bundle is as large as all its author linked in, and
+        // is of no use once it is joined.
+        for sealed in &sealed {
+            let _ = fs::remove_file(sealed);
+        }
         if !ran.status.success() {
             let said = String::from_utf8_lossy(&ran.stderr);
             return Err(format!(
