@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
 
+use super::bundle::{Bundled, PLACED};
 use super::host::Running;
 use super::waits::Answers;
 use crate::parts::Native;
@@ -23,6 +24,9 @@ pub struct Offered {
     /// whether what it returned before still holds. See
     /// `docs/spec/memoization.md`.
     pub verifiable: bool,
+    /// The function of a native bundle this is, which is called in
+    /// place of `run` wherever values can be read where they lie.
+    pub bundled: Option<Bundled>,
 }
 
 /// The native code a host offers, by the package that declares each
@@ -49,7 +53,12 @@ impl Natives {
     ) -> Self {
         let run: NativeFn = Rc::new(native);
         let key = (package.to_owned(), path.to_owned());
-        self.offered.insert(key, Offered { run, verifiable });
+        let offered = Offered {
+            run,
+            verifiable,
+            bundled: None,
+        };
+        self.offered.insert(key, offered);
         self
     }
 
@@ -97,6 +106,26 @@ impl Natives {
         self.offer(package, path, true, move |running, args| {
             running.ask(question, args)
         })
+    }
+
+    /// Adds a function of a native bundle for the extern of `package`
+    /// whose module path and name are `path`. It is volatile, as
+    /// [`Natives::with`] is.
+    ///
+    /// # Safety
+    ///
+    /// `function` keeps to what [`Bundled`] says of one: it is called
+    /// with nothing checked.
+    #[must_use]
+    pub unsafe fn bundled(mut self, package: &str, path: &str, function: Bundled) -> Self {
+        let offered = Offered {
+            run: Rc::new(|_, _| Err(PLACED.to_owned())),
+            verifiable: false,
+            bundled: Some(function),
+        };
+        let key = (package.to_owned(), path.to_owned());
+        self.offered.insert(key, offered);
+        self
     }
 
     /// Everything offered here and in `other`, whose native code is

@@ -130,6 +130,25 @@ pub fn execute_in(
     run_entry(&engine, &entry, args, natives)
 }
 
+/// Runs `main` of a one-module program natively and nowhere else: for
+/// native code no other backend takes, as a native bundle's is.
+pub fn run_natively(
+    definitions: impl IntoIterator<Item = ambient::surface::Definition>,
+    natives: &Natives,
+) -> Outcome {
+    use ambient::backend::native::Native;
+    use ambient::engine::Engine;
+    use ambient::store::MemoryStore;
+
+    let workspace = program(definitions);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let entry = value("main", "main");
+    verify_all(&engine, &entry);
+    let parts = engine.link(&entry, &Native::new().unwrap()).unwrap();
+    run_native(&parts, &[], natives).0
+}
+
 /// Links `entry` and runs it on every backend, and returns what they
 /// agree on.
 pub fn run_entry(

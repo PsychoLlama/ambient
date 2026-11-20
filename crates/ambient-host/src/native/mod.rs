@@ -2,6 +2,7 @@
 //! running it. The backend itself, which needs a compiler, is
 //! `ambient::backend::native`.
 
+mod bundle;
 mod externs;
 mod host;
 mod load;
@@ -11,6 +12,10 @@ mod unit;
 mod values;
 mod waits;
 
+pub use bundle::{
+    Bundled, Calling, PLACED, amb_bundle_call, amb_bundle_fail, amb_bundle_handler,
+    amb_bundle_later,
+};
 pub use externs::Externs;
 pub use host::{
     ANSWERING, Nowhere, Questions, Running, UNASKED, UNCALLABLE, UNDECLARED, UNDECLARED_ABILITY,

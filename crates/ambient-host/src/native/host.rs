@@ -5,6 +5,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use ambient_runtime::{Context, Fault, Word};
 
+use super::bundle;
 use super::load::Program;
 use super::natives::{Natives, Observation};
 use super::values::{Host, Inside};
@@ -153,22 +154,25 @@ impl Running for Nowhere {
 
 /// One call of native code: the program it was made from, and the
 /// functions it loaded, each held until what it returns is made.
-struct Call<'a> {
+pub(super) struct Call<'a> {
     program: &'a Program,
-    context: *mut Context,
+    pub(super) context: *mut Context,
     held: Vec<Word>,
     /// The ticket it took, if it is to answer later.
-    ticket: Option<u64>,
+    pub(super) ticket: Option<u64>,
     /// Whether a call it made back unwound: the unwinding goes on
     /// through it.
-    unwound: bool,
+    pub(super) unwound: bool,
     /// Its number, which the functions read for it hold: see
     /// [`Live`].
     number: u64,
     /// The abilities its extern declared, and the handlers bound for
     /// them where it was called: see [`bound`].
-    row: Vec<(String, String)>,
-    handlers: Word,
+    pub(super) row: Vec<(String, String)>,
+    pub(super) handlers: Word,
+    /// What a function of a native bundle said went wrong, which has
+    /// no result to say it in: see [`super::bundle`].
+    pub(super) failed: Option<String>,
 }
 
 impl Call<'_> {
@@ -273,18 +277,26 @@ pub(super) unsafe extern "C" fn dispatch(
         return ambient_runtime::NULL;
     }
     let number = Live::call();
-    let mut handed = Handed {
-        inspect: &mut Host,
-        call: number,
-    };
-    let args = match &mut value::decode(args, &mut handed) {
-        Value::Tuple(args) => std::mem::take(args),
-        _ => Vec::new(),
-    };
     let index = usize::try_from(index).unwrap_or(usize::MAX);
     // Native code may load more into the program, so nothing of the
     // program is borrowed while it runs.
     let (native, offered) = program.natives.borrow().get(index).cloned().unzip();
+    // A native bundle's function reads its arguments where they lie:
+    // they are read here only for a run that keeps what it observed.
+    let bundled = offered.as_ref().and_then(|offered| offered.bundled);
+    let observed = bundled.is_none() || program.trace.borrow().is_some();
+    let words = args;
+    let read = || {
+        let mut handed = Handed {
+            inspect: &mut Host,
+            call: number,
+        };
+        value::decode(args, &mut handed)
+    };
+    let args = match &mut observed.then(read) {
+        Some(Value::Tuple(args)) => std::mem::take(args),
+        _ => Vec::new(),
+    };
     // Native code is not to unwind through compiled code.
     let mut call = Call {
         program,
@@ -298,11 +310,16 @@ pub(super) unsafe extern "C" fn dispatch(
             .map(|native| native.row.clone())
             .unwrap_or_default(),
         handlers: bindings,
+        failed: None,
     };
-    let outcome = match &offered {
-        Some(offered) => catch_unwind(AssertUnwindSafe(|| (offered.run)(&mut call, &args)))
-            .unwrap_or_else(|_| Err("native code panicked".to_owned())),
-        None => Err("no such extern".to_owned()),
+    let outcome = match (&offered, bundled) {
+        // SAFETY: the function is the one offered for this extern, and
+        // the words are those the runtime handed over.
+        (_, Some(function)) => unsafe { bundle::run(function, &mut call, words) }.map(Gave::Word),
+        (Some(offered), None) => catch_unwind(AssertUnwindSafe(|| (offered.run)(&mut call, &args)))
+            .unwrap_or_else(|_| Err("native code panicked".to_owned()))
+            .map(Gave::Value),
+        (None, None) => Err("no such extern".to_owned()),
     };
     let observation = offered
         .as_ref()
@@ -310,7 +327,14 @@ pub(super) unsafe extern "C" fn dispatch(
         .map(|(offered, native)| Observation {
             native,
             args,
-            result: outcome.clone(),
+            result: outcome
+                .as_ref()
+                .map_err(Clone::clone)
+                .map(|gave| match gave {
+                    Gave::Value(value) => value.clone(),
+                    Gave::Word(word) if observed => value::decode(*word, &mut Host),
+                    Gave::Word(_) => Value::Null,
+                }),
             verifiable: offered.verifiable,
         });
     let result = match (call.ticket, observation) {
@@ -341,10 +365,18 @@ pub(super) unsafe extern "C" fn dispatch(
     result
 }
 
+/// What native code gave: a value to make in the program, or one a
+/// native bundle's function made there itself.
+enum Gave {
+    Value(Value),
+    Word(Word),
+}
+
 /// What native code gave, as the word its caller takes.
-fn answered(program: &Program, context: *mut Context, outcome: Result<Value, String>) -> Word {
+fn answered(program: &Program, context: *mut Context, outcome: Result<Gave, String>) -> Word {
     match outcome {
-        Ok(value) => value::encode(&value, &mut Inside(program)),
+        Ok(Gave::Word(word)) => word,
+        Ok(Gave::Value(value)) => value::encode(&value, &mut Inside(program)),
         Err(message) => {
             *program.failure.borrow_mut() = Some(message);
             // SAFETY: the context is the one this call was handed.
