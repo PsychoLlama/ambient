@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::rc::Rc;
 
-use ambient::cli::{Cli, Command, Session};
+use ambient::cli::{Cli, Command, Linker, Machine, Session, Unlinked};
 use ambient::host::{System, World};
 use ambient::project::{Disk, Kept, Nowhere, Snapshots};
 use ambient::store::{DiskStore, MemoryStore, Store};
@@ -44,12 +44,18 @@ fn main() -> ExitCode {
         Some(root) => Box::new(Kept::under(root.join("snapshots"))),
         None => Box::new(Nowhere),
     };
+    // Without somewhere to keep it, nothing is linked.
+    let linker: Box<dyn Linker> = match cache() {
+        Some(root) => Box::new(Machine::under(root.join("linked"))),
+        None => Box::new(Unlinked),
+    };
     let session = Session {
         files: &Disk,
         store: store.as_ref(),
         snapshots: snapshots.as_ref(),
         world,
         launcher,
+        linker: linker.as_ref(),
     };
     exit(session.execute(&cli.command))
 }

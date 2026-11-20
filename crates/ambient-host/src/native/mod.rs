@@ -26,6 +26,10 @@ pub use natives::{NativeFn, Natives, Observation, Offered};
 pub use values::{Host, Inside, encode};
 pub use waits::{Answer, Answers, Waits};
 
+/// The machine native code here is for: what a native bundle says it
+/// is for, to be linked into a program built here.
+pub const MACHINE: &str = env!("AMBIENT_TARGET");
+
 /// What names the native backend ([`Running::backend`], `Backend::name`):
 /// the backend and the machine, since code for one does not run on
 /// another.

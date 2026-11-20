@@ -13,7 +13,8 @@ use std::rc::Rc;
 
 use ambient_host::launch::Built;
 
-use super::launch::Launch;
+use super::launch::{Launch, Linked};
+use super::linking::Link;
 use super::{Session, entry_of};
 use crate::backend::wasm::{self, Wasm};
 use crate::engine::Backend;
@@ -23,6 +24,12 @@ use crate::pack::Pack;
 /// What a program that needs no compiler is put after: the launcher
 /// (`ambient-launcher`), built beside the command for the same machine.
 pub const LAUNCHER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/launcher"));
+
+/// What building says of a program that both compiles code as it
+/// runs and reaches a native bundle: see the TODO under
+/// "Distribution" in `docs/spec/externs.md`.
+const COMPILES: &str = "a program that packs or compiles code cannot yet reach a native bundle: \
+     what loads it is the command, which is linked with none";
 
 /// Runs the program an executable carried in `world`, and gives the
 /// code to exit with. What went wrong is written to the world's
@@ -52,30 +59,56 @@ impl Session<'_> {
             engine: &engine,
         };
         let linked = launch.link(&entry_of(&project, entry), &crate::system::target())?;
+        let link = self.linking(&project, &linked.parts);
+        let link = link.map_err(|problem| vec![problem])?;
+
+        let output = output.map_or_else(|| project.root.clone(), |path| path.display().to_string());
+        let program = Self::carried(&launch, &linked);
+        // A program that packs or compiles code is started by the
+        // command itself, which is the launcher that has the compiler.
+        let written = if host::compiles(&linked.parts) {
+            if link.is_some() {
+                return Err(vec![COMPILES.to_owned()]);
+            }
+            let Some(command) = &self.launcher else {
+                return Err(vec!["the command cannot find its own file".to_owned()]);
+            };
+            let mut world = self.world.borrow_mut();
+            world
+                .copy(&command.to_string_lossy(), &output)
+                .and_then(|()| world.append(&output, &program))
+        } else {
+            let executable = self.executable(&launch, &linked, link.as_ref())?;
+            self.world.borrow_mut().install(&output, &executable)
+        };
+        written.map_err(|failure| vec![format!("{output}: {}", failure.message)])?;
+        self.world.borrow_mut().write(&format!("built {output}\n"));
+        Ok(0)
+    }
+
+    /// The program of `linked` as an executable carries it.
+    fn carried(launch: &Launch, linked: &Linked) -> Vec<u8> {
         let built = Built {
             parts: linked.parts.encode(linked.backend.name()),
             frames: launch.frames(&linked.root),
             trees: linked.trees.as_ref().map(Pack::encode),
         };
-        let program = built.carry();
+        built.carry()
+    }
 
-        let output = output.map_or_else(|| project.root.clone(), |path| path.display().to_string());
-        let mut world = self.world.borrow_mut();
-        // A program that packs or compiles code is started by the
-        // command itself, which is the launcher that has the compiler.
-        let written = if host::compiles(&linked.parts) {
-            let Some(command) = &self.launcher else {
-                return Err(vec!["the command cannot find its own file".to_owned()]);
-            };
-            world
-                .copy(&command.to_string_lossy(), &output)
-                .and_then(|()| world.append(&output, &program))
-        } else {
-            world.install(&output, &[LAUNCHER, &program].concat())
-        };
-        written.map_err(|failure| vec![format!("{output}: {}", failure.message)])?;
-        world.write(&format!("built {output}\n"));
-        Ok(0)
+    /// An executable of the program of `linked` that needs no
+    /// compiler: the program after the launcher, or after what `link`
+    /// says to link of the launcher and native bundles.
+    pub(super) fn executable(
+        &self,
+        launch: &Launch,
+        linked: &Linked,
+        link: Option<&Link>,
+    ) -> Result<Vec<u8>, Vec<String>> {
+        let linked_with = link.map(|link| self.linker.link(link)).transpose();
+        let launcher = linked_with.map_err(|problem| vec![problem])?;
+        let launcher = launcher.as_deref().unwrap_or(LAUNCHER);
+        Ok([launcher, &Self::carried(launch, linked)].concat())
     }
 
     /// Builds `entry` of the package at `path` under `target` of the

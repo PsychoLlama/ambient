@@ -152,6 +152,7 @@ fn build(output: &Path) {
         snapshots: &ambient::project::Nowhere,
         world: Rc::new(RefCell::new(System::new(Vec::new()))),
         launcher: None,
+        linker: &ambient::cli::Unlinked,
     };
     let command = Command::Build {
         path: PathBuf::from("app"),

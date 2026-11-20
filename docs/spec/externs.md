@@ -78,4 +78,5 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - That a package contains native code needs its workspace's [approval](releases.md#approvals), as its [build grants](comptime.md) do.
 - Definition hashes do not cover native code; a package's snapshot does.
 - TODO: a [comptime](comptime.md) call and a [test](packages.md#testing) reach no native bundle, since what runs them was linked before the package was known.
-- TODO: no native bundle is read; a program reaches only the native code of its [target](targets.md)'s own package.
+- TODO: a native bundle is read only where a member's manifest says it is; none is fetched by its digest.
+- TODO: a program that packs or compiles code reaches no native bundle, since what loads it is the compiler's own executable.

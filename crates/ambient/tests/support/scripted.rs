@@ -97,6 +97,7 @@ impl Scripted {
             snapshots,
             world,
             launcher: Some(PathBuf::from(LAUNCHER)),
+            linker: &ambient::cli::Unlinked,
         };
         let code = session.execute(command);
         let after = scripted.borrow().clone();

@@ -8,6 +8,8 @@ mod building;
 mod files;
 mod init;
 mod launch;
+mod linking;
+mod machine;
 mod package;
 mod test;
 mod trace;
@@ -24,6 +26,8 @@ use ambient_host::launch::{FAILED, code, started};
 pub use build::{LAUNCHER, start};
 pub use building::engine;
 use launch::Launch;
+pub use linking::{ARCHIVE, Link, Linker, Unlinked, symbol};
+pub use machine::Machine;
 
 use crate::engine::Engine;
 use crate::error::Error;
@@ -145,6 +149,9 @@ pub struct Session<'a> {
     /// The file of the command itself, which loads what it builds; a
     /// session that has none builds nothing.
     pub launcher: Option<PathBuf>,
+    /// What joins the native bundles a program reaches with what
+    /// loads it.
+    pub linker: &'a dyn Linker,
 }
 
 impl Session<'_> {
@@ -209,6 +216,14 @@ impl Session<'_> {
             engine: &engine,
         };
         let linked = launch.link(&entry_of(&project, entry), &crate::system::target())?;
+        let said = |problem: String| vec![problem];
+        // A program that reaches a native bundle is run by what was
+        // linked with it, which this process was not.
+        if let Some(link) = self.linking(&project, &linked.parts).map_err(said)? {
+            let executable = self.executable(&launch, &linked, Some(&link))?;
+            let args = self.world.borrow().args();
+            return self.linker.run(&executable, &args).map_err(said);
+        }
         let natives = host::natives(&self.world, linked.trees.clone());
         let gave = started(&linked.parts, &natives, || launch.frames(&linked.root))?;
         Ok(code(&gave))
