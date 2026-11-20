@@ -212,7 +212,7 @@ fn executed_of(scratch: &Scratch, command: &Command) -> i32 {
 #[test]
 fn an_executable_runs_the_function_of_a_bundle_its_program_reaches() {
     let scratch = Scratch::new();
-    let output = scratch.0.join("out");
+    let output = scratch.0.join("made/here/out");
     let build = Command::Build {
         path: scratch.0.join("app"),
         entry: "main.main".to_owned(),

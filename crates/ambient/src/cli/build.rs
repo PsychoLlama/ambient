@@ -72,6 +72,7 @@ impl Session<'_> {
 
         let output = output.map_or_else(|| project.root.clone(), |path| path.display().to_string());
         let program = Self::carried(&launch, &linked);
+        self.room(&output)?;
         // A program that packs or compiles code is started by the
         // command itself, which is the launcher that has the compiler.
         let written = if host::compiles(&linked.parts) {
@@ -92,6 +93,20 @@ impl Session<'_> {
         written.map_err(|failure| vec![format!("{output}: {}", failure.message)])?;
         self.world.borrow_mut().write(&format!("built {output}\n"));
         Ok(0)
+    }
+
+    /// Makes the directory the file at `output` is to be written in,
+    /// if it is not there: a build is often the first thing put in one.
+    fn room(&self, output: &str) -> Result<(), Vec<String>> {
+        let parent = Path::new(output).parent();
+        let Some(parent) = parent.filter(|parent| !parent.as_os_str().is_empty()) else {
+            return Ok(());
+        };
+        let made = self
+            .world
+            .borrow_mut()
+            .make_directory(&parent.to_string_lossy());
+        made.map_err(|failure| vec![format!("{}: {}", parent.display(), failure.message)])
     }
 
     /// The program of `linked` as an executable carries it.
@@ -149,6 +164,7 @@ impl Session<'_> {
 
         let named = || format!("{}.wasm", project.root);
         let output = output.map_or_else(named, |path| path.display().to_string());
+        self.room(&output)?;
         let stored = self.world.borrow_mut().store(&output, &module);
         stored.map_err(|failure| vec![format!("{output}: {}", failure.message)])?;
         let built = format!("built {output}, {} bytes\n", module.len());
