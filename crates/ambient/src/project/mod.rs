@@ -31,7 +31,7 @@ pub use fetch::Kept;
 pub use files::{Disk, Files};
 use git::Git;
 pub use locked::{Commit, LOCK, Lock, Locked, Nowhere, Snapshots, Source};
-pub use manifest::{Dependency, Manifest, Package};
+pub use manifest::{Bundle, Dependency, Manifest, Package};
 pub use members::covered;
 use members::{Members, normal};
 pub use settle::Update;
@@ -70,6 +70,9 @@ pub struct Project {
     pub locked: Option<(PathBuf, String)>,
     /// The files of each package that was opened, by its name.
     pub packages: BTreeMap<String, Contents>,
+    /// The native bundles of each package that has any, by its name
+    /// and then by the platform each is for.
+    pub natives: BTreeMap<String, BTreeMap<String, Bundle>>,
 }
 
 /// A module read from a file.
@@ -174,6 +177,7 @@ pub fn open_with(
         lock: settled.lock,
         workspace: Workspace::new(),
         opened: BTreeMap::new(),
+        natives: BTreeMap::new(),
         modules: Vec::new(),
     };
     crate::library::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
@@ -186,6 +190,7 @@ pub fn open_with(
         root,
         modules: opening.modules,
         packages: opening.opened,
+        natives: opening.natives,
     })
 }
 
@@ -199,6 +204,8 @@ struct Opening<'a> {
     workspace: Workspace,
     /// The files of each package opened so far.
     opened: BTreeMap<String, Contents>,
+    /// The native bundles of each package opened so far that has any.
+    natives: BTreeMap<String, BTreeMap<String, Bundle>>,
     modules: Vec<Read>,
 }
 
@@ -285,6 +292,9 @@ impl Opening<'_> {
             return Err(ProjectError::Manifest { path, reason });
         }
         self.workspace.identify(&name, &manifest.id);
+        if !manifest.native.is_empty() {
+            self.natives.insert(name.clone(), manifest.native.clone());
+        }
         self.modules(&name, &directory.join(SOURCES))?;
         // Every package reaches the standard library by its name.
         let library = |error| ProjectError::Workspace(error);

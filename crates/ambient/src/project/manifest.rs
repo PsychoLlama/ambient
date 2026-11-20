@@ -18,6 +18,37 @@ pub struct Step {
     pub tool: String,
 }
 
+/// A native bundle: the machine code of a package's externs for one
+/// platform, as a file the manifest lists by its digest. See
+/// "Distribution" in `docs/spec/externs.md`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Bundle {
+    /// The digest of its content, which is what is held to.
+    pub digest: Option<String>,
+    /// Somewhere to fetch it from: a hint.
+    pub url: Option<String>,
+    /// Where it is under the package's directory, for a member: what
+    /// is there is used as it is.
+    pub path: Option<PathBuf>,
+    /// The libraries of the system it is to be linked with, each as
+    /// the linker is told of one.
+    #[serde(default)]
+    pub libraries: Vec<String>,
+}
+
+impl Bundle {
+    /// What is wrong with what it says, if anything is.
+    fn wrong(&self) -> Option<&'static str> {
+        let outside = self.path.as_deref().is_some_and(|path| !inside(path));
+        match (&self.digest, &self.path) {
+            (None, None) => Some("says neither a `digest` nor a `path`"),
+            _ if outside => Some("says a `path` that is not under the package's directory"),
+            _ => None,
+        }
+    }
+}
+
 /// What a package says of itself.
 #[derive(Clone, Debug)]
 pub struct Package {
@@ -45,6 +76,9 @@ pub struct Package {
     /// The lints checking the package runs, each a path as a
     /// prelude's is, to a function. See "Commands" in `docs/spec/tools.md`.
     pub lints: Vec<String>,
+    /// Its native bundles, each by the platform it is for: what the
+    /// native backend calls the machine.
+    pub native: BTreeMap<String, Bundle>,
 }
 
 /// A package another depends on: which it is, and where to find it.
@@ -143,6 +177,8 @@ struct Written {
     steps: Vec<Step>,
     #[serde(default)]
     lints: Vec<String>,
+    #[serde(default)]
+    native: BTreeMap<String, Bundle>,
     members: Option<Vec<PathBuf>>,
     #[serde(default)]
     vendored: BTreeMap<PathBuf, String>,
@@ -180,6 +216,7 @@ impl Manifest {
                 files: written.files,
                 steps: written.steps,
                 lints: written.lints,
+                native: written.native,
             }),
             (None, None, None) if members.is_some() => None,
             (name, id, _) => {
@@ -194,6 +231,11 @@ impl Manifest {
         for (name, dependency) in package.iter().flat_map(|package| &package.dependencies) {
             if let Some(wrong) = dependency.wrong() {
                 return Err(format!("the dependency `{name}` {wrong}"));
+            }
+        }
+        for (platform, bundle) in package.iter().flat_map(|package| &package.native) {
+            if let Some(wrong) = bundle.wrong() {
+                return Err(format!("the native bundle for `{platform}` {wrong}"));
             }
         }
         let outside = |path: &&PathBuf| !inside(path);
@@ -257,6 +299,26 @@ mod tests {
         for outside in ["\"../secret\"", "\"/etc\"", "\"\"", "\"./pages\""] {
             assert!(!read(outside), "{outside}");
         }
+    }
+
+    #[test]
+    fn a_native_bundle_says_its_digest_or_where_it_is() {
+        let package = "name = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n[native.linux]\n";
+        let read = |bundle: &str| Manifest::read(&format!("{package}{bundle}")).err();
+        let said = |wrong: &str| Some(format!("the native bundle for `linux` {wrong}"));
+        assert_eq!(
+            read("digest = \"d\"\nurl = \"u\"\nlibraries = [\"-lm\"]"),
+            None
+        );
+        assert_eq!(read("path = \"native/a.o\""), None);
+        assert_eq!(
+            read("url = \"u\""),
+            said("says neither a `digest` nor a `path`")
+        );
+        assert_eq!(
+            read("path = \"../a.o\""),
+            said("says a `path` that is not under the package's directory")
+        );
     }
 
     #[test]
