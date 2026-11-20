@@ -43,6 +43,26 @@ pub unsafe extern "C" fn amb_record_set(record: Word, key: Word, value: Word) {
     }
 }
 
+/// Puts the fields of a record a host laid out in the order every
+/// record keeps them in. A host cannot: the order is by where each
+/// key is, which is known only once the keys are made.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_record_settle(record: Word) {
+    unsafe {
+        let fields = words(record);
+        // An insertion sort: a record written out has few fields, and
+        // this allocates nothing.
+        for sorted in (2..fields.len()).step_by(2) {
+            let mut at = sorted;
+            while at > 0 && fields[at - 2] > fields[at] {
+                fields.swap(at - 2, at);
+                fields.swap(at - 1, at + 1);
+                at -= 2;
+            }
+        }
+    }
+}
+
 pub(crate) unsafe fn find(record: Word, key: Word) -> Option<Word> {
     unsafe {
         words(record)
@@ -178,5 +198,37 @@ pub unsafe extern "C" fn amb_record_merge(base: Word, overlay: Word, methods: Wo
             };
         }
         word
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::vec::Vec;
+
+    use proptest::prelude::*;
+
+    use super::*;
+    use crate::object::free;
+
+    proptest! {
+        #[test]
+        fn settling_orders_fields_by_key_and_keeps_each_with_its_value(
+            keys in prop::collection::btree_set(1u64..1000, 0..12),
+        ) {
+            // SAFETY: the record is this test's own, and holds no object.
+            let settled = unsafe {
+                let record = amb_record_new(keys.len() as u64);
+                // Written in descending order, each key with its double.
+                for (pair, key) in words(record).chunks_mut(2).zip(keys.iter().rev()) {
+                    pair.copy_from_slice(&[*key, key * 2]);
+                }
+                amb_record_settle(record);
+                let settled = words(record).to_vec();
+                free(record);
+                settled
+            };
+            let expected: Vec<u64> = keys.iter().flat_map(|key| [*key, key * 2]).collect();
+            prop_assert_eq!(settled, expected);
+        }
     }
 }

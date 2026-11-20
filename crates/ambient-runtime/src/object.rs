@@ -47,6 +47,74 @@ pub(crate) fn fixed(loaded: bool) -> u64 {
     u64::from(if loaded { LOADED } else { PINNED })
 }
 
+/// A shape an object laid out in a block may have: what a host makes
+/// of a constant's value before a program runs. See
+/// `docs/spec/constants.md`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fixed {
+    /// An integer too large to be immediate: one word, the integer.
+    Int,
+    /// One word, the float's bits.
+    Float,
+    /// The text's bytes, in words, the first byte lowest in the first.
+    String,
+    /// Bytes, laid out as a string's are.
+    Bytes,
+    /// A word for each member.
+    Tuple,
+    /// A list's buffer, then [`fixed_list`].
+    List,
+    /// What a list's members are in: [`fixed_count`] of how many, then
+    /// a word for each.
+    Buffer,
+    /// A key and a value for each field, in any order: the host has
+    /// the runtime put them in order with `amb_record_settle`.
+    Record,
+    /// A definition, then a word for each capture.
+    Closure,
+    /// A closure a record holds as a method.
+    Method,
+}
+
+/// The two words an object laid out in a block starts with: one of
+/// `shape` whose payload is `size` bytes, in whole words.
+#[must_use]
+pub fn fixed_header(shape: Fixed, size: usize, loaded: bool) -> [u64; 2] {
+    let kind = match shape {
+        Fixed::Int => KIND_INT,
+        Fixed::Float => KIND_FLOAT,
+        Fixed::String => KIND_STRING,
+        Fixed::Bytes => KIND_BYTES,
+        Fixed::Tuple => KIND_TUPLE,
+        Fixed::List => KIND_LIST,
+        Fixed::Buffer => KIND_BUFFER,
+        Fixed::Record => KIND_RECORD,
+        Fixed::Closure => KIND_CLOSURE,
+        Fixed::Method => KIND_METHOD,
+    };
+    [fixed(loaded) | (u64::from(kind) << 32), size as u64]
+}
+
+/// An integer as the word a block holds for it, if it is small
+/// enough to be immediate. One that is not is a [`Fixed::Int`].
+#[must_use]
+pub fn fixed_int(value: i64) -> Option<u64> {
+    small(value)
+}
+
+/// A count, as a list and its buffer hold one.
+#[must_use]
+pub fn fixed_count(value: usize) -> u64 {
+    small(value as i64).unwrap_or(NULL)
+}
+
+/// The words of a list after its buffer: where it starts in the
+/// buffer, which is at its beginning, and how many members it has.
+#[must_use]
+pub fn fixed_list(length: usize) -> [u64; 2] {
+    [fixed_count(0), fixed_count(length)]
+}
+
 /// The layout of a closure and of the definition it refers to, for
 /// compiled code. Every field is one word; offsets are in bytes.
 ///

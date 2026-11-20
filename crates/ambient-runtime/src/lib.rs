@@ -80,7 +80,10 @@ pub use iterator::{
 pub use list::*;
 pub use native::*;
 pub use number::*;
-pub use object::{amb_release, amb_retain, fixed_closure, layout};
+pub use object::{
+    Fixed, amb_release, amb_retain, fixed_closure, fixed_count, fixed_header, fixed_int,
+    fixed_list, layout,
+};
 pub use record::*;
 pub use scope::{amb_scope_new, amb_scope_set, fixed_scope};
 pub use sequence::*;
