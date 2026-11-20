@@ -11,6 +11,7 @@ use std::io::{BufRead, Read};
 use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::task::Poll;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -19,7 +20,8 @@ use super::signals::{Signal, Signals};
 use super::sockets::{Came, Reaches};
 use super::system::failure;
 use super::waits::{Chunk, Done, Line, Work};
-use super::{Command, Failure, Held, Kind, Ran, Response};
+use super::watching::{Change, Watches};
+use super::{Command, Failure, Held, Kind, Open, Opened, Ran, Response};
 use crate::native::Posts;
 
 /// What a thread sends back.
@@ -40,6 +42,8 @@ pub(super) enum Sent {
     Net(Came),
     /// The process was asked something from outside.
     Signal(Signal),
+    /// A change a watcher saw, or word that it missed one.
+    Changed(i64, Option<Change>),
 }
 
 pub(super) struct Pending {
@@ -65,6 +69,7 @@ pub(super) struct Pending {
     pub(super) reaches: Reaches,
     /// What waits to be told what the process is asked.
     signals: Signals,
+    watches: Watches,
     /// What threads of native bundles post, which wake this.
     posts: Option<Arc<Posts>>,
 }
@@ -76,6 +81,7 @@ impl Default for Pending {
             network: Network::new(sender.clone()),
             reaches: Reaches::new(sender.clone()),
             signals: Signals::default(),
+            watches: Watches::default(),
             sender,
             sent,
             ready: VecDeque::new(),
@@ -111,6 +117,11 @@ impl Pending {
             Work::Accept(server) => {
                 let done = self.network.accept(ticket, server);
                 self.ready.extend(done.map(|done| (ticket, done)));
+            }
+            Work::Change(watcher) => {
+                if let Poll::Ready(change) = self.watches.next(ticket, watcher) {
+                    self.ready.push_back((ticket, Done::Changed(change)));
+                }
             }
             Work::Signal => {
                 let asked = self.signals.wait(ticket, &self.sender);
@@ -233,6 +244,7 @@ impl Pending {
                 || self.network.waits()
                 || self.reaches.waits()
                 || self.signals.waits()
+                || self.watches.waits()
                 || posts.is_some_and(|posts| posts.coming());
             let sent = match due {
                 Some((when, _)) if threads => match self.sent.recv_timeout(when - Instant::now()) {
@@ -288,6 +300,11 @@ impl Pending {
             Sent::Request(server, request) => {
                 self.ready.extend(self.network.arrived(server, request));
             }
+            Sent::Changed(watcher, change) => {
+                let came = self.watches.came(watcher, change);
+                self.ready
+                    .extend(came.map(|(ticket, change)| (ticket, Done::Changed(Some(change)))));
+            }
             Sent::Signal(signal) => {
                 let told = self.signals.came(signal);
                 self.ready
@@ -308,9 +325,26 @@ impl Pending {
         self.ready.extend(waiting.into_iter().map(closed));
     }
 
+    /// Opens a listener, a socket, or a watcher.
+    pub(super) fn open(&mut self, what: Open) -> Result<Opened, Failure> {
+        match what {
+            Open::Watch(path) => {
+                let id = self.watches.watch(&path, self.sender.clone())?;
+                Ok(Opened { id, port: 0 })
+            }
+            what => self.reaches.open(what),
+        }
+    }
+
     /// Lets go of a stream, a listener, or a socket, and answers
     /// whatever waited on it.
     pub(super) fn shut(&mut self, held: Held) {
+        if let Held::Watcher(watcher) = held {
+            let closed = |ticket| (ticket, Done::Changed(None));
+            return self
+                .ready
+                .extend(self.watches.close(watcher).into_iter().map(closed));
+        }
         let reached = self.reaches.shut(held).into_iter();
         self.ready
             .extend(reached.map(|(ticket, reached)| (ticket, Done::Reached(reached))));
@@ -326,6 +360,7 @@ impl Pending {
         self.network.forsake(ticket);
         self.reaches.forsake(ticket);
         self.signals.forsake(ticket);
+        self.watches.forsake(ticket);
         if let Some(mut child) = self.children.remove(&ticket) {
             let _ = child.kill();
             let _ = child.wait();

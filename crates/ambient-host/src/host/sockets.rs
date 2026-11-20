@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use super::net::{Address, Datagram, Held, Open, Opened, Reach, Reached};
 use super::pending::Sent;
+use super::queue::{Queue, room};
 use super::reaching::{address, connect, failed, port, reaching, refused, tcp, unix};
 use super::streams::{Event, Halves, Streams};
 use super::system::failure;
@@ -32,69 +33,6 @@ pub(super) enum Came {
     Arrived(i64, Halves),
     /// A datagram a socket was sent.
     Datagram(i64, Datagram),
-}
-
-/// The most connections a listener holds that nothing has accepted,
-/// and the most datagrams a socket holds that nothing has received.
-const HELD: usize = 256;
-
-/// What waits on something a thread brings, and what it brought that
-/// nothing has taken.
-struct Queue<T> {
-    untaken: VecDeque<T>,
-    waiting: VecDeque<u64>,
-    /// How many its thread has brought that nothing has taken: the
-    /// thread drops one more than [`HELD`].
-    held: Arc<AtomicUsize>,
-    /// Marks it closed and lets its thread go.
-    stop: Box<dyn Fn() + Send>,
-}
-
-impl<T> Queue<T> {
-    fn new(held: Arc<AtomicUsize>, stop: Box<dyn Fn() + Send>) -> Self {
-        Self {
-            untaken: VecDeque::new(),
-            waiting: VecDeque::new(),
-            held,
-            stop,
-        }
-    }
-
-    /// The next that was brought, or the ticket waits for one.
-    fn take(&mut self, ticket: u64) -> Option<T> {
-        let next = self.untaken.pop_front();
-        if next.is_some() {
-            self.held.fetch_sub(1, Ordering::Relaxed);
-        } else {
-            self.waiting.push_back(ticket);
-        }
-        next
-    }
-
-    /// Hands what was brought to a ticket that waits, or keeps it.
-    fn bring(&mut self, brought: T) -> Option<(u64, T)> {
-        let Some(ticket) = self.waiting.pop_front() else {
-            self.untaken.push_back(brought);
-            return None;
-        };
-        self.held.fetch_sub(1, Ordering::Relaxed);
-        Some((ticket, brought))
-    }
-}
-
-impl<T> Drop for Queue<T> {
-    fn drop(&mut self) {
-        (self.stop)();
-    }
-}
-
-/// Whether a thread may bring one more, which is then counted.
-fn room(held: &AtomicUsize) -> bool {
-    let has = held.load(Ordering::Relaxed) < HELD;
-    if has {
-        held.fetch_add(1, Ordering::Relaxed);
-    }
-    has
 }
 
 pub(super) struct Reaches {
@@ -218,6 +156,7 @@ impl Reaches {
                 Ok(self.accepting(accept, wake, 0))
             }
             Open::Bind { host, port, shared } => self.bind(&host, port, shared),
+            Open::Watch(_) => Err(failed(Kind::Invalid, &"no socket watches a file")),
         }
     }
 
@@ -373,6 +312,7 @@ impl Reaches {
                 .collect()
         };
         match held {
+            Held::Watcher(_) => Vec::new(),
             Held::Stream(stream) => self.streams.close(stream),
             Held::Listener(listener) => self
                 .listeners

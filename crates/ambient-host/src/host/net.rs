@@ -30,6 +30,8 @@ pub enum Open {
         port: i64,
         shared: bool,
     },
+    /// Watch a file, or a directory and all it holds.
+    Watch(String),
 }
 
 /// What a world opened: the number it is known by, and its port, or
@@ -47,6 +49,7 @@ pub enum Held {
     Stream(i64),
     Listener(i64),
     Socket(i64),
+    Watcher(i64),
 }
 
 /// What a socket received, and where it came from.

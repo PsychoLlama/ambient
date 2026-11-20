@@ -109,3 +109,44 @@ pub(super) const HANDLERS: [(&str, Handler); 13] = [
         Ok(nothing(world.copy(text(args, 0)?, text(args, 1)?)))
     }),
 ];
+
+/// What `system.fs` calls the brand of a watcher.
+pub(super) const WATCHER: &str = "fs.Watcher";
+
+/// The watcher a handler was given.
+pub(super) fn watcher(args: &[Value]) -> Result<i64, String> {
+    match args.first() {
+        Some(Value::Handle {
+            package,
+            brand,
+            number,
+        }) if package == PACKAGE && brand == WATCHER => Ok(number.cast_signed()),
+        _ => Err("argument 0 is not a watcher".to_owned()),
+    }
+}
+
+/// A change, as `system.fs` describes one.
+pub(super) fn change(change: super::Change) -> Value {
+    let kind = Value::Tag {
+        package: PACKAGE.to_owned(),
+        tag: format!("fs.{}", change.kind.name()),
+    };
+    let fields = [("path", Value::String(change.path)), ("kind", kind)];
+    let named = |(name, value): (&str, Value)| (name.to_owned(), value);
+    Value::Record(fields.into_iter().map(named).collect())
+}
+
+/// What `watch` and `unwatch` do: neither waits.
+pub(super) const WATCHING: [(&str, super::http::Handler); 2] = [
+    ("fs_watch", |world, args| {
+        let opened = world.open(super::Open::Watch(text(args, 0)?.to_owned()));
+        Ok(opened.map_or_else(
+            |failure| error("fs", &failure),
+            |opened| super::http::handle(WATCHER, opened.id),
+        ))
+    }),
+    ("fs_unwatch", |world, args| {
+        world.shut(super::Held::Watcher(watcher(args)?));
+        Ok(Value::Null)
+    }),
+];

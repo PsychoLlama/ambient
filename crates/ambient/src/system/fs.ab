@@ -64,3 +64,34 @@ pub ability rename(from: string, to: string): null | Error;
 
 /// Makes a file at one path hold what the file at another holds.
 pub ability copy(from: string, to: string): null | Error;
+
+/// Something is there that was not.
+pub tag created;
+
+/// What something holds, or what is said of it, is different.
+pub tag modified;
+
+/// Something that was there is not.
+pub tag removed;
+
+/// Changes were not kept, since more came than were taken: whatever
+/// is watched may be different, and is to be looked at again.
+pub tag missed;
+
+/// What watches a path. It stops when it is closed, or when nothing
+/// holds it any more.
+pub type(nominal) Watcher;
+
+/// How something changed, and its path. One that was moved is removed
+/// at one path and created at another.
+pub type Change = { path: string, kind: created | modified | removed | missed };
+
+/// Starts watching a file, or a directory and all it holds.
+pub ability watch(path: string): Watcher | Error;
+
+/// The next change a watcher saw, waited for, or null once the
+/// watcher is closed.
+pub ability change(watcher: Watcher): Change | null;
+
+/// Stops a watcher. Whatever waits on it is given null.
+pub ability unwatch(watcher: Watcher): null;

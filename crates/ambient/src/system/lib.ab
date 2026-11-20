@@ -46,6 +46,9 @@ extern handler fs_copy for fs.copy;
 extern handler fs_read_bytes for fs.read_bytes;
 extern handler fs_write_bytes for fs.write_bytes;
 extern handler fs_append_bytes for fs.append_bytes;
+extern handler fs_watch for fs.watch;
+extern handler(suspending) fs_change for fs.change;
+extern handler fs_unwatch for fs.unwatch;
 extern handler clock_now for clock.now;
 extern handler clock_elapsed for clock.elapsed;
 extern handler(suspending) clock_sleep for clock.sleep;
@@ -100,6 +103,9 @@ pub target cli {
     fs.read_bytes: fs_read_bytes,
     fs.write_bytes: fs_write_bytes,
     fs.append_bytes: fs_append_bytes,
+    fs.watch: fs_watch,
+    fs.change: fs_change,
+    fs.unwatch: fs_unwatch,
     clock.now: clock_now,
     clock.elapsed: clock_elapsed,
     clock.sleep: clock_sleep,

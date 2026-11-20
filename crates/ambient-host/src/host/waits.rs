@@ -10,9 +10,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use super::Command;
+use super::files;
 use super::http::{self, Incoming, Request, Response};
-use super::net::{self, Reach, Reached};
+use super::net::{self, Held, Reach, Reached};
 use super::signals::Signal;
+use super::watching::Change;
 use super::{Failure, PACKAGE, Ran, World, error, optional, output};
 use crate::native::{Answer, Posts, Waits};
 use crate::value::Value;
@@ -36,6 +38,8 @@ pub enum Work {
     Reach(Reach),
     /// Wait until the program is asked something from outside.
     Signal,
+    /// Take the next change a watcher saw.
+    Change(i64),
 }
 
 /// A line of input without its ending, or nothing at the end of input.
@@ -63,6 +67,8 @@ pub enum Done {
     Reached(Reached),
     /// What the program was asked from outside.
     Signalled(Signal),
+    /// The change, or nothing once the watcher is closed.
+    Changed(Option<Change>),
 }
 
 impl Done {
@@ -79,6 +85,7 @@ impl Done {
             Self::Sent(sent) => http::sent(sent),
             Self::Accepted(incoming) => incoming.map_or(Value::Null, Incoming::value),
             Self::Reached(reached) => reached.value(),
+            Self::Changed(change) => change.map_or(Value::Null, files::change),
             Self::Signalled(signal) => Value::Tag {
                 package: PACKAGE.to_owned(),
                 tag: format!("process.{}", signal.name()),
@@ -111,6 +118,7 @@ impl Waits for Outcomes {
         match (package, brand) {
             (PACKAGE, http::LISTENER) => self.0.borrow_mut().close(number),
             (PACKAGE, http::REPLY) => self.0.borrow_mut().abandon(number),
+            (PACKAGE, files::WATCHER) => self.0.borrow_mut().shut(Held::Watcher(number)),
             (PACKAGE, brand) => {
                 if let Some(held) = net::dropped(brand, number) {
                     self.0.borrow_mut().shut(held);

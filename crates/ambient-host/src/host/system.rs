@@ -202,7 +202,7 @@ impl World for System {
     }
 
     fn open(&mut self, what: Open) -> Result<Opened, Failure> {
-        self.pending.reaches.open(what)
+        self.pending.open(what)
     }
 
     fn shut(&mut self, held: Held) {

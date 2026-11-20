@@ -9,8 +9,8 @@ use std::rc::Rc;
 use ambient::cli::{Command, Session};
 use ambient::engine::Engine;
 use ambient::host::{
-    Address, Done, Entry, Failure, Held, Incoming, Info, Kind, Listening, Open, Opened, Ran, Reach,
-    Reached, Request, Response, Signal, Work, World,
+    Address, Change, Done, Entry, Failure, Held, Incoming, Info, Kind, Listening, Open, Opened,
+    Ran, Reach, Reached, Request, Response, Signal, Work, World,
 };
 use ambient::project::{Files, Nowhere, Snapshots};
 use ambient::store::MemoryStore;
@@ -70,6 +70,9 @@ pub struct Scripted {
     /// What the program is asked from outside, each as soon as a task
     /// waits for it; with none left, a task that waits is never told.
     pub signals: VecDeque<Signal>,
+    /// The changes a watcher sees. It is closed once it has given
+    /// them all.
+    pub changes: VecDeque<Change>,
     /// What was let go of, in order.
     pub shut: Vec<Held>,
 }
@@ -360,8 +363,11 @@ impl World for Scripted {
         self.abandoned.push(incoming);
     }
 
-    /// A script listens for nothing.
-    fn open(&mut self, _what: Open) -> Result<Opened, Failure> {
+    /// A script listens for nothing, and watches what it is told.
+    fn open(&mut self, what: Open) -> Result<Opened, Failure> {
+        if matches!(what, Open::Watch(_)) {
+            return Ok(Opened { id: 1, port: 0 });
+        }
         Err(Failure {
             kind: Kind::Denied,
             message: "a script listens for nothing".to_owned(),
@@ -401,6 +407,7 @@ impl World for Scripted {
                 )
             }
             Work::Reach(reach) => (0, Done::Reached(self.reach(reach))),
+            Work::Change(_) => (0, Done::Changed(self.changes.pop_front())),
             Work::Run(command) => {
                 let line = [std::slice::from_ref(&command.program), &command.args[..]]
                     .concat()

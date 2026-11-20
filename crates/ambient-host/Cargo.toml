@@ -9,6 +9,7 @@ ambient-native.workspace = true
 ambient-runtime.workspace = true
 corosensei.workspace = true
 memmap2.workspace = true
+notify.workspace = true
 blake3.workspace = true
 getrandom.workspace = true
 hmac.workspace = true

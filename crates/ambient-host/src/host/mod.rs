@@ -14,12 +14,14 @@ mod http;
 mod net;
 mod network;
 mod pending;
+mod queue;
 mod reaching;
 mod signals;
 mod sockets;
 mod streams;
 mod system;
 mod waits;
+mod watching;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -33,6 +35,7 @@ pub use net::{Address, Datagram, Held, Open, Opened, Reach, Reached};
 pub use signals::Signal;
 pub use system::System;
 pub use waits::{Chunk, Done, Line, Work};
+pub use watching::{Change, Changed};
 
 use crate::native::Natives;
 use crate::value::Value;
@@ -279,8 +282,9 @@ fn strings(items: Vec<String>) -> Value {
 pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
     use http::{Handler, Starter};
     // What takes time is begun, and answered when it is over.
-    let starters: [(&str, Starter); 5] = [
+    let starters: [(&str, Starter); 6] = [
         ("process_signal", |_| Ok(Work::Signal)),
+        ("fs_change", |args| Ok(Work::Change(files::watcher(args)?))),
         ("console_read_line", |_| Ok(Work::ReadLine)),
         ("console_read", |args| Ok(Work::Read(int(args, 0)?))),
         ("clock_sleep", |args| Ok(Work::Sleep(int(args, 0)?))),
@@ -327,6 +331,7 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
     let handlers = handlers
         .into_iter()
         .chain(files::HANDLERS)
+        .chain(files::WATCHING)
         .chain(http::HANDLERS)
         .chain(net::HANDLERS);
     let starters = starters

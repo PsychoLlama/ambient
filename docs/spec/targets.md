@@ -58,6 +58,8 @@ A target defines the world a program runs in: a root binding for every ability t
 - Each of those is a module of abilities, so a row says which of them a function reaches.
 - An operation on a file that can fail in ordinary use gives an [error](errors.md) as a value; the kinds are tags of the module.
 - A file is read, written, and added to as text or as [bytes](operations.md#bytes), each by an ability of its own. Reading as text a file that is not UTF-8 is an error of a kind of its own.
+- A watcher is a [listener](#calls-from-the-world) whose next call is a change to a file it watches, or to anything in a directory it watches: what was created, modified, or removed, and its path.
+- A watcher holds a bounded number of changes nothing has taken. Past that it keeps no more, and says once that changes were missed, so that whatever follows them looks again.
 - Randomness is one ability, bits nothing could have guessed; every other draw is a function over it, so a provide of that one ability decides them all, and the package has one that follows from a seed.
 - Exiting is an ability that does not return, so the program's result is the code it exits with.
 - Being asked to stop from outside is a [call from the world](#calls-from-the-world): a task waits for it, and is told what was asked. A program no task of which has waited is ended by being asked, as any process is; once one has, stopping is the program's to do, so a daemon leaves cleanly.
