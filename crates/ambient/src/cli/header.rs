@@ -8,6 +8,7 @@
 use std::fmt::Write;
 use std::path::Path;
 
+use ambient_host::native::MACHINE;
 use ambient_native::{ENTRIES, Entry, FALSE, LAYOUT, NULL, TRUE, kind};
 
 use super::Session;
@@ -63,6 +64,8 @@ pub fn header(id: &str, externs: &[String], tags: &[String]) -> String {
     let mut said = format!(
         "// What a native bundle of the Ambient package {id} is written\n\
          // against, for layout {LAYOUT}. Written by `ambient header`: do not edit.\n\
+         // The command that wrote it links for the platform `{MACHINE}`,\n\
+         // which is what a manifest names a bundle for it.\n\
          #ifndef AMBIENT_H\n#define AMBIENT_H\n#include <stdint.h>\n\n\
          // The call a function is in: what the `amb_bundle_` entries take.\n\
          struct amb_call;\n\n\
