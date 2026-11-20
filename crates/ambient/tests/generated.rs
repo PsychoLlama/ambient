@@ -169,23 +169,49 @@ fn generated_code_calls_a_method() {
     assert_eq!(ran, Ok(Value::String("7!".to_owned())));
 }
 
-#[test]
-fn generated_code_provides_handlers() {
-    let main = "
+/// A program whose `main` is generated as `body`, beside `handled`,
+/// which provides a handler that answers `ask` with 41 around the code
+/// it is handed, and `asked`, code that asks and adds one.
+fn providing(body: &str) -> String {
+    format!(
+        "
         use ambient.code;
         use ambient.tree;
         ability ask(): int;
-        fn asked(): int with ask => ask!() + 1;
+        fn one_more(): int with ask => ask!() + 1;
+        fn asked(): code.Code => code.call(code.definition(comptime tree.reference(one_more)), []);
+        fn answer(): code.Code => code.function([], fn(none: List<code.Code>): code.Code => code.literal(41));
+        fn handled(body: code.Code): code.Code =>
+            code.providing(code.handlers([(comptime tree.reference(ask), answer())]), body);
         fn make(): tree.Function =>
-            code.define([], tree.integer, [], fn(given: List<code.Code>): code.Code =>
-                code.providing(
-                    code.handlers([(comptime tree.reference(ask), code.function([], fn(none: List<code.Code>): code.Code => code.literal(41)))]),
-                    code.call(code.definition(comptime tree.reference(asked)), [])));
+            code.define([], tree.integer, [], fn(given: List<code.Code>): code.Code => {body});
         fn made = comptime make();
         fn main(): int => made();
-    ";
+    "
+    )
+}
 
-    assert_eq!(support::text::run(main), Ok(Value::Int(42)));
+/// `one + <rest>`, with `one` a local bound to 1.
+const BINDS: &str = "code.bind(code.literal(1), fn(one: code.Code): code.Code => code.operate(\"add\", [one, REST]))";
+
+#[test]
+fn generated_code_provides_handlers() {
+    let ran = support::text::run(&providing("handled(asked())"));
+    assert_eq!(ran, Ok(Value::Int(42)));
+}
+
+/// A provide holds its handlers in a local no tree names, which what
+/// is bound after must be numbered past.
+#[test]
+fn generated_code_binds_a_local_inside_a_provide_and_after_one() {
+    let inside = format!("handled({})", BINDS.replace("REST", "asked()"));
+    let after = format!(
+        "code.operate(\"add\", [handled(asked()), {}])",
+        BINDS.replace("REST", "code.literal(0)")
+    );
+
+    assert_eq!(support::text::run(&providing(&inside)), Ok(Value::Int(43)));
+    assert_eq!(support::text::run(&providing(&after)), Ok(Value::Int(43)));
 }
 
 #[test]

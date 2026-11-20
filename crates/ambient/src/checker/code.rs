@@ -174,11 +174,17 @@ impl<'a> Reader<'a> {
                 left: self.boxed(need("under")?)?,
                 right: self.boxed(need("over")?)?,
             },
-            _ if has("handlers") => Expr::Provide {
-                bundle: self.boxed(need("handlers")?)?,
-                restricted: false,
-                body: self.boxed(need("body")?)?,
-            },
+            _ if has("handlers") => {
+                let bundle = self.boxed(need("handlers")?)?;
+                // The checker holds the bundle in a local of no name,
+                // which takes a number though no tree can name it.
+                self.next += 1;
+                Expr::Provide {
+                    bundle,
+                    restricted: false,
+                    body: self.boxed(need("body")?)?,
+                }
+            }
             _ if has("bind") => {
                 let value = self.boxed(need("bind")?)?;
                 let scope = self.bound.len();
