@@ -200,6 +200,62 @@ pub trait Snapshots {
     fn bytes(&self, url: &str) -> Result<Vec<u8>, String> {
         Err(format!("nothing here fetches {url}"))
     }
+
+    /// Where the file of a digest is, if the machine keeps it. See
+    /// "Layout" in `docs/spec/packages.md`.
+    fn kept(&self, _digest: &str) -> Option<PathBuf> {
+        None
+    }
+
+    /// Keeps `bytes`, which are of `digest`, and says where.
+    ///
+    /// # Errors
+    ///
+    /// They could not be written, or this machine keeps nothing.
+    fn keep(&self, digest: &str, _bytes: &[u8]) -> Result<PathBuf, String> {
+        Err(format!("nothing here keeps the file of digest {digest}"))
+    }
+}
+
+/// The SHA-256 of `bytes`, as a digest is written: in hexadecimal.
+#[must_use]
+pub fn digest(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .fold(String::new(), |mut hex, byte| {
+            // Writing to a string does not fail.
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
+}
+
+/// Where the file of `digest` is on this machine, fetched from `url`
+/// if the machine does not keep it. What is fetched is held to the
+/// digest: where it came from is only a hint.
+///
+/// # Errors
+///
+/// Fails if the file is not kept and nowhere is said to fetch it from,
+/// nothing answered there, or what answered is some other file.
+pub fn fetched(
+    snapshots: &dyn Snapshots,
+    digest: &str,
+    url: Option<&str>,
+) -> Result<PathBuf, String> {
+    if let Some(kept) = snapshots.kept(digest) {
+        return Ok(kept);
+    }
+    let url =
+        url.ok_or_else(|| format!("nothing says where to fetch the file of digest {digest}"))?;
+    let bytes = snapshots.bytes(url)?;
+    let found = self::digest(&bytes);
+    if found != digest {
+        return Err(format!("{url} gave a file of digest {found}, not {digest}"));
+    }
+    snapshots.keep(digest, &bytes)
 }
 
 /// A machine that keeps nothing and fetches nothing.

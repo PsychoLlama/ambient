@@ -5,8 +5,6 @@
 
 use std::collections::HashSet;
 
-use sha2::{Digest, Sha256};
-
 use super::Engine;
 use super::asked::{record, refused};
 use crate::checker;
@@ -19,17 +17,7 @@ use crate::value::Value;
 /// What gives the bytes at a URL, or says why it cannot.
 pub(super) type Fetch<'a> = Box<dyn Fn(&str) -> Result<Vec<u8>, String> + 'a>;
 
-/// The SHA-256 of `bytes`, as a digest is written: in hexadecimal.
-pub(super) fn digest(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    Sha256::digest(bytes)
-        .iter()
-        .fold(String::new(), |mut hex, byte| {
-            // Writing to a string does not fail.
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        })
-}
+pub(super) use crate::project::digest;
 
 /// Where the store keeps the bytes of a digest, fetched or kept.
 fn held(digest: &str) -> Hash {

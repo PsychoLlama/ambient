@@ -14,7 +14,7 @@ use ambient_host::native::MACHINE;
 
 use super::Session;
 use crate::engine::Parts;
-use crate::project::Project;
+use crate::project::{Project, fetched};
 use crate::symbol::PackageId;
 use crate::workspace::Sources;
 
@@ -175,11 +175,21 @@ impl Session<'_> {
                 format!("package `{package}` has no native bundle for `{MACHINE}`")
             })?;
             let directory = &project.packages[package].directory;
+            // What a member keeps in its directory is used as it is;
+            // anything else is the file of the digest.
             let place = bundle.path.as_ref().map(|path| directory.join(path));
             let place = place.filter(|place| self.files.bytes(place).is_ok());
-            let place = place.ok_or_else(|| {
-                format!("the native bundle of package `{package}` for `{MACHINE}` is not there")
-            })?;
+            let place = match (place, &bundle.digest) {
+                (Some(place), _) => place,
+                (None, Some(digest)) => fetched(self.snapshots, digest, bundle.url.as_deref())
+                    .map_err(|reason| {
+                        format!("the native bundle of package `{package}`: {reason}")
+                    })?,
+                (None, None) => {
+                    let said = "the native bundle of package";
+                    return Err(format!("{said} `{package}` for `{MACHINE}` is not there"));
+                }
+            };
             if bundles.insert(place) {
                 libraries.extend(bundle.libraries.iter().cloned());
             }

@@ -37,6 +37,13 @@ impl Kept {
         Self { root }
     }
 
+    /// Where the file of a digest is kept: apart from the snapshots,
+    /// whose names are hashes of another kind.
+    fn file(&self, digest: &str) -> PathBuf {
+        let plain: String = digest.chars().filter(char::is_ascii_alphanumeric).collect();
+        self.root.join("files").join(plain)
+    }
+
     fn place(&self, snapshot: &Hash) -> PathBuf {
         self.root.join(snapshot.to_string())
     }
@@ -89,6 +96,25 @@ impl Snapshots for Kept {
         let said = |error: ureq::Error| error.to_string();
         let mut response = ureq::get(url).call().map_err(said)?;
         response.body_mut().read_to_vec().map_err(said)
+    }
+
+    fn kept(&self, digest: &str) -> Option<PathBuf> {
+        let place = self.file(digest);
+        place.exists().then_some(place)
+    }
+
+    fn keep(&self, digest: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+        let failed = |error: std::io::Error| error.to_string();
+        let place = self.file(digest);
+        std::fs::create_dir_all(place.parent().unwrap_or(&self.root)).map_err(failed)?;
+        // Whole or not there; another process may keep it meanwhile,
+        // which is as good.
+        let partial = place.with_extension(format!("{}.partial", std::process::id()));
+        std::fs::write(&partial, bytes).map_err(failed)?;
+        if std::fs::rename(&partial, &place).is_err() {
+            std::fs::remove_file(&partial).ok();
+        }
+        Ok(place)
     }
 
     fn held(&self, snapshot: &Hash) -> Option<PathBuf> {

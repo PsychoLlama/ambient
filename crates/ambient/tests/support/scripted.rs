@@ -89,6 +89,18 @@ impl Scripted {
         snapshots: &dyn Snapshots,
         command: &Command,
     ) -> (i32, Self) {
+        self.execute_linked(files, store, snapshots, &ambient::cli::Unlinked, command)
+    }
+
+    /// [`Self::execute_from`], with `linker` to join native bundles.
+    pub fn execute_linked(
+        self,
+        files: &dyn Files,
+        store: &MemoryStore,
+        snapshots: &dyn Snapshots,
+        linker: &dyn ambient::cli::Linker,
+        command: &Command,
+    ) -> (i32, Self) {
         let scripted = Rc::new(RefCell::new(self));
         let world: Rc<RefCell<dyn World>> = scripted.clone();
         let session = Session {
@@ -97,7 +109,7 @@ impl Scripted {
             snapshots,
             world,
             launcher: Some(PathBuf::from(LAUNCHER)),
-            linker: &ambient::cli::Unlinked,
+            linker,
         };
         let code = session.execute(command);
         let after = scripted.borrow().clone();
