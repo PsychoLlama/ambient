@@ -312,6 +312,17 @@ fn a_value_written_into_a_string_is_asked_for_its_text() {
 }
 
 #[test]
+fn a_tag_written_into_a_string_is_its_path_and_name() {
+    let source = r#"
+        tag not_found;
+
+        fn main(): string => "kind: ${not_found}";
+    "#;
+
+    assert_eq!(text(source), "kind: main.not_found");
+}
+
+#[test]
 fn a_module_in_a_row_is_every_ability_of_it() {
     let source = r#"
         use system.console;

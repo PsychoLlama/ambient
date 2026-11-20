@@ -164,4 +164,5 @@ entries! {
     StringBytes = amb_bytes_of_string, plain, 1, word;
     BytesText = amb_bytes_text, plain, 1, word;
     ListBytes = amb_bytes_of_list, plain, 1, word;
+    TagText = amb_tag_text, plain, 1, word;
 }

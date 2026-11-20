@@ -167,6 +167,8 @@ pub enum Primitive {
     /// The bytes a list of integers holds, or null if one is not a
     /// byte.
     ListBytes,
+    /// The text of a tag: its module path and name.
+    TagText,
     /// Runs each of a list of functions that take nothing as a task,
     /// and is the list of what they give.
     ListAll,

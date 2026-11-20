@@ -133,7 +133,7 @@ fn meanings(operator: Operator) -> &'static [Primitive] {
         Operator::Slice => &[P::StringSlice, P::BytesSlice, P::ListSlice],
         Operator::ToInt => &[P::FloatInt, P::StringInt],
         Operator::ToFloat => &[P::IntFloat, P::StringFloat],
-        Operator::ToText => &[P::IntText, P::FloatText, P::BytesText],
+        Operator::ToText => &[P::IntText, P::FloatText, P::BytesText, P::TagText],
         Operator::ToBytes => &[P::StringBytes, P::ListBytes],
         Operator::Code => &[P::StringCode],
         Operator::Character => &[P::CodeString],

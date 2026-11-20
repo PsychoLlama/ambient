@@ -384,6 +384,7 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::StringBytes => Entry::StringBytes,
         Primitive::BytesText => Entry::BytesText,
         Primitive::ListBytes => Entry::ListBytes,
+        Primitive::TagText => Entry::TagText,
         Primitive::ListAll => Entry::All,
         Primitive::ListFirst => Entry::First,
     }

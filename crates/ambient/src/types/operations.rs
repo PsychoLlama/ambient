@@ -145,6 +145,7 @@ impl Env {
             (P::StringBytes, [_]) if all(&Ty::String) => Ty::Bytes,
             (P::BytesText, [_]) if all(&Ty::Bytes) => or_null(Ty::String),
             (P::ListBytes, [_]) if all(&Ty::List(Box::new(Ty::Int))) => or_null(Ty::Bytes),
+            (P::TagText, [_]) if all(&Ty::Tag) => Ty::String,
             (P::ListAll, [work]) => list(vec![self.task(&self.members(work)?)?]),
             (P::ListFirst, [work]) => self.task(&self.members(work)?)?,
             (P::IteratorNew, [function]) => Ty::Iterator(Box::new(self.stepped_by(function)?)),

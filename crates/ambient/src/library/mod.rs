@@ -13,7 +13,7 @@ use crate::workspace::{Workspace, WorkspaceError};
 
 /// The modules written as source: the path of each, and its text. One
 /// named for a shape is that shape's methods.
-const SOURCES: [(&str, &str); 20] = [
+const SOURCES: [(&str, &str); 21] = [
     ("base64", include_str!("base64.ab")),
     ("bool", include_str!("bool.ab")),
     ("build", include_str!("build.ab")),
@@ -29,6 +29,7 @@ const SOURCES: [(&str, &str); 20] = [
     ("iterator", include_str!("iterator.ab")),
     ("list", include_str!("list.ab")),
     ("string", include_str!("string.ab")),
+    ("tag", include_str!("tag.ab")),
     ("tasks", include_str!("tasks.ab")),
     ("url", include_str!("url.ab")),
     ("test", include_str!("test.ab")),

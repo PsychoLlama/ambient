@@ -50,6 +50,17 @@ pub unsafe extern "C" fn amb_tag(pointer: *const u8, length: u64) -> Word {
     }
 }
 
+/// The text of a tag, as a string: its module path and name, which is
+/// what follows its package's ID and a zero byte.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_tag_text(tag: Word) -> Word {
+    unsafe {
+        let whole = bytes(tag);
+        let named = whole.iter().position(|byte| *byte == 0);
+        string(named.map_or(whole, |end| &whole[end + 1..]))
+    }
+}
+
 /// The one string with these bytes that stands for a field name. Two field
 /// names are the same name exactly when their words are equal.
 ///

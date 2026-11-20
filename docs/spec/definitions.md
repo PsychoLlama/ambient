@@ -76,4 +76,5 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 - Naming a tag where a value is expected gives a tag value: a comparable, serialisable token that is equal only to the same tag.
 - Naming it where a type is expected gives the [literal type](types.md) of that value.
 - A tag is declared before it is used: no expression makes one, and none is written by its text.
+- A tag has a text for a person to read: its module path and name. That is its identity within its package, so it is never out of date, and two tags of one package never share it.
 - Another package uses a tag only if the tag is exported to it.

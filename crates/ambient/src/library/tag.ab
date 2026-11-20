@@ -1,0 +1,6 @@
+use pkg.intrinsics;
+
+/// The module path and name this tag is declared by, as `http.not_found`.
+/// It is for a person to read: a tag is told from another by comparing
+/// the two, and none is made from text.
+pub fn to_text(self: Tag): string => intrinsics.to_text(self);
