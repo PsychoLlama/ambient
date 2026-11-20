@@ -483,8 +483,24 @@ fn a_test_reaches_no_world_it_is_not_given() {
 
 /// Makes a package at `path` in `world`.
 fn made(path: &str, world: Scripted) -> (i32, Scripted) {
+    made_as(path, world, false)
+}
+
+/// Makes a package at `path` in `world`: a library, or a program.
+fn made_as(path: &str, world: Scripted, library: bool) -> (i32, Scripted) {
     let path = PathBuf::from(path);
-    world.execute(&Files::new(), &ambient::cli::Command::Init { path })
+    let init = ambient::cli::Command::Init { path, library };
+    world.execute(&Files::new(), &init)
+}
+
+/// What testing the package a command made in `world` gives.
+fn tested(world: &Scripted, path: &str) -> (i32, Scripted) {
+    let held = |bytes: &Vec<u8>| String::from_utf8_lossy(bytes).into_owned();
+    let written = |(path, bytes): (&String, &Vec<u8>)| (PathBuf::from(path), held(bytes));
+    let files: Files = world.files.iter().map(written).collect();
+    let path = PathBuf::from(path);
+    let test = ambient::cli::Command::Test { path, only: None };
+    Scripted::default().execute(&files, &test)
 }
 
 #[test]
@@ -495,12 +511,20 @@ fn a_new_package_runs_and_its_test_passes() {
         (0, "made work/app: `ambient run work/app` runs it\n")
     );
 
-    let held = |bytes: &Vec<u8>| String::from_utf8_lossy(bytes).into_owned();
-    let written = |(path, bytes): (&String, &Vec<u8>)| (PathBuf::from(path), held(bytes));
-    let files: Files = world.files.iter().map(written).collect();
-    let path = PathBuf::from("work/app");
-    let test = ambient::cli::Command::Test { path, only: None };
-    let (code, world) = Scripted::default().execute(&files, &test);
+    let (code, world) = tested(&world, "work/app");
+    assert_eq!((code, world.err.as_str()), (0, ""), "{}", world.out);
+}
+
+#[test]
+fn a_new_library_has_a_library_module_and_its_test_passes() {
+    let (code, world) = made_as("work/lib", Scripted::default(), true);
+    assert_eq!(
+        (code, world.out.as_str()),
+        (0, "made work/lib: `ambient test work/lib` tests it\n")
+    );
+    assert!(world.files.contains_key("work/lib/src/lib.ab"));
+
+    let (code, world) = tested(&world, "work/lib");
     assert_eq!((code, world.err.as_str()), (0, ""), "{}", world.out);
 }
 

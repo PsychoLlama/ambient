@@ -28,6 +28,7 @@ use ambient_host::launch::{FAILED, code, started};
 pub use build::{LAUNCHER, start};
 pub use building::engine;
 pub use header::header;
+use init::Begun;
 use launch::Launch;
 pub use linking::{Link, Linker, Unlinked, archive, built, symbol};
 pub use machine::Machine;
@@ -135,6 +136,10 @@ pub enum Command {
         /// The directory to make it in, whose name the package takes.
         #[arg(default_value = ".")]
         path: PathBuf,
+        /// Makes a library, for other packages to depend on, with a
+        /// test and nothing to run.
+        #[arg(long)]
+        library: bool,
     },
     /// Reads again the branch or tag a dependency is on, and locks the
     /// commit it is at now; with none named, each one in the workspace.
@@ -217,7 +222,14 @@ impl Session<'_> {
                 target: Some(target),
             } => self.build(path, entry, Some(target), output.as_deref()),
             Command::Check { path } => self.check(path).map(|()| 0),
-            Command::Init { path } => self.init(path),
+            Command::Init { path, library } => {
+                let begun = if *library {
+                    Begun::Library
+                } else {
+                    Begun::Program
+                };
+                self.init(path, begun)
+            }
             Command::Update { name, path } => self.update(path, name.as_deref()),
             Command::Vendor { name, path } => self.vendor(path, name.as_deref()),
             Command::Fetch {

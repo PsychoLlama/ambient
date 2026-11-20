@@ -23,6 +23,37 @@ fn test_a_greeting_names_who_it_greets(): null with unmet {
 }
 "#;
 
+/// The library module a new package that is a library begins with.
+const LIBRARY: &str = r#"use ambient.test.{check, unmet};
+
+/// What is said to someone.
+pub fn greeting(name: string): string => "hello, ${name}";
+
+fn test_a_greeting_names_who_it_greets(): null with unmet {
+    check(greeting("you") == "hello, you", "it greets by name");
+}
+"#;
+
+/// What a new package begins as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Begun {
+    /// A program: a module with a function to run.
+    Program,
+    /// A library: the module other packages reach it through.
+    Library,
+}
+
+impl Begun {
+    /// The file it begins with, under `src`, what that holds, and the
+    /// command that tries it.
+    fn files(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Self::Program => ("main.ab", MAIN, "run"),
+            Self::Library => ("lib.ab", LIBRARY, "test"),
+        }
+    }
+}
+
 /// Whether other packages could import a package by this name.
 pub(super) fn names(name: &str) -> bool {
     let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
@@ -52,7 +83,8 @@ fn identifier(world: &mut dyn World) -> Result<String, Failure> {
 
 impl Session<'_> {
     /// Makes a package in the directory at `path`, named for it.
-    pub(super) fn init(&self, path: &Path) -> Result<i32, Vec<String>> {
+    pub(super) fn init(&self, path: &Path, begun: Begun) -> Result<i32, Vec<String>> {
+        let (file, text, tries) = begun.files();
         let refuse = |why: &str| Err(vec![format!("{}: {why}", path.display())]);
         let mut world = self.world.borrow_mut();
         let placed = placed(world.directory(), path);
@@ -61,7 +93,7 @@ impl Session<'_> {
             return refuse("a package is named with letters, digits, and `_`, a letter first");
         };
         let manifest = path.join(MANIFEST);
-        let main = path.join("src").join("main.ab");
+        let main = path.join("src").join(file);
         if world.exists(&manifest.to_string_lossy()) {
             return refuse("there is a package here already");
         }
@@ -79,13 +111,15 @@ impl Session<'_> {
                 if begun {
                     return Ok(());
                 }
-                world.store(&main.to_string_lossy(), MAIN.as_bytes())
+                world.store(&main.to_string_lossy(), text.as_bytes())
             });
         if let Err(failure) = made {
             return refuse(&failure.message);
         }
         let shown = path.display();
-        world.write(&format!("made {shown}: `ambient run {shown}` runs it\n"));
+        world.write(&format!(
+            "made {shown}: `ambient {tries} {shown}` {tries}s it\n"
+        ));
         Ok(0)
     }
 }

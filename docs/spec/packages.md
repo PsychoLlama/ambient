@@ -95,6 +95,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 ## Beginning
 
 - A new package is made in a directory and named for it: a manifest with a newly generated ID, and one module that runs and has a [test](#testing), so the first change is made to something that works.
+- A package may instead be begun as a library: its one module is the [library module](#layout), with a public function and a test.
 - A source file that is there already is left as it is.
 - A package is not made over one that is there.
 
