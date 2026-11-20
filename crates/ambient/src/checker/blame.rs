@@ -163,7 +163,23 @@ impl Checker<'_> {
             }
             _ => {}
         }
-        let (core, found) = self.infer_as(expr, expected)?;
+        // A list, a tuple, or a record written out is held to what is
+        // expected part by part, so each part is given what a value
+        // alone would be: a function its row, a lambda its parameters,
+        // and an error its own place.
+        let (core, found) = match (expr, self.env.unfold(expected)) {
+            (Expr::List(members), Ty::List(member)) => {
+                let members = members.iter().map(|each| self.check(each, &member));
+                return Ok(core::Expr::List(members.collect::<Result<_, _>>()?));
+            }
+            (Expr::Tuple(members), Ty::Tuple(wanted)) if members.len() == wanted.len() => {
+                let members = members.iter().zip(wanted.iter());
+                let members = members.map(|(each, wanted)| self.check(each, wanted));
+                return Ok(core::Expr::Tuple(members.collect::<Result<_, _>>()?));
+            }
+            (Expr::Record(fields), Ty::Record(wanted)) => self.record(fields, &wanted)?,
+            _ => self.infer_as(expr, expected)?,
+        };
         let (core, found) = self.bind_row(core, found, expected)?;
         if self.env.subtype(&found, expected) {
             Ok(core)

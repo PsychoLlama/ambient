@@ -106,14 +106,46 @@ fn a_function_that_takes_less_stands_in_for_one_that_takes_more() {
     assert!(check(wide, b::name("twice"), []).is_ok());
 }
 
-#[test]
-fn a_function_inside_a_value_is_not_bound_in_place() {
-    // Only a function value itself is bound; one inside a list would have
-    // to be rebuilt.
-    let pure = ty::list(ty::function([], ty::int()));
-    let result = check(pure, asking(b::list([b::name("twice")])), []);
+/// `main` gives what `held` does of a function that takes `ask`,
+/// written under a handler that answers 21 and called outside it.
+fn holding(held: &str) -> String {
+    format!(
+        "
+        ability ask(): int;
+        fn twice(): int with ask => ask!() + ask!();
+        fn main(): int {{
+            let run = provide {{ [ask]() => 21 }} {{ {held} }};
+            return run();
+        }}
+    "
+    )
+}
 
-    assert!(matches!(result, Err(Error::Mismatch { .. })));
+#[test]
+fn a_function_in_a_value_written_out_is_bound_in_place() {
+    let list = "let held: List<fn(): int> = [twice]; return held.get(0) ?? fn() => 0;";
+    let tuple =
+        "let held: (run: fn(): int, count: int) = (twice, 1); let (run, _) = held; return run;";
+    let record = "let held: { run: fn(): int } = { run: twice }; return held.run;";
+
+    for held in [list, tuple, record] {
+        assert_eq!(support::text::int(&holding(held)), 42, "{held}");
+    }
+}
+
+#[test]
+fn a_function_in_a_value_made_elsewhere_is_not_bound_in_place() {
+    // The list is whole before anything is expected of it, and binding
+    // its member would be making another list.
+    let held = "let made = [twice]; let held: List<fn(): int> = made; return held.get(0) ?? twice;";
+    let workspace = support::text::workspace(&holding(held));
+    let store = MemoryStore::new();
+    let checked = Engine::new(&workspace, &store).check(&value("main", "main"));
+
+    assert!(
+        matches!(checked, Err(Error::Mismatch { .. })),
+        "{checked:?}"
+    );
 }
 
 #[test]

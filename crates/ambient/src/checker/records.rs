@@ -44,11 +44,14 @@ impl Checker<'_> {
         })
     }
 
+    /// A record written out, where one that holds `wanted` is expected:
+    /// a field is held to what is wanted under its key.
     pub(super) fn record(
         &mut self,
         fields: &[(TyKey, Expr<Reference>)],
+        wanted: &[(TyKey, Ty)],
     ) -> Result<(core::Expr, Ty), Error> {
-        let (core, record) = self.fields(fields, &[])?;
+        let (core, record) = self.fields(fields, &[], wanted)?;
         if let Ty::Record(types) = &record {
             self.receives(&record, types)?;
         }
@@ -62,6 +65,7 @@ impl Checker<'_> {
         &mut self,
         fields: &[(TyKey, Expr<Reference>)],
         under: &[(TyKey, Ty)],
+        wanted: &[(TyKey, Ty)],
     ) -> Result<(core::Expr, Ty), Error> {
         let mut cores = Vec::new();
         let mut types: Vec<(TyKey, Ty)> = Vec::new();
@@ -89,9 +93,13 @@ impl Checker<'_> {
                 types.push((key.clone(), Ty::Never));
                 continue;
             }
-            let (core, ty) = match self.expected_handler(key) {
-                Some(expected) => self.infer_as(value, &expected)?,
-                None => self.method(value, None)?,
+            // A method is read by its record, so nothing is wanted of
+            // it but by the record's type as a whole.
+            let wanted = entry(wanted, key).filter(|_| !matches!(value, Expr::Method(_)));
+            let (core, ty) = match (self.expected_handler(key), wanted) {
+                (Some(expected), _) => self.infer_as(value, &expected)?,
+                (None, Some(wanted)) => (self.check(value, &wanted.read())?, wanted.read()),
+                (None, None) => self.method(value, None)?,
             };
             own.push((key.clone(), ty.read()));
             // Two paths can name one ability, which a builder cannot see.
@@ -160,13 +168,13 @@ impl Checker<'_> {
         // A record written here is whole only once merged, so its
         // methods are held to the merged record alone.
         let (core_left, left) = match left {
-            Expr::Record(fields) => self.fields(fields, &[])?,
+            Expr::Record(fields) => self.fields(fields, &[], &[])?,
             left => self.infer(left)?,
         };
         let below = self.env.unfold(&left);
         let (core_right, right) = match (right, &below) {
-            (Expr::Record(fields), Ty::Record(below)) => self.fields(fields, below)?,
-            (Expr::Record(fields), _) => self.fields(fields, &[])?,
+            (Expr::Record(fields), Ty::Record(below)) => self.fields(fields, below, &[])?,
+            (Expr::Record(fields), _) => self.fields(fields, &[], &[])?,
             (right, _) => self.infer(right)?,
         };
         let (Ty::Record(mut fields), Ty::Record(over)) = (below, self.env.unfold(&right)) else {
