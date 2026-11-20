@@ -39,6 +39,7 @@ An ability is an operation that code may perform but does not implement. Abiliti
 - A captured handler travels with the value and is used wherever the value is called, including under a scope that rebinds or removes the ability.
 - A function value whose row exceeds the row expected of it is bound in place: the excess is captured from the current scope.
 - A list, a tuple, or a record written where one is expected has each part held to what is expected of that part, so a function written in one is bound in place too. A value made elsewhere is never rebuilt to bind what it holds.
+- Where a union is expected, such a value is held to the one member it could be: the list, the record, or the tuple of its length. With no such member, or more than one, nothing is expected of its parts.
 - Binding an ability that is not in scope is a type error.
 - Higher-order functions therefore declare no abilities on behalf of their callbacks, and the language has no ability or row parameters.
 - A top-level function captures nothing.

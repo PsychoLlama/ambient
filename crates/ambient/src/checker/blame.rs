@@ -144,6 +144,30 @@ impl Checker<'_> {
         Ok((core, if ends { Ty::Never } else { ty }))
     }
 
+    /// What a value written out is held to, of what is expected: the
+    /// type itself, or of a union the one member a list, a tuple of
+    /// that length, or a record could be. With none or several such
+    /// the union stands, and the value is inferred whole.
+    fn written_as(&self, expr: &Expr<Reference>, expected: &Ty) -> Ty {
+        let unfolded = self.env.unfold(expected);
+        let Ty::Union(members) = &unfolded else {
+            return unfolded;
+        };
+        let could_be = |member: &Ty| match (expr, member) {
+            (Expr::List(_), Ty::List(_)) | (Expr::Record(_), Ty::Record(_)) => true,
+            (Expr::Tuple(written), Ty::Tuple(wanted)) => written.len() == wanted.len(),
+            _ => false,
+        };
+        let mut fitting = members
+            .iter()
+            .map(|member| self.env.unfold(member))
+            .filter(could_be);
+        match (fitting.next(), fitting.next()) {
+            (Some(one), None) => one,
+            _ => unfolded,
+        }
+    }
+
     fn check_node(&mut self, expr: &Expr<Reference>, expected: &Ty) -> Result<core::Expr, Error> {
         // What a binding or a match gives is what its last part gives.
         // That part is held to what is expected, so an error is at it
@@ -167,7 +191,7 @@ impl Checker<'_> {
         // expected part by part, so each part is given what a value
         // alone would be: a function its row, a lambda its parameters,
         // and an error its own place.
-        let (core, found) = match (expr, self.env.unfold(expected)) {
+        let (core, found) = match (expr, self.written_as(expr, expected)) {
             (Expr::List(members), Ty::List(member)) => {
                 let members = members.iter().map(|each| self.check(each, &member));
                 return Ok(core::Expr::List(members.collect::<Result<_, _>>()?));
