@@ -5,7 +5,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 ## Identity
 
 - A snapshot is a hash of a package's own contents: its manifest, its sources, the other files its manifest lists, and the digests of its [native bundles](externs.md).
-- A snapshot covers no other package: a manifest names a dependency by ID, never by snapshot. Packages that depend on each other therefore each have one.
+- A snapshot covers no other package: a manifest names a dependency by its ID or by where it is, never by snapshot. Packages that depend on each other therefore each have one.
 - A snapshot identifies exactly one state of a package and never changes meaning.
 - A snapshot is the same wherever the package is: in a checkout, in an archive, or copied into another workspace.
 - A snapshot is how a package is distributed. A member of a workspace is built from its files as they are, and what those are is its repository's to say.
@@ -16,7 +16,8 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 ## Dependencies
 
-- A dependency declaration binds a local name to a package ID, and says which package of that ID is meant: a [member](#workspaces), a [release](releases.md#selection), or a package in a [git repository](releases.md#git-dependencies).
+- A dependency declaration binds a local name to a package: the one at a directory, the one in a [git repository](releases.md#git-dependencies), or one named by its ID, which is a [member](#workspaces) or a [release](releases.md#selection).
+- A package's ID is said in one place, its own manifest. A declaration that says where a package is states no ID: the package there has one, and a second statement of it could only be wrong.
 - The local name is an identifier chosen by the depending package, and is the only name its modules use for the dependency.
 - A module can name its own package and its package's declared dependencies, and nothing else; transitive dependencies are out of reach.
 - Packages may depend on each other, in a workspace and released.
@@ -45,8 +46,8 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A package is a directory: a manifest, and its modules as source files under one directory of sources.
 - A source file is the [module](modules.md) its path under the sources names, and the file named `lib` at their top is the library module.
 - The manifest says the package's name, its ID, and its version, and lists its dependencies, its preludes, its [build grants](comptime.md), each the path of an ability, its [build steps](tools.md#builds), each the paths of a target and of a tool, its [native bundles](externs.md#distribution), each a platform and a digest, and its other files.
-- A dependency is listed by its local name, with the ID of the package and where it is: a directory, or what [selects](releases.md#selection) a release.
-- A dependency at a directory is on the package there, whose ID must be the one declared. It states no version: the package there is a member, as it is.
+- A dependency is listed by its local name, with where the package is, a directory or a git repository, or else its ID and what [selects](releases.md#selection) it.
+- A dependency at a directory is on the package there. It states no ID and no version: the package there is a member, as it is.
 - A file of the package is one under its sources or one its manifest lists. Nothing else in its directory is part of it, and no [comptime](comptime.md) call reads anything else.
 - The manifest may list a file by the digest of its content and somewhere to fetch it from, in place of keeping it. A snapshot covers the digest, so such a file is as fixed as one that is kept.
 - Where a file is fetched from is a hint, as a [snapshot's](releases.md#git-dependencies) is: the digest is what is held to.

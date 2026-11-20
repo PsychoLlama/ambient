@@ -40,6 +40,7 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 ## Git dependencies
 
 - A declaration may instead name a git repository, a directory in it, and a branch, a tag, or a commit of it. With none of the three it means the repository's default branch.
+- A declaration states no ID: the package there says its own, and the lock holds it from when the declaration is first locked. A [member](packages.md#workspaces) stands in by the ID the lock holds.
 - A declaration is written by a person and says what an update may move to. The lock is written by the tool and says what is built: the commit the declaration led to, and the snapshot there.
 - A branch or a tag is read once, when the lock holds nothing for the declaration. No command asks a repository whether it has moved, except an update.
 - A git dependency has no publisher and no version to select among: nothing is looked for among a repository's tags.
