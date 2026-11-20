@@ -8,7 +8,7 @@ use crate::core::{Open, Tree};
 use crate::error::Error;
 use crate::surface::{Extern, ExternKind, Reference};
 use crate::symbol::Symbol;
-use crate::types::{Env, Ty, abilities, layers, trace};
+use crate::types::{AbilityInfo, Env, Ty, abilities, layers, trace};
 
 /// Checks an extern: a tag and a signature.
 ///
@@ -90,6 +90,27 @@ fn takes_bindings(ty: &Ty) -> bool {
     found.get()
 }
 
+/// The type a root handler for an ability must fit, given the one
+/// `found` for it. A handler may take whatever the target offers. One
+/// for an ability that does not return may return anything, and may
+/// take the trace of the abort after the ability's own parameters: see
+/// "Abort" in `docs/spec/handlers.md`.
+fn root_handler(env: &Env, info: &AbilityInfo, offered: &[Reference], found: &Ty) -> Ty {
+    let expected =
+        |info: &AbilityInfo, ret: Ty| env.normalize(&info.handler(ret, offered.to_vec()));
+    if info.ret != Ty::Never {
+        return expected(info, info.ret.clone());
+    }
+    let mut traced = info.clone();
+    traced.params.push(env.normalize(&trace()));
+    let traced = expected(&traced, Ty::Unknown);
+    if env.subtype(found, &traced) {
+        traced
+    } else {
+        expected(info, Ty::Unknown)
+    }
+}
+
 /// Checks a target, given every binding it has: its own, and those of the
 /// targets it extends.
 ///
@@ -115,14 +136,8 @@ pub fn check_target(
         };
         let info = env.abilities.get(ability).ok_or_else(not_handler)?;
         let signature = env.functions.get(handler).ok_or_else(not_handler)?;
-        // A handler may take whatever the target offers, and one for an
-        // ability that does not return may return anything.
-        let ret = match &info.ret {
-            Ty::Never => Ty::Unknown,
-            ret => ret.clone(),
-        };
-        let expected = env.normalize(&info.handler(ret, offered.clone()));
         let found = env.normalize(&generic_type(signature));
+        let expected = root_handler(env, info, &offered, &found);
         if !env.subtype(&found, &expected) {
             return Err(checker.mismatch(&expected, &found));
         }

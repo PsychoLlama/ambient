@@ -295,6 +295,19 @@ fn a_root_handler_must_fit_its_ability() {
     assert!(matches!(result, Err(Error::Mismatch { .. })));
 }
 
+/// A native handler of an ability that does not return takes the trace
+/// of the abort, as `system`'s handler of `throw` does.
+#[test]
+fn a_target_is_checked_with_a_root_handler_that_takes_the_trace() {
+    let fail = b::ability("fail")
+        .param("reason", ty::string())
+        .returns(ty::never());
+    let stop = b::native_handler("stop", "fail");
+    let target = b::target("target").bind("fail", "stop");
+
+    assert!(check("target", [fail.into(), stop.into(), target.into()]).is_ok());
+}
+
 #[test]
 fn root_handlers_cannot_need_each_other() {
     let through = |name: &str, needs: &str| {

@@ -92,6 +92,14 @@ fn checking_reports_every_definition_that_is_wrong() {
     assert_eq!(check(&app("fn fine(): int => 3;")).0, 0);
 }
 
+/// `cli` binds `throw` to a native handler, which takes the trace.
+#[test]
+fn a_target_that_extends_the_command_lines_is_checked() {
+    let (code, world) = check(&app("use system.{cli};\npub target world extends cli { }"));
+
+    assert_eq!((code, world.err.as_str()), (0, ""));
+}
+
 /// The line and column checking reports for a module whose one wrong
 /// definition is `source`, written from the first column of line one.
 fn wrong_at(source: &str) -> String {
