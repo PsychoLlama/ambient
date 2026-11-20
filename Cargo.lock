@@ -34,6 +34,7 @@ dependencies = [
  "cranelift-codegen",
  "cranelift-frontend",
  "cranelift-native",
+ "flate2",
  "postcard",
  "proptest",
  "semver",

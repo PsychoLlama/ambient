@@ -104,20 +104,22 @@ fn launcher(cargo: &std::ffi::OsStr, out: &Path) {
     let release = env::var("PROFILE").is_ok_and(|profile| profile == "release");
     let profile = if release { "release" } else { "debug" };
     let made = target.join(machine).join(profile);
-    let files = [
-        ("ambient-launcher", "launcher"),
-        ("libambient_launcher.a", "launcher.a"),
-    ];
-    for (file, kept) in files {
-        let copied = fs::copy(made.join(file), out.join(kept));
-        assert!(copied.is_ok(), "the launcher was not where it was built");
-    }
-    // The compiler says which libraries an archive of it is linked
-    // with, and only when asked as it makes one.
+    let copied = fs::copy(made.join("ambient-launcher"), out.join("launcher"));
+    assert!(copied.is_ok(), "the launcher was not where it was built");
+    // The archive is the library made as nothing else: a release
+    // build is then optimized as a whole, and holds what the entry
+    // points reach in place of every crate's code and bitcode. The
+    // compiler says which libraries an archive is linked with, and
+    // only when asked as it makes one.
     let mut asking = launching(cargo, "rustc", &target);
-    asking.args(["--lib", "--", "--print", "native-static-libs"]);
+    asking.args(["--lib", "--crate-type", "staticlib"]);
+    asking.args(["--", "--print", "native-static-libs"]);
     let said = asking.output().map(|ran| ran.stderr).unwrap_or_default();
     let said = String::from_utf8_lossy(&said);
+    packed(
+        &made.join("libambient_launcher.a"),
+        &out.join("launcher.a.gz"),
+    );
     let named = |line: &str| {
         let (_, libraries) = line.split_once("native-static-libs: ")?;
         Some(libraries.trim().to_owned())
@@ -132,6 +134,23 @@ fn launcher(cargo: &std::ffi::OsStr, out: &Path) {
         libraries.unwrap_or_default(),
     );
     assert!(written.is_ok(), "the launcher's libraries were not written");
+}
+
+/// Writes the archive at `from` to `to`, compressed: the command
+/// holds it, and it is several times the command's own size.
+fn packed(from: &Path, to: &Path) {
+    use std::io::Write;
+
+    let archive = fs::read(from);
+    assert!(
+        archive.is_ok(),
+        "the launcher's archive was not where it was built"
+    );
+    let mut packed = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    let written = packed.write_all(&archive.unwrap_or_default());
+    let written = written.and_then(|()| packed.finish());
+    let written = written.and_then(|packed| fs::write(to, packed));
+    assert!(written.is_ok(), "the launcher's archive was not written");
 }
 
 fn main() {

@@ -14,7 +14,7 @@ use std::{env, fs, io};
 use ambient_host::hash::Hasher;
 use ambient_host::parts::BUILD;
 
-use super::linking::{ARCHIVE, LIBRARIES, Link, Linker};
+use super::linking::{LIBRARIES, Link, Linker};
 
 /// The machine's own linker, and where what it makes is kept.
 pub struct Machine {
@@ -37,6 +37,16 @@ const PRUNE: &str = if cfg!(target_vendor = "apple") {
     "-Wl,-dead_strip"
 } else {
     "-Wl,--gc-sections"
+};
+
+/// What tells the linker to leave out the names of what it joined, as
+/// a release of the launcher itself has none.
+const STRIP: &[&str] = if cfg!(debug_assertions) {
+    &[]
+} else if cfg!(target_vendor = "apple") {
+    &["-Wl,-x"]
+} else {
+    &["-s"]
 };
 
 impl Machine {
@@ -64,7 +74,9 @@ impl Machine {
         let failed = |error: io::Error| error.to_string();
         fs::create_dir_all(place).map_err(failed)?;
         let archive = self.root.join(format!("launcher-{BUILD}.a"));
-        keep(&archive, ARCHIVE).map_err(failed)?;
+        if !archive.exists() {
+            keep(&archive, &super::linking::archive().map_err(failed)?).map_err(failed)?;
+        }
         let main = place.join("main.c");
         fs::write(&main, &link.main).map_err(failed)?;
         let made = place.join(format!("launcher.{}.partial", std::process::id()));
@@ -75,6 +87,7 @@ impl Machine {
         // read after it.
         command.arg(&main).args(&link.bundles).arg(&archive);
         command.args(link.libraries.iter().chain(&[PRUNE.to_owned()]));
+        command.args(STRIP);
         command
             .args(LIBRARIES.split_whitespace())
             .arg("-o")

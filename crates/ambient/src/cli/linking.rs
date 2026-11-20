@@ -8,6 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
+use std::io::Read;
 use std::path::PathBuf;
 
 use ambient_host::native::MACHINE;
@@ -18,9 +19,20 @@ use crate::project::{Project, fetched};
 use crate::symbol::PackageId;
 use crate::workspace::Sources;
 
-/// What the launcher is as an archive: what a link joins native
-/// bundles with.
-pub const ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/launcher.a"));
+/// What the launcher is as an archive, compressed: what a link joins
+/// native bundles with, once [`archive`] has made it what it was.
+const PACKED: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/launcher.a.gz"));
+
+/// The launcher as an archive.
+///
+/// # Errors
+///
+/// Fails if what the command holds is not what its build wrote.
+pub fn archive() -> std::io::Result<Vec<u8>> {
+    let mut archive = Vec::new();
+    flate2::read::GzDecoder::new(PACKED).read_to_end(&mut archive)?;
+    Ok(archive)
+}
 
 /// The libraries of the system an archive of the launcher is linked
 /// with, as the compiler that made it names them to a linker.

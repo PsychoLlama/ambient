@@ -4,11 +4,6 @@ version.workspace = true
 edition.workspace = true
 description = "What a built Ambient program starts with: a host, and no compiler"
 
-[lib]
-# An archive beside the library: what `ambient build` links with the
-# native bundles a program reaches.
-crate-type = ["rlib", "staticlib"]
-
 [dependencies]
 ambient-host.workspace = true
 

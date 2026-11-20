@@ -28,7 +28,7 @@ pub use build::{LAUNCHER, start};
 pub use building::engine;
 pub use header::header;
 use launch::Launch;
-pub use linking::{ARCHIVE, Link, Linker, Unlinked, built, symbol};
+pub use linking::{Link, Linker, Unlinked, archive, built, symbol};
 pub use machine::Machine;
 
 use crate::engine::Engine;

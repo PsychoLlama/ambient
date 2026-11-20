@@ -19,6 +19,7 @@ wasm-encoder = "0.263"
 wasmparser = { version = "0.263", default-features = false, features = ["std"] }
 wasmtime = { version = "49", default-features = false, features = ["cranelift", "runtime", "std"] }
 blake3 = "1.8"
+flate2 = "1.1"
 getrandom = "0.4"
 hmac = "0.12"
 sha1 = "0.10"
