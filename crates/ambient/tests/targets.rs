@@ -250,7 +250,7 @@ fn an_entry_takes_only_what_its_target_offers() {
         .program(&value("main", "main"), &value("main", "target"))
         .unwrap();
 
-    assert!(matches!(engine.check(&root), Err(Error::Unbound { .. })));
+    assert!(matches!(engine.check(&root), Err(Error::Unoffered { .. })));
 }
 
 #[test]

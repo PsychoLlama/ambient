@@ -87,6 +87,7 @@ impl fmt::Display for Error {
             Self::NotBundle { .. }
             | Self::DuplicateHandler { .. }
             | Self::Unbound { .. }
+            | Self::Unoffered { .. }
             | Self::SpawnOutsideGroup(_)
             | Self::SpawnBinding { .. }
             | Self::Ungranted { .. }
@@ -215,6 +216,14 @@ impl Error {
             Self::Unbound { symbol, ability } => {
                 write!(f, "{symbol}: `{ability}` is not bound here")
             }
+            Self::Unoffered {
+                symbol,
+                target,
+                ability,
+            } => write!(
+                f,
+                "{symbol}: takes `{ability}`, which the target `{target}` does not bind"
+            ),
             Self::SpawnOutsideGroup(symbol) => {
                 write!(
                     f,

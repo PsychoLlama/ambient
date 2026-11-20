@@ -204,13 +204,27 @@ impl Engine<'_> {
         }
         let bindings: BTreeMap<Symbol, Symbol> = self.bindings(&root.target)?.into_iter().collect();
 
+        // Said here, of the entry: checking the root would say only
+        // that a function nobody wrote lacks a binding.
+        if let Some(ability) = abilities(&header.row)
+            .into_iter()
+            .find(|ability| !bindings.contains_key(ability))
+        {
+            return Err(Error::Unoffered {
+                symbol: root.entry.clone(),
+                target: root.target.clone(),
+                ability,
+            });
+        }
+
         // What the entry reaches: its row, and the row of every handler
         // that takes part. A binding nothing reaches is left out, so it is
         // neither compiled nor linked.
         let mut rows: BTreeMap<Symbol, Vec<Symbol>> = BTreeMap::new();
         let mut pending = abilities(&header.row);
         while let Some(ability) = pending.pop() {
-            // An ability the target lacks is reported by checking.
+            // What a handler takes that the target lacks is reported
+            // by checking.
             let Some(handler) = bindings.get(&ability) else {
                 continue;
             };

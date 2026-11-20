@@ -203,6 +203,13 @@ pub enum Error {
     GenericEntry(Symbol),
     /// An ability is used where nothing binds it.
     Unbound { symbol: Symbol, ability: Symbol },
+    /// A program's entry takes an ability that the target it is run
+    /// under does not bind.
+    Unoffered {
+        symbol: Symbol,
+        target: Symbol,
+        ability: Symbol,
+    },
     /// A spawn is written outside any group, or inside a function inside
     /// one.
     SpawnOutsideGroup(Symbol),
@@ -309,6 +316,7 @@ impl Error {
             | Self::NotHandler { symbol, .. }
             | Self::TargetConflict { symbol, .. }
             | Self::Unbound { symbol, .. }
+            | Self::Unoffered { symbol, .. }
             | Self::SpawnBinding { symbol, .. }
             | Self::Ungranted { symbol, .. }
             | Self::UntypedParameter { symbol, .. }

@@ -469,7 +469,8 @@ fn a_test_reaches_no_world_it_is_not_given() {
     let (code, world) = test(&app(source));
 
     assert_eq!(code, 1);
-    let refused = "`system:console.print` is not bound here\n";
+    let refused =
+        "takes `system:console.print`, which the target `ambient:test.tests` does not bind\n";
     let (failed, rest) = world.out.split_once(refused).unwrap_or_default();
     assert!(
         failed.starts_with("FAIL  app:main.test_reaches\n"),
