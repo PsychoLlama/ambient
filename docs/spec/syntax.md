@@ -26,11 +26,11 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 
 ## Definitions
 
-- A definition is written with the keyword of its [kind](definitions.md): `fn`, `type`, `ability`, `contract`, `tag`, `extern`, `target`.
+- A definition is written with the keyword of its [kind](definitions.md): `fn`, `type`, `ability`, `contract`, `tag`, `extern`, `target`, `const`.
 - Only `pub` comes before the keyword. Anything else said of a definition's kind is a word in parentheses after the keyword, as `type(nominal)` is.
 - A native handler that may suspend is written `extern handler(suspending)`.
 - An extern says what it performs as a function does: `with` and a row, after what it gives or the ability it handles.
-- A word that only begins a definition is not reserved: `contract`, `tag`, `ability`, `target`, `extern`, `use`, and `mod` may name anything, since nothing else begins where a definition does.
+- A word that only begins a definition is not reserved: `contract`, `tag`, `ability`, `target`, `extern`, `const`, `use`, and `mod` may name anything, since nothing else begins where a definition does.
 - `pub` before one makes it public, and a `///` comment before one is its doc comment.
 - An [annotation](annotations.md) is written before a definition, after its doc comment: `#[`, the key, the value in parentheses, and `]`. A definition may have several.
 - An annotation written with no value holds `null`.
@@ -41,7 +41,8 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - `pub use` re-exports, and `pub mod` in a library module lists a [public module](packages.md).
 - Type parameters follow a name in angle brackets, each with an optional bound after a colon.
 - A function's row follows its return type after `with`: abilities, and modules for all of theirs.
-- There is no form for a constant: it is a function of no parameters, called.
+- A [constant](constants.md) is `const`, its name, a colon and its type, `=`, and its value.
+- A constant's name is capital letters, digits, and `_`, and begins with a letter; the reader refuses any other. No other definition's name is held to a case.
 
 ## Expressions
 

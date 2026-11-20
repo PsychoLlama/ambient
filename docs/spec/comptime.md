@@ -7,6 +7,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 - A comptime call is marked at the call site; the callee is any function.
 - There is no separate class of compile-time functions.
 - An argument is an expression of [singleton type](types.md), a closed type, a closed row, or the name of a definition.
+- A [constant](constants.md) named for a parameter of an ordinary type is handed over as its value, and the call depends on the constant's hash.
 - A parameter's type says what it receives: one of an ordinary type receives the argument's value, and one whose type is a tree receives the tree.
 - An expression is never handed over as code not yet evaluated: it is passed as the value its type says it has, so no name in it comes to mean something else where it lands.
 - The result replaces the call before checking; the enclosing definition's hash covers the result, not the call.
@@ -88,7 +89,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 - An argument of a comptime call may name an ability, for a function that takes a reference to one.
 - A function's tree and an ability's say their type parameters, each by its bound or by nothing; a type definition's says how many it has. A type's tree names one by its position, as an expression's names a local.
 - A type parameter is named only inside the definition that has it: a derived type's tree names none.
-- TODO: a generated module defines no contract, target, or native handler, and its externs perform nothing.
+- TODO: a generated module defines no constant, contract, target, or native handler, and its externs perform nothing.
 - A derived type refers to itself as any tree refers to a definition: by a reference its call makes. Its call cannot name it, since naming it asks for the type the call has yet to give; nor can a generated function's call name that function, though its body may call it.
 - A type that refers to itself with arguments has a tree: the reference, and the tree of each argument.
 - A generated node has no [span](trees.md). An error in code a call gave is reported at the call, with that code written out around the node the error is at, which is marked.

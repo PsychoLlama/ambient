@@ -4,10 +4,10 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 
 ## Kinds
 
-- Types, functions, abilities, row aliases, externs, targets, [contracts](methods.md), and tags are definitions.
-- Functions are the only definitions with a body.
+- Types, functions, [constants](constants.md), abilities, row aliases, externs, targets, [contracts](methods.md), and tags are definitions.
+- Functions are the only definitions with a body, and constants the only ones with a value.
 - A lambda or nested function is its own definition once checked: it is hashed separately and its encloser refers to it by hash.
-- There are no top-level values; a constant is a function with no parameters.
+- A module holds no value but a constant's, which is content: nothing is computed where a module is imported or a program starts.
 
 ## Interface
 
@@ -39,7 +39,7 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 
 - Definitions that refer to each other cyclically form a group, hashed as one unit; a member is identified by the group hash and its index.
 - Member order is derived from content, never from names or source order.
-- Types and functions never share a group, because a type cannot refer to a function.
+- Types never share a group with functions or constants, because a type cannot refer to either.
 - A definition outside any cycle is hashed alone.
 
 ## Invalidation

@@ -54,6 +54,7 @@ The core tree is the checked form of a definition and the only form that is hash
 - A step holds the [iterator](iteration.md) it steps; it is not a primitive, since it may call.
 - An [annotation](annotations.md) holds its key, its value, and the expression it is on. A definition's own are held beside its tree, and are content as the tree is.
 - A [comptime](comptime.md) call does not appear; its result does.
+- A [constant](constants.md)'s tree is its type and an expression of the value forms. Naming one is a reference through a slot, as naming a function is.
 
 ## Limits
 

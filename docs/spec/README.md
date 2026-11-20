@@ -34,6 +34,7 @@ Ambient is a content-addressed language with structural types and abilities, bui
 ## Pages
 
 - [definitions](definitions.md): the unit of hashing, checking, and caching.
+- [constants](constants.md): definitions whose content is a value.
 - [symbols](symbols.md): canonical names, aliases, and the index.
 - [types](types.md): structural types, subtyping, brands, generics.
 - [values](values.md): runtime shapes, serialization, handles, faults.

@@ -7,7 +7,7 @@ A symbol is the one canonical name of a definition within a workspace. Every oth
 - A symbol is a [package instance](packages.md), a module path, a namespace, and a name path.
 - The namespaces are type, value, ability, and contract; a module may define the same name once in each.
 - A [tag](definitions.md) is named in both the type and the value namespace.
-- Types live in the type namespace; functions, externs, and targets in the value namespace; abilities and row aliases in the ability namespace; [contracts](methods.md) in the contract namespace.
+- Types live in the type namespace; functions, [constants](constants.md), externs, and targets in the value namespace; abilities and row aliases in the ability namespace; [contracts](methods.md) in the contract namespace.
 - A nested named function extends its encloser's name path.
 - Lambdas, parameters, and local binders are addressed by their owning symbol and their position in its tree, never by source position.
 - A symbol has exactly one definition site; a second is an error.
