@@ -395,91 +395,133 @@ impl ModuleBuilder {
     ///
     /// Returns the first way in which the module is ill-formed.
     pub fn build(self) -> Result<Module, BuildError> {
+        self.placed().map_err(|(_, error)| error)
+    }
+
+    /// Finishes the module, as [`Self::build`] does.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first way in which the module is ill-formed, and
+    /// which part of it is.
+    pub fn placed(self) -> Result<Module, (Part, BuildError)> {
         let mut aliases = BTreeSet::new();
-        for import in &self.imports {
-            if import.path.0.len() < 2 {
-                return Err(BuildError::ImportTooShort(import.path.clone()));
-            }
-            check_path(&import.path)?;
-            check_name(&import.alias)?;
-            if !aliases.insert(&import.alias) {
-                return Err(BuildError::DuplicateDefinition(import.alias.clone()));
-            }
+        for (index, import) in self.imports.iter().enumerate() {
+            imported(import, &mut aliases).map_err(|error| (Part::Import(index), error))?;
         }
-
-        self.exposes.iter().try_for_each(check_path)?;
-
+        let whole = |error| (Part::Module, error);
+        self.exposes
+            .iter()
+            .try_for_each(check_path)
+            .map_err(whole)?;
         let mut defined = BTreeSet::new();
-        for definition in &self.definitions {
-            check_name(&definition.name)?;
-            let namespace = match &definition.kind {
-                DefinitionKind::Type(definition) => {
-                    check_type_params(definition.params.iter())?;
-                    check_type(&definition.ty)?;
-                    Namespace::Type
-                }
-                DefinitionKind::Derived(call) => {
-                    check_expr(call)?;
-                    Namespace::Type
-                }
-                DefinitionKind::Generated(call) => {
-                    check_expr(call)?;
-                    Namespace::Value
-                }
-                DefinitionKind::Module(call) => {
-                    if self.definitions.len() > 1 {
-                        return Err(BuildError::GeneratedWithMore);
-                    }
-                    check_expr(call)?;
-                    Namespace::Value
-                }
-                DefinitionKind::Function(function) => {
-                    check_function(&definition.name, function)?;
-                    Namespace::Value
-                }
-                DefinitionKind::Constant(function) => {
-                    if !constant_name(&definition.name) {
-                        return Err(BuildError::ConstantName(definition.name.clone()));
-                    }
-                    check_function(&definition.name, function)?;
-                    Namespace::Value
-                }
-                DefinitionKind::Ability(ability) => {
-                    check_params(&definition.name, &ability.params)?;
-                    check_type(&ability.ret)?;
-                    Namespace::Ability
-                }
-                DefinitionKind::Contract(contract) => {
-                    check_type(&contract.ty)?;
-                    Namespace::Contract
-                }
-                // A tag is named as a type and as a value, and a brand
-                // as a type and as what brands a value.
-                DefinitionKind::Tag | DefinitionKind::Brand => {
-                    if !defined.insert((Namespace::Value, &definition.name)) {
-                        return Err(BuildError::DuplicateDefinition(definition.name.clone()));
-                    }
-                    Namespace::Type
-                }
-                DefinitionKind::Extern(native) => {
-                    check_extern(&definition.name, native)?;
-                    Namespace::Value
-                }
-                DefinitionKind::Intrinsic => Namespace::Value,
-                DefinitionKind::Target(target) => {
-                    check_target(target)?;
-                    Namespace::Value
-                }
-            };
-            if !defined.insert((namespace, &definition.name)) {
-                return Err(BuildError::DuplicateDefinition(definition.name.clone()));
-            }
+        let alone = self.definitions.len() == 1;
+        for (index, definition) in self.definitions.iter().enumerate() {
+            define(definition, alone, &mut defined)
+                .map_err(|error| (Part::Definition(index), error))?;
         }
-
         Ok(Module {
             imports: self.imports,
             definitions: self.definitions,
             exposes: self.exposes,
         })
     }
+}
+
+/// A part of a module, by its place among those of its kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Part {
+    Import(usize),
+    Definition(usize),
+    /// Nothing smaller than the module.
+    Module,
+}
+
+/// Checks an import, beside the names `aliases` holds of those before
+/// it.
+fn imported<'a>(import: &'a Import, aliases: &mut BTreeSet<&'a String>) -> Result<(), BuildError> {
+    if import.path.0.len() < 2 {
+        return Err(BuildError::ImportTooShort(import.path.clone()));
+    }
+    check_path(&import.path)?;
+    check_name(&import.alias)?;
+    if !aliases.insert(&import.alias) {
+        return Err(BuildError::DuplicateDefinition(import.alias.clone()));
+    }
+    Ok(())
+}
+
+/// Checks a definition, beside the names `defined` holds of those
+/// before it. `alone` is whether its module defines nothing else.
+fn define<'a>(
+    definition: &'a Definition,
+    alone: bool,
+    defined: &mut BTreeSet<(Namespace, &'a String)>,
+) -> Result<(), BuildError> {
+    {
+        check_name(&definition.name)?;
+        let namespace = match &definition.kind {
+            DefinitionKind::Type(definition) => {
+                check_type_params(definition.params.iter())?;
+                check_type(&definition.ty)?;
+                Namespace::Type
+            }
+            DefinitionKind::Derived(call) => {
+                check_expr(call)?;
+                Namespace::Type
+            }
+            DefinitionKind::Generated(call) => {
+                check_expr(call)?;
+                Namespace::Value
+            }
+            DefinitionKind::Module(call) => {
+                if !alone {
+                    return Err(BuildError::GeneratedWithMore);
+                }
+                check_expr(call)?;
+                Namespace::Value
+            }
+            DefinitionKind::Function(function) => {
+                check_function(&definition.name, function)?;
+                Namespace::Value
+            }
+            DefinitionKind::Constant(function) => {
+                if !constant_name(&definition.name) {
+                    return Err(BuildError::ConstantName(definition.name.clone()));
+                }
+                check_function(&definition.name, function)?;
+                Namespace::Value
+            }
+            DefinitionKind::Ability(ability) => {
+                check_params(&definition.name, &ability.params)?;
+                check_type(&ability.ret)?;
+                Namespace::Ability
+            }
+            DefinitionKind::Contract(contract) => {
+                check_type(&contract.ty)?;
+                Namespace::Contract
+            }
+            // A tag is named as a type and as a value, and a brand
+            // as a type and as what brands a value.
+            DefinitionKind::Tag | DefinitionKind::Brand => {
+                if !defined.insert((Namespace::Value, &definition.name)) {
+                    return Err(BuildError::DuplicateDefinition(definition.name.clone()));
+                }
+                Namespace::Type
+            }
+            DefinitionKind::Extern(native) => {
+                check_extern(&definition.name, native)?;
+                Namespace::Value
+            }
+            DefinitionKind::Intrinsic => Namespace::Value,
+            DefinitionKind::Target(target) => {
+                check_target(target)?;
+                Namespace::Value
+            }
+        };
+        if !defined.insert((namespace, &definition.name)) {
+            return Err(BuildError::DuplicateDefinition(definition.name.clone()));
+        }
+    }
+    Ok(())
 }

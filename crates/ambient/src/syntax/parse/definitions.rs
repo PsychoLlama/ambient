@@ -2,12 +2,12 @@
 
 use super::super::lex::Token;
 use super::{Parsed, Parser};
-use crate::builder::{self as b, ModuleBuilder};
+use crate::builder::{self as b, ModuleBuilder, Part};
 use crate::surface::{
     Ability, Annotation, ContractDefinition, Definition, DefinitionKind, Expr, Extern, ExternKind,
     Function, GENERATOR, Param, Path, Target, Type, TypeDefinition, constant_name,
 };
-use crate::syntax::{Placed, SyntaxError, place};
+use crate::syntax::{Placed, Position, SyntaxError, place};
 
 /// A path a `use` takes, and the name it is taken under if not its own.
 type Used = (Path, Option<String>);
@@ -19,10 +19,17 @@ impl Parser {
         while *self.peek() != Token::End {
             module = self.item(module)?;
         }
-        // What a builder refuses is about the module as a whole.
-        let module = module.build().map_err(|error| SyntaxError {
-            message: error.to_string(),
-            at: crate::syntax::Position { line: 1, column: 1 },
+        // What a builder refuses is at the import or the definition it
+        // refused, or about the module as a whole.
+        let module = module.placed().map_err(|(part, error)| {
+            let at = match part {
+                Part::Import(index) => self.imported.get(index).copied(),
+                Part::Definition(index) => self.defined.get(index).map(|placed| placed.at),
+                Part::Module => None,
+            };
+            let at = at.unwrap_or(crate::syntax::Position { line: 1, column: 1 });
+            let message = error.to_string();
+            SyntaxError { message, at }
         })?;
         Ok(crate::syntax::Source {
             module,
@@ -48,7 +55,7 @@ impl Parser {
         }
         let public = self.eat_word("pub");
         if self.eat_word("use") {
-            return self.import(module, public);
+            return self.import(module, public, at);
         }
         if public && self.eat_word("mod") {
             let path = self.path()?;
@@ -104,13 +111,19 @@ impl Parser {
     }
 
     /// `use a.b;`, `use a.b as c;`, or `use a.{self, b, c as d, e.{f}};`.
-    fn import(&mut self, mut module: ModuleBuilder, public: bool) -> Parsed<ModuleBuilder> {
+    fn import(
+        &mut self,
+        mut module: ModuleBuilder,
+        public: bool,
+        at: Position,
+    ) -> Parsed<ModuleBuilder> {
         let first = self.name()?;
         let mut taken = Vec::new();
         self.used(vec![first], &mut taken)?;
         self.expect(";")?;
         for (path, alias) in taken {
             let path = path.to_string();
+            self.imported.push(at);
             module = match (alias, public) {
                 (Some(_), true) => return self.fail("a re-export keeps the name it has"),
                 (Some(alias), false) => module.import_as(&path, &alias),

@@ -70,7 +70,10 @@ impl fmt::Display for BuildError {
             }
             Self::DuplicateHandler(path) => write!(f, "two handlers for `{path}`"),
             Self::DuplicateBinder(name) => write!(f, "a pattern binds `{name}` twice"),
-            Self::ImportTooShort(path) => write!(f, "import `{path}` names only a package"),
+            Self::ImportTooShort(path) => write!(
+                f,
+                "import `{path}` names only a package, which is no module: import what it holds"
+            ),
             Self::ShortTuple => write!(f, "a tuple has two or more members"),
             Self::GenericType => write!(
                 f,

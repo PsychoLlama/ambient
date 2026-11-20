@@ -66,6 +66,9 @@ pub(super) struct Parser {
     made: usize,
     /// Where each definition read so far is.
     defined: Vec<Placed>,
+    /// Where each import was written, in the order a module holds
+    /// them.
+    imported: Vec<Position>,
 }
 
 impl Parser {
@@ -79,6 +82,7 @@ impl Parser {
             calling: Vec::new(),
             made: 0,
             defined: Vec::new(),
+            imported: Vec::new(),
         }
     }
 
