@@ -10,7 +10,6 @@ use ambient_runtime::FAULT_PACKAGE;
 use super::Checker;
 use super::reify::MODULE;
 use crate::error::Error;
-use crate::literal::Literal;
 use crate::surface::{Expr, Key, Reference};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::{Env, Ty};
@@ -153,7 +152,7 @@ pub(crate) fn type_tree(env: &Env, ty: &Ty) -> Option<Value> {
         Ty::String => tag("text"),
         Ty::Bytes => tag("binary"),
         Ty::Tag => tag("tagged"),
-        Ty::Literal(literal) => record([("literal", literal_value(literal))]),
+        Ty::Literal(literal) => record([("literal", literal.value())]),
         Ty::List(member) => record([("list", type_tree(env, member)?)]),
         Ty::Cell(member) => record([("mutable", type_tree(env, member)?)]),
         Ty::Iterator(member) => record([("iterator", type_tree(env, member)?)]),
@@ -196,18 +195,4 @@ pub(crate) fn type_tree(env: &Env, ty: &Ty) -> Option<Value> {
         }
         Ty::Named(..) | Ty::Bound(_) | Ty::Generic { .. } | Ty::Method { .. } => return None,
     })
-}
-
-fn literal_value(literal: &Literal) -> Value {
-    match literal {
-        Literal::Bool(value) => Value::Bool(*value),
-        Literal::Int(value) => Value::Int(*value),
-        Literal::Float(bits) => Value::Float(f64::from_bits(*bits)),
-        Literal::String(value) => Value::String(value.clone()),
-        Literal::Bytes(value) => Value::Bytes(value.clone()),
-        Literal::Tag { package, tag } => Value::Tag {
-            package: package.clone(),
-            tag: tag.clone(),
-        },
-    }
 }

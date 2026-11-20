@@ -182,15 +182,7 @@ impl Checker<'_> {
 fn value_of(ty: &Ty) -> Option<Value> {
     Some(match ty {
         Ty::Null => Value::Null,
-        Ty::Literal(Literal::Bool(value)) => Value::Bool(*value),
-        Ty::Literal(Literal::Int(value)) => Value::Int(*value),
-        Ty::Literal(Literal::Float(bits)) => Value::Float(f64::from_bits(*bits)),
-        Ty::Literal(Literal::String(value)) => Value::String(value.clone()),
-        Ty::Literal(Literal::Bytes(value)) => Value::Bytes(value.clone()),
-        Ty::Literal(Literal::Tag { package, tag }) => Value::Tag {
-            package: package.clone(),
-            tag: tag.clone(),
-        },
+        Ty::Literal(literal) => literal.value(),
         Ty::Tuple(members) => Value::Tuple(members.iter().map(value_of).collect::<Option<_>>()?),
         Ty::Record(fields) => Value::Record(
             fields

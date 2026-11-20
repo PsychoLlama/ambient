@@ -5,6 +5,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::value::Value;
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Literal {
     Bool(bool),
@@ -36,6 +38,22 @@ impl Literal {
     #[must_use]
     pub fn float(value: f64) -> Self {
         Self::Float(value.to_bits())
+    }
+
+    /// The value the literal is.
+    #[must_use]
+    pub fn value(&self) -> Value {
+        match self {
+            Self::Bool(value) => Value::Bool(*value),
+            Self::Int(value) => Value::Int(*value),
+            Self::Float(bits) => Value::Float(f64::from_bits(*bits)),
+            Self::String(value) => Value::String(value.clone()),
+            Self::Bytes(value) => Value::Bytes(value.clone()),
+            Self::Tag { package, tag } => Value::Tag {
+                package: package.clone(),
+                tag: tag.clone(),
+            },
+        }
     }
 
     /// What a tag is to the runtime: its package and itself, as one text.
