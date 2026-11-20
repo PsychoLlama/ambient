@@ -75,11 +75,20 @@ impl Linker for Unlinked {
 /// with whatever a C name cannot hold made an underscore.
 #[must_use]
 pub fn symbol(id: &str, path: &str) -> String {
-    let named = |text: &str| -> String {
-        let plain = |c: char| if c.is_ascii_alphanumeric() { c } else { '_' };
-        text.chars().map(plain).collect()
-    };
-    format!("amb_x_{}_{}", named(id), named(path))
+    format!("amb_x_{}_{}", plain(id), plain(path))
+}
+
+/// `text` with whatever a C name cannot hold made an underscore.
+fn plain(text: &str) -> String {
+    let plain = |c: char| if c.is_ascii_alphanumeric() { c } else { '_' };
+    text.chars().map(plain).collect()
+}
+
+/// The name a native bundle of the package of `id` defines to say it
+/// was built for this layout.
+#[must_use]
+pub fn built(id: &str) -> String {
+    format!("amb_built_{}_{}", plain(id), ambient_native::LAYOUT)
 }
 
 /// One function a program reaches of a native bundle.
@@ -105,7 +114,8 @@ fn main(roots: &BTreeSet<Root>) -> String {
         "#include <stdint.h>\n\
          struct amb_call;\n\
          typedef uint64_t (*amb_extern)(struct amb_call *, uint64_t);\n\
-         struct amb_root { const char *package; const char *path; amb_extern function; };\n\
+         struct amb_root { const char *package; const char *path; amb_extern function; \
+         const unsigned char *built; };\n\
          int ambient_launch(const struct amb_root *, uintptr_t, int, char **);\n",
     );
     for root in roots {
@@ -115,10 +125,19 @@ fn main(roots: &BTreeSet<Root>) -> String {
             root.symbol
         );
     }
+    let packages: BTreeSet<&String> = roots.iter().map(|root| &root.package).collect();
+    for package in packages {
+        let _ = writeln!(main, "extern const unsigned char {};", built(package));
+    }
     main.push_str("static const struct amb_root roots[] = {\n");
     for root in roots {
         let (package, path) = (quoted(&root.package), quoted(&root.path));
-        let _ = writeln!(main, "  {{ {package}, {path}, {} }},", root.symbol);
+        let built = built(&root.package);
+        let _ = writeln!(
+            main,
+            "  {{ {package}, {path}, {}, &{built} }},",
+            root.symbol
+        );
     }
     let _ = write!(
         main,
@@ -182,7 +201,7 @@ impl Session<'_> {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{Root, main, symbol};
+    use super::{Root, built, main, symbol};
 
     #[test]
     fn a_function_is_named_for_its_package_and_its_extern() {
@@ -203,7 +222,11 @@ mod tests {
         let main = main(&BTreeSet::from([root]));
 
         assert!(main.contains("uint64_t amb_x_7c1e_tls_connect(struct amb_call *, uint64_t);"));
-        assert!(main.contains("{ \"hue\", \"tls.connect\", amb_x_7c1e_tls_connect },"));
+        let built = built("hue");
+        assert!(main.contains(&format!("extern const unsigned char {built};")));
+        assert!(main.contains(&format!(
+            "{{ \"hue\", \"tls.connect\", amb_x_7c1e_tls_connect, &{built} }},"
+        )));
         assert!(main.contains("return ambient_launch(roots, 1, argc, argv);"));
     }
 }

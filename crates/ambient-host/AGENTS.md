@@ -4,6 +4,7 @@ What loads and runs a compiled program, with no compiler in it. The root `AGENTS
 
 ## Invariants
 
+- An entry point a native bundle may call is listed in `ambient_native::entries!`, and a test in `native/bundle.rs` holds each to the signature listed. The layout number (`parts/encode.rs`) is `ambient_native::LAYOUT`.
 - Native code reaches its program only through `native::Running`, which each backend's dispatch implements. What it loads is held until its result is encoded, so nothing of the program is borrowed while it runs.
 - Native code calls back through `Running::call`, only a function read for the call it is in (`value::Live`): a decoded function is a copy that lost its cells and handlers. The runtime entry is `amb_call_among`, or `amb_call_back` in a program linked without suspension.
 - A native bundle's function is the one native code that is not handed copies (`native/bundle.rs`, `Natives::bundled`): it takes the call it is in and its arguments as words, reads and makes values through the runtime's entry points, and asks the host only what a host knows, through `amb_bundle_*`. The native dispatch decodes for it only what a run that keeps its trace observes; no other backend runs one.

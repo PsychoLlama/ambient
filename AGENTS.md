@@ -3,6 +3,7 @@
 - `docs/spec/`: source of truth for the language design. The implementation follows it; change the spec first.
 - `crates/ambient`: the implementation, a library plus an empty binary. Module docs name the spec page each module implements.
 - `crates/ambient-host`: what loads and runs a compiled program, with no compiler in it: trees, values, parts, the native loader, the native side of `system`, and launching. `ambient` gives its modules again at the paths they had (`ambient::core`, `backend::native`, `host`), which is how the bullets below name them.
+- `crates/ambient-native`: what a native bundle is built against: the one list of the runtime's entry points a bundle may call, and nothing of the runtime. `ambient header` writes the C header from it.
 - `crates/ambient-launcher`: the binary a built program is put after. It links `ambient-host` and nothing of the compiler; keep it so.
 - `packages/js`: the JavaScript target, an Ambient package: the tool that builds a program for a JavaScript host, and the host (`host/host.js`). `crates/ambient-js` holds its tests.
 - `packages/logging`: structured logs as an ability, an Ambient package with no native code. `examples/logs` uses it.

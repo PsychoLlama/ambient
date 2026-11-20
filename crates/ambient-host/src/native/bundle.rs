@@ -17,10 +17,7 @@ use super::host::{ANSWERING, Call, Running, UNCALLABLE, UNWOUND, bound};
 
 /// The call a function of a native bundle is in, as it is handed it:
 /// nothing of it is the function's to read.
-#[repr(C)]
-pub struct Calling {
-    _opaque: [u8; 0],
-}
+pub use ambient_native::Call as Calling;
 
 /// A function of a native bundle: the call it is in and its arguments,
 /// a tuple it does not own, in; a value its caller owns out.
@@ -171,5 +168,63 @@ pub unsafe extern "C" fn amb_bundle_call(
         ambient_runtime::amb_release(handed);
         call.unwound = gave == UNWIND;
         gave
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ambient_runtime::{Kind, Word};
+
+    /// Each entry a bundle is told of is a function here, of the
+    /// signature it is told.
+    macro_rules! checked {
+        ($($(#[doc = $about:literal])* fn $name:ident($($arg:ident: $ty:ty),*) $(-> $gives:ty)?;)*) => {
+            #[test]
+            fn each_entry_a_bundle_is_told_of_is_as_it_is_told() {
+                #[allow(clippy::wildcard_imports)]
+                use ambient_runtime::*;
+                #[allow(clippy::wildcard_imports)]
+                use super::*;
+                type Call = Calling;
+                $(let _: unsafe extern "C" fn($($ty),*) $(-> $gives)? = $name;)*
+            }
+        };
+    }
+    ambient_native::entries!(checked);
+
+    #[test]
+    fn what_a_bundle_is_told_of_values_is_what_the_runtime_holds() {
+        use ambient_native::kind;
+        let words = [
+            ambient_native::NULL,
+            ambient_native::FALSE,
+            ambient_native::TRUE,
+        ];
+        assert_eq!(
+            words,
+            [
+                ambient_runtime::NULL,
+                ambient_runtime::FALSE,
+                ambient_runtime::TRUE
+            ]
+        );
+        let kinds: [(u64, Kind); 12] = [
+            (kind::NULL, Kind::Null),
+            (kind::BOOL, Kind::Bool),
+            (kind::INT, Kind::Int),
+            (kind::FLOAT, Kind::Float),
+            (kind::STRING, Kind::String),
+            (kind::TUPLE, Kind::Tuple),
+            (kind::LIST, Kind::List),
+            (kind::RECORD, Kind::Record),
+            (kind::FUNCTION, Kind::Function),
+            (kind::TAG, Kind::Tag),
+            (kind::BYTES, Kind::Bytes),
+            (kind::HANDLE, Kind::Handle),
+        ];
+        assert_eq!(kinds.len(), kind::NAMED.len());
+        for (told, held) in kinds {
+            assert_eq!(told, held as Word);
+        }
     }
 }

@@ -28,6 +28,7 @@ name = "ambient"
 version = "0.2.0"
 dependencies = [
  "ambient-host",
+ "ambient-native",
  "ambient-runtime",
  "clap",
  "cranelift-codegen",
@@ -50,6 +51,7 @@ dependencies = [
 name = "ambient-host"
 version = "0.2.0"
 dependencies = [
+ "ambient-native",
  "ambient-runtime",
  "blake3",
  "corosensei",
@@ -79,6 +81,10 @@ version = "0.2.0"
 dependencies = [
  "ambient-host",
 ]
+
+[[package]]
+name = "ambient-native"
+version = "0.2.0"
 
 [[package]]
 name = "ambient-runtime"

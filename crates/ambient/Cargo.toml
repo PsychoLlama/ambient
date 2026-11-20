@@ -6,6 +6,7 @@ description = "The Ambient programming language"
 
 [dependencies]
 ambient-host.workspace = true
+ambient-native.workspace = true
 ambient-runtime.workspace = true
 cranelift-codegen.workspace = true
 cranelift-frontend.workspace = true

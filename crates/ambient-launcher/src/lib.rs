@@ -21,6 +21,9 @@ pub struct Root {
     pub package: *const c_char,
     pub path: *const c_char,
     pub function: Bundled,
+    /// What the bundle defines to say the layout it was built for.
+    /// Nothing reads it: naming it is what holds the bundle to it.
+    pub built: *const u8,
 }
 
 /// Runs the program this file carries, told `args`, with the native

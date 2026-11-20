@@ -5,6 +5,7 @@ edition.workspace = true
 description = "What loads and runs a compiled Ambient program"
 
 [dependencies]
+ambient-native.workspace = true
 ambient-runtime.workspace = true
 corosensei.workspace = true
 memmap2.workspace = true

@@ -1,0 +1,8 @@
+[package]
+name = "ambient-native"
+version.workspace = true
+edition.workspace = true
+description = "What a native bundle of an Ambient package is built against"
+
+[lints]
+workspace = true

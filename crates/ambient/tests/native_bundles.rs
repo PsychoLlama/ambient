@@ -5,7 +5,7 @@
 
 mod support;
 
-use ambient::backend::native::{Bundled, Calling, Natives, amb_bundle_call, amb_bundle_fail};
+use ambient::backend::native::{Bundled, Calling, Natives, amb_bundle_call};
 use ambient::builder::{self as b, ty};
 use ambient::surface::{Definition, Expr, Type};
 use ambient::value::Value;
@@ -17,14 +17,26 @@ unsafe fn arg(args: Word, index: u64) -> Word {
     unsafe { ambient_runtime::amb_word_at(args, index) }
 }
 
-/// Twice the integer it is handed.
-unsafe extern "C" fn double(_: *mut Calling, args: Word) -> Word {
-    unsafe { ambient_runtime::amb_int_new(ambient_runtime::amb_int_value(arg(args, 0)) * 2) }
-}
+// What a bundle written in Rust writes: each function is named for
+// its extern, and reads and makes values through the runtime.
+ambient_native::natives! {
+    package "app";
 
-/// How many bytes the text it is handed is, read from the text itself.
-unsafe extern "C" fn size(_: *mut Calling, args: Word) -> Word {
-    unsafe { ambient_runtime::amb_int_new(ambient_runtime::amb_length(arg(args, 0)).cast_signed()) }
+    /// Twice the integer it is handed.
+    fn main_double(_call, args) {
+        unsafe { ambient_native::amb_int_new(ambient_native::amb_int_value(arg(args, 0)) * 2) }
+    }
+
+    /// How many bytes the text it is handed is, read from the text
+    /// itself.
+    fn main_size(_call, args) {
+        let size = unsafe { ambient_native::text(arg(args, 0)) }.len();
+        unsafe { ambient_native::amb_int_new(i64::try_from(size).unwrap()) }
+    }
+
+    fn main_refuse(call, _args) {
+        unsafe { ambient_native::fail(call, "no") }
+    }
 }
 
 /// What the function it is handed gives of the integer beside it.
@@ -35,18 +47,12 @@ unsafe extern "C" fn apply(call: *mut Calling, args: Word) -> Word {
     }
 }
 
-unsafe extern "C" fn refuse(call: *mut Calling, _: Word) -> Word {
-    let message = "no";
-    unsafe { amb_bundle_fail(call, message.as_ptr(), message.len() as u64) };
-    NULL
-}
-
 fn natives() -> Natives {
     let functions: [(&str, Bundled); 4] = [
-        ("main.double", double),
-        ("main.size", size),
+        ("main.double", main_double),
+        ("main.size", main_size),
         ("main.apply", apply),
-        ("main.refuse", refuse),
+        ("main.refuse", main_refuse),
     ];
     let offer = |natives: Natives, (path, function)| {
         // SAFETY: each keeps to what a function of a native bundle is

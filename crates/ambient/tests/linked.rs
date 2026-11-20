@@ -6,6 +6,8 @@
 
 #![allow(clippy::unwrap_used)]
 
+mod support;
+
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::process::Command as Process;
@@ -13,10 +15,11 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ambient::backend::native::MACHINE;
-use ambient::cli::{Command, Machine, Session, symbol};
+use ambient::cli::{Command, Machine, Session, Unlinked, built, symbol};
 use ambient::host::System;
 use ambient::project::{Disk, Nowhere};
 use ambient::store::MemoryStore;
+use support::scripted::Scripted;
 
 const ID: &str = "0123456789abcdef0123456789abcdef";
 
@@ -65,16 +68,30 @@ impl Drop for Scratch {
     }
 }
 
-/// A bundle for the package, in C: `double` reads its argument where
-/// it lies and makes what it gives, through the runtime.
-fn bundle(scratch: &Scratch) {
+/// The header `ambient header` says for the package.
+fn header(scratch: &Scratch) -> String {
+    let world = Rc::new(RefCell::new(Scripted::default()));
+    let session = Session {
+        files: &Disk,
+        store: &MemoryStore::new(),
+        snapshots: &Nowhere,
+        world: world.clone(),
+        launcher: None,
+        linker: &Unlinked,
+    };
+    let path = scratch.0.join("app");
+    assert_eq!(session.execute(&Command::Header { path }), 0);
+    world.borrow().out.clone()
+}
+
+/// A bundle for the package, in C, written against its header:
+/// each function reads its argument where it lies and makes what it
+/// gives, through the runtime. `told` is what its author made of the
+/// header.
+fn bundle(scratch: &Scratch, told: fn(String) -> String) {
     let (double, tripled) = (symbol(ID, "main.double"), symbol(ID, "main.tripled"));
     let source = format!(
-        "#include <stdint.h>
-struct amb_call;
-uint64_t amb_word_at(uint64_t, uint64_t);
-int64_t amb_int_value(uint64_t);
-uint64_t amb_int_new(int64_t);
+        "#include \"ambient.h\"
 uint64_t {double}(struct amb_call *call, uint64_t args) {{
   return amb_int_new(amb_int_value(amb_word_at(args, 0)) * 2);
 }}
@@ -83,6 +100,7 @@ uint64_t {tripled}(struct amb_call *call, uint64_t args) {{
 }}
 "
     );
+    scratch.write("app/native/ambient.h", &told(header(scratch)));
     let source = scratch.write("app/native/app.c", &source);
     let compiled = Process::new("cc")
         .args(["-c", "-ffunction-sections", "-o"])
@@ -95,13 +113,18 @@ uint64_t {tripled}(struct amb_call *call, uint64_t args) {{
 /// What `command` gives of the package and its bundle, written under
 /// `scratch`.
 fn executed(scratch: &Scratch, command: &Command) -> i32 {
+    executed_told(scratch, command, |header| header)
+}
+
+/// The same, of a bundle whose author was told `told` of the header.
+fn executed_told(scratch: &Scratch, command: &Command, told: fn(String) -> String) -> i32 {
     let manifest = format!(
         "name = \"app\"\nid = \"{ID}\"\nversion = \"0.1.0\"\n\n\
          [native.{MACHINE}]\npath = \"native/app.o\"\n"
     );
     scratch.write("app/ambient.toml", &manifest);
     scratch.write("app/src/main.ab", SOURCE);
-    bundle(scratch);
+    bundle(scratch, told);
     let session = Session {
         files: &Disk,
         store: &MemoryStore::new(),
@@ -165,4 +188,18 @@ fn a_program_is_not_run_under_a_target_that_is_no_command_lines() {
     };
 
     assert_eq!(executed(&scratch, &run), 1);
+}
+
+#[test]
+fn a_bundle_built_for_another_layout_is_not_linked() {
+    let scratch = Scratch::new();
+    let build = Command::Build {
+        path: scratch.0.join("app"),
+        entry: "main.main".to_owned(),
+        output: Some(scratch.0.join("out")),
+        target: None,
+    };
+    let other = |header: String| header.replace(&built(ID), "amb_built_for_another");
+
+    assert_eq!(executed_told(&scratch, &build, other), 1);
 }

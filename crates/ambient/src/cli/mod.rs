@@ -6,6 +6,7 @@
 mod build;
 mod building;
 mod files;
+mod header;
 mod init;
 mod launch;
 mod linking;
@@ -25,8 +26,9 @@ pub use ambient_host::launch::carried;
 use ambient_host::launch::{FAILED, code, started};
 pub use build::{LAUNCHER, start};
 pub use building::engine;
+pub use header::header;
 use launch::Launch;
-pub use linking::{ARCHIVE, Link, Linker, Unlinked, symbol};
+pub use linking::{ARCHIVE, Link, Linker, Unlinked, built, symbol};
 pub use machine::Machine;
 
 use crate::engine::Engine;
@@ -98,6 +100,13 @@ pub enum Command {
     },
     /// Checks every definition of a package and of those it depends on.
     Check {
+        /// The package's directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+    /// Says the C header a native bundle of a package is written
+    /// against: what it may call, and a prototype for each extern.
+    Header {
         /// The package's directory.
         #[arg(default_value = ".")]
         path: PathBuf,
@@ -192,6 +201,7 @@ impl Session<'_> {
             Command::Init { path } => self.init(path),
             Command::Update { name, path } => self.update(path, name.as_deref()),
             Command::Vendor { name, path } => self.vendor(path, name.as_deref()),
+            Command::Header { path } => self.header(path),
             Command::Snapshot { path } => self.snapshot(path),
             Command::Test { path, only } => self.test(path, only.as_deref()),
         };
