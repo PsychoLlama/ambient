@@ -561,3 +561,14 @@ fn a_comptime_call_is_handed_a_constant_as_its_value() {
 
     assert_eq!(text(source), "two42");
 }
+
+#[test]
+fn a_module_is_not_reached_through_a_name_in_a_constants_form() {
+    let other = "pub fn one(): int => 1;";
+    let main = "use pkg.other as OTHER;\nfn main(): int => OTHER.one();";
+    let workspace = support::text::modules(&[("other", other), ("main", main)]);
+    let store = ambient::store::MemoryStore::new();
+    let engine = ambient::engine::Engine::new(&workspace, &store);
+    let error = engine.check(&support::value("main", "main")).unwrap_err();
+    assert_eq!(error.to_string(), "app:main.main: `OTHER` names nothing");
+}
