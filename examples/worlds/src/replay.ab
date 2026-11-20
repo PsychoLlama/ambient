@@ -23,7 +23,7 @@ pub fn holding(events: List<Event>): Tape => { events: cell::<List<Event>>(event
 
 /// The observer that puts each event on a tape: what `observe` is
 /// given to record a body.
-pub fn recorder(onto: Tape): fn(event: Event): null =>
+pub fn recorder(onto: Tape): (fn(event: Event): null) =>
     fn(event: Event): null {
         onto.events.update(fn(events: List<Event>): List<Event> => events.push(event));
         return null;

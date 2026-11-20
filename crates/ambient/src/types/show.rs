@@ -71,15 +71,18 @@ fn show_signature(opening: &str, receiver: Option<&Ty>, function: &Ty, out: &mut
     }
     show_members(params, out);
     out.push_str("): ");
-    show(ret, out);
+    // A function it gives is in brackets, or the row would read as
+    // that one's.
+    show_alternative(ret, out);
     if !row.is_empty() {
         let names: Vec<&str> = row.iter().map(ability_name).collect();
         let _ = write!(out, " with {}", names.join(", "));
     }
 }
 
-/// A member of a union: a function type among others is in brackets,
-/// since what it gives and takes would otherwise run on into them.
+/// A member of a union, or what a function gives: a function type
+/// there is in brackets, since what it gives and takes would otherwise
+/// run on into what follows.
 fn show_alternative(ty: &Ty, out: &mut String) {
     if matches!(ty, Ty::Function { .. } | Ty::Generic { .. }) {
         out.push('(');

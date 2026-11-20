@@ -104,7 +104,7 @@ pub fn json(status: int, value: Json): Response =>
 /// A request `handle` faults or throws on is answered with a 500, and
 /// the serving goes on.
 pub fn serve(server: Server, tasks: int, handle: fn(request: Request): Response with throw): null with accept, respond {
-    let worker = fn(_: int): fn(): null => fn(): null => answer(server, handle);
+    let worker = fn(_: int): (fn(): null) => fn(): null => answer(server, handle);
     let _ = gather(range(0, tasks).map(worker).to_list());
     return null;
 }

@@ -41,6 +41,22 @@ impl Parser {
         Ok(Type::Union(members))
     }
 
+    /// What a function gives: a type a row may follow. A function type
+    /// there is written in parentheses, since the row after one written
+    /// bare could be either's.
+    pub(super) fn given(&mut self) -> Parsed<Type> {
+        self.typed(true, Self::ty)
+    }
+
+    /// Reads with `read`, saying meanwhile whether what is read is
+    /// what a function gives with nothing around it.
+    fn typed<T>(&mut self, gives: bool, read: impl FnOnce(&mut Self) -> Parsed<T>) -> Parsed<T> {
+        let outer = std::mem::replace(&mut self.gives, gives);
+        let read = read(self);
+        self.gives = outer;
+        read
+    }
+
     /// A member of a union: a type, and the brands on it if any.
     fn ty_member(&mut self) -> Parsed<Type> {
         let ty = self.ty_single()?;
@@ -56,6 +72,11 @@ impl Parser {
     }
 
     fn ty_single(&mut self) -> Parsed<Type> {
+        if self.gives && !self.at_word("fn") {
+            // Whatever else it is closes itself: nothing inside it is
+            // followed by the row.
+            return self.typed(false, Self::ty_single);
+        }
         match self.peek().clone() {
             Token::Int(value) => {
                 self.advance();
@@ -138,6 +159,12 @@ impl Parser {
             return Ok(simple);
         }
         if word == "fn" {
+            if self.gives {
+                return self.fail(
+                    "a function type that a function gives is written in parentheses, \
+                     as `(fn(): null)`: the row after one written bare could be either's",
+                );
+            }
             self.advance();
             return self.function_type();
         }
@@ -208,7 +235,7 @@ impl Parser {
         let (names, types) = params.into_iter().unzip();
         let params = Members::named(names, types);
         let ret = if self.eat(":") {
-            self.ty()?
+            self.given()?
         } else {
             Type::Null
         };

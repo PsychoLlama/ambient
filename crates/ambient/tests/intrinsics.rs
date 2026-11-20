@@ -181,11 +181,16 @@ fn a_method_and_a_generic_function_are_shown_as_they_are_written() {
 #[test]
 fn a_type_is_shown_with_the_names_it_was_written_with() {
     let tuple = refused("fn main(): (name: string, count: int) => 1;");
-    let function = refused("fn main(): fn(note: string): null with throw | null => 1;");
+    let function = refused("fn main(): (fn(note: string): null with throw) | null => 1;");
+    let given = refused("fn main(): (fn(): null with throw) with throw => 1;");
 
     assert!(tuple.contains("`(name: string, count: int)`"), "{tuple}");
     assert!(
         function.contains("`null | (fn(note: string): null with throw)`"),
         "{function}"
     );
+    // What a function gives is in brackets too, so each row is its own.
+    let made = refused("fn main(make: fn(): (fn(): null with throw)): int => make;");
+    assert!(given.contains("`fn(): null with throw`"), "{given}");
+    assert!(made.contains("`fn(): (fn(): null with throw)`"), "{made}");
 }

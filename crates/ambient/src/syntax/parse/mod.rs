@@ -62,6 +62,10 @@ pub(super) struct Parser {
     /// The functions in a block whose bodies are being read, innermost
     /// last.
     calling: Vec<Own>,
+    /// Whether the type being read is what a function gives, with
+    /// nothing around it: a row may follow, so a function type is not
+    /// written bare there.
+    gives: bool,
     /// How many names the reader has made up.
     made: usize,
     /// Where each definition read so far is.
@@ -80,6 +84,7 @@ impl Parser {
             locals: Vec::new(),
             own: None,
             calling: Vec::new(),
+            gives: false,
             made: 0,
             defined: Vec::new(),
             imported: Vec::new(),

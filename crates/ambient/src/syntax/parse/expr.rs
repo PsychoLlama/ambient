@@ -339,7 +339,7 @@ impl Parser {
             Ok((name, ty))
         })?;
         let returns = if self.eat(":") {
-            Some(self.ty()?)
+            Some(self.given()?)
         } else {
             None
         };

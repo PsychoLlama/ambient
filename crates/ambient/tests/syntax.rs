@@ -337,6 +337,33 @@ fn a_reserved_word_names_nothing() {
 }
 
 #[test]
+fn a_function_type_that_a_function_gives_is_written_in_parentheses() {
+    let bare = [
+        "fn main(): fn(): null with throw => 1;",
+        "fn main(): int | fn(): null => 1;",
+        "fn main(make: fn(): fn(): null): int => 1;",
+        "fn main(): int => (fn(): fn(): null => 1)();",
+    ];
+
+    for source in bare {
+        let (_, _, message) = refused(source);
+        assert!(
+            message.starts_with("a function type that a function gives"),
+            "{message}"
+        );
+    }
+}
+
+#[test]
+fn a_function_type_inside_what_a_function_gives_is_written_bare() {
+    let source = "fn main(): List<fn(): null> with throw => [];
+        fn other(): (run: fn(): null, count: int) => (fn() => null, 1);
+        fn third(): { run: fn(): null } => { run: fn() => null };";
+
+    assert!(parse(source).is_ok(), "{:?}", parse(source).err());
+}
+
+#[test]
 fn what_a_builder_refuses_the_reader_refuses() {
     let (_, _, message) = refused("fn main(a: int, a: int): int => a;");
 

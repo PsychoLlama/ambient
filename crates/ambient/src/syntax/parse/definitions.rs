@@ -229,7 +229,7 @@ impl Parser {
     /// `: Type`, or `null` where nothing is written.
     fn returns(&mut self) -> Parsed<Type> {
         if self.eat(":") {
-            self.ty()
+            self.given()
         } else {
             Ok(Type::Null)
         }
