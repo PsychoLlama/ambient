@@ -117,6 +117,19 @@ A target defines the world a program runs in: a root binding for every ability t
 - TODO: a body is held whole; nothing is streamed.
 - A server holds a bounded number of requests nothing has accepted; one sent past that is refused as unavailable, and the program never sees it.
 
+## Streams and sockets
+
+- A stream is a [handle](values.md) to bytes that come and go in order: a connection, or a body still arriving. `system.stream` reads one, writes one, and closes one, each an ability.
+- Reading waits for what the stream has next and gives at most what was asked for, or nothing once the stream has ended. Writing sends all it is given, in order.
+- Bytes read for a task that was cancelled meanwhile are kept, and the next to read is given them.
+- A stream nothing holds is closed.
+- `system.net` is what is below HTTP: it connects to a port of a host, or to a Unix socket, and gives a stream.
+- A listener there is a [listener](#calls-from-the-world) whose next call is a connection, a stream. It holds a bounded number of connections nothing has accepted, and one made past that is ended.
+- A datagram socket is bound to a port, sends a datagram to an address, and waits for the next it was sent, which says where it came from. It holds a bounded number nothing has received, and one that arrives past that is dropped, as a network may drop any.
+- A socket joins a multicast group to receive what is sent to it. A port bound as shared may be bound by other programs too, which is how several listen to one group.
+- Protocols over these are packages: nothing here knows of one.
+- TODO: nothing encrypts a stream; only `system.http` speaks TLS.
+
 ## Code
 
 - `system.code` packs a function, compiles a pack, and loads what was compiled: the halves of [exchange](exchange.md), each an ability.

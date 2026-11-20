@@ -15,9 +15,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::network::Network;
+use super::sockets::{Came, Reaches};
 use super::system::failure;
 use super::waits::{Chunk, Done, Line, Work};
-use super::{Command, Failure, Kind, Ran, Response};
+use super::{Command, Failure, Held, Kind, Ran, Response};
 use crate::native::Posts;
 
 /// What a thread sends back.
@@ -34,6 +35,8 @@ pub(super) enum Sent {
     Response(u64, Result<Response, Failure>),
     /// A request a server was sent.
     Request(i64, tiny_http::Request),
+    /// Something of a stream or a socket.
+    Net(Came),
 }
 
 pub(super) struct Pending {
@@ -55,6 +58,8 @@ pub(super) struct Pending {
     /// Bytes read for a wait its task left, likewise.
     unread_bytes: VecDeque<Chunk>,
     pub(super) network: Network,
+    /// Its streams and sockets.
+    pub(super) reaches: Reaches,
     /// What threads of native bundles post, which wake this.
     posts: Option<Arc<Posts>>,
 }
@@ -64,6 +69,7 @@ impl Default for Pending {
         let (sender, sent) = channel();
         Self {
             network: Network::new(sender.clone()),
+            reaches: Reaches::new(sender.clone()),
             sender,
             sent,
             ready: VecDeque::new(),
@@ -99,6 +105,11 @@ impl Pending {
             Work::Accept(server) => {
                 let done = self.network.accept(ticket, server);
                 self.ready.extend(done.map(|done| (ticket, done)));
+            }
+            Work::Reach(reach) => {
+                let reached = self.reaches.begin(ticket, reach);
+                self.ready
+                    .extend(reached.map(|reached| (ticket, Done::Reached(reached))));
             }
         }
     }
@@ -209,6 +220,7 @@ impl Pending {
             let threads = !self.children.is_empty()
                 || !self.readers.is_empty()
                 || self.network.waits()
+                || self.reaches.waits()
                 || posts.is_some_and(|posts| posts.coming());
             let sent = match due {
                 Some((when, _)) if threads => match self.sent.recv_timeout(when - Instant::now()) {
@@ -264,6 +276,11 @@ impl Pending {
             Sent::Request(server, request) => {
                 self.ready.extend(self.network.arrived(server, request));
             }
+            Sent::Net(came) => {
+                let reached = self.reaches.took(came);
+                self.ready
+                    .extend(reached.map(|(ticket, reached)| (ticket, Done::Reached(reached))));
+            }
         }
     }
 
@@ -274,6 +291,14 @@ impl Pending {
         self.ready.extend(waiting.into_iter().map(closed));
     }
 
+    /// Lets go of a stream, a listener, or a socket, and answers
+    /// whatever waited on it.
+    pub(super) fn shut(&mut self, held: Held) {
+        let reached = self.reaches.shut(held).into_iter();
+        self.ready
+            .extend(reached.map(|(ticket, reached)| (ticket, Done::Reached(reached))));
+    }
+
     /// Stops what a ticket was waiting on, where it can be stopped: a
     /// command is ended, a timer dropped. A line being read is kept
     /// for whoever asks next.
@@ -282,6 +307,7 @@ impl Pending {
         self.timers.retain(|(_, timer)| *timer != ticket);
         self.readers.retain(|reader| *reader != ticket);
         self.network.forsake(ticket);
+        self.reaches.forsake(ticket);
         if let Some(mut child) = self.children.remove(&ticket) {
             let _ = child.kill();
             let _ = child.wait();

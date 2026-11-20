@@ -5,7 +5,9 @@ use std::io::{self, Write};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use super::pending::Pending;
-use super::{Done, Entry, Failure, Info, Kind, Listening, Response, Work, World};
+use super::{
+    Done, Entry, Failure, Held, Info, Kind, Listening, Open, Opened, Response, Work, World,
+};
 
 /// The process the compiler is running in: its streams, files,
 /// environment, and clocks.
@@ -197,6 +199,14 @@ impl World for System {
 
     fn abandon(&mut self, incoming: i64) {
         self.pending.network.abandon(incoming);
+    }
+
+    fn open(&mut self, what: Open) -> Result<Opened, Failure> {
+        self.pending.reaches.open(what)
+    }
+
+    fn shut(&mut self, held: Held) {
+        self.pending.shut(held);
     }
 
     fn begin(&mut self, ticket: u64, work: Work) {

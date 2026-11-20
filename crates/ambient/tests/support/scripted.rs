@@ -9,7 +9,8 @@ use std::rc::Rc;
 use ambient::cli::{Command, Session};
 use ambient::engine::Engine;
 use ambient::host::{
-    Done, Entry, Failure, Incoming, Info, Kind, Listening, Ran, Request, Response, Work, World,
+    Address, Done, Entry, Failure, Held, Incoming, Info, Kind, Listening, Open, Opened, Ran, Reach,
+    Reached, Request, Response, Work, World,
 };
 use ambient::project::{Files, Nowhere, Snapshots};
 use ambient::store::MemoryStore;
@@ -57,6 +58,17 @@ pub struct Scripted {
     /// The requests that were let go, in order: each by how many were
     /// still to come when it was accepted.
     pub abandoned: Vec<i64>,
+    /// What each address sends whoever connects to it, by its host and
+    /// port with a `:` between, or its path; any other is unreachable.
+    pub peers: BTreeMap<String, Vec<u8>>,
+    /// The streams that were connected, each by its address and how
+    /// much of what it sends was read. A stream's number is one more
+    /// than its place here.
+    pub streams: Vec<(String, usize)>,
+    /// What was written to each address.
+    pub wrote: BTreeMap<String, Vec<u8>>,
+    /// What was let go of, in order.
+    pub shut: Vec<Held>,
 }
 
 /// Where a scripted session says the command's own file is.
@@ -345,6 +357,18 @@ impl World for Scripted {
         self.abandoned.push(incoming);
     }
 
+    /// A script listens for nothing.
+    fn open(&mut self, _what: Open) -> Result<Opened, Failure> {
+        Err(Failure {
+            kind: Kind::Denied,
+            message: "a script listens for nothing".to_owned(),
+        })
+    }
+
+    fn shut(&mut self, held: Held) {
+        self.shut.push(held);
+    }
+
     /// Only a sleep takes time here: a command and a line of input
     /// are over as soon as they are begun.
     fn begin(&mut self, ticket: u64, work: Work) {
@@ -369,6 +393,7 @@ impl World for Scripted {
                     Done::Accepted(request.map(|request| Incoming { id, request })),
                 )
             }
+            Work::Reach(reach) => (0, Done::Reached(self.reach(reach))),
             Work::Run(command) => {
                 let line = [std::slice::from_ref(&command.program), &command.args[..]]
                     .concat()
@@ -398,6 +423,45 @@ impl World for Scripted {
 }
 
 impl Scripted {
+    /// What comes of something of a stream or a socket: a connection
+    /// is to a peer of the script, and nothing else is there.
+    fn reach(&mut self, reach: Reach) -> Reached {
+        let at = |stream: i64| usize::try_from(stream - 1).unwrap_or(usize::MAX);
+        match reach {
+            Reach::Connect(address) => {
+                let name = match address {
+                    Address::Tcp(host, port) => format!("{host}:{port}"),
+                    Address::Unix(path) => path,
+                };
+                if !self.peers.contains_key(&name) {
+                    return Reached::Connected(Err(Failure {
+                        kind: Kind::Unreachable,
+                        message: format!("nothing answers at {name}"),
+                    }));
+                }
+                self.streams.push((name, 0));
+                Reached::Connected(Ok(i64::try_from(self.streams.len()).unwrap_or(0)))
+            }
+            Reach::Read(stream, most) => {
+                let Some((name, read)) = self.streams.get_mut(at(stream)) else {
+                    return Reached::Read(Ok(None));
+                };
+                let rest = &self.peers[name.as_str()][*read..];
+                let piece = &rest[..rest.len().min(usize::try_from(most).unwrap_or(1).max(1))];
+                *read += piece.len();
+                Reached::Read(Ok((!piece.is_empty()).then(|| piece.to_vec())))
+            }
+            Reach::Write(stream, data) => {
+                let (name, _) = &self.streams[at(stream)];
+                self.wrote.entry(name.clone()).or_default().extend(data);
+                Reached::Wrote(Ok(()))
+            }
+            Reach::Take(_) => Reached::Took(None),
+            Reach::Receive(_) => Reached::Received(None),
+            Reach::SendTo { .. } | Reach::Join(..) => Reached::Did(Ok(())),
+        }
+    }
+
     /// The bytes of the next line of input and its ending, or as many
     /// of them as `most`; the rest is the line that is then next. A
     /// script's input is plain letters, so any cut leaves text.

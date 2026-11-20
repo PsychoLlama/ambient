@@ -11,8 +11,12 @@ mod crypto;
 mod exchange;
 mod files;
 mod http;
+mod net;
 mod network;
 mod pending;
+mod reaching;
+mod sockets;
+mod streams;
 mod system;
 mod waits;
 
@@ -24,6 +28,7 @@ pub use code::invalid;
 pub use commands::Command;
 pub use files::{Entry, Info};
 pub use http::{Incoming, Listening, Request, Response};
+pub use net::{Address, Datagram, Held, Open, Opened, Reach, Reached};
 pub use system::System;
 pub use waits::{Chunk, Done, Line, Work};
 
@@ -178,6 +183,15 @@ pub trait World {
     /// Lets go of a request a server accepted, if it was not answered:
     /// nothing can answer it any more.
     fn abandon(&mut self, incoming: i64);
+    /// Opens a listener or a socket.
+    ///
+    /// # Errors
+    ///
+    /// It cannot be opened there.
+    fn open(&mut self, what: Open) -> Result<Opened, Failure>;
+    /// Lets go of a stream, a listener, or a socket: whatever waits on
+    /// it is given nothing.
+    fn shut(&mut self, held: Held);
     /// Begins work that takes time. What comes of it is given by
     /// [`World::next`], under `ticket`.
     fn begin(&mut self, ticket: u64, work: Work);
@@ -310,8 +324,12 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
     let handlers = handlers
         .into_iter()
         .chain(files::HANDLERS)
-        .chain(http::HANDLERS);
-    let starters = starters.into_iter().chain(http::STARTERS);
+        .chain(http::HANDLERS)
+        .chain(net::HANDLERS);
+    let starters = starters
+        .into_iter()
+        .chain(http::STARTERS)
+        .chain(net::STARTERS);
     let natives = handlers.fold(natives, |natives, (name, handler)| {
         let world = Rc::clone(world);
         natives.with(PACKAGE, name, move |args| {

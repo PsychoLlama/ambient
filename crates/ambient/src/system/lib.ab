@@ -6,9 +6,11 @@ pub mod exchange;
 pub mod env;
 pub mod fs;
 pub mod http;
+pub mod net;
 pub mod path;
 pub mod process;
 pub mod random;
+pub mod stream;
 
 use ambient.errors;
 use pkg.clock;
@@ -17,8 +19,10 @@ use pkg.console;
 use pkg.env;
 use pkg.fs;
 use pkg.http;
+use pkg.net;
 use pkg.process;
 use pkg.random;
+use pkg.stream;
 
 extern handler console_write for console.write;
 extern handler console_print for console.print;
@@ -53,6 +57,19 @@ extern handler http_listen for http.listen;
 extern handler(suspending) http_accept for http.accept;
 extern handler http_respond for http.respond;
 extern handler http_close for http.close;
+extern handler(suspending) stream_read for stream.read;
+extern handler(suspending) stream_write for stream.write;
+extern handler stream_close for stream.close;
+extern handler(suspending) net_connect for net.connect;
+extern handler(suspending) net_connect_unix for net.connect_unix;
+extern handler net_listen for net.listen;
+extern handler net_listen_unix for net.listen_unix;
+extern handler(suspending) net_accept for net.accept;
+extern handler net_bind for net.bind;
+extern handler(suspending) net_join for net.join;
+extern handler(suspending) net_send_to for net.send_to;
+extern handler(suspending) net_receive for net.receive;
+extern handler net_close for net.close;
 extern handler code_pack for code.pack;
 extern handler code_compile for code.compile;
 extern handler code_load for code.load;
@@ -93,6 +110,19 @@ pub target cli {
     http.accept: http_accept,
     http.respond: http_respond,
     http.close: http_close,
+    stream.read: stream_read,
+    stream.write: stream_write,
+    stream.close: stream_close,
+    net.connect: net_connect,
+    net.connect_unix: net_connect_unix,
+    net.listen: net_listen,
+    net.listen_unix: net_listen_unix,
+    net.accept: net_accept,
+    net.bind: net_bind,
+    net.join: net_join,
+    net.send_to: net_send_to,
+    net.receive: net_receive,
+    net.close: net_close,
     code.pack: code_pack,
     code.compile: code_compile,
     code.load: code_load,

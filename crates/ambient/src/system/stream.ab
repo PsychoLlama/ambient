@@ -1,0 +1,43 @@
+use ambient.Error;
+
+/// The stream cannot be used so: one that is only read was written to.
+pub tag invalid;
+
+/// Any other failure; the message says which.
+pub tag failed;
+
+/// Bytes that come and go in order, which the world holds: a
+/// connection, or a body that is still arriving. It is closed when it
+/// is closed, or when nothing holds it any more.
+pub type(nominal) Stream;
+
+/// What a stream has next, waited for: at least one byte and at most
+/// `most`, or null once it has ended. A stream that was closed here
+/// has ended.
+pub ability read(stream: Stream, most: int): bytes | null | Error;
+
+/// Sends `data` on a stream, all of it, in order after what was sent
+/// before.
+pub ability write(stream: Stream, data: bytes): null | Error;
+
+/// Closes a stream. Whatever waits to read it is given null.
+pub ability close(stream: Stream): null;
+
+/// How many bytes are asked for at a time by what reads a stream to
+/// its end.
+const PIECE: int = 65536;
+
+/// Everything a stream has until it ends.
+pub fn read_all(stream: Stream): bytes | Error with read => rest(stream, "".to_bytes());
+
+fn rest(stream: Stream, before: bytes): bytes | Error with read {
+    match read!(stream, PIECE) {
+        null => { return before; }
+        let error: Error => { return error; }
+        let piece: bytes => { return rest(stream, before.join(piece)); }
+    }
+}
+
+/// Sends text on a stream, as its UTF-8.
+pub fn write_text(stream: Stream, text: string): null | Error with write =>
+    write!(stream, text.to_bytes());

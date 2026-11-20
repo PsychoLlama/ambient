@@ -46,7 +46,7 @@ pub(super) const REPLY: &str = "http.Reply";
 
 /// The handle a program holds for what a world numbered, under a
 /// brand of `system.http`.
-fn handle(brand: &str, number: i64) -> Value {
+pub(super) fn handle(brand: &str, number: i64) -> Value {
     Value::Handle {
         package: PACKAGE.to_owned(),
         brand: brand.to_owned(),

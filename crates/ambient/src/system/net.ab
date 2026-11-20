@@ -1,0 +1,73 @@
+use ambient.Error;
+use pkg.stream.{Stream};
+
+/// Nothing is there to connect to.
+pub tag not_found;
+
+/// Nothing answered: a host that was not found or would not connect.
+pub tag unreachable;
+
+/// The program may not connect, listen, or bind there.
+pub tag denied;
+
+/// What was given is no address, port, or group.
+pub tag invalid;
+
+/// Any other failure; the message says which.
+pub tag failed;
+
+/// What listens for connections. It stops when it is closed, or when
+/// nothing holds it any more.
+pub type(nominal) Listener;
+
+/// A socket that datagrams are sent from and received at. It is given
+/// up when it is closed, or when nothing holds it any more.
+pub type(nominal) Socket;
+
+/// What listens, and the port it listens on.
+pub type Server = { port: int, listener: Listener };
+
+/// A socket, and the port it is bound to.
+pub type Bound = { port: int, socket: Socket };
+
+/// What a socket received, and where it came from.
+pub type Datagram = { data: bytes, host: string, port: int };
+
+/// Connects to a port of a host, by TCP.
+pub ability connect(host: string, port: int): Stream | Error;
+
+/// Connects to the Unix socket at a path.
+pub ability connect_unix(path: string): Stream | Error;
+
+/// Starts listening for TCP connections on a port of an address of
+/// this machine, such as `127.0.0.1`. Port zero is any free port; the
+/// server says which.
+pub ability listen(host: string, port: int): Server | Error;
+
+/// Starts listening on a Unix socket, which is made at the path and
+/// taken away when the listener is closed.
+pub ability listen_unix(path: string): Listener | Error;
+
+/// The next connection a listener was sent, waited for, or null once
+/// the listener is closed.
+pub ability accept(listener: Listener): Stream | null;
+
+/// Binds a UDP socket to a port of an address of this machine. Port
+/// zero is any free port. A `shared` port is one other programs may
+/// bind too, as those that listen to one multicast group do.
+pub ability bind(host: string, port: int, shared: bool): Bound | Error;
+
+/// Has a socket receive what is sent to a multicast group, such as
+/// `224.0.0.251`.
+pub ability join(socket: Socket, group: string): null | Error;
+
+/// Sends one datagram from a socket to a port of a host.
+pub ability send_to(socket: Socket, data: bytes, host: string, port: int): null | Error;
+
+/// The next datagram a socket was sent, waited for, or null once the
+/// socket is closed.
+pub ability receive(socket: Socket): Datagram | null;
+
+/// Stops a listener or gives up a socket. Whatever waits on it is
+/// given null.
+pub ability close(held: Listener | Socket): null;

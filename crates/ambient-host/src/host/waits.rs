@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use super::Command;
 use super::http::{self, Incoming, Request, Response};
+use super::net::{self, Reach, Reached};
 use super::{Failure, PACKAGE, Ran, World, error, optional, output};
 use crate::native::{Answer, Posts, Waits};
 use crate::value::Value;
@@ -30,6 +31,8 @@ pub enum Work {
     Send(Request),
     /// Take the next request a server was sent.
     Accept(i64),
+    /// Something of a stream or a socket.
+    Reach(Reach),
 }
 
 /// A line of input without its ending, or nothing at the end of input.
@@ -53,6 +56,8 @@ pub enum Done {
     Sent(Result<Response, Failure>),
     /// The request, or nothing once the server is closed.
     Accepted(Option<Incoming>),
+    /// What came of something of a stream or a socket.
+    Reached(Reached),
 }
 
 impl Done {
@@ -68,6 +73,7 @@ impl Done {
                 .map_or(Value::Null, Value::Bytes),
             Self::Sent(sent) => http::sent(sent),
             Self::Accepted(incoming) => incoming.map_or(Value::Null, Incoming::value),
+            Self::Reached(reached) => reached.value(),
         })
     }
 }
@@ -96,6 +102,11 @@ impl Waits for Outcomes {
         match (package, brand) {
             (PACKAGE, http::LISTENER) => self.0.borrow_mut().close(number),
             (PACKAGE, http::REPLY) => self.0.borrow_mut().abandon(number),
+            (PACKAGE, brand) => {
+                if let Some(held) = net::dropped(brand, number) {
+                    self.0.borrow_mut().shut(held);
+                }
+            }
             _ => {}
         }
     }

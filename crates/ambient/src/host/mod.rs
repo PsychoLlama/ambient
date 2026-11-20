@@ -12,8 +12,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 pub use ambient_host::host::{
-    Chunk, Command, Done, Entry, Failure, Incoming, Info, Kind, Line, Listening, Ran, Request,
-    Response, System, Work, World, bytes, error, invalid,
+    Address, Chunk, Command, Datagram, Done, Entry, Failure, Held, Incoming, Info, Kind, Line,
+    Listening, Open, Opened, Ran, Reach, Reached, Request, Response, System, Work, World, bytes,
+    error, invalid,
 };
 pub use code::{Linked, compiles, link, offer as compiling};
 
