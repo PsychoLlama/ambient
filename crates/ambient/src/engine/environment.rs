@@ -36,7 +36,10 @@ impl Engine<'_> {
                 }
                 Namespace::Value => {
                     key.hash(&self.interface(&used)?.digest);
-                    if let Some((signature, named)) = self.signature(&used)? {
+                    if let Some((ty, named)) = self.constant_type(&used)? {
+                        roots.extend(named);
+                        env.constants.insert(used, ty);
+                    } else if let Some((signature, named)) = self.signature(&used)? {
                         roots.extend(named);
                         env.functions.insert(used, signature);
                     }
@@ -63,7 +66,29 @@ impl Engine<'_> {
                 (symbol, signature)
             })
             .collect();
+        let constants = std::mem::take(&mut env.constants);
+        let normal = constants.into_iter();
+        env.constants = normal
+            .map(|(symbol, ty)| (symbol, env.normalize(&ty)))
+            .collect();
         Ok(env)
+    }
+
+    /// The type a constant states, and the definitions it names.
+    /// Nothing, for a definition that is no constant.
+    pub(super) fn constant_type(
+        &self,
+        symbol: &Symbol,
+    ) -> Result<Option<(Ty, Vec<Symbol>)>, Error> {
+        if !symbol.lambda.is_empty() || self.received(symbol).is_some() {
+            return Ok(None);
+        }
+        let resolved = self.resolve(symbol)?;
+        let DefinitionKind::Constant(constant) = &resolved.definition.kind else {
+            return Ok(None);
+        };
+        let named = definitions(|visit| constant.header_names(&mut |name| visit(name)));
+        Ok(Some((constant.ret.clone(), named)))
     }
 
     /// Adds to `env` the function each method called one of `sends`

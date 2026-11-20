@@ -14,7 +14,8 @@ macro_rules! children {
             | Self::Local(_)
             | Self::Captured(_)
             | Self::Reference(..)
-            | Self::AbilityId(_) => {}
+            | Self::AbilityId(_)
+            | Self::Constant(_) => {}
             Self::Call { callee, args } => {
                 $visit(callee);
                 args.$iter().for_each($visit);

@@ -380,6 +380,13 @@ impl Emitter<'_> {
                 self.count(Entry::Retain, function);
                 function
             }
+            Op::Constant(slot) => {
+                // The slot leads to the one word that holds the value.
+                let held = self.in_definition(*slot);
+                let value = self.load(held, 0);
+                self.count(Entry::Retain, value);
+                value
+            }
             Op::Call { slot, args } => {
                 let callee = self.in_definition(*slot);
                 self.call(callee, args)

@@ -208,6 +208,7 @@ impl Engine<'_> {
                     params, ret, row, ..
                 } => function(&[], params, ret, row)?,
                 Tree::Type { ty, .. } => Body::Type(ty.clone()),
+                Tree::Constant { value, .. } => Body::Constant(value.clone()),
                 Tree::Ability { .. } | Tree::Contract { .. } | Tree::Target { .. } => Body::Inert,
             };
             let native = match &open.tree {

@@ -332,6 +332,14 @@ impl Emitter {
                 self.runtime(Entry::Retain);
                 self.in_definition(*slot);
             }
+            Op::Constant(slot) => {
+                // The slot leads to the one word that holds the value.
+                self.in_definition(*slot);
+                self.load(0);
+                self.runtime(Entry::Retain);
+                self.in_definition(*slot);
+                self.load(0);
+            }
             Op::Call { slot, args } => {
                 self.emit(&Instruction::LocalGet(CONTEXT));
                 self.in_definition(*slot);

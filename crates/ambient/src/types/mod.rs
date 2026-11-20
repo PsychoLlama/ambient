@@ -84,6 +84,8 @@ pub struct Env {
     pub types: BTreeMap<Symbol, TypeInfo>,
     /// The header of every function it refers to.
     pub functions: BTreeMap<Symbol, Signature>,
+    /// The type of every constant it refers to.
+    pub constants: BTreeMap<Symbol, Ty>,
     /// Every ability it refers to, or that a type it reaches does.
     pub abilities: BTreeMap<Symbol, AbilityInfo>,
     /// Every contract it refers to, or that a type it reaches does.

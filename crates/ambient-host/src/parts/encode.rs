@@ -132,6 +132,9 @@ impl Body {
                 constants.iter().all(constant) && types.into_iter().all(ty)
             }
             Self::Type(of) => ty(of),
+            Self::Constant(value) => {
+                value.is_value_form() && value.value_slots().iter().all(|Slot(at)| slot(at))
+            }
             Self::Inert => true,
         }
     }

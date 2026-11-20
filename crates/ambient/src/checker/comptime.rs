@@ -55,11 +55,7 @@ impl Checker<'_> {
             if *handed != Handed::Value {
                 continue;
             }
-            let (_, ty) = self.infer(arg)?;
-            values.push(value_of(&ty).ok_or_else(|| Error::NotComptime {
-                symbol: self.symbol.clone(),
-                found: self.env.show(&ty),
-            })?);
+            values.push(self.argument(arg)?);
         }
         self.frame().slots.truncate(slots);
         self.frame().lambdas.truncate(lambdas);
@@ -94,6 +90,25 @@ impl Checker<'_> {
 }
 
 impl Checker<'_> {
+    /// The value an argument of a comptime call is known to be: what a
+    /// constant it names holds, or the one value its type has.
+    fn argument(&mut self, arg: &Expr<Reference>) -> Result<Value, Error> {
+        let (_, ty) = self.infer(arg)?;
+        let held = match (arg, self.evaluator) {
+            (Expr::Name(Reference::Definition(named)), Some(evaluator))
+                if self.env.constants.contains_key(named) =>
+            {
+                evaluator.constant(named)?
+            }
+            _ => None,
+        };
+        held.or_else(|| value_of(&ty))
+            .ok_or_else(|| Error::NotComptime {
+                symbol: self.symbol.clone(),
+                found: self.env.show(&ty),
+            })
+    }
+
     /// Whether whatever a comptime call gives is within `expected`,
     /// by what its function is declared to give alone.
     ///

@@ -76,6 +76,11 @@ impl Body<'_, '_> {
                 verifier.ability(*ability)?;
                 Ty::String
             }
+            Expr::Constant(constant) => {
+                let symbol = verifier.symbol(*constant)?;
+                let ty = verifier.env.constants.get(symbol);
+                ty.cloned().ok_or(Invalid::Slot)?
+            }
             Expr::Perform {
                 ability,
                 args,

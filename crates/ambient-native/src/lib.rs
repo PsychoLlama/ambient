@@ -39,7 +39,7 @@ pub type Make = unsafe extern "C" fn(data: *mut Data) -> Word;
 #[macro_export]
 macro_rules! layout {
     () => {
-        30
+        31
     };
 }
 

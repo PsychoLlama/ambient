@@ -224,6 +224,7 @@ impl Lowering {
             // What is said to a build is nothing to a program.
             core::Expr::Annotated { value, .. } => return self.expr(value),
             core::Expr::Null => Op::Copy(Value::Null),
+            core::Expr::Constant(slot) => Op::Constant(slot.0),
             core::Expr::Literal(literal) => match literal {
                 Literal::Bool(value) => Op::Copy(Value::Bool(*value)),
                 Literal::Int(value) => Op::Int(*value),

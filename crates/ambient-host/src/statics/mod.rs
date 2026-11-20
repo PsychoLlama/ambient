@@ -14,8 +14,10 @@ use ambient_runtime::UNIT_WORDS;
 use ambient_runtime::layout::{CLOSURE_WORDS, DEFINITION_WORDS};
 
 mod descriptors;
+mod values;
 
 use descriptors::root_size;
+use values::Values;
 
 use crate::core::Type;
 use crate::hash::Hash;
@@ -133,6 +135,10 @@ pub struct Statics {
     pub placed: Vec<Option<(usize, usize)>>,
     /// Whether the block is a unit, and so begins with its record.
     pub loaded: bool,
+    /// Where each record the block lays out is. Whoever loads the
+    /// block has the runtime put each one's fields in order
+    /// (`amb_record_settle`) once every field is written.
+    pub settle: Vec<usize>,
 }
 
 /// Plans the block for a program, or for what is added to one.
@@ -149,16 +155,9 @@ pub fn plan(parts: &Parts, base: &Base) -> Statics {
 
     let mut header = [0u64; CLOSURE_WORDS];
     ambient_runtime::fixed_closure(&mut header, 0, 0, base.loaded);
+    let mut values = Values::new(parts, &roots, &definitions);
     for (index, part) in parts.parts.iter().enumerate() {
-        let slots: Vec<Target> = part
-            .slots
-            .iter()
-            .map(|slot| Target {
-                address: roots[*slot],
-                definition: definitions[*slot],
-                hash: parts.parts[*slot].hash,
-            })
-            .collect();
+        let slots = statics.targets(parts, index, &roots, &definitions);
         let Some((closure, at)) = statics.placed[index] else {
             continue;
         };
@@ -197,7 +196,8 @@ pub fn plan(parts: &Parts, base: &Base) -> Statics {
                         Constant::Type(ty) => statics.constant(ty, &slots).field(),
                         Constant::Types(types) => Field::Address(statics.types(types, &slots)),
                         Constant::Instance(slot, types) => {
-                            Field::Address(statics.instance(&slots[*slot], types, &slots))
+                            let function = slots[*slot].definition;
+                            Field::Address(statics.instance(function, types, &slots))
                         }
                         Constant::Ability(slot) => {
                             statics.text(Make::Field, &ability_key(&slots[*slot].hash))
@@ -212,6 +212,11 @@ pub fn plan(parts: &Parts, base: &Base) -> Statics {
                 statics.set(closure + 2, Field::Address(at));
             }
             Body::Type(ty) => statics.root(ty, &slots, at),
+            // One word, which holds the value: see `reserve`.
+            Body::Constant(_) => {
+                let value = values.constant(index, &mut statics);
+                statics.set(at, value);
+            }
             Body::Inert => {}
         }
     }
@@ -234,6 +239,23 @@ fn ability_key(hash: &Hash) -> String {
 }
 
 impl Statics {
+    /// What each slot of part `of` refers to.
+    #[expect(clippy::unused_self, reason = "reads as the rest of a plan does")]
+    fn targets(
+        &self,
+        parts: &Parts,
+        of: usize,
+        roots: &[Place],
+        definitions: &[Place],
+    ) -> Vec<Target> {
+        let target = |slot: &usize| Target {
+            address: roots[*slot],
+            definition: definitions[*slot],
+            hash: parts.parts[*slot].hash,
+        };
+        parts.parts[of].slots.iter().map(target).collect()
+    }
+
     /// Makes room for each part the program lacks, and says where each
     /// part's definition and its closure or descriptor are. These are
     /// fixed before anything is written, because parts refer to each
@@ -265,6 +287,13 @@ impl Statics {
                 }
                 Body::Type(ty) => {
                     self.words += root_size(ty);
+                    at
+                }
+                // A constant is found at one word that holds its
+                // value, whatever the value is: an immediate, an
+                // object of the block, or what the runtime makes.
+                Body::Constant(_) => {
+                    self.words += 1;
                     at
                 }
                 // Never read: an ability is reached by its key, a constant.
@@ -342,14 +371,14 @@ impl Statics {
 
     /// The address of a closure laid out in the block, over a generic
     /// function at type arguments.
-    fn instance(&mut self, function: &Target, types: &[Type], slots: &[Target]) -> usize {
+    fn instance(&mut self, function: Place, types: &[Type], slots: &[Target]) -> usize {
         let mut header = [0u64; CLOSURE_WORDS];
         ambient_runtime::fixed_closure(&mut header, 0, 1, self.loaded);
         let at = self.held();
         self.words += CLOSURE_WORDS + 1;
         self.set(at, Field::Word(header[0]));
         self.set(at + 1, Field::Word(header[1]));
-        self.set(at + 2, function.definition.field());
+        self.set(at + 2, function.field());
         let types = self.types(types, slots);
         self.set(at + 3, Field::Address(types));
         at

@@ -64,6 +64,10 @@ pub enum Op {
     Float(u64),
     /// The function in a slot of the current definition, as a value.
     Slot(usize),
+    /// The value of the constant in a slot of the current definition:
+    /// what the word the slot leads to holds, as a word the consumer
+    /// owns. See `docs/spec/constants.md`.
+    Constant(usize),
     /// Calls the function in a slot of the current definition.
     Call { slot: usize, args: Vec<Value> },
     /// Calls a function value, as [`Op::Call`] calls a slot.

@@ -120,6 +120,7 @@ impl Op {
             | Self::Int(_)
             | Self::Float(_)
             | Self::Slot(_)
+            | Self::Constant(_)
             | Self::Call { .. }
             | Self::CallValue { .. }
             | Self::Again(_) => return None,

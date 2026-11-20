@@ -297,6 +297,12 @@ impl Layout<'_> {
         let Some(Place::Root(entry)) = self.plan.entry else {
             return Err("the module has no entry".to_owned());
         };
+        // Every key is made by now, so each record's fields can be put
+        // in the order of their keys.
+        for record in &self.plan.settle {
+            address(body, BASE, *record)?;
+            call(body, calls, "amb_record_settle");
+        }
         self.part(body, entry, false)?;
         if self.plan.loaded {
             body.instruction(&Instruction::LocalSet(ENTRY));

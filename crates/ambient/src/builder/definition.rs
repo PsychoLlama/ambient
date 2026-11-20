@@ -9,7 +9,7 @@ use super::validate::{
 use super::{BuildError, null, ty};
 use crate::surface::{
     Ability, Annotation, ContractDefinition, Definition, DefinitionKind, Expr, Function, Import,
-    Module, Param, Path, TypeDefinition, TypeParam,
+    Module, Param, Path, TypeDefinition, TypeParam, constant_name,
 };
 use crate::symbol::Namespace;
 
@@ -434,6 +434,13 @@ impl ModuleBuilder {
                     Namespace::Value
                 }
                 DefinitionKind::Function(function) => {
+                    check_function(&definition.name, function)?;
+                    Namespace::Value
+                }
+                DefinitionKind::Constant(function) => {
+                    if !constant_name(&definition.name) {
+                        return Err(BuildError::ConstantName(definition.name.clone()));
+                    }
                     check_function(&definition.name, function)?;
                     Namespace::Value
                 }

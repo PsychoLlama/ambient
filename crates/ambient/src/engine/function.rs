@@ -74,6 +74,18 @@ impl Engine<'_> {
         for callee in &callees {
             key.hash(&self.hash(callee)?);
         }
+        // A constant handed to one is handed as what it holds.
+        let mut handed = Vec::new();
+        function.body.comptime_arguments(&mut |name| {
+            if let Reference::Definition(named) = name {
+                handed.push(named.clone());
+            }
+        });
+        for named in &handed {
+            if self.constant_type(named)?.is_some() {
+                key.hash(&self.hash(named)?);
+            }
+        }
         // What a comptime call may take is the package's grants.
         if !callees.is_empty() {
             key.bytes(&encode(&self.sources.grants(&symbol.module.package)));
@@ -156,7 +168,7 @@ impl Engine<'_> {
             resolved
                 .as_deref()
                 .map(|resolved| &resolved.definition.kind),
-            Some(DefinitionKind::Function(_))
+            Some(DefinitionKind::Function(_) | DefinitionKind::Constant(_))
         );
         let resolved = resolved.filter(|_| written);
         let place = |node: usize| resolved.as_ref().map_or(node, |found| found.written(node));

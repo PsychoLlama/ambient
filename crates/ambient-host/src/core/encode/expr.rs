@@ -143,14 +143,13 @@ pub(super) fn encode_expr(expr: &Expr, out: &mut Sink<'_>) {
         | Expr::Perform { .. }
         | Expr::Provide { .. }
         | Expr::AbilityId(_)
+        | Expr::Constant(_)
         | Expr::All(_)
         | Expr::First(_)
         | Expr::Cleanup { .. }
         | Expr::Group(_)
         | Expr::Boundary(_)
-        | Expr::Spawn(_) => {
-            encode_binding(expr, out);
-        }
+        | Expr::Spawn(_) => encode_binding(expr, out),
     }
 }
 
@@ -221,6 +220,10 @@ fn encode_binding(expr: &Expr, out: &mut Sink<'_>) {
         Expr::AbilityId(ability) => {
             out.push(18);
             out.slot(*ability);
+        }
+        Expr::Constant(constant) => {
+            out.push(36);
+            out.slot(*constant);
         }
         Expr::All(thunks) => {
             out.push(19);

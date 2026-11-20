@@ -144,7 +144,9 @@ impl Engine<'_> {
             .0
             .get(&(symbol.namespace, symbol.name.clone()))?;
         let definition = &module.definitions[entry.index];
-        let DefinitionKind::Function(function) = &definition.kind else {
+        let (DefinitionKind::Function(function) | DefinitionKind::Constant(function)) =
+            &definition.kind
+        else {
             return None;
         };
         let scoped = self.scope(&symbol.module).ok()?;
@@ -161,7 +163,9 @@ impl Engine<'_> {
 /// the call a definition is whatever it gives.
 fn body_of<N>(definition: &Definition<N>) -> Option<&Expr<N>> {
     match &definition.kind {
-        DefinitionKind::Function(function) => Some(&function.body),
+        DefinitionKind::Function(function) | DefinitionKind::Constant(function) => {
+            Some(&function.body)
+        }
         DefinitionKind::Derived(call)
         | DefinitionKind::Generated(call)
         | DefinitionKind::Module(call) => Some(call),
@@ -256,6 +260,9 @@ impl<'a> Resolver<'a> {
             DefinitionKind::Module(call) => DefinitionKind::Module(self.expr(call)?),
             DefinitionKind::Function(function) => {
                 DefinitionKind::Function(self.function(function)?)
+            }
+            DefinitionKind::Constant(function) => {
+                DefinitionKind::Constant(self.function(function)?)
             }
             DefinitionKind::Ability(ability) => {
                 let type_params = self.type_params(&ability.type_params)?;

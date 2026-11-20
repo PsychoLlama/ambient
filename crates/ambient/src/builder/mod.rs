@@ -5,6 +5,7 @@
 //! module. [`ModuleBuilder::build`] is where an ill-formed tree is rejected;
 //! type errors are left to the checker.
 
+mod constant;
 mod definition;
 mod error;
 mod operations;
@@ -13,6 +14,7 @@ pub mod ty;
 mod validate;
 mod world;
 
+pub use constant::{ConstantBuilder, constant};
 pub use definition::{
     AbilityBuilder, FunctionBuilder, ModuleBuilder, ability, brand, contract, derived, function,
     generated, generates, generic_type, intrinsic, module, tag, type_,

@@ -345,6 +345,22 @@ impl<N> Expr<N> {
         self.children(&mut |child| child.comptime_callees(visit));
     }
 
+    /// Calls `visit` with each name that is an argument of a comptime
+    /// call inside the expression: one that names a constant is handed
+    /// over as what the constant holds.
+    pub fn comptime_arguments<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
+        if let Self::Comptime(call) = self
+            && let Self::Call { args, .. } = &**call
+        {
+            for arg in args {
+                if let Self::Name(name) = arg {
+                    visit(name);
+                }
+            }
+        }
+        self.children(&mut |child| child.comptime_arguments(visit));
+    }
+
     /// Calls `visit` with each expression directly inside this one, in
     /// order. A walk that treats most nodes alike is written with this,
     /// so that a new node is added here and not to every walk.
@@ -412,7 +428,7 @@ impl<N> Definition<N> {
             DefinitionKind::Derived(call)
             | DefinitionKind::Generated(call)
             | DefinitionKind::Module(call) => call.names(visit),
-            DefinitionKind::Function(function) => {
+            DefinitionKind::Function(function) | DefinitionKind::Constant(function) => {
                 function.header_names(visit);
                 function.body.names(visit);
             }

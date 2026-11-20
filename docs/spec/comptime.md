@@ -7,7 +7,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 - A comptime call is marked at the call site; the callee is any function.
 - There is no separate class of compile-time functions.
 - An argument is an expression of [singleton type](types.md), a closed type, a closed row, or the name of a definition.
-- A [constant](constants.md) named for a parameter of an ordinary type is handed over as its value, and the call depends on the constant's hash.
+- A [constant](constants.md) named for a parameter of an ordinary type is handed over as its value, and the call depends on the constant's hash. Only plain data is handed so: a constant that holds a function is not.
 - A parameter's type says what it receives: one of an ordinary type receives the argument's value, and one whose type is a tree receives the tree.
 - An expression is never handed over as code not yet evaluated: it is passed as the value its type says it has, so no name in it comes to mean something else where it lands.
 - The result replaces the call before checking; the enclosing definition's hash covers the result, not the call.

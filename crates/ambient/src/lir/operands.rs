@@ -9,6 +9,7 @@ impl Op {
             Self::Int(_)
             | Self::Float(_)
             | Self::Slot(_)
+            | Self::Constant(_)
             | Self::Token { .. }
             | Self::Traced
             | Self::Hold

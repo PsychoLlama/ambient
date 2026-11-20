@@ -224,6 +224,20 @@ impl Evaluate for Engine<'_> {
         outcome
     }
 
+    fn constant(&self, symbol: &Symbol) -> Result<Option<Value>, Error> {
+        let open = self.check(symbol)?;
+        let crate::core::Tree::Constant { value, .. } = &open.tree else {
+            return Ok(None);
+        };
+        // A constant it names that does not check is no data here, and
+        // is reported where it is checked for its own sake.
+        let held = |slot: crate::core::Slot| {
+            let named = open.slots.get(slot.0)?;
+            self.constant(named).ok().flatten()
+        };
+        Ok(value.data(&held))
+    }
+
     fn granted(&self, package: &PackageId, ability: &Symbol) -> bool {
         self.sources.grants(package).contains(ability)
     }

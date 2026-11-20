@@ -154,6 +154,12 @@ pub enum Error {
     /// A name that is not a value is used as one: a target, or a native
     /// handler, which only a target may name.
     NotValue { symbol: Symbol, name: Symbol },
+    /// A constant's value is written as something other than a value
+    /// form: it calls, performs, tests, or binds.
+    NotConstant(Symbol),
+    /// A constant's value holds the constant itself, outside any
+    /// function.
+    ConstantCycle(Symbol),
     /// A value is branded outside the module that declares the brand.
     Branding { symbol: Symbol, brand: Symbol },
     /// Something that is not a brand is intersected with a type, or a
@@ -247,6 +253,8 @@ impl Error {
             Self::UnknownSymbol(symbol)
             | Self::GenericAbort(symbol)
             | Self::ComptimeCycle(symbol)
+            | Self::NotConstant(symbol)
+            | Self::ConstantCycle(symbol)
             | Self::NotType { symbol, .. }
             | Self::NotCode { symbol, .. }
             | Self::Unnameable { symbol, .. }

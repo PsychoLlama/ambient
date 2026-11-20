@@ -5,7 +5,7 @@ use super::{Parsed, Parser};
 use crate::builder::{self as b, ModuleBuilder};
 use crate::surface::{
     Ability, Annotation, ContractDefinition, Definition, DefinitionKind, Expr, Extern, ExternKind,
-    Function, GENERATOR, Param, Path, Target, Type, TypeDefinition,
+    Function, GENERATOR, Param, Path, Target, Type, TypeDefinition, constant_name,
 };
 use crate::syntax::{Placed, SyntaxError, place};
 
@@ -63,7 +63,9 @@ impl Parser {
         let (name, mut kind) = self.definition()?;
         // The marks come out here, before anything else sees the tree.
         let body = match &mut kind {
-            DefinitionKind::Function(function) => Some(&mut function.body),
+            DefinitionKind::Function(function) | DefinitionKind::Constant(function) => {
+                Some(&mut function.body)
+            }
             DefinitionKind::Derived(call)
             | DefinitionKind::Generated(call)
             | DefinitionKind::Module(call) => Some(call),
@@ -162,6 +164,9 @@ impl Parser {
         if self.eat_word("fn") {
             return self.function();
         }
+        if self.eat_word("const") {
+            return self.constant();
+        }
         if self.eat_word("type") {
             return self.type_definition();
         }
@@ -250,6 +255,29 @@ impl Parser {
             body,
         };
         Ok((name, DefinitionKind::Function(function)))
+    }
+
+    /// `const NAME: Type = value;`
+    fn constant(&mut self) -> Parsed<(String, DefinitionKind)> {
+        let name = self.name()?;
+        if !constant_name(&name) {
+            return self.fail("a constant's name is capital letters, digits, and `_`");
+        }
+        self.expect(":")?;
+        let ret = self.ty()?;
+        self.expect("=")?;
+        // Nothing is bound around a value, so every name in it is a
+        // definition's.
+        let body = self.scoped(Self::expr)?;
+        self.expect(";")?;
+        let function = Function {
+            type_params: Vec::new(),
+            params: Vec::new(),
+            ret,
+            row: Vec::new(),
+            body,
+        };
+        Ok((name, DefinitionKind::Constant(function)))
     }
 
     fn type_definition(&mut self) -> Parsed<(String, DefinitionKind)> {

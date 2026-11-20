@@ -152,6 +152,7 @@ impl Tree {
             Self::Ability { params, ret, .. } | Self::Extern { params, ret, .. } => {
                 deepest(params).max(ret.depth())
             }
+            Self::Constant { ty, value } => ty.depth().max(value.depth()),
             Self::Target { .. } => 0,
         }
     }

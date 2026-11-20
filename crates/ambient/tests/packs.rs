@@ -74,6 +74,19 @@ fn a_pack_runs_where_nothing_of_it_was_written() {
 }
 
 #[test]
+fn a_pack_carries_the_constants_its_function_reads() {
+    let pair = b::constant("PAIR", ty::tuple([ty::int(), ty::string()]))
+        .value(b::tuple([b::int(1), b::string("one")]));
+    let main = b::function("main")
+        .returns(ty::tuple([ty::int(), ty::string()]))
+        .body(b::name("PAIR"));
+    let pack = packed(&module([pair, main]), &[]);
+    let pack = Pack::decode(&pack.encode()).unwrap();
+    let expected = Value::Tuple(vec![Value::Int(1), Value::String("one".to_owned())]);
+    assert_eq!(received(&module([]), &[], &pack), Ok(expected));
+}
+
+#[test]
 fn a_received_definition_has_the_hash_it_was_sent_with() {
     let sender = module([double(), main()]);
     let (sent, kept) = (MemoryStore::new(), MemoryStore::new());

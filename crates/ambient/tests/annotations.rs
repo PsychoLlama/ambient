@@ -92,6 +92,20 @@ fn a_tool_is_given_the_annotations_reached_in_the_order_they_are_met() {
 }
 
 #[test]
+fn a_constant_is_annotated_and_walked_into_as_a_function_is() {
+    let built = build(
+        r#"
+        fn main(): int => LIMITS.low + held();
+        #[note("limits")] const LIMITS: { low: int, high: fn(): int } = { low: BASE, high: held };
+        #[note("base")] const BASE: int = 1;
+        #[note("held")] fn held(): int => 2;
+        "#,
+    );
+
+    assert_eq!(notes(&built), "LIMITS=limits BASE=base held=held");
+}
+
+#[test]
 fn what_a_comptime_call_says_in_the_code_it_gives_is_met_where_the_code_is() {
     let built = build(
         r#"

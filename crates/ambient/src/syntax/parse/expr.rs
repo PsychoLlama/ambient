@@ -4,7 +4,9 @@ use super::super::lex::Token;
 use super::patterns::Mode;
 use super::{Parsed, Parser};
 use crate::literal::Literal;
-use crate::surface::{Arm, Expr, Key, Operator, Path, Pattern, Type, TypeParam, fallback};
+use crate::surface::{
+    Arm, Expr, Key, Operator, Path, Pattern, Type, TypeParam, constant_name, fallback,
+};
 
 /// The binary operators, loosest first. Each level binds to the left,
 /// but comparison, which does not chain.
@@ -284,6 +286,13 @@ impl Parser {
                 },
                 None => name(&local),
             });
+        }
+        // A name in a constant's form is a value, so what follows its
+        // `.` is a field of it and no definition of a module.
+        if matches!(self.peek(), Token::Word(word) if constant_name(word))
+            && matches!(self.peek_at(1), Token::Mark("."))
+        {
+            return Ok(name(&self.name()?));
         }
         let path = self.path()?;
         if self.at("!") && matches!(self.peek_at(1), Token::Mark("(")) {

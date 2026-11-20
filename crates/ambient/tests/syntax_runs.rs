@@ -532,3 +532,32 @@ fn two_types_that_differ_only_in_names_are_one_type() {
 
     assert_eq!(int(source), 12);
 }
+
+#[test]
+fn a_constant_is_read_by_its_name() {
+    let source = r#"
+        type Counter = { count: int, twice(self): int };
+        fn sum(a: int, b: int): int => a + b;
+        const TOTAL: int = comptime sum(40, 2);
+        pub const COUNTER: Counter = { count: TOTAL, twice(self): int => self.count * 2 };
+        const NAMES: List<string> = ["a", "b"];
+        fn main(): int => COUNTER.twice() + NAMES.length();
+    "#;
+
+    assert_eq!(int(source), 86);
+}
+
+#[test]
+fn a_comptime_call_is_handed_a_constant_as_its_value() {
+    let source = r#"
+        fn sum(a: int, b: int): int => a + b;
+        const BASE: int = 40;
+        const PAIR: { count: int, name: string } = { count: 2, name: "two" };
+        fn second(pair: { count: int, name: string }): string => pair.name;
+        const NAME: string = comptime second(PAIR);
+        const TOTAL: int = comptime sum(BASE, 2);
+        fn main(): string => NAME + TOTAL.to_text();
+    "#;
+
+    assert_eq!(text(source), "two42");
+}

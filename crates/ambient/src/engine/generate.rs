@@ -122,7 +122,9 @@ impl Engine<'_> {
         definition: &'a Definition<Reference>,
     ) -> Result<Option<Told<'a>>, Error> {
         Ok(match &definition.kind {
-            DefinitionKind::Function(function) => Some(Told::Written(function)),
+            DefinitionKind::Function(function) | DefinitionKind::Constant(function) => {
+                Some(Told::Written(function))
+            }
             DefinitionKind::Generated(_) => Some(Told::Given(self.generated(symbol)?)),
             _ => None,
         })

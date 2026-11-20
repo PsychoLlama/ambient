@@ -87,6 +87,14 @@ pub struct Annotation<N = Path> {
     pub value: Expr<N>,
 }
 
+/// Whether a constant may be named so: capital letters, digits, and
+/// `_`, beginning with a letter. See `docs/spec/syntax.md`.
+#[must_use]
+pub fn constant_name(name: &str) -> bool {
+    let rest = |c: char| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_';
+    name.starts_with(|c: char| c.is_ascii_uppercase()) && name.chars().all(rest)
+}
+
 /// The name of the one definition a generated module is written with.
 pub const GENERATOR: &str = "__module";
 
@@ -104,6 +112,11 @@ pub enum DefinitionKind<N = Path> {
     /// under the name [`GENERATOR`].
     Module(Expr<N>),
     Function(Function<N>),
+    /// A constant: the type it states, as what a function of no
+    /// parameters and no row gives, and its value, as that function's
+    /// body. It is held as a function so that whatever reads a body
+    /// reads a value the same way. See `docs/spec/constants.md`.
+    Constant(Function<N>),
     Ability(Ability<N>),
     Contract(ContractDefinition<N>),
     /// A tag: a name for one value, told from every other by where it
@@ -129,6 +142,7 @@ impl<N> DefinitionKind<N> {
         match self {
             Self::Type(_) | Self::Derived(_) | Self::Tag | Self::Brand => Namespace::Type,
             Self::Function(_)
+            | Self::Constant(_)
             | Self::Generated(_)
             | Self::Module(_)
             | Self::Extern(_)

@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use ambient::backend::native::{Host, Native, Natives, Program};
 use ambient::backend::wasm;
-use ambient::builder::{self as b, pat, ty};
+use ambient::builder::{self as b, ModuleBuilder, pat, ty};
 use ambient::engine::{Backend, Engine, Parts};
 use ambient::hash::Hash;
 use ambient::store::MemoryStore;
@@ -77,11 +77,24 @@ fn fetching(parts: &Rc<Parts>) -> Natives {
 
 impl Loading {
     fn new(plugin: Definition, body: Expr, find: impl FnOnce(&Engine) -> Symbol) -> Self {
+        Self::beside([plugin], body, find)
+    }
+
+    /// With everything in `plugin` in the module the function is in.
+    fn beside<const N: usize>(
+        plugin: [Definition; N],
+        body: Expr,
+        find: impl FnOnce(&Engine) -> Symbol,
+    ) -> Self {
         let fetch = b::extern_function("fetch").returns(ty::unknown());
         let main = b::function("main").returns(ty::unknown()).body(body);
         let workspace = support::workspace([
             ("app", "main", b::module().define(fetch).define(main)),
-            ("app", "plugin", b::module().define(plugin)),
+            (
+                "app",
+                "plugin",
+                plugin.into_iter().fold(b::module(), ModuleBuilder::define),
+            ),
         ]);
         let store = MemoryStore::new();
         let engine = Engine::new(&workspace, &store);
@@ -139,6 +152,31 @@ fn a_function_loaded_while_a_program_runs_is_called() {
     assert!(!loading.has());
     assert_eq!(loading.run(), Ok(Value::Int(42)));
     // Nothing the call left refers to it.
+    assert!(!loading.has());
+}
+
+/// `fn plugin(n: int): int`, which is `n` and what a function the
+/// constant `STEP` holds gives, and `STEP`.
+fn stepping() -> [Definition; 2] {
+    let of = ty::record([("by", ty::function([], ty::int()))]);
+    let by = b::lambda_returning([], ty::int(), b::int(3));
+    let step = b::constant("STEP", of).value(b::record([("by", by)]));
+    let stepped = b::call(b::field(b::name("STEP"), "by"), []);
+    let plugin = b::function("plugin")
+        .param("n", ty::int())
+        .returns(ty::int())
+        .body(b::add(b::name("n"), stepped));
+    [step, plugin]
+}
+
+#[test]
+fn loaded_code_brings_the_constants_it_reads_and_goes_with_them() {
+    let found = |_: &Engine| value("plugin", "plugin");
+    let mut loading = Loading::beside(stepping(), fetched(int_to_int(), 21), found);
+
+    assert_eq!(loading.run(), Ok(Value::Int(24)));
+    // The constant holds a function of the code it came with, and
+    // that keeps nothing: the code is gone once the call is over.
     assert!(!loading.has());
 }
 

@@ -30,15 +30,21 @@ enum Met {
 fn met(open: &Open) -> Vec<Met> {
     let mut found: Vec<Met> = open.annotations.iter().cloned().map(Met::Said).collect();
     let named = |slot: &Slot| open.slots.get(slot.0).cloned().map(Met::Named);
-    if let Tree::Function(function) = &open.tree {
+    let body = match &open.tree {
+        Tree::Function(function) => Some(&function.body),
+        Tree::Constant { value, .. } => Some(value),
+        _ => None,
+    };
+    if let Some(body) = body {
         // What is left to walk, the next expression last.
-        let mut pending = vec![&function.body];
+        let mut pending = vec![body];
         while let Some(expr) = pending.pop() {
             match expr {
                 Expr::Annotated { annotation, .. } => found.push(Met::Said(annotation.clone())),
                 Expr::Reference(slot, _)
                 | Expr::Closure { slot, .. }
                 | Expr::AbilityId(slot)
+                | Expr::Constant(slot)
                 | Expr::Perform { ability: slot, .. } => found.extend(named(slot)),
                 _ => {}
             }

@@ -49,6 +49,26 @@ fn header_definitions(function: &Function<Reference>) -> Vec<Symbol> {
     definitions(|visit| function.header_names(&mut |name| visit(name)))
 }
 
+/// The constant a function that was checked for its value is: the type
+/// it gives, and its body, which must be one of the value forms. See
+/// "Values" in `docs/spec/constants.md`.
+fn constant(symbol: &Symbol, checked: &Open) -> Result<Open, Error> {
+    let Tree::Function(function) = &checked.tree else {
+        return Err(Error::UnknownSymbol(symbol.clone()));
+    };
+    if !function.body.is_value_form() {
+        return Err(Error::NotConstant(symbol.clone()));
+    }
+    let tree = Tree::Constant {
+        ty: function.ret.clone(),
+        value: function.body.clone(),
+    };
+    Ok(Open {
+        tree,
+        ..checked.clone()
+    })
+}
+
 impl Engine<'_> {
     /// A type definition as written, and whether it can reach itself.
     fn type_info(&self, symbol: &Symbol) -> Query<TypeInfo> {
@@ -215,13 +235,18 @@ impl Engine<'_> {
                 | DefinitionKind::Target(_) => self.hash(symbol)?,
                 // The call of a generated module is no definition of it.
                 DefinitionKind::Module(_) => return Err(unknown()),
-                DefinitionKind::Function(_) | DefinitionKind::Generated(_) => {
+                DefinitionKind::Function(_)
+                | DefinitionKind::Generated(_)
+                | DefinitionKind::Constant(_) => {
                     let function = self.function_of(symbol, &resolved.definition)?;
                     let function = &*function.ok_or_else(unknown)?;
                     let mut env = Env::default();
                     self.gather(header_definitions(function), &mut env)?;
                     let (encoding, slots) = checker::encode_header(symbol, function, env)?;
-                    let mut digest = Hasher::new("interface");
+                    // A constant's type is told from that of a function
+                    // that takes nothing and gives the same.
+                    let constant = matches!(resolved.definition.kind, DefinitionKind::Constant(_));
+                    let mut digest = Hasher::new(if constant { "constant" } else { "interface" });
                     digest.bytes(&encoding);
                     // Transparent types are already expanded into the
                     // encoding; what is left are recursive ones.
@@ -401,6 +426,12 @@ impl Engine<'_> {
             }
             DefinitionKind::Function(function) => {
                 self.check_function(symbol, function, used, key, false)
+            }
+            // A constant's value is checked as the body of a function
+            // that takes nothing and gives its type.
+            DefinitionKind::Constant(function) => {
+                let open = self.check_function(symbol, function, used, key, false)?;
+                constant(symbol, &open).map(Arc::new)
             }
             // A generated function is checked as the function its call
             // gave, which is what the key then covers.

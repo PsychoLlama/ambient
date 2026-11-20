@@ -154,6 +154,22 @@ pub fn verify(open: &Open, root: bool, lookup: Lookup<'_>) -> Result<(), Invalid
         } => verifier.external(params, ret, *handles, row),
         Tree::Target { bindings } => verifier.target(bindings),
         Tree::Function(function) => verifier.function(function),
+        // A constant's value is checked as the body of a function
+        // that takes nothing, binds nothing, and gives its type.
+        Tree::Constant { ty, value } => {
+            if !value.is_value_form() {
+                return shape("a constant holds what is not a value");
+            }
+            verifier.function(&core::Function {
+                type_params: Vec::new(),
+                captures: Vec::new(),
+                bindings: Vec::new(),
+                params: Vec::new(),
+                ret: ty.clone(),
+                row: Vec::new(),
+                body: value.clone(),
+            })
+        }
     }
 }
 
@@ -212,99 +228,117 @@ impl Verifier<'_> {
                 continue;
             }
             let target = lookup(&symbol).ok_or(Invalid::Slot)?;
-            let raise = |ty: &core::Type| types::raise(ty, &target.slots);
-            let all = |types: &[core::Type]| types.iter().map(raise).collect::<Result<Vec<_>, _>>();
-            let named = |slots: &[Slot]| -> Result<Vec<Symbol>, Invalid> {
-                let symbol = |slot: &Slot| target.slots.get(slot.0).cloned().ok_or(Invalid::Slot);
-                slots.iter().map(symbol).collect()
-            };
-            let mut header: Vec<Ty> = Vec::new();
-            match &target.tree {
-                Tree::Type { params, ty } => {
-                    let info = TypeInfo {
-                        params: *params,
-                        ty: raise(ty)?,
-                        recursive: true,
-                        variance: Vec::new(),
-                        finite: true,
-                    };
-                    header.push(info.ty.clone());
-                    self.env.types.insert(symbol, info);
-                }
-                Tree::Ability {
-                    package,
-                    path,
-                    type_params,
-                    params,
-                    ret,
-                } => {
-                    let info = AbilityInfo {
-                        identity: (package.clone(), path.clone()),
-                        type_params: all(type_params)?,
-                        params: all(params)?,
-                        ret: raise(ret)?,
-                    };
-                    header.extend(info.params.iter().cloned());
-                    header.push(info.ret.clone());
-                    self.env.abilities.insert(symbol, info);
-                }
-                Tree::Contract { package, path, ty } => {
-                    let info = ContractInfo {
-                        identity: (package.clone(), path.clone()),
-                        ty: raise(ty)?,
-                    };
-                    header.push(info.ty.clone());
-                    self.env.contracts.insert(symbol, info);
-                }
-                Tree::Extern {
-                    params,
-                    ret,
-                    handles,
-                    row,
-                    ..
-                } => {
-                    let signature = Signature {
-                        type_params: Vec::new(),
-                        params: all(params)?,
-                        ret: raise(ret)?,
-                        row: named(row)?,
-                        native: handles.is_some(),
-                    };
-                    pending.extend(signature.row.iter().cloned());
-                    header.extend(signature.params.iter().cloned());
-                    header.push(signature.ret.clone());
-                    self.held.insert(symbol.clone(), Held::default());
-                    self.env.functions.insert(symbol, signature);
-                }
-                Tree::Function(function) => {
-                    let signature = Signature {
-                        type_params: all(&function.type_params)?,
-                        params: all(&function.params)?,
-                        ret: raise(&function.ret)?,
-                        row: named(&function.row)?,
-                        native: false,
-                    };
-                    let held = Held {
-                        captures: all(&function.captures)?,
-                        bindings: named(&function.bindings)?,
-                    };
-                    pending.extend(signature.row.iter().cloned());
-                    pending.extend(held.bindings.iter().cloned());
-                    header.extend(signature.type_params.iter().cloned());
-                    header.extend(signature.params.iter().cloned());
-                    header.extend(held.captures.iter().cloned());
-                    header.push(signature.ret.clone());
-                    self.held.insert(symbol.clone(), held);
-                    self.env.functions.insert(symbol, signature);
-                }
-                Tree::Target { .. } => {
-                    self.targets.insert(symbol);
-                }
-            }
+            let header = self.headed(symbol, &target, &mut pending)?;
             pending.extend(definitions(&header));
         }
         self.normalize();
         Ok(())
+    }
+
+    /// Adds the header of `symbol`, whose definition is `target`, to
+    /// the environment, and gives the types it names. The abilities it
+    /// names join `pending`.
+    fn headed(
+        &mut self,
+        symbol: Symbol,
+        target: &Open,
+        pending: &mut Vec<Symbol>,
+    ) -> Result<Vec<Ty>, Invalid> {
+        let raise = |ty: &core::Type| types::raise(ty, &target.slots);
+        let all = |types: &[core::Type]| types.iter().map(raise).collect::<Result<Vec<_>, _>>();
+        let named = |slots: &[Slot]| -> Result<Vec<Symbol>, Invalid> {
+            let symbol = |slot: &Slot| target.slots.get(slot.0).cloned().ok_or(Invalid::Slot);
+            slots.iter().map(symbol).collect()
+        };
+        let mut header: Vec<Ty> = Vec::new();
+        match &target.tree {
+            Tree::Type { params, ty } => {
+                let info = TypeInfo {
+                    params: *params,
+                    ty: raise(ty)?,
+                    recursive: true,
+                    variance: Vec::new(),
+                    finite: true,
+                };
+                header.push(info.ty.clone());
+                self.env.types.insert(symbol, info);
+            }
+            Tree::Ability {
+                package,
+                path,
+                type_params,
+                params,
+                ret,
+            } => {
+                let info = AbilityInfo {
+                    identity: (package.clone(), path.clone()),
+                    type_params: all(type_params)?,
+                    params: all(params)?,
+                    ret: raise(ret)?,
+                };
+                header.extend(info.params.iter().cloned());
+                header.push(info.ret.clone());
+                self.env.abilities.insert(symbol, info);
+            }
+            Tree::Contract { package, path, ty } => {
+                let info = ContractInfo {
+                    identity: (package.clone(), path.clone()),
+                    ty: raise(ty)?,
+                };
+                header.push(info.ty.clone());
+                self.env.contracts.insert(symbol, info);
+            }
+            Tree::Extern {
+                params,
+                ret,
+                handles,
+                row,
+                ..
+            } => {
+                let signature = Signature {
+                    type_params: Vec::new(),
+                    params: all(params)?,
+                    ret: raise(ret)?,
+                    row: named(row)?,
+                    native: handles.is_some(),
+                };
+                pending.extend(signature.row.iter().cloned());
+                header.extend(signature.params.iter().cloned());
+                header.push(signature.ret.clone());
+                self.held.insert(symbol.clone(), Held::default());
+                self.env.functions.insert(symbol, signature);
+            }
+            Tree::Function(function) => {
+                let signature = Signature {
+                    type_params: all(&function.type_params)?,
+                    params: all(&function.params)?,
+                    ret: raise(&function.ret)?,
+                    row: named(&function.row)?,
+                    native: false,
+                };
+                let held = Held {
+                    captures: all(&function.captures)?,
+                    bindings: named(&function.bindings)?,
+                };
+                pending.extend(signature.row.iter().cloned());
+                pending.extend(held.bindings.iter().cloned());
+                header.extend(signature.type_params.iter().cloned());
+                header.extend(signature.params.iter().cloned());
+                header.extend(held.captures.iter().cloned());
+                header.push(signature.ret.clone());
+                self.held.insert(symbol.clone(), held);
+                self.env.functions.insert(symbol, signature);
+            }
+            Tree::Constant { ty, .. } => {
+                let ty = raise(ty)?;
+                header.push(ty.clone());
+                self.env.constants.insert(symbol, ty);
+            }
+            Tree::Target { .. } => {
+                self.targets.insert(symbol);
+            }
+        }
+        Ok(header)
     }
 
     /// Puts every header in normal form, which is how they are read.
@@ -347,9 +381,13 @@ impl Verifier<'_> {
             (symbol.clone(), ContractInfo { identity, ty })
         });
         let keys = keys.collect();
+        let constants = env.constants.iter();
+        let constants = constants.map(|(symbol, ty)| (symbol.clone(), env.normalize(ty)));
+        let constants = constants.collect();
         for held in self.held.values_mut() {
             held.captures = all(&held.captures);
         }
+        self.env.constants = constants;
         self.env.contracts = keys;
         self.env.abilities = abilities;
         self.env.functions = functions;

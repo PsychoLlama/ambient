@@ -1,5 +1,6 @@
 //! Core trees: the checked form of a definition. See `docs/spec/core.md`.
 
+mod constant;
 mod depth;
 mod encode;
 mod visit;
@@ -324,6 +325,9 @@ pub enum Expr {
     /// What an observer is told an ability is: a string made from the
     /// ability's hash.
     AbilityId(Slot),
+    /// The value of the constant in a slot: a read, of what was made
+    /// when its code was loaded. See `docs/spec/constants.md`.
+    Constant(Slot),
     /// Calls the handler bound to an ability. If the ability does not
     /// return, this unwinds to the provide that bound it.
     Perform {
@@ -385,6 +389,12 @@ pub enum Tree {
         ty: Type,
     },
     Function(Function),
+    /// A constant: the type it states, and its value, which is one
+    /// of the value forms ([`Expr::value_form`]).
+    Constant {
+        ty: Type,
+        value: Expr,
+    },
     Ability {
         /// What tells it from every other: the ID of the package that
         /// declares it, and its module path and name as one text. See

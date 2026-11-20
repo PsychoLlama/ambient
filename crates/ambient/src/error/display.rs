@@ -67,6 +67,8 @@ impl fmt::Display for Error {
             | Self::Reaches { .. }
             | Self::ComptimeCycle(_) => self.fmt_comptime(f),
             Self::NotValue { .. }
+            | Self::NotConstant(_)
+            | Self::ConstantCycle(_)
             | Self::Branding { .. }
             | Self::Intersection { .. }
             | Self::NotTarget(_)
@@ -96,6 +98,19 @@ impl fmt::Display for Error {
             | Self::NotExhaustive { .. }
             | Self::UnreachableArm { .. }
             | Self::NoFallback { .. } => self.fmt_type(f),
+            Self::Nesting(_)
+            | Self::NotCompilable(_)
+            | Self::Backend { .. }
+            | Self::Invalid { .. }
+            | Self::Pack(_) => self.fmt_stage(f),
+        }
+    }
+}
+
+impl Error {
+    /// The errors of the stages around checking.
+    fn fmt_stage(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
             Self::Nesting(symbol) => write!(
                 f,
                 "{symbol}: nests more than {} levels deep",
@@ -105,11 +120,10 @@ impl fmt::Display for Error {
             Self::Backend { symbol, message } => write!(f, "{symbol}: {message}"),
             Self::Invalid { symbol, problem } => write!(f, "{symbol}: {problem}"),
             Self::Pack(refused) => write!(f, "{refused}"),
+            _ => Ok(()),
         }
     }
-}
 
-impl Error {
     /// The errors about what a type may be.
     fn fmt_type(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -230,6 +244,14 @@ impl Error {
     fn fmt_world(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotValue { symbol, name } => write!(f, "{symbol}: `{name}` is not a value"),
+            Self::NotConstant(symbol) => write!(
+                f,
+                "{symbol}: a constant's value is written out, and holds no call, operation, match, or binding: what is computed is a comptime call"
+            ),
+            Self::ConstantCycle(symbol) => write!(
+                f,
+                "{symbol}: a constant holds itself, which it may name only inside a function"
+            ),
             Self::Branding { symbol, brand } => write!(
                 f,
                 "{symbol}: only the module that declares `{brand}` brands a value with it"

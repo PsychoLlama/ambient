@@ -220,6 +220,12 @@ impl Program {
             };
             write(*word, value);
         }
+        // Every key is made by now, so each record's fields can be put
+        // in the order of their keys.
+        for record in &plan.settle {
+            // SAFETY: the plan laid a record out there, whole.
+            unsafe { ambient_runtime::amb_record_settle(address(*record)) };
+        }
         let record = if loaded { address(0) } else { 0 };
         if loaded {
             write(ambient_runtime::UNIT_LIST, self.unused.get() as u64);

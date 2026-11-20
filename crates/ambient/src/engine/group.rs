@@ -9,7 +9,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use super::Engine;
-use crate::core::{Open, encode_annotations};
+use crate::core::{Open, Tree, encode_annotations};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher};
 use crate::lower::deep;
@@ -22,6 +22,40 @@ struct Node {
     next: usize,
     index: usize,
     low: usize,
+}
+
+/// The members of a group a constant's value holds as they stand: the
+/// constants it names outside any function.
+fn held(member: &Node, members: &[Node]) -> Vec<usize> {
+    let mut held = Vec::new();
+    if let Tree::Constant { value, .. } = &member.open.tree {
+        value.constants(&mut |slot| {
+            let named = member.open.slots.get(slot.0);
+            held.extend(named.and_then(|named| members.iter().position(|m| m.symbol == *named)));
+        });
+    }
+    held
+}
+
+/// Refuses a group in which a constant's value holds itself: a value
+/// is laid out whole, so one that held itself would have no end. A
+/// constant that names itself inside a function holds only the
+/// function. See "Values" in `docs/spec/constants.md`.
+fn held_apart(members: &[Node]) -> Result<(), Error> {
+    for start in 0..members.len() {
+        // Everything the constant's value holds, however far in.
+        let mut reached = BTreeSet::new();
+        let mut pending = held(&members[start], members);
+        while let Some(next) = pending.pop() {
+            if next == start {
+                return Err(Error::ConstantCycle(members[start].symbol.clone()));
+            }
+            if reached.insert(next) {
+                pending.extend(held(&members[next], members));
+            }
+        }
+    }
+    Ok(())
 }
 
 impl Engine<'_> {
@@ -97,6 +131,7 @@ impl Engine<'_> {
                 for member in &members {
                     unfinished.remove(&member.symbol);
                 }
+                held_apart(&members)?;
                 self.close(&members);
             }
         }

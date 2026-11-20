@@ -103,6 +103,10 @@ pub enum Body {
     },
     /// A recursive type definition, which casts test values against.
     Type(core::Type),
+    /// A constant: its value, an expression of the value forms
+    /// (`core::Expr::is_value_form`) whose slots are the part's. It is
+    /// laid out when the program is loaded, and has no code.
+    Constant(core::Expr),
     /// An ability or a target. Nothing is laid out for one: an ability
     /// is reached by a key made from its hash, and a target not at all.
     Inert,
@@ -149,7 +153,7 @@ impl Parts {
     pub fn codes(&self) -> Vec<Option<(usize, &Artifact)>> {
         let codes = self.parts.iter().map(|part| match &part.body {
             Body::Function { arity, code, .. } => Some((*arity, &**code)),
-            Body::Type(_) | Body::Inert => None,
+            Body::Type(_) | Body::Constant(_) | Body::Inert => None,
         });
         codes.collect()
     }

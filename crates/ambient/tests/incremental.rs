@@ -99,6 +99,57 @@ fn a_body_edit_rechecks_and_recompiles_one_definition() {
     assert_ne!(old[2], new[2]);
 }
 
+/// `leaf` reads the constant `LIMIT`, which holds `value`, under `mid`
+/// and `top`.
+fn reading(value: i64) -> Workspace {
+    let limit = b::constant("LIMIT", ty::int()).value(b::int(value));
+    let leaf = b::function("leaf")
+        .returns(ty::int())
+        .body(b::name("LIMIT"));
+    main(chain(leaf).define(limit))
+}
+
+#[test]
+fn editing_a_constant_rechecks_it_and_compiles_nothing() {
+    let store = MemoryStore::new();
+    let old = build(&Engine::new(&reading(1), &store), &chain_symbols());
+
+    let after = reading(2);
+    let engine = Engine::new(&after, &store);
+    let new = build(&engine, &chain_symbols());
+
+    assert_eq!(engine.ran(Stage::Check), names(&["LIMIT"]));
+    assert_eq!(engine.ran(Stage::Compile), names(&[]));
+    // What reads it has a new hash all the same.
+    assert_ne!(old[0], new[0]);
+}
+
+/// `leaf` is a comptime call handed the constant `LIMIT`, which holds
+/// `value`.
+fn handing(value: i64) -> Workspace {
+    let limit = b::constant("LIMIT", ty::int()).value(b::int(value));
+    let same = b::function("same")
+        .param("n", ty::int())
+        .returns(ty::int())
+        .body(b::name("n"));
+    let call = b::comptime(b::call(b::name("same"), [b::name("LIMIT")]));
+    let leaf = b::function("leaf").returns(ty::int()).body(call);
+    main(chain(leaf).define(limit).define(same))
+}
+
+#[test]
+fn editing_a_constant_runs_again_the_comptime_call_it_is_handed_to() {
+    let store = MemoryStore::new();
+    build(&Engine::new(&handing(1), &store), &chain_symbols());
+
+    let after = handing(2);
+    let engine = Engine::new(&after, &store);
+    build(&engine, &chain_symbols());
+
+    assert_eq!(engine.ran(Stage::Check), names(&["LIMIT", "leaf"]));
+    assert_eq!(engine.ran(Stage::Compile), names(&["leaf"]));
+}
+
 #[test]
 fn a_header_edit_rechecks_direct_dependents_and_stops() {
     let store = MemoryStore::new();

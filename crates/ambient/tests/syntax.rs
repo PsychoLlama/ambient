@@ -392,3 +392,26 @@ fn parentheses_group_one_thing_or_hold_two_or_more() {
         (1, 29, short.to_owned())
     );
 }
+
+#[test]
+fn a_constant_is_its_name_its_type_and_its_value() {
+    let limit = b::constant("LIMIT_2", ty::int()).public().value(b::int(7));
+    assert_eq!(
+        parse("pub const LIMIT_2: int = 7;").unwrap(),
+        built([limit])
+    );
+}
+
+#[test]
+fn a_constant_not_named_in_capitals_is_refused_at_its_name() {
+    let (line, column, message) = refused("const Limit: int = 7;");
+    assert_eq!((line, column), (1, 12));
+    assert!(message.contains("capital letters"));
+}
+
+#[test]
+fn const_names_anything_where_no_definition_begins() {
+    let body = b::let_("const", b::int(1), b::name("const"));
+    let source = "fn main(): int { let const = 1; return const; }";
+    assert_eq!(parse(source).unwrap(), built([main(body)]));
+}

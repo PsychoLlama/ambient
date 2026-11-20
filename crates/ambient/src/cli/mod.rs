@@ -360,6 +360,9 @@ impl Session<'_> {
                     DefinitionKind::Function(_) | DefinitionKind::Generated(_) => {
                         engine.check(&symbol).map(|_| ())
                     }
+                    // A constant that holds itself is found where it is
+                    // hashed, with whatever else its value holds.
+                    DefinitionKind::Constant(_) => engine.hash(&symbol).map(|_| ()),
                     // A generated module is checked as what its call
                     // gave, below.
                     DefinitionKind::Module(_) => Ok(()),

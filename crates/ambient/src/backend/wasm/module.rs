@@ -389,7 +389,7 @@ fn describe(
         let definition = match part.body {
             Body::Function { .. } => definition * 8,
             // Only a function has one.
-            Body::Type(_) | Body::Inert => 0,
+            Body::Type(_) | Body::Constant(_) | Body::Inert => 0,
         };
         constant(
             defined,

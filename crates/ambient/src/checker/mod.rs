@@ -144,6 +144,13 @@ pub trait Evaluate {
     fn evaluate(&self, from: &PackageId, function: &Symbol, args: &[Value])
     -> Result<Value, Error>;
 
+    /// What the constant `symbol` holds, if that is plain data.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the constant does not check.
+    fn constant(&self, symbol: &Symbol) -> Result<Option<Value>, Error>;
+
     /// Whether the comptime calls of `package` may take `ability` from
     /// the build target.
     fn granted(&self, package: &PackageId, ability: &Symbol) -> bool;
@@ -393,6 +400,11 @@ impl<'a> Checker<'a> {
             Expr::Name(Reference::Definition(symbol)) => {
                 if let Some(tag) = self.tag(symbol) {
                     return Ok((core::Expr::Literal(tag.clone()), Ty::Literal(tag)));
+                }
+                // A constant is read, at the type it states.
+                if let Some(ty) = self.env.constants.get(symbol) {
+                    let ty = ty.clone();
+                    return Ok((core::Expr::Constant(self.slot(symbol)), ty));
                 }
                 let ty = match self.env.functions.get(symbol) {
                     Some(signature) if self.root || !signature.native => {

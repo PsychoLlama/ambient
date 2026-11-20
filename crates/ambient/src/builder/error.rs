@@ -13,6 +13,8 @@ pub enum BuildError {
     /// A module defines a name twice in one namespace, or imports two
     /// things under one alias.
     DuplicateDefinition(String),
+    /// A constant is not named in capitals.
+    ConstantName(String),
     /// A module whose content is a comptime call defines something
     /// besides.
     GeneratedWithMore,
@@ -48,6 +50,10 @@ impl fmt::Display for BuildError {
         match self {
             Self::InvalidName(name) => write!(f, "`{name}` is not a name"),
             Self::DuplicateDefinition(name) => write!(f, "`{name}` is defined twice"),
+            Self::ConstantName(name) => write!(
+                f,
+                "the constant `{name}` is not named in capital letters, digits, and `_`"
+            ),
             Self::GeneratedWithMore => write!(
                 f,
                 "a module that is a comptime call defines nothing else: only its imports are written"

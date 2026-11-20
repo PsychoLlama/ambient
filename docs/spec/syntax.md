@@ -42,7 +42,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - Type parameters follow a name in angle brackets, each with an optional bound after a colon.
 - A function's row follows its return type after `with`: abilities, and modules for all of theirs.
 - A [constant](constants.md) is `const`, its name, a colon and its type, `=`, and its value.
-- A constant's name is capital letters, digits, and `_`, and begins with a letter; the reader refuses any other. No other definition's name is held to a case.
+- A constant's name is capital letters, digits, and `_`, and begins with a letter; the reader refuses any other. No other definition's name is held to a case. A name of that form before a `.` is a value, as a local is, so what follows is a field of it; a module imported under such a name is not reached through it.
 
 ## Expressions
 
