@@ -5,6 +5,7 @@
 mod externs;
 mod host;
 mod load;
+mod natives;
 mod stacks;
 mod unit;
 mod values;
@@ -12,10 +13,11 @@ mod waits;
 
 pub use externs::Externs;
 pub use host::{
-    ANSWERING, NativeFn, Natives, Nowhere, Observation, Offered, Questions, Running, UNASKED,
-    UNCALLABLE, UNDECLARED, UNDECLARED_ABILITY, UNWOUND, bound,
+    ANSWERING, Nowhere, Questions, Running, UNASKED, UNCALLABLE, UNDECLARED, UNDECLARED_ABILITY,
+    UNWOUND, bound,
 };
 pub use load::Program;
+pub use natives::{NativeFn, Natives, Observation, Offered};
 pub use values::{Host, Inside, encode};
 pub use waits::{Answer, Answers, Waits};
 

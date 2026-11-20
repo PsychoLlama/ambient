@@ -7,7 +7,8 @@ use std::collections::HashMap;
 use ambient_runtime::{Entry, Fault, NULL, Word};
 
 use super::externs::Externs;
-use super::host::{Natives, Observation, Questions, dispatch};
+use super::host::{Questions, dispatch};
+use super::natives::{Natives, Observation};
 use super::unit::{Unit, map};
 use super::values::Host;
 use super::waits::{Answers, Asked};

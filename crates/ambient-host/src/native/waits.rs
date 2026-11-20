@@ -11,8 +11,8 @@ use std::rc::Rc;
 
 use ambient_runtime::{Context, WAITING};
 
-use super::host::Observation;
 use super::load::Program;
+use super::natives::Observation;
 use super::values::{Host, Inside};
 use crate::value::{self, Value};
 

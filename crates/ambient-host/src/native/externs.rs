@@ -3,7 +3,7 @@
 
 use std::ops::Range;
 
-use super::host::Offered;
+use super::natives::Offered;
 use crate::parts::Native;
 
 /// The native code for every extern a program has loaded, in the order
