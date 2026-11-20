@@ -4,16 +4,29 @@ use ambient.time;
 use pkg.{Log, context};
 use pkg.level.{self, Level};
 
+/// What a terminal is told to write plainly again.
+const RESET: string = "\u{1b}[0m";
+
+/// The codes a terminal writes text under: how heavy it is, or one of
+/// its colors.
+const DIM: string = "2";
+const BRIGHT_WHITE: string = "97";
+const BLUE: string = "34";
+const GREEN: string = "32";
+const YELLOW: string = "33";
+const RED: string = "31";
+const BOLD_RED: string = "1;31";
+
 /// A log made at the moment `at` as a terminal that has the eight ANSI
 /// colors shows it: when, how severe, the message, its context if it
 /// has any, and where it came from if anywhere. Whether what it is
 /// written to is such a terminal is for the program to find out.
 pub fn line(entry: Log, at: int): string {
-    let stamp = paint("2", clock(at));
+    let stamp = paint(DIM, clock(at));
     // A message of several lines keeps its later ones under its first.
     let message = entry.message.replace("\n", "\n${stamp}       ");
     let context = entry.context.size() > 0 ? [json.write(entry.context)] : [];
-    let origin = entry.origin.is_empty() ? [] : [paint("2", entry.origin.join_with(":"))];
+    let origin = entry.origin.is_empty() ? [] : [paint(DIM, entry.origin.join_with(":"))];
     return ([stamp, label(entry.level), message] + context + origin).join_with(" ");
 }
 
@@ -28,21 +41,21 @@ fn clock(moment: int): string {
 /// A level in its color, as wide as the widest so that messages line up.
 fn label(of: Level): string =>
     match of {
-        level.trace => paint("97", "TRACE"),
-        level.debug => paint("34", "DEBUG"),
-        level.info => paint("32", "INFO") + " ",
-        level.warn => paint("33", "WARN") + " ",
-        level.error => paint("31", "ERROR"),
-        level.fatal => paint("1;31", "FATAL"),
+        level.trace => paint(BRIGHT_WHITE, "TRACE"),
+        level.debug => paint(BLUE, "DEBUG"),
+        level.info => paint(GREEN, "INFO") + " ",
+        level.warn => paint(YELLOW, "WARN") + " ",
+        level.error => paint(RED, "ERROR"),
+        level.fatal => paint(BOLD_RED, "FATAL"),
     };
 
-/// `text` as a terminal writes it under a code: `2` is dim, `1` bold,
-/// and the thirties are colors. What follows is written plainly again.
-fn paint(code: string, text: string): string => "\u{1b}[0m\u{1b}[${code}m${text}\u{1b}[0m";
+/// `text` as a terminal writes it under a code. What follows is
+/// written plainly again.
+fn paint(code: string, text: string): string => "${RESET}\u{1b}[${code}m${text}${RESET}";
 
 fn test_a_log_is_a_line_for_a_terminal(): null with check {
     let entry = { level: level.warn, message: "up\nand running", origin: ["app"], context: context([]) };
-    let stamp = paint("2", "[01:02:03.004]");
-    let expected = "${stamp} ${paint("33", "WARN")}  up\n${stamp}       and running ${paint("2", "app")}";
+    let stamp = paint(DIM, "[01:02:03.004]");
+    let expected = "${stamp} ${paint(YELLOW, "WARN")}  up\n${stamp}       and running ${paint(DIM, "app")}";
     check!(line(entry, 3723004) == expected, "a later line of a message is under the first");
 }

@@ -72,7 +72,7 @@ fn signature(of: Reference): Signature with build.signature, throw {
 
 /// The files of the host that loads a module, which are this
 /// package's: see `host/host.js`.
-fn runtime(): List<string> => ["host.js", "units.js", "values.js"];
+const RUNTIME: List<string> = ["host.js", "units.js", "values.js"];
 
 fn file(path: string, text: string): File => { path: path, bytes: text.to_bytes() };
 
@@ -236,7 +236,7 @@ pub fn bundle(of: Build): Files
             // An extern is reached from the entry, or bound by the target.
             let bindings = bound(of.target).join(bound(of.entry));
             let written = fn(native: Extern): bool => binding_of(bindings, native) == null;
-            let host = runtime().map(fn(name: string): File => file("runtime/" + name, read("host/" + name)));
+            let host = RUNTIME.map(fn(name: string): File => file("runtime/" + name, read("host/" + name)));
             return [{ path: "program.wasm", bytes: compiled.module }]
                 .push(file("program.js", loader(compiled.externs, bindings, { digest: build.digest!(compiled.module) })))
                 .push(file("program.d.ts", declarations(of.entry, compiled.externs)))
