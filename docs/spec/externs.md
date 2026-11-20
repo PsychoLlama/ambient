@@ -54,12 +54,24 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - A program lists the externs its entry reaches; whoever loads it supplies native code for each, found by its identity, before it runs.
 - Compiled code names an extern by its position in that list, never by address, so an [artifact](build.md) is the same whatever native code it is loaded with.
 - A program that reaches an extern nobody supplied is not loaded.
+- A program's native code is fixed when it is built. Nothing native is [loaded](linking.md#loading) into a running program, and none is [sent](exchange.md).
+- A program therefore comes by a new extern only by being built again, while its Ambient code is replaced as it runs.
+
+## Bundles
+
+- A native bundle is machine code for one platform: a function for each extern it implements, found by the extern's identity.
+- A bundle is [linked](linking.md#bundles) against the runtime as the runtime's own parts are, so its functions take what the runtime hands native code and give what it expects back.
+- A bundle makes and reads [values](values.md) where they lie, through what the runtime gives any host. Nothing is copied to cross into native code.
+- What a bundle is written against is therefore C's way of calling and nothing of one language. A library over it in a language is a convenience, and no bundle needs one.
+- WebAssembly is a platform like any other: a bundle for it is [linked into the module](targets.md#webassembly-hosts).
+- Host code is what a bundle is called for a platform whose language is not compiled, as JavaScript: it is carried as source, a function for each extern.
 
 ## Distribution
 
-- A package carries its native bundles precompiled, per platform, beside the extern declarations.
-- Host code is what a bundle is called for a platform whose language is not compiled, as JavaScript: it is carried as source, a function for each extern.
-- A package carries a bundle for each platform it supports, and a [build](tools.md#builds) reads only the one it is for.
+- A bundle is distributed compiled. Building a program links bundles and runs no code of the package they came with, so nothing a package does to make one happens on the machine of whoever depends on it.
+- A package's manifest names the bundle for each platform it supports by the digest of its content, so a [snapshot](packages.md) fixes native code without holding it.
+- A [build](tools.md#builds) reads only the bundle for the platform it is for.
 - Only externs the entry reaches are linked into a program.
 - That a package contains native code needs its workspace's [approval](releases.md#approvals), as its [build grants](comptime.md) do.
-- Definition hashes do not cover native code; a package's [snapshot](packages.md) does.
+- Definition hashes do not cover native code; a package's snapshot does.
+- TODO: no bundle is read; a program reaches only the native code of its [target](targets.md)'s own package.

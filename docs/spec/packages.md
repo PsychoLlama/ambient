@@ -44,7 +44,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 - A package is a directory: a manifest, and its modules as source files under one directory of sources.
 - A source file is the [module](modules.md) its path under the sources names, and the file named `lib` at their top is the library module.
-- The manifest says the package's name, its ID, and its version, and lists its dependencies, its preludes, its [build grants](comptime.md), each the path of an ability, its [build steps](tools.md#builds), each the paths of a target and of a tool, and its other files.
+- The manifest says the package's name, its ID, and its version, and lists its dependencies, its preludes, its [build grants](comptime.md), each the path of an ability, its [build steps](tools.md#builds), each the paths of a target and of a tool, its [native bundles](externs.md#distribution), each a platform and a digest, and its other files.
 - A dependency is listed by its local name, with the ID of the package and where it is: a directory, or what [selects](releases.md#selection) a release.
 - A dependency at a directory is on the package there, whose ID must be the one declared. It states no version: the package there is a member, as it is.
 - A file of the package is one under its sources or one its manifest lists. Nothing else in its directory is part of it, and no [comptime](comptime.md) call reads anything else.
@@ -69,7 +69,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - What loads the program holds no compiler: an executable carries only what running needs, and can [load](exchange.md) compiled code as a program run from its package can.
 - A program that packs or compiles code needs the compiler as it runs, so what loads that one is the compiler's own executable.
 - An executable whose program [packs](targets.md#code) code carries the trees of what it could pack; one that does not carries none.
-- TODO: every executable holds the native side of every ability of its target, whichever of them its program takes.
+- What loads the program is [linked](linking.md#native-code) with the [native bundles](externs.md#bundles) the program reaches, so an executable is one file whatever native code its packages bring.
 - TODO: an executable is only for the machine and system that built it; building for another needs what loads the program built for that one.
 
 ## Workspaces
