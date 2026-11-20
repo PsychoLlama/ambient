@@ -57,7 +57,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - uses: DeterminateSystems/nix-installer-action@v22
-      - uses: DeterminateSystems/magic-nix-cache-action@v14
+      - uses: DeterminateSystems/magic-nix-cache-action@v15
         with:
           use-flakehub: false
       - uses: actions/cache@v6
