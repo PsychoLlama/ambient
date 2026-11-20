@@ -51,6 +51,7 @@ extern handler clock_elapsed for clock.elapsed;
 extern handler(suspending) clock_sleep for clock.sleep;
 extern handler process_exit for process.exit;
 extern handler(suspending) process_run for process.run;
+extern handler(suspending) process_signal for process.signal;
 extern handler random_bits for random.bits;
 extern handler(suspending) http_send for http.send;
 extern handler http_listen for http.listen;
@@ -104,6 +105,7 @@ pub target cli {
     clock.sleep: clock_sleep,
     process.exit: process_exit,
     process.run: process_run,
+    process.signal: process_signal,
     random.bits: random_bits,
     http.send: http_send,
     http.listen: http_listen,

@@ -15,6 +15,7 @@ mod net;
 mod network;
 mod pending;
 mod reaching;
+mod signals;
 mod sockets;
 mod streams;
 mod system;
@@ -29,6 +30,7 @@ pub use commands::Command;
 pub use files::{Entry, Info};
 pub use http::{Incoming, Listening, Request, Response};
 pub use net::{Address, Datagram, Held, Open, Opened, Reach, Reached};
+pub use signals::Signal;
 pub use system::System;
 pub use waits::{Chunk, Done, Line, Work};
 
@@ -277,7 +279,8 @@ fn strings(items: Vec<String>) -> Value {
 pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
     use http::{Handler, Starter};
     // What takes time is begun, and answered when it is over.
-    let starters: [(&str, Starter); 4] = [
+    let starters: [(&str, Starter); 5] = [
+        ("process_signal", |_| Ok(Work::Signal)),
         ("console_read_line", |_| Ok(Work::ReadLine)),
         ("console_read", |args| Ok(Work::Read(int(args, 0)?))),
         ("clock_sleep", |args| Ok(Work::Sleep(int(args, 0)?))),

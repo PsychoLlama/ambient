@@ -10,7 +10,7 @@ use ambient::cli::{Command, Session};
 use ambient::engine::Engine;
 use ambient::host::{
     Address, Done, Entry, Failure, Held, Incoming, Info, Kind, Listening, Open, Opened, Ran, Reach,
-    Reached, Request, Response, Work, World,
+    Reached, Request, Response, Signal, Work, World,
 };
 use ambient::project::{Files, Nowhere, Snapshots};
 use ambient::store::MemoryStore;
@@ -67,6 +67,9 @@ pub struct Scripted {
     pub streams: Vec<(String, usize)>,
     /// What was written to each address.
     pub wrote: BTreeMap<String, Vec<u8>>,
+    /// What the program is asked from outside, each as soon as a task
+    /// waits for it; with none left, a task that waits is never told.
+    pub signals: VecDeque<Signal>,
     /// What was let go of, in order.
     pub shut: Vec<Held>,
 }
@@ -372,7 +375,11 @@ impl World for Scripted {
     /// Only a sleep takes time here: a command and a line of input
     /// are over as soon as they are begun.
     fn begin(&mut self, ticket: u64, work: Work) {
+        if work == Work::Signal && self.signals.is_empty() {
+            return;
+        }
         let (takes, done) = match work {
+            Work::Signal => (0, Done::Signalled(self.signals.pop_front().unwrap())),
             Work::Sleep(milliseconds) => (milliseconds.max(0), Done::Slept),
             Work::ReadLine => (0, Done::Line(Ok(self.input.pop_front()))),
             Work::Read(most) => (0, Done::Read(Ok(self.input_bytes(most)))),

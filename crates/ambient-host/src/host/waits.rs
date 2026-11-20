@@ -12,6 +12,7 @@ use std::sync::Arc;
 use super::Command;
 use super::http::{self, Incoming, Request, Response};
 use super::net::{self, Reach, Reached};
+use super::signals::Signal;
 use super::{Failure, PACKAGE, Ran, World, error, optional, output};
 use crate::native::{Answer, Posts, Waits};
 use crate::value::Value;
@@ -33,6 +34,8 @@ pub enum Work {
     Accept(i64),
     /// Something of a stream or a socket.
     Reach(Reach),
+    /// Wait until the program is asked something from outside.
+    Signal,
 }
 
 /// A line of input without its ending, or nothing at the end of input.
@@ -58,6 +61,8 @@ pub enum Done {
     Accepted(Option<Incoming>),
     /// What came of something of a stream or a socket.
     Reached(Reached),
+    /// What the program was asked from outside.
+    Signalled(Signal),
 }
 
 impl Done {
@@ -74,6 +79,10 @@ impl Done {
             Self::Sent(sent) => http::sent(sent),
             Self::Accepted(incoming) => incoming.map_or(Value::Null, Incoming::value),
             Self::Reached(reached) => reached.value(),
+            Self::Signalled(signal) => Value::Tag {
+                package: PACKAGE.to_owned(),
+                tag: format!("process.{}", signal.name()),
+            },
         })
     }
 }

@@ -387,3 +387,39 @@ fn a_file_that_is_not_text_is_read_and_written_as_bytes() {
     assert_eq!(outcome, Ok(Value::String(expected.to_owned())));
     assert_eq!(after.files["logo.png"], [137, 80, 78, 71, b'!']);
 }
+
+/// A program that waits to be asked to stop, beside a sleep.
+const DAEMON: &str = r#"
+    use ambient.time;
+    use system.clock;
+    use system.process;
+    use ambient.tasks;
+
+    fn asked(): string with process.signal =>
+        match process.signal!() {
+            process.terminate => "asked to stop",
+            _ => "asked something else",
+        };
+
+    fn slept(): string with clock.sleep {
+        clock.sleep!(time.milliseconds(100));
+        return "nothing asked";
+    }
+
+    fn main(): string with clock.sleep, process.signal =>
+        tasks.first(fn() => asked(), fn() => slept());
+"#;
+
+#[test]
+fn a_task_waits_to_be_told_the_program_was_asked_to_stop() {
+    let world = Scripted {
+        signals: [ambient::host::Signal::Terminate].into(),
+        ..Scripted::default()
+    };
+
+    let (asked, _) = run(DAEMON, &world);
+    let (unasked, _) = run(DAEMON, &Scripted::default());
+
+    assert_eq!(asked, Ok(Value::String("asked to stop".to_owned())));
+    assert_eq!(unasked, Ok(Value::String("nothing asked".to_owned())));
+}

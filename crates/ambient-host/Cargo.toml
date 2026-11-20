@@ -22,5 +22,8 @@ subtle.workspace = true
 tiny_http.workspace = true
 ureq.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+signal-hook.workspace = true
+
 [lints]
 workspace = true

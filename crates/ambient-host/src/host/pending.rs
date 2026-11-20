@@ -15,6 +15,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::network::Network;
+use super::signals::{Signal, Signals};
 use super::sockets::{Came, Reaches};
 use super::system::failure;
 use super::waits::{Chunk, Done, Line, Work};
@@ -37,6 +38,8 @@ pub(super) enum Sent {
     Request(i64, tiny_http::Request),
     /// Something of a stream or a socket.
     Net(Came),
+    /// The process was asked something from outside.
+    Signal(Signal),
 }
 
 pub(super) struct Pending {
@@ -60,6 +63,8 @@ pub(super) struct Pending {
     pub(super) network: Network,
     /// Its streams and sockets.
     pub(super) reaches: Reaches,
+    /// What waits to be told what the process is asked.
+    signals: Signals,
     /// What threads of native bundles post, which wake this.
     posts: Option<Arc<Posts>>,
 }
@@ -70,6 +75,7 @@ impl Default for Pending {
         Self {
             network: Network::new(sender.clone()),
             reaches: Reaches::new(sender.clone()),
+            signals: Signals::default(),
             sender,
             sent,
             ready: VecDeque::new(),
@@ -105,6 +111,11 @@ impl Pending {
             Work::Accept(server) => {
                 let done = self.network.accept(ticket, server);
                 self.ready.extend(done.map(|done| (ticket, done)));
+            }
+            Work::Signal => {
+                let asked = self.signals.wait(ticket, &self.sender);
+                self.ready
+                    .extend(asked.map(|signal| (ticket, Done::Signalled(signal))));
             }
             Work::Reach(reach) => {
                 let reached = self.reaches.begin(ticket, reach);
@@ -221,6 +232,7 @@ impl Pending {
                 || !self.readers.is_empty()
                 || self.network.waits()
                 || self.reaches.waits()
+                || self.signals.waits()
                 || posts.is_some_and(|posts| posts.coming());
             let sent = match due {
                 Some((when, _)) if threads => match self.sent.recv_timeout(when - Instant::now()) {
@@ -276,6 +288,11 @@ impl Pending {
             Sent::Request(server, request) => {
                 self.ready.extend(self.network.arrived(server, request));
             }
+            Sent::Signal(signal) => {
+                let told = self.signals.came(signal);
+                self.ready
+                    .extend(told.map(|(ticket, signal)| (ticket, Done::Signalled(signal))));
+            }
             Sent::Net(came) => {
                 let reached = self.reaches.took(came);
                 self.ready
@@ -308,6 +325,7 @@ impl Pending {
         self.readers.retain(|reader| *reader != ticket);
         self.network.forsake(ticket);
         self.reaches.forsake(ticket);
+        self.signals.forsake(ticket);
         if let Some(mut child) = self.children.remove(&ticket) {
             let _ = child.kill();
             let _ = child.wait();

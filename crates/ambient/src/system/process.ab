@@ -15,6 +15,25 @@ pub tag failed;
 /// wrote as text, or null if that is not text.
 pub type Output = { code: int, out: bytes, err: bytes };
 
+/// The program was asked to stop from its terminal.
+pub tag interrupt;
+
+/// The program was asked to stop.
+pub tag terminate;
+
+/// The program's terminal is gone. By custom, a program that has none
+/// is asked so to read its settings again.
+pub tag hangup;
+
+/// What a program is asked from outside.
+pub type Signal = interrupt | terminate | hangup;
+
+/// Waits until the program is asked something from outside, and says
+/// what. Until a task has waited, being asked ends the program; from
+/// then on it only tells a task that waits, and stopping is the
+/// program's to do.
+pub ability signal(): Signal;
+
 /// Ends the program with an exit code.
 pub ability exit(code: int): never;
 

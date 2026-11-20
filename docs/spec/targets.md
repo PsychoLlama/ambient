@@ -60,6 +60,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - A file is read, written, and added to as text or as [bytes](operations.md#bytes), each by an ability of its own. Reading as text a file that is not UTF-8 is an error of a kind of its own.
 - Randomness is one ability, bits nothing could have guessed; every other draw is a function over it, so a provide of that one ability decides them all, and the package has one that follows from a seed.
 - Exiting is an ability that does not return, so the program's result is the code it exits with.
+- Being asked to stop from outside is a [call from the world](#calls-from-the-world): a task waits for it, and is told what was asked. A program no task of which has waited is ended by being asked, as any process is; once one has, stopping is the program's to do, so a daemon leaves cleanly.
 - Running a command gives what it exited with and what it wrote; no shell reads the command, and one that exits with a code that is not zero has still run.
 - A command is a record: the program, its arguments, the directory it runs in, variables added to its environment, and what it reads from its input. A function makes one from the first two, to be copied with whatever else is wanted.
 - What a command reads and what it writes are bytes, as a file's are: the command decides what its streams hold.
