@@ -60,6 +60,7 @@ A program carries the code it reaches and nothing else, the [runtime](backends.m
 
 - A native executable is linked from what its program reaches of its host: the pieces of the runtime, the native side of each ability its [target](targets.md) binds, and the functions of native bundles.
 - The linker is told what the program reaches and never sees its code. The program is carried as it was compiled, so linking changes no [artifact](build.md).
-- Machine code is linked by the linker of the machine that builds. A program that reaches no native bundle needs none.
+- Machine code is linked by the linker of the machine that builds, whether or not the program reaches a native bundle. A machine with none builds no native executable, and says so.
+- One way makes every native executable, so what a program is given never depends on what the machine that built it had.
 - Loaded code brings no machine code of the runtime, so a native program code can be loaded into holds every piece.
-- TODO: a program that reaches no native bundle is put after a host linked ahead of time, which holds every piece and the native side of every ability of the standard target.
+- TODO: a native executable holds every piece of the runtime, since its program is carried as data the linker never sees.
