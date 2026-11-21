@@ -34,6 +34,9 @@ fn test_a_greeting_names_who_it_greets(): null with unmet {
 }
 "#;
 
+/// The file that says what a repository does not keep.
+const IGNORE: &str = ".gitignore";
+
 /// What a new package begins as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Begun {
@@ -50,6 +53,15 @@ impl Begun {
         match self {
             Self::Program => ("main.ab", MAIN, "run"),
             Self::Library => ("lib.ab", LIBRARY, "test"),
+        }
+    }
+
+    /// What keeps what the package builds out of its repository, for
+    /// a package that builds anything: the text of a `.gitignore`.
+    fn ignored(self) -> Option<&'static str> {
+        match self {
+            Self::Program => Some("/build\n"),
+            Self::Library => None,
         }
     }
 
@@ -110,6 +122,8 @@ impl Session<'_> {
         }
         // What is here already is someone's: only what is missing is made.
         let begun = world.exists(&main.to_string_lossy());
+        let ignore = path.join(IGNORE).to_string_lossy().into_owned();
+        let ignored = begun_as.ignored().filter(|_| !world.exists(&ignore));
         // The directories first: the package's own may not be there yet.
         let made = world
             .make_directory(&path.join("src").to_string_lossy())
@@ -123,13 +137,17 @@ impl Session<'_> {
                     return Ok(());
                 }
                 world.store(&main.to_string_lossy(), text.as_bytes())
+            })
+            .and_then(|()| match ignored {
+                Some(text) => world.store(&ignore, text.as_bytes()),
+                None => Ok(()),
             });
         if let Err(failure) = made {
             return refuse(&failure.message);
         }
         let shown = path.display();
         world.write(&format!(
-            "made {shown}: `ambient {tries} {shown}` {tries}s it\n"
+            "made {shown}: `ambient {tries}` there {tries}s it\n"
         ));
         Ok(0)
     }

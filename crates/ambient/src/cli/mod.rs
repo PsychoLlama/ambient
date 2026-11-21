@@ -127,10 +127,14 @@ pub enum Command {
         /// The directory to make it in, whose name the package takes.
         #[arg(default_value = ".")]
         path: PathBuf,
+        /// Makes a program, with a binary to run: what is made when
+        /// neither is said.
+        #[arg(long, conflicts_with = "lib")]
+        bin: bool,
         /// Makes a library, for other packages to depend on, with a
         /// test and nothing to run.
         #[arg(long)]
-        library: bool,
+        lib: bool,
     },
     /// Reads again the branch or tag a dependency is on, and locks the
     /// commit it is at now; with none named, each one in the workspace.
@@ -199,12 +203,8 @@ impl Session<'_> {
             Command::Run { at, bin, .. } => self.run(at, bin.as_deref()),
             Command::Build { at, bin, output } => self.build(at, bin.as_deref(), output.as_deref()),
             Command::Check { at } => self.check(at).map(|()| 0),
-            Command::Init { path, library } => {
-                let begun = if *library {
-                    Begun::Library
-                } else {
-                    Begun::Program
-                };
+            Command::Init { path, lib, .. } => {
+                let begun = if *lib { Begun::Library } else { Begun::Program };
                 self.init(path, begun)
             }
             Command::Update { name, at } => self

@@ -527,7 +527,11 @@ fn made(path: &str, world: Scripted) -> (i32, Scripted) {
 /// Makes a package at `path` in `world`: a library, or a program.
 fn made_as(path: &str, world: Scripted, library: bool) -> (i32, Scripted) {
     let path = PathBuf::from(path);
-    let init = ambient::cli::Command::Init { path, library };
+    let init = ambient::cli::Command::Init {
+        path,
+        bin: false,
+        lib: library,
+    };
     world.execute(&Files::new(), &init)
 }
 
@@ -548,7 +552,7 @@ fn a_new_package_runs_and_its_test_passes() {
     let (code, world) = made("work/app", Scripted::default());
     assert_eq!(
         (code, world.out.as_str()),
-        (0, "made work/app: `ambient run work/app` runs it\n")
+        (0, "made work/app: `ambient run` there runs it\n")
     );
 
     let (code, world) = tested(&world, "work/app");
@@ -560,9 +564,11 @@ fn a_new_library_has_a_library_module_and_its_test_passes() {
     let (code, world) = made_as("work/lib", Scripted::default(), true);
     assert_eq!(
         (code, world.out.as_str()),
-        (0, "made work/lib: `ambient test work/lib` tests it\n")
+        (0, "made work/lib: `ambient test` there tests it\n")
     );
     assert!(world.files.contains_key("work/lib/src/lib.ab"));
+    // A library builds nothing to keep out of a repository.
+    assert!(!world.files.contains_key("work/lib/.gitignore"));
 
     let (code, world) = tested(&world, "work/lib");
     assert_eq!((code, world.err.as_str()), (0, ""), "{}", world.out);
@@ -586,6 +592,7 @@ fn a_new_package_is_named_for_its_directory_and_given_an_id() {
              [bin.main]\nname = \"tea\"\n"
         )
     );
+    assert_eq!(world.file("./.gitignore"), "/build\n");
     // What was there already is left as it was.
     assert_eq!(world.file("./src/main.ab"), "kept");
 }

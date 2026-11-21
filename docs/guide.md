@@ -26,7 +26,7 @@ pub fn main(): null with console.print {
 ```
 
 ```
-ambient init hello           # makes a package that runs and has a test
+ambient init hello           # makes a package that runs and has a test; `--lib` makes a library
 cd hello                     # a command is for the package it is run in
 ambient run                  # runs the binary `main`: `main` of the module `main`
 ambient run -- one two       # what follows `--` is what env.args gives
