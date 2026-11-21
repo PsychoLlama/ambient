@@ -80,6 +80,10 @@ impl Files for Disk {
     }
 
     fn names(&self, directory: &Path) -> io::Result<Vec<String>> {
+        // A path worked out to nothing is where the command is run,
+        // which the system wants said.
+        let here = directory.as_os_str().is_empty();
+        let directory = if here { Path::new(".") } else { directory };
         let mut names = Vec::new();
         for entry in std::fs::read_dir(directory)? {
             names.push(entry?.file_name().to_string_lossy().into_owned());
@@ -133,5 +137,19 @@ impl Files for BTreeMap<PathBuf, String> {
 
     fn shared(&self) -> Rc<dyn Files> {
         Rc::new(self.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{Disk, Files};
+
+    #[test]
+    fn a_path_worked_out_to_nothing_is_where_the_command_is_run() {
+        let names = |directory: &str| Disk.names(Path::new(directory)).ok();
+        assert!(names("").is_some());
+        assert_eq!(names(""), names("."));
     }
 }
