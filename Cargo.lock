@@ -64,6 +64,7 @@ dependencies = [
  "memmap2",
  "notify",
  "postcard",
+ "rustls",
  "serde",
  "sha1",
  "sha2",

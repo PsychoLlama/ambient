@@ -38,10 +38,16 @@ pub type Streamed = { status: int, headers: List<Header>, body: Stream };
 ///
 /// - `roots` are certificates, as PEM, of the only authorities trusted
 ///   to say who a server is, or null for those the world trusts.
+/// - `pin` is the SHA-256 of the one certificate the server must show,
+///   or null. The server is then whoever holds that certificate's key:
+///   no authority is asked, whatever name and dates the certificate
+///   holds, so `roots` beside it is `invalid`. It is how a device is
+///   reached whose certificate no authority can vouch for by a name.
 /// - `address` is where the server is, such as `192.168.1.20`, whatever
 ///   the URL's host leads to, or null to look the host up. Who the
-///   server must show it is stays the host in the URL.
-pub type Trust = { roots: string | null, address: string | null };
+///   server must show it is stays the host in the URL, unless a pin
+///   says.
+pub type Trust = { roots: string | null, pin: bytes | null, address: string | null };
 
 /// A listener the world holds. It stops listening when it is closed,
 /// or when nothing holds it any more.

@@ -126,10 +126,12 @@ fn a_body_is_read_while_the_server_is_still_sending_it() {
 
 /// A server that shows it is `bridge.test`, by a certificate from an
 /// authority of its own, and says `secret` to whoever it is secured
-/// with. Gives its port and the authority's certificate.
-fn bridge() -> (u16, String) {
+/// with. Gives its port, the authority's certificate, and the SHA-256
+/// of its own.
+fn bridge() -> (u16, String, Vec<u8>) {
     use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
     use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
+    use sha2::Digest;
 
     let mut authority = CertificateParams::new(Vec::new()).unwrap();
     authority.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
@@ -137,6 +139,7 @@ fn bridge() -> (u16, String) {
     let key = KeyPair::generate().unwrap();
     let shown = CertificateParams::new(vec!["bridge.test".to_owned()]).unwrap();
     let shown = shown.signed_by(&key, &authority).unwrap();
+    let digest = sha2::Sha256::digest(shown.der()).to_vec();
     let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key.serialize_der()));
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let config = rustls::ServerConfig::builder_with_provider(provider)
@@ -162,18 +165,29 @@ fn bridge() -> (u16, String) {
             let _ = secured.flush();
         }
     });
-    (port, authority.pem())
+    (port, authority.pem(), digest)
 }
 
-/// What asking `url` gives a program that trusts `roots`, or whom the
-/// world does, and finds every server at this machine.
-fn asked(url: &str, roots: Option<&str>) -> Outcome {
-    let roots = roots.map_or("null".to_owned(), |roots| format!("{roots:?}"));
+/// `roots` as a program writes them, for [`asked`].
+fn by(roots: &str) -> String {
+    format!("{roots:?}")
+}
+
+/// A certificate's digest as a program writes it, for [`asked`].
+fn pinned(digest: &[u8]) -> String {
+    let pairs: Vec<String> = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("0x[{}]", pairs.join(" "))
+}
+
+/// What asking `url` gives a program that trusts `roots` and `pin`,
+/// each as it is written or `null`, and finds every server at this
+/// machine.
+fn asked(url: &str, roots: &str, pin: &str) -> Outcome {
     real(&format!(
         r#"{SAID}
         fn main(): string with http.open, stream {{
             let request = {{ method: "GET", url: "{url}", headers: [], body: "".to_bytes() }};
-            match http.send_trusting(request, {{ roots: {roots}, address: "127.0.0.1" }}) {{
+            match http.send_trusting(request, {{ roots: {roots}, pin: {pin}, address: "127.0.0.1" }}) {{
                 let response: http.Response => {{ return said(response.body); }}
                 let error: Error => {{
                     return error.kind == http.untrusted ? "untrusted" : error.message;
@@ -186,14 +200,35 @@ fn asked(url: &str, roots: Option<&str>) -> Outcome {
 
 #[test]
 fn a_server_is_trusted_by_the_roots_a_request_names_for_the_name_in_its_url() {
-    let (port, roots) = bridge();
+    let (port, roots, _) = bridge();
     let named = format!("https://bridge.test:{port}/");
     let other = format!("https://other.test:{port}/");
 
-    assert_eq!(asked(&named, Some(&roots)), Ok(text("secret")));
+    assert_eq!(asked(&named, &by(&roots), "null"), Ok(text("secret")));
     // The world's authorities did not sign it, and it is not `other`.
-    assert_eq!(asked(&named, None), Ok(text("untrusted")));
-    assert_eq!(asked(&other, Some(&roots)), Ok(text("untrusted")));
+    assert_eq!(asked(&named, "null", "null"), Ok(text("untrusted")));
+    assert_eq!(asked(&other, &by(&roots), "null"), Ok(text("untrusted")));
+}
+
+#[test]
+fn a_server_is_trusted_by_the_certificate_a_request_pins_whatever_its_name() {
+    let (port, roots, digest) = bridge();
+    let other = format!("https://other.test:{port}/");
+    let at = format!("https://127.0.0.1:{port}/");
+    let another: Vec<u8> = digest.iter().map(|byte| !byte).collect();
+
+    assert_eq!(asked(&other, "null", &pinned(&digest)), Ok(text("secret")));
+    assert_eq!(asked(&at, "null", &pinned(&digest)), Ok(text("secret")));
+    assert_eq!(
+        asked(&other, "null", &pinned(&another)),
+        Ok(text("untrusted"))
+    );
+    // A pin asks no authority, so naming some beside it is a mistake.
+    let both = asked(&other, &by(&roots), &pinned(&digest));
+    assert!(
+        matches!(&both, Ok(Value::String(said)) if said.contains("roots")),
+        "{both:?}"
+    );
 }
 
 #[test]
@@ -202,7 +237,7 @@ fn whom_a_request_trusts_is_what_the_world_is_told() {
         r#"{SAID}
         fn main(): string with http.open, stream {{
             let request = {{ method: "GET", url: "https://bridge.test/", headers: [], body: "".to_bytes() }};
-            match http.send_trusting(request, {{ roots: "a root", address: null }}) {{
+            match http.send_trusting(request, {{ roots: "a root", pin: 0x[01 02], address: null }}) {{
                 let response: http.Response => {{ return said(response.body); }}
                 let error: Error => {{ return error.message; }}
             }}
@@ -223,6 +258,7 @@ fn whom_a_request_trusts_is_what_the_world_is_told() {
 
     let trusted = Trust {
         roots: Some("a root".to_owned()),
+        pin: Some(vec![1, 2]),
         address: None,
     };
     assert_eq!(outcome, Ok(text("secret")));

@@ -8,9 +8,11 @@ use ureq::Agent;
 use ureq::config::Config;
 use ureq::http::Uri;
 use ureq::tls::{PemItem, RootCerts, TlsConfig, parse_pem};
+use ureq::unversioned::resolver::DefaultResolver;
 use ureq::unversioned::resolver::{ResolvedSocketAddrs, Resolver};
-use ureq::unversioned::transport::{DefaultConnector, NextTimeout};
+use ureq::unversioned::transport::{Connector, DefaultConnector, NextTimeout, TcpConnector};
 
+use super::pinned::{Digest256, Pinning};
 use super::{Failure, Kind};
 
 /// Whom a request trusts in place of whom the world does.
@@ -19,6 +21,9 @@ pub struct Trust {
     /// Certificates, as PEM, of the only authorities trusted to say
     /// who a server is.
     pub roots: Option<String>,
+    /// The SHA-256 of the one certificate the server must show, in
+    /// place of any authority and any name.
+    pub pin: Option<Vec<u8>>,
     /// The address the server is at, whatever its name leads to. Who
     /// it must show it is stays the name in the URL.
     pub address: Option<String>,
@@ -56,8 +61,64 @@ pub(super) fn config(tls: TlsConfig) -> Config {
     config.tls_config(tls).build()
 }
 
+/// Where a request's server is looked for.
+enum Found {
+    Looked(DefaultResolver),
+    At(At),
+}
+
+impl std::fmt::Debug for Found {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Found").finish_non_exhaustive()
+    }
+}
+
+impl Resolver for Found {
+    fn resolve(
+        &self,
+        uri: &Uri,
+        config: &Config,
+        timeout: NextTimeout,
+    ) -> Result<ResolvedSocketAddrs, ureq::Error> {
+        match self {
+            Self::Looked(resolver) => resolver.resolve(uri, config, timeout),
+            Self::At(at) => at.resolve(uri, config, timeout),
+        }
+    }
+}
+
 /// What sends the requests that trust so.
 pub(super) fn agent(trust: &Trust) -> Result<Agent, Failure> {
+    let found = match &trust.address {
+        None => Found::Looked(DefaultResolver::default()),
+        Some(address) => {
+            let address = address.parse();
+            Found::At(At(address.map_err(|_| invalid(&"the address is none"))?))
+        }
+    };
+    let Some(pin) = &trust.pin else {
+        let config = config(authorities(trust)?);
+        return Ok(Agent::with_parts(config, DefaultConnector::new(), found));
+    };
+    if trust.roots.is_some() {
+        return Err(invalid(
+            &"a pin asks no authority, so roots beside one mean nothing",
+        ));
+    }
+    let digest = Digest256::try_from(pin.as_slice())
+        .map_err(|_| invalid(&"a pin is the 32 bytes of a certificate's SHA-256"))?;
+    let pinning = Pinning::new(digest).map_err(|error| invalid(&error))?;
+    let connector = TcpConnector::default().chain(pinning);
+    Ok(Agent::with_parts(
+        config(TlsConfig::default()),
+        connector,
+        found,
+    ))
+}
+
+/// The authorities a request that pins nothing asks: its roots, or
+/// those the world trusts.
+fn authorities(trust: &Trust) -> Result<TlsConfig, Failure> {
     let mut tls = TlsConfig::builder();
     if let Some(roots) = &trust.roots {
         let certificate = |item| match item {
@@ -74,18 +135,7 @@ pub(super) fn agent(trust: &Trust) -> Result<Agent, Failure> {
         }
         tls = tls.root_certs(RootCerts::new_with_certs(&found));
     }
-    let config = config(tls.build());
-    let Some(address) = &trust.address else {
-        return Ok(config.into());
-    };
-    let address = address
-        .parse()
-        .map_err(|_| invalid(&format!("`{address}` is no address")))?;
-    Ok(Agent::with_parts(
-        config,
-        DefaultConnector::new(),
-        At(address),
-    ))
+    Ok(tls.build())
 }
 
 #[cfg(test)]
@@ -93,19 +143,29 @@ mod tests {
     use super::{Kind, Trust, agent};
 
     #[test]
-    fn roots_that_hold_no_certificate_and_an_address_that_is_none_are_refused() {
+    fn trust_that_cannot_be_read_is_refused() {
         let roots = Trust {
             roots: Some("not a certificate".to_owned()),
-            address: None,
+            ..Trust::default()
         };
         let address = Trust {
-            roots: None,
             address: Some("bridge.local".to_owned()),
+            ..Trust::default()
+        };
+        let short = Trust {
+            pin: Some(vec![0; 20]),
+            ..Trust::default()
+        };
+        let twice = Trust {
+            pin: Some(vec![0; 32]),
+            ..roots.clone()
         };
 
         let refused = |trust| agent(&trust).map(|_| ()).map_err(|failure| failure.kind);
         assert_eq!(refused(roots), Err(Kind::Invalid));
         assert_eq!(refused(address), Err(Kind::Invalid));
+        assert_eq!(refused(short), Err(Kind::Invalid));
+        assert_eq!(refused(twice), Err(Kind::Invalid));
         assert_eq!(refused(Trust::default()), Ok(()));
     }
 }

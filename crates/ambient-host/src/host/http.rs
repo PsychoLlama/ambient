@@ -57,8 +57,14 @@ impl Trust {
         if *value == Value::Null {
             return Ok(None);
         }
+        let pin = match field(value, "pin")? {
+            Value::Null => None,
+            Value::Bytes(digest) => Some(digest.clone()),
+            _ => return Err("field `pin` is not bytes".to_owned()),
+        };
         Ok(Some(Self {
             roots: optional("roots")?,
+            pin,
             address: optional("address")?,
         }))
     }

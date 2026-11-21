@@ -15,6 +15,7 @@ mod linked;
 mod net;
 mod network;
 mod pending;
+mod pinned;
 mod plain;
 mod queue;
 mod reaching;
