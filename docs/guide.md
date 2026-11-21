@@ -10,9 +10,9 @@ A package is a directory with a manifest and its modules under `src/`:
 
 ```
 hello/
-  ambient.toml      its name, its ID, and its version
+  ambient.toml      its name, its ID, its version, and what it runs
   src/
-    main.ab         the module `main`
+    main.ab         the module `main`: what the package runs
     text/trim.ab    the module `text.trim`
     lib.ab          what other packages see, if any do
 ```
@@ -27,15 +27,30 @@ pub fn main(): null with console.print {
 
 ```
 ambient init hello                 # makes a package that runs and has a test
-ambient run hello                  # runs main.main
+ambient run hello                  # runs the binary `main`: `main` of the module `main`
 ambient run hello -- one two       # what follows `--` is what env.args gives
-ambient run hello --entry tools.fmt
+ambient run hello --bin fmt        # runs another binary of the package
 ambient check hello                # checks every definition, runs nothing
 ambient test hello                 # runs every function named test_*
-ambient build hello -o greet       # one file that runs main.main: no package, no compiler
+ambient build hello                # one file that runs `main`: no package, no compiler
 ```
 
-A `main` that gives an integer exits with it. What is built is kept by its content in one store for every package on the machine, so a second run compiles only what changed.
+What a package runs is a binary: a function of `main.ab`, which the manifest declares under the function's name. `main` needs no declaring; it is declared to say more of it.
+
+```toml
+[package]
+name = "hello"
+id = "f990a7d1ea86238e6f887caf27d32800"
+version = "0.1.0"
+
+[bin.main]
+name = "hello"               # what `ambient build` calls the file; `main`, if not said
+
+[bin.fmt]                    # `fmt` of `main.ab`, which may call into any module
+target = "pkg.tools.world"   # the target it runs under; the command line's, if not said
+```
+
+Nothing else of a package is run from the command line, so its manifest says all it offers. A `main` that gives an integer exits with it. What is built is kept by its content in one store for every package on the machine, so a second run compiles only what changed.
 
 ## Functions and values
 

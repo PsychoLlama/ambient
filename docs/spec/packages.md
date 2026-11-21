@@ -62,7 +62,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 - A binary is a program a package offers: a function of its `main` module, and the [target](targets.md) it is run and built under.
 - A binary is known by the name of its function, and the manifest declares it under that name. Nothing else of a package is run from a command line, so what a package offers to be run is read from its manifest and never guessed from its modules.
-- A package that has a `main` module has the binary `main`, declared or not. Every other binary is declared.
+- A package whose `main` module defines `main` has the binary `main`, declared or not. Every other binary is declared.
 - A binary's function is defined in `main` itself. A program kept in another module is run through a function there that calls it.
 - A binary may name its target: one of its package or of a dependency. With none it is the `system` package's command-line target.
 - A binary may say the name of its executable. With none it is the binary's own name.

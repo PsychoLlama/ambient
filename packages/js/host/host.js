@@ -1,4 +1,4 @@
-// A host for a WebAssembly program built by `ambient build --target`:
+// A host for a WebAssembly program built by `ambient build` under a target of this package:
 // it loads the module, supplies the native code its target binds, and
 // gives its tasks their turns. See "WebAssembly hosts" and "JavaScript
 // hosts" in `docs/spec/targets.md`.

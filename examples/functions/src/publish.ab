@@ -5,9 +5,9 @@ use system.http;
 use pkg.samples;
 
 /// Sends one of `samples` to a server that is running, and prints
-/// where it can be called:
-/// `ambient run . --entry publish.main -- <name> [server]`.
-pub fn main(): int with code.pack, console, env.args, http.send {
+/// where it can be called. It is the package's binary `publish`,
+/// which `main` holds.
+pub fn send(): int with code.pack, console, env.args, http.send {
     let args = env.args!();
     let server = args.get(1) ?? "http://127.0.0.1:8080";
     match packed(args.first() ?? "") {

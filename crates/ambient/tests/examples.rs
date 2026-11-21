@@ -67,7 +67,7 @@ fn the_logging_package_passes_its_tests() {
 
 #[test]
 fn the_logs_are_written_for_a_terminal_but_for_what_is_too_detailed() {
-    let world = entry_saying("logs", "main.main", Scripted::default());
+    let world = binary_saying("logs", "main", Scripted::default());
     let said: Vec<&str> = world.err.lines().collect();
 
     // Dim, the time, and plain again; the level in its color; then
@@ -88,8 +88,7 @@ fn the_tally_counts_the_words_of_a_file() {
     };
     let command = Command::Run {
         path: example("tally"),
-        entry: "main.main".to_owned(),
-        target: None,
+        bin: "main".to_owned(),
         args: Vec::new(),
     };
     let (code, world) = world.execute(&Disk, &command);
@@ -102,8 +101,7 @@ fn the_tally_counts_the_words_of_a_file() {
 fn the_stock_keeps_its_counts_in_a_file_of_json() {
     let command = Command::Run {
         path: example("stock"),
-        entry: "main.main".to_owned(),
-        target: None,
+        bin: "main".to_owned(),
         args: Vec::new(),
     };
     let world = Scripted {
@@ -138,8 +136,7 @@ fn the_notes_are_served_and_kept_in_a_file_of_json() {
     };
     let command = Command::Run {
         path: example("notes"),
-        entry: "main.main".to_owned(),
-        target: None,
+        bin: "main".to_owned(),
         args: Vec::new(),
     };
     let (code, world) = world.execute(&Disk, &command);
@@ -158,13 +155,12 @@ fn the_notes_are_served_and_kept_in_a_file_of_json() {
     assert_eq!(world.file("notes.json"), "[\"eggs\"]");
 }
 
-/// Runs an entry of an example in a world. It must end well, whatever
+/// Runs a binary of an example in a world. It must end well, whatever
 /// it wrote to standard error.
-fn entry_saying(name: &str, entry: &str, world: Scripted) -> Scripted {
+fn binary_saying(name: &str, bin: &str, world: Scripted) -> Scripted {
     let command = Command::Run {
         path: example(name),
-        entry: entry.to_owned(),
-        target: None,
+        bin: bin.to_owned(),
         args: Vec::new(),
     };
     let (code, world) = world.execute(&Disk, &command);
@@ -172,12 +168,11 @@ fn entry_saying(name: &str, entry: &str, world: Scripted) -> Scripted {
     world
 }
 
-/// Runs an entry of an example in a world, which must not fail.
-fn entry(name: &str, entry: &str, world: Scripted) -> Scripted {
+/// Runs a binary of an example in a world, which must not fail.
+fn binary(name: &str, bin: &str, world: Scripted) -> Scripted {
     let command = Command::Run {
         path: example(name),
-        entry: entry.to_owned(),
-        target: None,
+        bin: bin.to_owned(),
         args: Vec::new(),
     };
     let (code, world) = world.execute(&Disk, &command);
@@ -185,7 +180,7 @@ fn entry(name: &str, entry: &str, world: Scripted) -> Scripted {
     world
 }
 
-/// What an entry of an example posts to a server that answers `said`.
+/// What a binary of an example posts to a server that answers `said`.
 fn posted(name: &str, start: &str, args: &[&str], url: &str, said: &str) -> Request {
     let response = Response {
         status: 200,
@@ -197,7 +192,7 @@ fn posted(name: &str, start: &str, args: &[&str], url: &str, said: &str) -> Requ
         responses: [(format!("POST {url}"), response)].into(),
         ..Scripted::default()
     };
-    entry(name, start, sender).sent.remove(0)
+    binary(name, start, sender).sent.remove(0)
 }
 
 fn request(method: &str, url: &str, body: &[u8]) -> Request {
@@ -221,7 +216,7 @@ fn said(world: &Scripted) -> Vec<(i64, String)> {
 #[test]
 fn a_server_takes_a_deploy_and_goes_on_serving() {
     let url = "http://127.0.0.1:8080/deploy";
-    let sent = posted("hot", "deploy.main", &[], url, "deployed\n");
+    let sent = posted("hot", "deploy", &[], url, "deployed\n");
     let requests = [
         request("GET", "/before", b""),
         request("POST", "/deploy", b"not code"),
@@ -239,7 +234,7 @@ fn a_server_takes_a_deploy_and_goes_on_serving() {
         (200, "deployed\n"),
         (200, "hello from /after\n"),
     ];
-    let answers = said(&entry("hot", "main.main", server));
+    let answers = said(&binary("hot", "main", server));
     assert_eq!(
         answers,
         expected.map(|(status, body)| (status, body.to_owned()))
@@ -249,7 +244,7 @@ fn a_server_takes_a_deploy_and_goes_on_serving() {
 #[test]
 fn a_function_that_was_posted_is_called_by_its_hash() {
     let url = "http://127.0.0.1:8080/";
-    let pack = |sample: &str| posted("functions", "publish.main", &[sample], url, "/x").body;
+    let pack = |sample: &str| posted("functions", "publish", &[sample], url, "/x").body;
     let (hello, sum) = (pack("hello"), pack("sum"));
     let name = |pack: &[u8]| {
         let hex = |mut hex: String, byte: &u8| {
@@ -271,7 +266,7 @@ fn a_function_that_was_posted_is_called_by_its_hash() {
         ..Scripted::default()
     };
 
-    let after = entry("functions", "main.main", server);
+    let after = binary("functions", "main", server);
     let expected = [
         (201, format!("/{greets}\n")),
         (201, format!("/{sums}\n")),
@@ -290,8 +285,7 @@ fn the_worlds_play_a_game_back_from_what_was_recorded() {
     let play = |world: Scripted| {
         let command = Command::Run {
             path: example("worlds"),
-            entry: "main.main".to_owned(),
-            target: None,
+            bin: "main".to_owned(),
             args: Vec::new(),
         };
         let world = Scripted {

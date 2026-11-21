@@ -41,8 +41,7 @@ fn remote(files: &Files) -> Remote<'_> {
 fn run() -> Command {
     Command::Run {
         path: PathBuf::from("app"),
-        entry: "main.main".to_owned(),
-        target: None,
+        bin: "main".to_owned(),
         args: Vec::new(),
     }
 }

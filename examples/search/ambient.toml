@@ -2,3 +2,6 @@
 name = "search"
 id = "6fafd142cbe54f19f5b186e0ead74238"
 version = "0.1.0"
+
+[bin.main]
+name = "search"

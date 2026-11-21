@@ -6,6 +6,7 @@
 //! is the library module. Files are reached through [`Files`], so a
 //! project is assembled the same way from a disk and from memory.
 
+mod bins;
 mod contents;
 mod declare;
 mod dependency;
@@ -25,6 +26,7 @@ use std::path::{Component, Path, PathBuf};
 
 use ambient_host::hash::Hash;
 use ambient_runtime::FAULT_PACKAGE;
+pub use bins::{Bin, Binary, MAIN};
 pub use contents::Contents;
 pub use declare::declared;
 pub use dependency::Dependency;
@@ -77,9 +79,9 @@ pub struct Project {
     /// The native bundles of each package that has any, by its name
     /// and then by the platform each is for.
     pub natives: BTreeMap<String, BTreeMap<String, Bundle>>,
-    /// The target the manifest of the package at `root` names, which a
-    /// command there runs and builds under when it is told none.
-    pub target: Option<Symbol>,
+    /// The binaries of the package at `root`, each by its name: what a
+    /// command there runs and builds.
+    pub bins: BTreeMap<String, Binary>,
 }
 
 /// A module read from a file.
@@ -185,15 +187,15 @@ pub fn open_with(
         workspace: Workspace::new(),
         opened: BTreeMap::new(),
         natives: BTreeMap::new(),
-        targets: BTreeMap::new(),
+        bins: BTreeMap::new(),
         modules: Vec::new(),
     };
     crate::library::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
     crate::system::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
     let root = opening.member(&directory)?;
-    let target = opening.targets.remove(&root);
+    let bins = opening.bins.remove(&root).unwrap_or_default();
     Ok(Project {
-        target,
+        bins,
         above: opening.members.root,
         locked: settled.written,
         workspace: opening.workspace,
@@ -216,8 +218,8 @@ struct Opening<'a> {
     opened: BTreeMap<String, Contents>,
     /// The native bundles of each package opened so far that has any.
     natives: BTreeMap<String, BTreeMap<String, Bundle>>,
-    /// The target each package's manifest names, by the package.
-    targets: BTreeMap<String, Symbol>,
+    /// The binaries of each package opened so far, by the package.
+    bins: BTreeMap<String, BTreeMap<String, Binary>>,
     modules: Vec<Read>,
 }
 
@@ -364,10 +366,8 @@ impl Opening<'_> {
             let tool = self.value(&name, lint, "lint", lint)?;
             self.workspace.lint(&name, tool);
         }
-        if let Some(target) = &manifest.target {
-            let named = self.value(&name, target, "target", target)?;
-            self.targets.insert(name.clone(), named);
-        }
+        let bins = self.binaries(&name, &path, manifest)?;
+        self.bins.insert(name.clone(), bins);
         Ok(name)
     }
 

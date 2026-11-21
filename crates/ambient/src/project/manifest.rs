@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
+use super::bins::Bin;
 use super::dependency::{Declared, Dependency, inside};
 use super::version::Version;
 
@@ -76,10 +77,9 @@ pub struct Package {
     /// The lints checking the package runs, each a path as a
     /// prelude's is, to a function. See "Commands" in `docs/spec/tools.md`.
     pub lints: Vec<String>,
-    /// The target a command at the package runs and builds under when
-    /// it is told none: a path as a prelude's is, to a target. See
-    /// "Running" in `docs/spec/packages.md`.
-    pub target: Option<String>,
+    /// The binaries the package declares, each by the name of its
+    /// function. See "Binaries" in `docs/spec/packages.md`.
+    pub bins: BTreeMap<String, Bin>,
     /// Its native bundles, each by the platform it is for: what the
     /// native backend calls the machine.
     pub native: BTreeMap<String, Bundle>,
@@ -100,7 +100,6 @@ struct Said {
     files: Vec<PathBuf>,
     #[serde(default)]
     lints: Vec<String>,
-    target: Option<String>,
 }
 
 /// What a manifest says under `workspace`.
@@ -121,6 +120,8 @@ struct Written {
     package: Option<Said>,
     workspace: Option<Listed>,
     #[serde(default)]
+    bin: BTreeMap<String, Bin>,
+    #[serde(default)]
     dependencies: BTreeMap<String, Declared>,
     #[serde(default)]
     steps: Vec<Step>,
@@ -132,6 +133,7 @@ impl Written {
     /// A table this has that only a package's manifest does, if any.
     fn of_a_package(&self) -> Option<&'static str> {
         let tables = [
+            ("bin", self.bin.is_empty()),
             ("dependencies", self.dependencies.is_empty()),
             ("steps", self.steps.is_empty()),
             ("native", self.native.is_empty()),
@@ -187,6 +189,11 @@ impl Manifest {
             let read = read.map_err(|wrong| format!("the dependency `{name}` {wrong}"))?;
             dependencies.insert(name, read);
         }
+        for (name, bin) in &written.bin {
+            if let Some(wrong) = bin.wrong(name) {
+                return Err(format!("the binary `{name}` {wrong}"));
+            }
+        }
         for (platform, bundle) in &written.native {
             if let Some(wrong) = bundle.wrong() {
                 return Err(format!("the native bundle for `{platform}` {wrong}"));
@@ -220,7 +227,7 @@ impl Manifest {
             files: said.files,
             steps: written.steps,
             lints: said.lints,
-            target: said.target,
+            bins: written.bin,
             native: written.native,
         };
         Ok(Self {
@@ -275,6 +282,24 @@ mod tests {
             lacks("[workspace]\n[dependencies]\nb = { path = \"b\" }"),
             "`dependencies` is said of a package, and there is no `package`"
         );
+    }
+
+    #[test]
+    fn a_binary_is_named_as_a_function_and_its_executable_as_a_file() {
+        let package = "[package]\nname = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n";
+        let read = |bin: &str| Manifest::read(&format!("{package}{bin}")).err();
+        let said = |wrong: &str| Some(format!("the binary `{wrong}"));
+        let whole = "[bin.main]\nname = \"a-tool\"\ntarget = \"pkg.web.page\"";
+        assert_eq!(read(whole), None);
+        assert_eq!(
+            read("[bin.a-tool]"),
+            said("a-tool` is not named as a function is")
+        );
+        assert_eq!(
+            read("[bin.main]\nname = \"bin/a\""),
+            said("main` says a `name` that is not the name of a file")
+        );
+        assert!(read("[bin.main]\nentry = \"a\"").is_some());
     }
 
     #[test]

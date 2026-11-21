@@ -3,5 +3,8 @@ name = "logs"
 id = "9d41c7e2b05f4a3c8e6f1a2b7c3d5e90"
 version = "0.1.0"
 
+[bin.main]
+name = "logs"
+
 [dependencies]
 logging = { path = "../../packages/logging" }

@@ -18,7 +18,7 @@ pub target world extends cli { line: reads }
 ```
 
 - An `extern fn` is called like any function.
-- An `extern handler` answers an ability. Only a target binds one, so a program that performs the ability is run under that target: `ambient run --target main.world`.
+- An `extern handler` answers an ability. Only a target binds one, so a program that performs the ability is run under that target, which its binary names in the manifest: `target = "pkg.main.world"` under `[bin.main]`.
 - `(suspending)` says the handler may answer later, while other tasks run.
 - A `type(nominal)` is a brand: the type of a handle the bundle mints.
 

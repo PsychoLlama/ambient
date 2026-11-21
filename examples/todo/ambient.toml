@@ -2,3 +2,6 @@
 name = "todo"
 id = "aacfb75475c17a2d9f4a91dfd793a9ff"
 version = "0.1.0"
+
+[bin.main]
+name = "todo"

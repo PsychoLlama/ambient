@@ -4,5 +4,9 @@ id = "dc397fcddc58e66b5137bae3178633f0"
 version = "0.1.0"
 files = ["js"]
 
+[bin.main]
+name = "browser"
+target = "pkg.main.page"
+
 [dependencies]
 js = { path = "../../packages/js" }

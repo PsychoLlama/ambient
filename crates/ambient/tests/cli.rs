@@ -193,20 +193,6 @@ fn an_ability_unbound_in_a_function_written_in_place_says_what_to_write() {
 }
 
 #[test]
-fn a_name_with_no_module_is_told_it_is_of_the_library_module() {
-    let command = ambient::cli::Command::Run {
-        path: PathBuf::from("app"),
-        entry: "main".to_owned(),
-        target: None,
-        args: Vec::new(),
-    };
-    let (_, world) = Scripted::default().execute(&app("fn main(): int => 0;"), &command);
-
-    let hint = "what `main` defines is named as `main.name`\n";
-    assert!(world.err.ends_with(hint), "{}", world.err);
-}
-
-#[test]
 fn a_fault_is_reported_with_the_functions_it_left() {
     let source = "
         fn divide(by: int): int => 10 / by;
@@ -595,7 +581,10 @@ fn a_new_package_is_named_for_its_directory_and_given_an_id() {
     let id = format!("{:016x}{:016x}", 1, 2);
     assert_eq!(
         world.file("./ambient.toml"),
-        format!("[package]\nname = \"tea\"\nid = \"{id}\"\nversion = \"0.1.0\"\n")
+        format!(
+            "[package]\nname = \"tea\"\nid = \"{id}\"\nversion = \"0.1.0\"\n\n\
+             [bin.main]\nname = \"tea\"\n"
+        )
     );
     // What was there already is left as it was.
     assert_eq!(world.file("./src/main.ab"), "kept");

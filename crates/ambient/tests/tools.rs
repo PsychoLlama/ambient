@@ -58,7 +58,7 @@ const GRANTED: &str = "grants = [\"ambient.build.compile\", \"ambient.build.host
 /// JavaScript, and whose manifest ends with `grants`.
 fn package(source: &str, grants: &str) -> Files {
     let manifest = format!(
-        "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\nfiles = [\"js\"]\n{grants}"
+        "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\nfiles = [\"js\"]\n{grants}\n[bin.main]\ntarget = \"pkg.main.page\""
     );
     let files = [
         ("app/ambient.toml", manifest),
@@ -74,9 +74,8 @@ fn package(source: &str, grants: &str) -> Files {
 fn build(files: &Files, world: Scripted) -> Scripted {
     let command = Command::Build {
         path: PathBuf::from("app"),
-        entry: "main.main".to_owned(),
+        bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
-        target: Some("main.page".to_owned()),
     };
     world.execute(files, &command).1
 }
@@ -138,9 +137,8 @@ fn a_build_follows_the_host_code_its_tool_read() {
     let store = MemoryStore::new();
     let command = Command::Build {
         path: PathBuf::from("app"),
-        entry: "main.main".to_owned(),
+        bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
-        target: Some("main.page".to_owned()),
     };
     let externs = |code: &str| {
         let mut files = package(PAGE, GRANTED);

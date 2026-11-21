@@ -54,7 +54,7 @@ const TOOL: &str = r#"
 /// `program`, and gives the world it left.
 fn build(program: &str) -> Scripted {
     let manifest = "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n\
-                    grants = [\"ambient.build.annotations\"]";
+                    grants = [\"ambient.build.annotations\"]\n[bin.main]\ntarget = \"pkg.main.page\"";
     let files: BTreeMap<PathBuf, String> = [
         ("app/ambient.toml", manifest.to_owned()),
         ("app/src/main.ab", format!("{TOOL}{program}")),
@@ -64,9 +64,8 @@ fn build(program: &str) -> Scripted {
     .collect();
     let command = Command::Build {
         path: PathBuf::from("app"),
-        entry: "main.main".to_owned(),
+        bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
-        target: Some("main.page".to_owned()),
     };
     Scripted::default().execute(&files, &command).1
 }

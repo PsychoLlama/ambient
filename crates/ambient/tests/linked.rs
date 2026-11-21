@@ -47,7 +47,16 @@ pub target apart { triple: tripled }
 pub fn tripling(): int with triple => triple!(14);
 
 pub fn waiting(): int with later => later!(40) + later!(1) + 1;
+
+pub fn stranded(): int with triple => tripling();
 ";
+
+/// The binaries of the package that are run under a target of its
+/// own: two under one that extends the command line's, and one under
+/// one that does not.
+const BINS: &str = "[bin.tripling]\ntarget = \"pkg.main.world\"\n\
+                    [bin.waiting]\ntarget = \"pkg.main.world\"\n\
+                    [bin.stranded]\ntarget = \"pkg.main.apart\"\n";
 
 /// A directory of this test's own, removed when it is dropped.
 struct Scratch(PathBuf);
@@ -189,7 +198,7 @@ fn executed_told(scratch: &Scratch, command: &Command, told: fn(String) -> Strin
 /// Writes the package, whose bundle is the file at `path` in it.
 fn package(scratch: &Scratch, path: &str) {
     let manifest = format!(
-        "[package]\nname = \"app\"\nid = \"{ID}\"\nversion = \"0.1.0\"\n\n\
+        "[package]\nname = \"app\"\nid = \"{ID}\"\nversion = \"0.1.0\"\n\n{BINS}\n\
          [native.{MACHINE}]\npath = \"{path}\"\n"
     );
     scratch.write("app/ambient.toml", &manifest);
@@ -216,9 +225,8 @@ fn an_executable_runs_the_function_of_a_bundle_its_program_reaches() {
     let output = scratch.0.join("made/here/out");
     let build = Command::Build {
         path: scratch.0.join("app"),
-        entry: "main.main".to_owned(),
+        bin: "main".to_owned(),
         output: Some(output.clone()),
-        target: None,
     };
 
     assert_eq!(executed(&scratch, &build), 0);
@@ -230,8 +238,7 @@ fn a_program_that_reaches_a_bundle_is_run_by_what_was_linked_with_it() {
     let scratch = Scratch::new();
     let run = Command::Run {
         path: scratch.0.join("app"),
-        entry: "main.main".to_owned(),
-        target: None,
+        bin: "main".to_owned(),
         args: Vec::new(),
     };
 
@@ -243,8 +250,7 @@ fn a_target_of_the_package_binds_a_handler_of_its_bundle() {
     let scratch = Scratch::new();
     let run = Command::Run {
         path: scratch.0.join("app"),
-        entry: "main.tripling".to_owned(),
-        target: Some("main.world".to_owned()),
+        bin: "tripling".to_owned(),
         args: Vec::new(),
     };
 
@@ -256,8 +262,7 @@ fn a_thread_of_a_bundle_answers_a_task_that_waits() {
     let scratch = Scratch::new();
     let run = Command::Run {
         path: scratch.0.join("app"),
-        entry: "main.waiting".to_owned(),
-        target: Some("main.world".to_owned()),
+        bin: "waiting".to_owned(),
         args: Vec::new(),
     };
 
@@ -269,8 +274,7 @@ fn a_program_is_not_run_under_a_target_that_is_no_command_lines() {
     let scratch = Scratch::new();
     let run = Command::Run {
         path: scratch.0.join("app"),
-        entry: "main.tripling".to_owned(),
-        target: Some("main.apart".to_owned()),
+        bin: "stranded".to_owned(),
         args: Vec::new(),
     };
 
@@ -283,8 +287,7 @@ fn a_bundle_that_holds_its_languages_library_is_linked() {
     let scratch = Scratch::new();
     let run = Command::Run {
         path: scratch.0.join("app"),
-        entry: "main.main".to_owned(),
-        target: None,
+        bin: "main".to_owned(),
         args: Vec::new(),
     };
 
@@ -299,9 +302,8 @@ fn a_bundle_that_brings_a_runtime_of_its_own_is_not_linked() {
     let scratch = Scratch::new();
     let build = Command::Build {
         path: scratch.0.join("app"),
-        entry: "main.main".to_owned(),
+        bin: "main".to_owned(),
         output: Some(scratch.0.join("out")),
-        target: None,
     };
     let brings = |header: String| header + "int64_t amb_int_value(uint64_t value) { return 0; }\n";
 
@@ -313,9 +315,8 @@ fn a_bundle_built_for_another_layout_is_not_linked() {
     let scratch = Scratch::new();
     let build = Command::Build {
         path: scratch.0.join("app"),
-        entry: "main.main".to_owned(),
+        bin: "main".to_owned(),
         output: Some(scratch.0.join("out")),
-        target: None,
     };
     let other = |header: String| header.replace(&built(ID), "amb_built_for_another");
 

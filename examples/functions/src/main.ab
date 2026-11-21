@@ -4,6 +4,7 @@ use system.console;
 use system.env;
 use system.fs;
 use system.http.{self, Request, Response};
+use pkg.publish.{send};
 use pkg.store;
 
 /// What can be published: a way to answer a request. Its row is all it
@@ -21,7 +22,7 @@ type Function = fn(request: Request): Response with throw;
 /// A function is compiled once, when it is posted, and what it compiled
 /// to is kept in a file beside its pack. Each request loads that file
 /// and lets it go when it is answered, so nothing is held between
-/// requests however many functions there are. See `publish.main` to
+/// requests however many functions there are. See `publish` to
 /// send one.
 pub fn main(): int with console, env, fs, http, code.compile, code.load {
     let port = (env.args!().first() ?? "8080").to_int() ?? 8080;
@@ -128,3 +129,7 @@ fn run(function: Function, request: Request): Response {
         let error: Error => { return http.text(500, "the function failed: ${error.message}\n"); }
     }
 }
+
+/// Sends a sample to a server that is running, and prints where it can
+/// be called: `ambient run . --bin publish -- <name> [server]`.
+pub fn publish(): int with code.pack, console, env.args, http.send => send();

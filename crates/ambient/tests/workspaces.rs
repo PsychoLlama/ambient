@@ -225,8 +225,7 @@ fn testing_a_workspace_tests_every_member() {
 fn a_workspace_that_is_no_package_is_not_run() {
     let run = Command::Run {
         path: ".".into(),
-        entry: "main.main".to_owned(),
-        target: None,
+        bin: "main".to_owned(),
         args: Vec::new(),
     };
     let said = "error: ambient.toml: this is a workspace's manifest, not a package's\n";

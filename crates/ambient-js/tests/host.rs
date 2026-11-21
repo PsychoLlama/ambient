@@ -131,6 +131,7 @@ fn target() -> BTreeMap<PathBuf, String> {
 fn build(output: &Path) {
     let manifest = format!(
         "[package]\nname = \"app\"\nid = \"{PACKAGE}\"\nversion = \"0.1.0\"\nfiles = [\"js\"]\n\
+         [bin.main]\ntarget = \"pkg.main.page\"\n\
          [dependencies]\njs = {{ path = \"../js\" }}"
     );
     let mut files = target();
@@ -156,9 +157,8 @@ fn build(output: &Path) {
     };
     let command = Command::Build {
         path: PathBuf::from("app"),
-        entry: "main.main".to_owned(),
+        bin: "main".to_owned(),
         output: Some(output.to_owned()),
-        target: Some("main.page".to_owned()),
     };
     assert_eq!(session.execute(&command), 0);
 }

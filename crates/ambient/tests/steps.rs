@@ -51,7 +51,8 @@ fn workspace(step: &str, app: &str) -> BTreeMap<PathBuf, String> {
         format!("[package]\nname = \"{name}\"\nid = \"{name}\"\nversion = \"0.1.0\"\n{rest}")
     };
     let web = "[dependencies]\nweb = { path = \"../web\" }";
-    let both = format!("{web}\nstyles = {{ path = \"../styles\" }}");
+    let mine = "[bin.main]\ntarget = \"pkg.main.mine\"";
+    let both = format!("{mine}\n{web}\nstyles = {{ path = \"../styles\" }}");
     let files = [
         ("web/ambient.toml", manifest("web", "")),
         ("web/src/lib.ab", WEB.to_owned()),
@@ -72,9 +73,8 @@ fn workspace(step: &str, app: &str) -> BTreeMap<PathBuf, String> {
 fn build(files: &BTreeMap<PathBuf, String>) -> Scripted {
     let command = Command::Build {
         path: PathBuf::from("app"),
-        entry: "main.main".to_owned(),
+        bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
-        target: Some("main.mine".to_owned()),
     };
     Scripted::default().execute(files, &command).1
 }

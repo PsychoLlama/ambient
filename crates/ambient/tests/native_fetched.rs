@@ -88,7 +88,7 @@ impl Linker for Asked {
 /// manifest says it.
 fn package(bundle: &str) -> Files {
     let manifest = format!(
-        "[package]\nname = \"app\"\nid = \"00000000000000000000000000000001\"\nversion = \"1.0.0\"\n\n\
+        "[package]\nname = \"app\"\nid = \"00000000000000000000000000000001\"\nversion = \"1.0.0\"\n\n[bin.idle]\n\n\
          [native.{MACHINE}]\n{bundle}\n"
     );
     let files = [
@@ -106,14 +106,13 @@ fn listed() -> Files {
     package(&format!("digest = \"{}\"\nurl = \"{URL}\"", digest(BUNDLE)))
 }
 
-/// What building `entry` of `files` on `mirror` exits with, the
+/// What building the binary `bin` of `files` on `mirror` exits with, the
 /// bundles the linker was handed, and what was said went wrong.
-fn built(files: &Files, mirror: &dyn Snapshots, entry: &str) -> (i32, Vec<PathBuf>, String) {
+fn built(files: &Files, mirror: &dyn Snapshots, bin: &str) -> (i32, Vec<PathBuf>, String) {
     let build = Command::Build {
         path: PathBuf::from("app"),
-        entry: entry.to_owned(),
+        bin: bin.to_owned(),
         output: None,
-        target: None,
     };
     let linker = Asked::default();
     let (code, world) =
@@ -140,11 +139,11 @@ fn a_bundle_a_program_reaches_is_fetched_and_kept_by_its_digest() {
     let kept = PathBuf::from("kept").join(digest(BUNDLE));
 
     assert_eq!(
-        built(&listed(), &mirror, "main.main"),
+        built(&listed(), &mirror, "main"),
         (0, vec![kept.clone()], String::new())
     );
     assert_eq!(
-        built(&listed(), &mirror, "main.main"),
+        built(&listed(), &mirror, "main"),
         (0, vec![kept], String::new())
     );
     assert_eq!(*mirror.asked.borrow(), [URL]);
@@ -155,7 +154,7 @@ fn a_bundle_no_program_reaches_is_not_fetched() {
     let mirror = serving(BUNDLE);
 
     assert_eq!(
-        built(&listed(), &mirror, "main.idle"),
+        built(&listed(), &mirror, "idle"),
         (0, vec![], String::new())
     );
     assert!(mirror.asked.borrow().is_empty());
@@ -164,7 +163,7 @@ fn a_bundle_no_program_reaches_is_not_fetched() {
 #[test]
 fn a_file_that_is_not_of_the_digest_is_refused() {
     let mirror = serving(b"some other object");
-    let (code, bundles, said) = built(&listed(), &mirror, "main.main");
+    let (code, bundles, said) = built(&listed(), &mirror, "main");
 
     assert_eq!((code, bundles), (1, vec![]));
     assert!(said.contains(&format!("not {}", digest(BUNDLE))), "{said}");
@@ -185,17 +184,14 @@ fn what_a_member_keeps_in_its_directory_is_used_as_it_is() {
     let mirror = serving(BUNDLE);
 
     let there = vec![PathBuf::from("app/native/app.o")];
-    assert_eq!(
-        built(&files, &mirror, "main.main"),
-        (0, there, String::new())
-    );
+    assert_eq!(built(&files, &mirror, "main"), (0, there, String::new()));
     assert!(mirror.asked.borrow().is_empty());
 }
 
 #[test]
 fn a_bundle_with_nowhere_to_fetch_it_from_is_said_to_have_none() {
     let files = package(&format!("digest = \"{}\"", digest(BUNDLE)));
-    let (code, _, said) = built(&files, &serving(BUNDLE), "main.main");
+    let (code, _, said) = built(&files, &serving(BUNDLE), "main");
 
     assert_eq!(code, 1);
     assert!(said.contains("nothing says where to fetch"), "{said}");
@@ -206,21 +202,20 @@ fn what_was_fetched_beforehand_is_built_with_no_network() {
     let mirror = serving(BUNDLE);
     let fetch = Command::Fetch {
         path: PathBuf::from("app"),
-        entry: Some("main.main".to_owned()),
-        target: None,
+        bin: None,
     };
     let store = MemoryStore::new();
     let fetched = Scripted::default().execute_from(&listed(), &store, &mirror, &fetch);
 
     assert_eq!((fetched.0, fetched.1.err.as_str()), (0, ""));
-    assert_eq!(built(&listed(), &Offline(&mirror), "main.main").0, 0);
+    assert_eq!(built(&listed(), &Offline(&mirror), "main").0, 0);
     assert_eq!(*mirror.asked.borrow(), [URL]);
 }
 
 #[test]
 fn a_build_with_no_network_fails_where_it_would_fetch() {
     let mirror = serving(BUNDLE);
-    let (code, _, said) = built(&listed(), &Offline(&mirror), "main.main");
+    let (code, _, said) = built(&listed(), &Offline(&mirror), "main");
 
     assert_eq!(code, 1);
     assert!(said.contains(OFFLINE), "{said}");

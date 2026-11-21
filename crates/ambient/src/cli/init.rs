@@ -52,6 +52,17 @@ impl Begun {
             Self::Library => ("lib.ab", LIBRARY, "test"),
         }
     }
+
+    /// The manifest of a package called `name` with the ID `id`. A
+    /// program's declares the binary it begins with, so that what is
+    /// built of it is called what the package is and not `main`.
+    fn manifest(self, name: &str, id: &str) -> String {
+        let package = format!("[package]\nname = \"{name}\"\nid = \"{id}\"\nversion = \"0.1.0\"\n");
+        match self {
+            Self::Program => format!("{package}\n[bin.main]\nname = \"{name}\"\n"),
+            Self::Library => package,
+        }
+    }
 }
 
 /// Whether other packages could import a package by this name.
@@ -83,8 +94,8 @@ fn identifier(world: &mut dyn World) -> Result<String, Failure> {
 
 impl Session<'_> {
     /// Makes a package in the directory at `path`, named for it.
-    pub(super) fn init(&self, path: &Path, begun: Begun) -> Result<i32, Vec<String>> {
-        let (file, text, tries) = begun.files();
+    pub(super) fn init(&self, path: &Path, begun_as: Begun) -> Result<i32, Vec<String>> {
+        let (file, text, tries) = begun_as.files();
         let refuse = |why: &str| Err(vec![format!("{}: {why}", path.display())]);
         let mut world = self.world.borrow_mut();
         let placed = placed(world.directory(), path);
@@ -104,8 +115,7 @@ impl Session<'_> {
             .make_directory(&path.join("src").to_string_lossy())
             .and_then(|()| identifier(&mut *world))
             .and_then(|id| {
-                let text =
-                    format!("[package]\nname = \"{name}\"\nid = \"{id}\"\nversion = \"0.1.0\"\n");
+                let text = begun_as.manifest(name, &id);
                 world.store(&manifest.to_string_lossy(), text.as_bytes())
             })
             .and_then(|()| {

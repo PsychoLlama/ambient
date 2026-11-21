@@ -5,8 +5,8 @@ use system.http;
 use pkg.site;
 
 /// Sends `site.answer`, as it is written now, to a server that is
-/// running: `ambient run . --entry deploy.main -- [url]`.
-pub fn main(): int with code.pack, console, env, http.send {
+/// running. It is the package's binary `deploy`, which `main` holds.
+pub fn send(): int with code.pack, console, env, http.send {
     let url = env.args!().first() ?? "http://127.0.0.1:8080/deploy";
     match code.pack!(site.answer) {
         let error: Error => { return failed(error.message); }

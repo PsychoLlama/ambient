@@ -13,13 +13,14 @@ use std::rc::Rc;
 
 use ambient_host::launch::Built;
 
+use super::Session;
 use super::launch::{Launch, Linked};
 use super::linking::Link;
-use super::{Session, entry_of};
 use crate::backend::wasm::{self, Wasm};
 use crate::engine::Backend;
 use crate::host::{self, World};
 use crate::pack::Pack;
+use crate::project::Binary;
 
 /// What building says of a program that both compiles code as it
 /// runs and reaches a native bundle: see the TODO under
@@ -39,34 +40,33 @@ pub fn start(program: &[u8], world: &Rc<RefCell<dyn World>>) -> i32 {
 }
 
 impl Session<'_> {
-    /// Makes an executable of `entry` of the package at `path`: at
-    /// `output`, or else in the directory the command was run in,
-    /// named for the package.
+    /// Makes an executable of the binary `bin` of the package at
+    /// `path`: at `output`, or else in the directory the command was
+    /// run in, named as the binary says.
     ///
-    /// The program is under `target` of the package, if one is named:
-    /// a target that extends the command-line target, and so is built
-    /// as that one is. Any other is built by [`Self::build_under`].
+    /// A binary whose target does not extend the command-line target
+    /// is built by [`Self::build_under`].
     pub(super) fn build(
         &self,
         path: &Path,
-        entry: &str,
-        target: Option<&str>,
+        bin: &str,
         output: Option<&Path>,
     ) -> Result<i32, Vec<String>> {
         let project = self.open(path)?;
+        let binary = Self::binary(&project, bin)?;
         let engine = self.engine(&project);
         let launch = Launch {
             project: &project,
             engine: &engine,
         };
-        let Some(target) = Self::target(&project, &engine, target)? else {
-            return self.build_under(path, entry, target, output);
+        let Some(target) = Self::target(&project, &engine, binary)? else {
+            return self.build_under(&launch, path, binary, output);
         };
-        let linked = launch.link(&entry_of(&project, entry), &target)?;
+        let linked = launch.link(&binary.entry, &target)?;
         let link = self.linking(&project, &linked.parts);
         let link = link.map_err(|problem| vec![problem])?;
 
-        let output = output.map_or_else(|| project.root.clone(), |path| path.display().to_string());
+        let output = output.map_or_else(|| binary.name.clone(), |path| path.display().to_string());
         let program = Self::carried(&launch, &linked);
         self.room(&output)?;
         // A program that packs or compiles code is started by the
@@ -128,37 +128,35 @@ impl Session<'_> {
         Ok([launcher, Self::carried(launch, linked)].concat())
     }
 
-    /// Builds `entry` of the package at `path` under `target` of the
-    /// same package. See "Builds" in `docs/spec/tools.md`.
+    /// Builds `binary` of the package at `path` under the target it
+    /// names. See "Builds" in `docs/spec/tools.md`.
     ///
     /// A target built by a tool gives that tool's files, written into
     /// the directory `output`, or else `build` in the package's own.
     /// One with no tool gives the WebAssembly module alone, at
-    /// `output` or named for the package: whatever loads it supplies
+    /// `output` or named as the binary says: whatever loads it supplies
     /// the native code its target binds, which the module names in
     /// what it exports (`backend::wasm::module`).
-    pub(super) fn build_under(
+    fn build_under(
         &self,
+        launch: &Launch,
         path: &Path,
-        entry: &str,
-        target: Option<&str>,
+        binary: &Binary,
         output: Option<&Path>,
     ) -> Result<i32, Vec<String>> {
-        let project = self.open(path)?;
-        let engine = self.engine(&project);
-        let refused = |error| vec![super::report(&project, &engine, &error)];
-        // Only a target that was said is one the command line's is not.
-        let target = Self::told(&project, target).unwrap_or_else(crate::system::target);
-        let entry = entry_of(&project, entry);
-        if let Some(files) = engine.built(&entry, &target).map_err(refused)? {
+        let Launch { project, engine } = launch;
+        let refused = |error| vec![super::report(project, engine, &error)];
+        // Only a target that was named is one the command line's is not.
+        let target = binary.target.clone().unwrap_or_else(crate::system::target);
+        if let Some(files) = engine.built(&binary.entry, &target).map_err(refused)? {
             let directory = output.map_or_else(|| path.join("build"), Path::to_owned);
             return self.written(&directory, &files);
         }
-        let root = engine.program(&entry, &target).map_err(refused)?;
+        let root = engine.program(&binary.entry, &target).map_err(refused)?;
         let parts = engine.link(&root, &Wasm).map_err(refused)?;
         let module = wasm::module(&parts).map_err(|message| vec![message])?;
 
-        let named = || format!("{}.wasm", project.root);
+        let named = || format!("{}.wasm", binary.name);
         let output = output.map_or_else(named, |path| path.display().to_string());
         self.room(&output)?;
         let stored = self.world.borrow_mut().store(&output, &module);

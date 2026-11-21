@@ -36,10 +36,10 @@ pub use machine::Machine;
 use crate::engine::Engine;
 use crate::error::Error;
 use crate::host::{self, World};
-use crate::project::{self, Files, Project, Snapshots, Update};
+use crate::project::{self, Binary, Files, MAIN, Project, Snapshots, Update};
 use crate::store::Store;
 use crate::surface::DefinitionKind;
-use crate::symbol::{ModuleId, PackageId, Symbol};
+use crate::symbol::{PackageId, Symbol};
 use crate::workspace::Sources;
 
 /// The Ambient programming language.
@@ -55,19 +55,15 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Runs a function of a package as a program.
+    /// Runs a binary of a package as a program.
     Run {
         /// The package's directory.
         #[arg(default_value = ".")]
         path: PathBuf,
-        /// The function to run: a module path and a name.
-        #[arg(long, default_value = "main.main")]
-        entry: String,
-        /// Runs the program under this target of the package, a
-        /// module path and a name, which extends the command-line
-        /// target: what binds a native handler of a package.
-        #[arg(long)]
-        target: Option<String>,
+        /// The binary to run, by the name its manifest declares it
+        /// under.
+        #[arg(long, default_value = MAIN)]
+        bin: String,
         /// What the program is started with.
         #[arg(last = true)]
         args: Vec<String>,
@@ -84,24 +80,21 @@ pub enum Command {
         #[arg(long = "in", default_value = ".")]
         path: PathBuf,
     },
-    /// Makes an executable of a function of a package: one file that
-    /// runs it without the package or the compiler.
+    /// Makes an executable of a binary of a package: one file that
+    /// runs it without the package or the compiler. A binary whose
+    /// target is built by a tool gives that tool's files instead.
     Build {
         /// The package's directory.
         #[arg(default_value = ".")]
         path: PathBuf,
-        /// The function to run: a module path and a name.
-        #[arg(long, default_value = "main.main")]
-        entry: String,
-        /// The file to make; one named for the package, if not said.
+        /// The binary to build, by the name its manifest declares it
+        /// under.
+        #[arg(long, default_value = MAIN)]
+        bin: String,
+        /// The file to make, or the directory for a tool's files; one
+        /// named as the binary says, if not said.
         #[arg(long, short)]
         output: Option<PathBuf>,
-        /// Builds the program under this target of the package, a
-        /// module path and a name: the files the tool the target is
-        /// built by gives, or with no tool the WebAssembly module
-        /// alone. The output is then a directory.
-        #[arg(long)]
-        target: Option<String>,
     },
     /// Checks every definition of a package and of those it depends on.
     Check {
@@ -111,18 +104,15 @@ pub enum Command {
     },
     /// Fetches what a build of a package reads, for building later
     /// with no network: every package the workspace's lock holds, and
-    /// the native bundles for this machine that the entry reaches.
+    /// the native bundles for this machine that its binaries reach.
     Fetch {
         /// The package's directory.
         #[arg(default_value = ".")]
         path: PathBuf,
-        /// The function a build will run: a module path and a name.
-        /// With none, only packages are fetched.
+        /// The one binary a build will be of; every one of the
+        /// package, if not said.
         #[arg(long)]
-        entry: Option<String>,
-        /// The target the build will be under, as `run` takes it.
-        #[arg(long)]
-        target: Option<String>,
+        bin: Option<String>,
     },
     /// Says the C header a native bundle of a package is written
     /// against: what it may call, and a prototype for each extern.
@@ -179,7 +169,8 @@ pub enum Command {
 
 /// What running says of a target the command line cannot be the
 /// world of.
-const UNRUN: &str = "a program is run under the command-line target, or one that extends it";
+const UNRUN: &str = "a program is run under the command-line target, or one that extends it: \
+     this binary's target is built by a tool, so build it";
 
 /// What a command works with.
 pub struct Session<'a> {
@@ -203,24 +194,8 @@ impl Session<'_> {
     pub fn execute(&self, command: &Command) -> i32 {
         let done = match command {
             Command::Add { on, name, path } => self.add(path, on, name.as_deref()),
-            Command::Run {
-                path,
-                entry,
-                target,
-                ..
-            } => self.run(path, entry, target.as_deref()),
-            Command::Build {
-                path,
-                entry,
-                output,
-                target: None,
-            } => self.build(path, entry, None, output.as_deref()),
-            Command::Build {
-                path,
-                entry,
-                output,
-                target: Some(target),
-            } => self.build(path, entry, Some(target), output.as_deref()),
+            Command::Run { path, bin, .. } => self.run(path, bin),
+            Command::Build { path, bin, output } => self.build(path, bin, output.as_deref()),
             Command::Check { path } => self.check(path).map(|()| 0),
             Command::Init { path, library } => {
                 let begun = if *library {
@@ -232,11 +207,7 @@ impl Session<'_> {
             }
             Command::Update { name, path } => self.update(path, name.as_deref()),
             Command::Vendor { name, path } => self.vendor(path, name.as_deref()),
-            Command::Fetch {
-                path,
-                entry,
-                target,
-            } => self.fetch(path, entry.as_deref(), target.as_deref()),
+            Command::Fetch { path, bin } => self.fetch(path, bin.as_deref()),
             Command::Header { path } => self.header(path),
             Command::Snapshot { path } => self.snapshot(path),
             Command::Test { paths, only } => self.test(paths, only.as_deref()),
@@ -268,25 +239,33 @@ impl Session<'_> {
         Ok(project)
     }
 
-    /// The target a command is told to use, or else the one the
-    /// package's manifest names, if either says one.
-    fn told(project: &Project, named: Option<&str>) -> Option<Symbol> {
-        let named = named.map(|named| entry_of(project, named));
-        named.or_else(|| project.target.clone())
+    /// The binary of `project`'s package that a command names.
+    fn binary<'p>(project: &'p Project, bin: &str) -> Result<&'p Binary, Vec<String>> {
+        let lacks = || {
+            let why = if bin == MAIN {
+                format!("`src/{MAIN}.ab` defines no `{MAIN}`")
+            } else {
+                format!("its manifest declares no `[bin.{bin}]`")
+            };
+            vec![format!(
+                "the package `{}` has no binary `{bin}`: {why}",
+                project.root
+            )]
+        };
+        project.bins.get(bin).ok_or_else(lacks)
     }
 
-    /// The target a program of `project` is run or built under on a
-    /// command line: the one `named` in its package, or the one its
-    /// manifest names, or the command-line target itself. Nothing, if
-    /// the one named does not extend that one: such a target is built
-    /// by a tool of its own.
+    /// The target `binary` is run or built under on a command line:
+    /// the one it names, or the command-line target itself. Nothing,
+    /// if the one it names does not extend that one: such a target is
+    /// built by a tool of its own.
     fn target(
         project: &Project,
         engine: &Engine,
-        named: Option<&str>,
+        binary: &Binary,
     ) -> Result<Option<Symbol>, Vec<String>> {
         let standard = crate::system::target();
-        let Some(target) = Self::told(project, named) else {
+        let Some(target) = binary.target.clone() else {
             return Ok(Some(standard));
         };
         let extends = engine.extends(&target, &standard);
@@ -294,43 +273,44 @@ impl Session<'_> {
         Ok(extends.then_some(target))
     }
 
-    /// Fetches what a build of `entry` of the package at `path` reads:
-    /// opening it fetches the packages, and asking what is to be
-    /// linked fetches the native bundles.
-    fn fetch(
-        &self,
-        path: &Path,
-        entry: Option<&str>,
-        target: Option<&str>,
-    ) -> Result<i32, Vec<String>> {
+    /// Fetches what a build of the package at `path` reads: opening it
+    /// fetches the packages, and asking what is to be linked fetches
+    /// the native bundles, for the binary `bin` or else for each.
+    fn fetch(&self, path: &Path, bin: Option<&str>) -> Result<i32, Vec<String>> {
         let project = self.open(path)?;
-        let Some(entry) = entry else {
-            return Ok(0);
+        let binaries: Vec<&Binary> = match bin {
+            Some(bin) => vec![Self::binary(&project, bin)?],
+            None => project.bins.values().collect(),
         };
         let engine = self.engine(&project);
         let launch = Launch {
             project: &project,
             engine: &engine,
         };
-        let Some(target) = Self::target(&project, &engine, target)? else {
-            return Err(vec![UNRUN.to_owned()]);
-        };
-        let linked = launch.link(&entry_of(&project, entry), &target)?;
-        let reached = self.linking(&project, &linked.parts);
-        reached.map(|_| 0).map_err(|problem| vec![problem])
+        for binary in binaries {
+            // What a tool builds is linked with no native bundle.
+            let Some(target) = Self::target(&project, &engine, binary)? else {
+                continue;
+            };
+            let linked = launch.link(&binary.entry, &target)?;
+            let reached = self.linking(&project, &linked.parts);
+            reached.map_err(|problem| vec![problem])?;
+        }
+        Ok(0)
     }
 
-    fn run(&self, path: &Path, entry: &str, target: Option<&str>) -> Result<i32, Vec<String>> {
+    fn run(&self, path: &Path, bin: &str) -> Result<i32, Vec<String>> {
         let project = self.open(path)?;
+        let binary = Self::binary(&project, bin)?;
         let engine = self.engine(&project);
         let launch = Launch {
             project: &project,
             engine: &engine,
         };
-        let Some(target) = Self::target(&project, &engine, target)? else {
+        let Some(target) = Self::target(&project, &engine, binary)? else {
             return Err(vec![UNRUN.to_owned()]);
         };
-        let linked = launch.link(&entry_of(&project, entry), &target)?;
+        let linked = launch.link(&binary.entry, &target)?;
         let said = |problem: String| vec![problem];
         // A program that reaches a native bundle is run by what was
         // linked with it, which this process was not.
@@ -412,25 +392,10 @@ impl Session<'_> {
     }
 }
 
-/// The function of a project's package that `entry` names: a module
-/// path and a name.
-fn entry_of(project: &Project, entry: &str) -> Symbol {
-    let (module, name) = entry.rsplit_once('.').unwrap_or(("", entry));
-    ModuleId::new(&project.root, module).value(name)
-}
-
 /// What is wrong, where it is in the text, and the code it is in if
 /// that is code a comptime call gave, which the text does not have.
 fn report(project: &Project, engine: &Engine, error: &Error) -> String {
     let mut report = project.report(error, engine.blame(error));
-    // Only a name given on the command line leads to a library module
-    // that is not there: an import of one is refused as an import.
-    if matches!(error, Error::UnknownModule(module) if module.path.0.is_empty()) {
-        report.push_str(
-            ": a name with no module before it is of the package's library module; \
-             what `main` defines is named as `main.name`",
-        );
-    }
     if let Some(given) = engine.shown(error) {
         report.push_str("\nin the code the call gave:\n");
         report.push_str(given.trim_end());

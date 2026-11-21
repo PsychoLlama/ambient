@@ -2,3 +2,8 @@
 name = "functions"
 id = "3b0ce1fd9cfab9d2ca4b8a173d0fa045"
 version = "0.1.0"
+
+[bin.main]
+name = "functions"
+
+[bin.publish]

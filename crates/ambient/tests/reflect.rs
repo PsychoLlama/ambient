@@ -69,7 +69,7 @@ fn told_from(report: &str, grants: &str, store: &MemoryStore, remote: &Remote) -
         .map(|grant| format!("\"ambient.build.{grant}\""))
         .collect();
     let manifest = format!(
-        "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\ngrants = [{}]",
+        "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\ngrants = [{}]\n[bin.main]\ntarget = \"pkg.main.page\"",
         grants.join(", ")
     );
     let files: BTreeMap<PathBuf, String> = [
@@ -81,9 +81,8 @@ fn told_from(report: &str, grants: &str, store: &MemoryStore, remote: &Remote) -
     .collect();
     let command = Command::Build {
         path: PathBuf::from("app"),
-        entry: "main.main".to_owned(),
+        bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
-        target: Some("main.page".to_owned()),
     };
     let world = Scripted::default()
         .execute_from(&files, store, remote, &command)

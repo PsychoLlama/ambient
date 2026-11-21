@@ -158,14 +158,19 @@ impl Scripted {
 
 /// The files of a package `app` whose `main` module is `source`.
 pub fn app(source: &str) -> BTreeMap<PathBuf, String> {
-    let file = |(path, text): (&str, &str)| (PathBuf::from(path), text.to_owned());
+    declaring(source, "")
+}
+
+/// The files of a package `app` whose `main` module is `source`, and
+/// whose manifest goes on to say `declared`: its binaries, as a rule.
+pub fn declaring(source: &str, declared: &str) -> BTreeMap<PathBuf, String> {
+    let manifest =
+        format!("[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n{declared}");
     let files = [
-        (
-            "app/ambient.toml",
-            "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"",
-        ),
+        ("app/ambient.toml", manifest.as_str()),
         ("app/src/main.ab", source),
     ];
+    let file = |(path, text): (&str, &str)| (PathBuf::from(path), text.to_owned());
     files.into_iter().map(file).collect()
 }
 
@@ -201,8 +206,7 @@ pub fn check(files: &dyn Files) -> (i32, Scripted) {
 pub fn run(files: &dyn Files) -> (i32, Scripted) {
     let command = Command::Run {
         path: PathBuf::from("app"),
-        entry: "main.main".to_owned(),
-        target: None,
+        bin: "main".to_owned(),
         args: Vec::new(),
     };
     Scripted::default().execute(files, &command)

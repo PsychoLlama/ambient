@@ -2,6 +2,7 @@ use system.code;
 use system.console;
 use system.env;
 use system.http;
+use pkg.deploy.{send};
 use pkg.site;
 
 /// What answers a request.
@@ -9,7 +10,7 @@ type Answer = fn(request: http.Request): http.Response with throw;
 
 /// Serves `site.answer`, and then whatever is deployed in its place:
 /// `hot [port]`. A deploy is packed code posted to `/deploy`; see
-/// `deploy.main`. Whoever can post there decides what the server runs,
+/// `deploy`. Whoever can post there decides what the server runs,
 /// so a real one would ask who is posting.
 pub fn main(): int with console, env, http, code.compile, code.load {
     let port = (env.args!().first() ?? "8080").to_int() ?? 8080;
@@ -29,6 +30,10 @@ pub fn main(): int with console, env, http, code.compile, code.load {
         }
     }
 }
+
+/// Sends `site.answer`, as it is written now, to a server that is
+/// running: `ambient run . --bin deploy -- [url]`.
+pub fn deploy(): int with code.pack, console, env, http.send => send();
 
 /// What answers when what was sent is not a way to answer.
 fn unfit(request: http.Request): http.Response with throw =>

@@ -2,3 +2,6 @@
 name = "notes"
 id = "79a08970b328c3c3c7fb5338c1c745e5"
 version = "0.1.0"
+
+[bin.main]
+name = "notes"
