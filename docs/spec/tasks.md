@@ -53,6 +53,7 @@ A task is an independent execution of an expression. Tasks exist only inside the
 - An [abort](handlers.md) raised in a task leaves that task, cancels the others started by the same construct, and continues unwinding from that construct.
 - A [fault](values.md) in a task does the same, and continues as a fault in the task that started it.
 - An abort or fault that leaves a group's body cancels the group's tasks.
+- So a handler bound around the construct that aborts to its provide ends every task under it: the abort passes through the construct on its way there. A task that is to fail alone binds the handler, or catches, inside the task.
 - A construct finishes unwinding only after every one of its tasks has.
 - A failure is therefore never lost and a task is never orphaned.
 
