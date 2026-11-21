@@ -130,6 +130,33 @@ fn a_library_modules_definitions_are_reached_through_the_package() {
 }
 
 #[test]
+fn a_package_alone_names_its_library_module_as_a_qualifier() {
+    let two = |name| {
+        b::function(name)
+            .public()
+            .returns(ty::int())
+            .body(b::int(2))
+    };
+    let library = b::module().define(two("two")).define(two("other"));
+    let main = calling(b::module().import("lib"), "lib.two");
+
+    // What is named through it is reached, and nothing else of it.
+    assert_eq!(references(&depending(library, main)).unwrap(), ["lib:.two"]);
+}
+
+#[test]
+fn a_package_with_no_library_module_is_no_qualifier() {
+    let main = calling(b::module().import("lib"), "lib.one");
+    let mut workspace = workspace([("lib", "math", math()), ("app", "main", main)]);
+    workspace.depend("app", "lib", "lib").unwrap();
+
+    assert!(matches!(
+        references(&workspace),
+        Err(Error::UnknownImport { .. })
+    ));
+}
+
+#[test]
 fn a_package_reaches_its_own_modules_whether_listed_or_not() {
     let main = calling(b::module().import("pkg.math.one"), "one");
     let modules = [

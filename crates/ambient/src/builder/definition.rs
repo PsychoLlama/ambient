@@ -440,9 +440,6 @@ pub enum Part {
 /// Checks an import, beside the names `aliases` holds of those before
 /// it.
 fn imported<'a>(import: &'a Import, aliases: &mut BTreeSet<&'a String>) -> Result<(), BuildError> {
-    if import.path.0.len() < 2 {
-        return Err(BuildError::ImportTooShort(import.path.clone()));
-    }
     check_path(&import.path)?;
     check_name(&import.alias)?;
     if !aliases.insert(&import.alias) {

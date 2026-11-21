@@ -30,8 +30,6 @@ pub enum BuildError {
     DuplicateHandler(Path),
     /// One pattern binds a name twice.
     DuplicateBinder(String),
-    /// An import must name a package and at least one thing inside it.
-    ImportTooShort(Path),
     /// A tag is written by its text. One is declared and then named.
     WrittenTag(String),
     /// A tuple, or an all, of fewer than two members.
@@ -70,10 +68,6 @@ impl fmt::Display for BuildError {
             }
             Self::DuplicateHandler(path) => write!(f, "two handlers for `{path}`"),
             Self::DuplicateBinder(name) => write!(f, "a pattern binds `{name}` twice"),
-            Self::ImportTooShort(path) => write!(
-                f,
-                "import `{path}` names only a package, which is no module: import what it holds"
-            ),
             Self::ShortTuple => write!(f, "a tuple has two or more members"),
             Self::GenericType => write!(
                 f,

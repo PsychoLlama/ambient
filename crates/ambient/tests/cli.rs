@@ -111,7 +111,7 @@ fn wrong_at(source: &str) -> String {
 
 #[test]
 fn what_a_module_cannot_hold_is_reported_where_it_is_written() {
-    let import = "fn one(): int => 1;\nuse system.{self, cli};";
+    let import = "fn one(): int => 1;\nuse system.{cli, cli};";
     let twice = "fn one(): int => 1;\n\nfn one(): int => 2;";
 
     assert_eq!(wrong_at(import), "2:1");

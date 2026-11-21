@@ -58,10 +58,6 @@ fn parameters_and_fields_are_unique() {
 
 #[test]
 fn an_import_names_something_inside_a_package() {
-    assert!(matches!(
-        b::module().import("pkg").build(),
-        Err(BuildError::ImportTooShort(_))
-    ));
     assert_eq!(
         b::module().import("pkg.a.x").import("pkg.b.x").build(),
         Err(BuildError::DuplicateDefinition("x".to_owned())),

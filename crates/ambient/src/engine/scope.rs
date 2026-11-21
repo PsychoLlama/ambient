@@ -52,6 +52,13 @@ pub enum Lazy {
 }
 
 impl Scope {
+    /// Whether an import or a definition already has the name `alias`.
+    fn takes(&self, alias: &str) -> bool {
+        self.modules.contains_key(alias)
+            || self.generated.contains_key(alias)
+            || self.definitions.keys().any(|(_, name)| name == alias)
+    }
+
     /// What `name` means on its own: the module's definitions and imports
     /// first, then its package's preludes.
     #[must_use]
@@ -265,12 +272,7 @@ impl Engine<'_> {
         };
         let library = ModuleId::library(&package);
 
-        let taken = scope.modules.contains_key(&import.alias)
-            || scope.generated.contains_key(&import.alias)
-            || scope
-                .definitions
-                .keys()
-                .any(|(_, name)| *name == import.alias);
+        let taken = scope.takes(&import.alias);
 
         // A segment names a file or a directory, never both, so at most one
         // of these two readings finds anything.
@@ -278,7 +280,13 @@ impl Engine<'_> {
             package: package.clone(),
             path: ModulePath(rest.to_vec()),
         };
-        if self.sources.module(&whole).is_some() && !rest.is_empty() {
+        // A package alone names its library module, which is a
+        // namespace as any module is: what is used of it is named
+        // through it, one definition at a time.
+        if rest.is_empty() && self.sources.module(&whole).is_none() {
+            return Err(unknown());
+        }
+        if self.sources.module(&whole).is_some() {
             reach(&whole)?;
             // The library module shares a scope with the top-level
             // modules, so a name in both would have two sources.
