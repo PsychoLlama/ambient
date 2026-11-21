@@ -89,23 +89,16 @@ fn launching(cargo: &std::ffi::OsStr, verb: &str, target: &Path) -> Command {
 /// stripped and optimized as a whole, since every executable carries
 /// it.
 ///
-/// It is built as the file `ambient build` puts a program after, and
-/// as an archive for the machine's linker to join with the native
-/// bundles a program reaches, beside the libraries of the system such
-/// a link needs: see "Native code" in `docs/spec/linking.md`.
+/// It is built as an archive for the machine's linker to join with
+/// what a program reaches, beside the libraries of the system such a
+/// link needs: see "Native code" in `docs/spec/linking.md`.
 fn launcher(cargo: &std::ffi::OsStr, out: &Path) {
     println!("cargo::rerun-if-changed=../ambient-launcher");
     let target = out.join("launching");
-    run(
-        &mut launching(cargo, "build", &target),
-        "building the launcher",
-    );
     let machine = env::var("TARGET").unwrap_or_default();
     let release = env::var("PROFILE").is_ok_and(|profile| profile == "release");
     let profile = if release { "release" } else { "debug" };
     let made = target.join(machine).join(profile);
-    let copied = fs::copy(made.join("ambient-launcher"), out.join("launcher"));
-    assert!(copied.is_ok(), "the launcher was not where it was built");
     // The archive is the library made as nothing else: a release
     // build is then optimized as a whole, and holds what the entry
     // points reach in place of every crate's code and bitcode. The
@@ -114,8 +107,11 @@ fn launcher(cargo: &std::ffi::OsStr, out: &Path) {
     let mut asking = launching(cargo, "rustc", &target);
     asking.args(["--lib", "--crate-type", "staticlib"]);
     asking.args(["--", "--print", "native-static-libs"]);
-    let said = asking.output().map(|ran| ran.stderr).unwrap_or_default();
+    let asked = asking.output();
+    let built = asked.as_ref().is_ok_and(|ran| ran.status.success());
+    let said = asked.map(|ran| ran.stderr).unwrap_or_default();
     let said = String::from_utf8_lossy(&said);
+    assert!(built, "building the launcher failed:\n{said}");
     packed(
         &made.join("libambient_launcher.a"),
         &out.join("launcher.a.gz"),

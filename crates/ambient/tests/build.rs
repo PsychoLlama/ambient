@@ -59,10 +59,13 @@ const GREETS: &str = r#"
     }
 "#;
 
+/// What begins the `main` a build has linked.
+const LINKED: &[u8] = b"#include <stdint.h>";
+
 #[test]
-fn an_executable_is_a_launcher_and_then_the_program() {
+fn an_executable_is_what_was_linked_and_then_the_program() {
     let executable = build(GREETS, b"the command");
-    assert!(executable.starts_with(ambient::cli::LAUNCHER));
+    assert!(executable.starts_with(LINKED));
 
     let world = Scripted {
         args: vec!["Ada".to_owned(), "--help".to_owned()],
@@ -70,6 +73,34 @@ fn an_executable_is_a_launcher_and_then_the_program() {
     };
     let (code, after) = started(&executable, world);
     assert_eq!((code, after.out.as_str()), (3, "hello, Ada and --help\n"));
+}
+
+#[test]
+fn an_executable_is_linked_with_the_native_side_its_program_reaches() {
+    let fetches = r#"
+        use system.http;
+
+        fn main(): int with http.send {
+            match http.get("http://localhost/") {
+                let _: Error => { return 1; }
+                let _: http.Response => { return 0; }
+            }
+        }
+    "#;
+    let groups = |source| {
+        let executable = build(source, b"");
+        let linked = String::from_utf8_lossy(&executable).into_owned();
+        let named = |group: &&str| linked.contains(&format!("  {group},\n"));
+        let all = [
+            "amb_system_http",
+            "amb_system_watching",
+            "amb_system_crypto",
+        ];
+        all.into_iter().filter(named).collect::<Vec<_>>()
+    };
+
+    assert_eq!(groups(GREETS), Vec::<&str>::new());
+    assert_eq!(groups(fetches), ["amb_system_http"]);
 }
 
 #[test]
@@ -120,7 +151,7 @@ fn a_program_that_packs_code_is_launched_by_the_command() {
     let executable = build(PACKS, b"the command");
 
     assert!(executable.starts_with(b"the command"));
-    assert!(!executable.starts_with(ambient::cli::LAUNCHER));
+    assert!(!executable.starts_with(LINKED));
 }
 
 #[test]

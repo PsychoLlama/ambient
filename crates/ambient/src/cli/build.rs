@@ -3,9 +3,9 @@
 //!
 //! An executable is a launcher with a program after it
 //! (`ambient_host::launch::Built`), which the launcher looks for in its
-//! own file as it starts. The launcher is a host with no compiler
-//! ([`LAUNCHER`]), or for a program that compiles code, the command
-//! itself.
+//! own file as it starts. The launcher is a host with no compiler,
+//! linked for the program (`cli/linking.rs`), or for a program that
+//! compiles code, the command itself.
 
 use std::cell::RefCell;
 use std::path::Path;
@@ -20,10 +20,6 @@ use crate::backend::wasm::{self, Wasm};
 use crate::engine::Backend;
 use crate::host::{self, World};
 use crate::pack::Pack;
-
-/// What a program that needs no compiler is put after: the launcher
-/// (`ambient-launcher`), built beside the command for the same machine.
-pub const LAUNCHER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/launcher"));
 
 /// What building says of a program that both compiles code as it
 /// runs and reaches a native bundle: see the TODO under
@@ -76,7 +72,7 @@ impl Session<'_> {
         // A program that packs or compiles code is started by the
         // command itself, which is the launcher that has the compiler.
         let written = if host::compiles(&linked.parts) {
-            if link.is_some() {
+            if !link.bundles.is_empty() {
                 return Err(vec![COMPILES.to_owned()]);
             }
             let Some(command) = &self.launcher else {
@@ -87,7 +83,7 @@ impl Session<'_> {
                 .copy(&command.to_string_lossy(), &output)
                 .and_then(|()| world.append(&output, &program))
         } else {
-            let executable = self.executable(&launch, &linked, link.as_ref())?;
+            let executable = self.executable(&launch, &linked, &link)?;
             self.world.borrow_mut().install(&output, &executable)
         };
         written.map_err(|failure| vec![format!("{output}: {}", failure.message)])?;
@@ -120,18 +116,16 @@ impl Session<'_> {
     }
 
     /// An executable of the program of `linked` that needs no
-    /// compiler: the program after the launcher, or after what `link`
-    /// says to link of the launcher and native bundles.
+    /// compiler: the program after what `link` says to link of the
+    /// launcher and native bundles.
     pub(super) fn executable(
         &self,
         launch: &Launch,
         linked: &Linked,
-        link: Option<&Link>,
+        link: &Link,
     ) -> Result<Vec<u8>, Vec<String>> {
-        let linked_with = link.map(|link| self.linker.link(link)).transpose();
-        let launcher = linked_with.map_err(|problem| vec![problem])?;
-        let launcher = launcher.as_deref().unwrap_or(LAUNCHER);
-        Ok([launcher, &Self::carried(launch, linked)].concat())
+        let launcher = self.linker.link(link).map_err(|problem| vec![problem])?;
+        Ok([launcher, Self::carried(launch, linked)].concat())
     }
 
     /// Builds `entry` of the package at `path` under `target` of the

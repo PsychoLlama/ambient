@@ -15,12 +15,12 @@ use std::task::Poll;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::network::Network;
+use super::linked::{Http, Linked, Watching, unlinked};
 use super::signals::{Signal, Signals};
 use super::sockets::{Came, Reaches};
 use super::system::failure;
 use super::waits::{Chunk, Done, Line, Work};
-use super::watching::{Change, Watches};
+use super::watching::Change;
 use super::{Command, Failure, Held, Kind, Open, Opened, Ran, Response};
 use crate::native::Posts;
 
@@ -42,8 +42,8 @@ pub(super) enum Sent {
     Response(u64, Result<Response, Failure>),
     /// The head of a response, and what its body is read from.
     Opened(u64, Result<Opening, Failure>),
-    /// A request a server was sent.
-    Request(i64, tiny_http::Request),
+    /// A server was sent a request, which its group holds.
+    Arrived,
     /// Something of a stream or a socket.
     Net(Came),
     /// The process was asked something from outside.
@@ -70,24 +70,27 @@ pub(super) struct Pending {
     unread: VecDeque<Line>,
     /// Bytes read for a wait its task left, likewise.
     unread_bytes: VecDeque<Chunk>,
-    pub(super) network: Network,
+    /// HTTP, if the process was linked with it.
+    http: Option<Box<dyn Http>>,
     /// Its streams and sockets.
     pub(super) reaches: Reaches,
     /// What waits to be told what the process is asked.
     signals: Signals,
-    watches: Watches,
+    /// What watches files, if the process was linked with it.
+    watches: Option<Box<dyn Watching>>,
     /// What threads of native bundles post, which wake this.
     posts: Option<Arc<Posts>>,
 }
 
-impl Default for Pending {
-    fn default() -> Self {
+impl Pending {
+    /// What a process waits on, with the groups it was linked with.
+    pub(super) fn new(linked: &Linked) -> Self {
         let (sender, sent) = channel();
         Self {
-            network: Network::new(sender.clone()),
+            http: linked.http.map(|make| make(sender.clone())),
             reaches: Reaches::new(sender.clone()),
             signals: Signals::default(),
-            watches: Watches::default(),
+            watches: linked.watching.map(|make| make()),
             sender,
             sent,
             ready: VecDeque::new(),
@@ -100,9 +103,12 @@ impl Default for Pending {
             posts: None,
         }
     }
-}
 
-impl Pending {
+    /// HTTP, or why the process has none.
+    pub(super) fn http(&mut self) -> Result<&mut (dyn Http + 'static), Failure> {
+        self.http.as_deref_mut().ok_or_else(unlinked)
+    }
+
     /// Has a post wake whoever waits here.
     pub(super) fn attend(&mut self, posts: Arc<Posts>) {
         let sender = self.sender.clone();
@@ -119,18 +125,27 @@ impl Pending {
             Work::Run(command) => self.run(ticket, command),
             Work::ReadLine => self.read_line(ticket),
             Work::Read(most) => self.read(ticket, usize::try_from(most).unwrap_or(0)),
-            Work::Send(request) => self.network.send(ticket, request),
+            Work::Send(request) => match self.http() {
+                Ok(http) => http.send(ticket, request),
+                Err(failure) => self.ready.push_back((ticket, Done::Sent(Err(failure)))),
+            },
             Work::Open(request, trust) => {
-                if let Err(failure) = self.network.open(ticket, request, trust) {
+                let opening = self
+                    .http()
+                    .and_then(|http| http.open(ticket, request, trust));
+                if let Err(failure) = opening {
                     self.ready.push_back((ticket, Done::Opened(Err(failure))));
                 }
             }
             Work::Accept(server) => {
-                let done = self.network.accept(ticket, server);
+                let none = Some(Done::Accepted(None));
+                let done = self.http().map_or(none, |http| http.accept(ticket, server));
                 self.ready.extend(done.map(|done| (ticket, done)));
             }
             Work::Change(watcher) => {
-                if let Poll::Ready(change) = self.watches.next(ticket, watcher) {
+                let files = self.watches.as_mut();
+                let next = files.map_or(Poll::Ready(None), |files| files.next(ticket, watcher));
+                if let Poll::Ready(change) = next {
                     self.ready.push_back((ticket, Done::Changed(change)));
                 }
             }
@@ -252,10 +267,10 @@ impl Pending {
             }
             let threads = !self.children.is_empty()
                 || !self.readers.is_empty()
-                || self.network.waits()
+                || self.http.as_ref().is_some_and(|http| http.waits())
                 || self.reaches.waits()
                 || self.signals.waits()
-                || self.watches.waits()
+                || self.watches.as_ref().is_some_and(|watches| watches.waits())
                 || posts.is_some_and(|posts| posts.coming());
             let sent = match due {
                 Some((when, _)) if threads => match self.sent.recv_timeout(when - Instant::now()) {
@@ -304,21 +319,24 @@ impl Pending {
                 }
             }
             Sent::Response(ticket, response) => {
-                if self.network.sent(ticket) {
+                if self.http().is_ok_and(|http| http.sent(ticket)) {
                     self.ready.push_back((ticket, Done::Sent(response)));
                 }
             }
             Sent::Opened(ticket, opened) => {
-                if self.network.sent(ticket) {
+                if self.http().is_ok_and(|http| http.sent(ticket)) {
                     let opened = opened.map(|opening| self.reaches.streamed(opening));
                     self.ready.push_back((ticket, Done::Opened(opened)));
                 }
             }
-            Sent::Request(server, request) => {
-                self.ready.extend(self.network.arrived(server, request));
+            Sent::Arrived => {
+                if let Some(http) = &mut self.http {
+                    self.ready.extend(http.arrived());
+                }
             }
             Sent::Changed(watcher, change) => {
-                let came = self.watches.came(watcher, change);
+                let files = self.watches.as_mut();
+                let came = files.and_then(|files| files.came(watcher, change));
                 self.ready
                     .extend(came.map(|(ticket, change)| (ticket, Done::Changed(Some(change)))));
             }
@@ -337,7 +355,9 @@ impl Pending {
 
     /// Stops a server, and answers whatever waited to accept from it.
     pub(super) fn close(&mut self, server: i64) {
-        let waiting = self.network.close(server);
+        let waiting = self
+            .http()
+            .map_or_else(|_| Vec::new(), |http| http.close(server));
         let closed = |ticket| (ticket, Done::Accepted(None));
         self.ready.extend(waiting.into_iter().map(closed));
     }
@@ -346,7 +366,8 @@ impl Pending {
     pub(super) fn open(&mut self, what: Open) -> Result<Opened, Failure> {
         match what {
             Open::Watch(path) => {
-                let id = self.watches.watch(&path, self.sender.clone())?;
+                let watches = self.watches.as_mut().ok_or_else(unlinked)?;
+                let id = watches.watch(&path, self.sender.clone())?;
                 Ok(Opened { id, port: 0 })
             }
             what => self.reaches.open(what),
@@ -358,9 +379,9 @@ impl Pending {
     pub(super) fn shut(&mut self, held: Held) {
         if let Held::Watcher(watcher) = held {
             let closed = |ticket| (ticket, Done::Changed(None));
-            return self
-                .ready
-                .extend(self.watches.close(watcher).into_iter().map(closed));
+            let watches = self.watches.as_mut();
+            let waiting = watches.map_or_else(Vec::new, |watches| watches.close(watcher));
+            return self.ready.extend(waiting.into_iter().map(closed));
         }
         let reached = self.reaches.shut(held).into_iter();
         self.ready
@@ -374,10 +395,14 @@ impl Pending {
         self.ready.retain(|(ready, _)| *ready != ticket);
         self.timers.retain(|(_, timer)| *timer != ticket);
         self.readers.retain(|reader| *reader != ticket);
-        self.network.forsake(ticket);
         self.reaches.forsake(ticket);
         self.signals.forsake(ticket);
-        self.watches.forsake(ticket);
+        if let Some(http) = &mut self.http {
+            http.forsake(ticket);
+        }
+        if let Some(watches) = &mut self.watches {
+            watches.forsake(ticket);
+        }
         if let Some(mut child) = self.children.remove(&ticket) {
             let _ = child.kill();
             let _ = child.wait();

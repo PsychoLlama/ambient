@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use ambient_runtime::FAULT_PACKAGE;
 
-pub use built::{Built, carried, start, start_with};
+pub use built::{Built, carried, start, start_linked, start_with};
 pub use own::{own, own_given};
 pub use trace::{Frames, Function, describe};
 

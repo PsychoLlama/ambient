@@ -4,6 +4,7 @@ use std::ffi::OsString;
 use std::io::{self, Write};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use super::linked::Linked;
 use super::pending::Pending;
 use super::{
     Done, Entry, Failure, Held, Info, Kind, Listening, Open, Opened, Response, Work, World,
@@ -19,13 +20,21 @@ pub struct System {
 }
 
 impl System {
-    /// The world of this process, started with `args`.
+    /// The world of this process, started with `args`: one that was
+    /// linked for no one program, and so can do all a program may ask.
     #[must_use]
     pub fn new(args: Vec<String>) -> Self {
+        Self::linked(args, &Linked::whole())
+    }
+
+    /// The world of a process that was linked with `linked`, started
+    /// with `args`. Nothing here names a group a link may leave out.
+    #[must_use]
+    pub fn linked(args: Vec<String>, linked: &Linked) -> Self {
         Self {
             args,
             started: Instant::now(),
-            pending: Pending::default(),
+            pending: Pending::new(linked),
         }
     }
 }
@@ -186,11 +195,11 @@ impl World for System {
     }
 
     fn listen(&mut self, host: &str, port: i64) -> Result<Listening, Failure> {
-        self.pending.network.listen(host, port)
+        self.pending.http()?.listen(host, port)
     }
 
     fn respond(&mut self, incoming: i64, response: Response) -> Result<(), Failure> {
-        self.pending.network.respond(incoming, response)
+        self.pending.http()?.respond(incoming, response)
     }
 
     fn close(&mut self, server: i64) {
@@ -198,7 +207,9 @@ impl World for System {
     }
 
     fn abandon(&mut self, incoming: i64) {
-        self.pending.network.abandon(incoming);
+        if let Ok(http) = self.pending.http() {
+            http.abandon(incoming);
+        }
     }
 
     fn open(&mut self, what: Open) -> Result<Opened, Failure> {

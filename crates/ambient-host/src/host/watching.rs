@@ -12,6 +12,7 @@ use std::task::Poll;
 use notify::event::{EventKind, ModifyKind, RenameMode};
 use notify::{RecursiveMode, Watcher};
 
+use super::linked::Watching;
 use super::pending::Sent;
 use super::queue::{Queue, room};
 use super::{Failure, Kind};
@@ -89,15 +90,13 @@ fn changes(event: notify::Event) -> Vec<Change> {
         .collect()
 }
 
-impl Watches {
-    /// Whether a thread may yet send something a task waits for.
-    pub(super) fn waits(&self) -> bool {
+impl Watching for Watches {
+    fn waits(&self) -> bool {
         let waited = |watched: &Watched| !watched.changes.waiting.is_empty();
         self.watched.values().any(waited)
     }
 
-    /// Starts watching a file, or a directory and all it holds.
-    pub(super) fn watch(&mut self, path: &str, sender: Sender<Sent>) -> Result<i64, Failure> {
+    fn watch(&mut self, path: &str, sender: Sender<Sent>) -> Result<i64, Failure> {
         let refused = |error: notify::Error| {
             let kind = match &error.kind {
                 notify::ErrorKind::PathNotFound => Kind::NotFound,
@@ -140,10 +139,7 @@ impl Watches {
         Ok(id)
     }
 
-    /// The next change, or nothing if the watcher is closed; pending
-    /// if the ticket waits for one. Once those that were kept are
-    /// taken, one that was missed is told.
-    pub(super) fn next(&mut self, ticket: u64, id: i64) -> Poll<Option<Change>> {
+    fn next(&mut self, ticket: u64, id: i64) -> Poll<Option<Change>> {
         let Some(watched) = self.watched.get_mut(&id) else {
             return Poll::Ready(None);
         };
@@ -160,9 +156,7 @@ impl Watches {
         }))
     }
 
-    /// Hands a change the system told of to a ticket that waits, or
-    /// keeps it. No change is word that one was missed.
-    pub(super) fn came(&mut self, id: i64, change: Option<Change>) -> Option<(u64, Change)> {
+    fn came(&mut self, id: i64, change: Option<Change>) -> Option<(u64, Change)> {
         let watched = self.watched.get_mut(&id)?;
         if let Some(change) = change {
             return watched.changes.bring(change);
@@ -174,15 +168,14 @@ impl Watches {
         }
     }
 
-    /// Stops watching, and gives the tickets that waited for a change.
-    pub(super) fn close(&mut self, id: i64) -> Vec<u64> {
+    fn close(&mut self, id: i64) -> Vec<u64> {
         let watched = self.watched.remove(&id);
         watched.map_or_else(Vec::new, |mut watched| {
             std::mem::take(&mut watched.changes.waiting).into()
         })
     }
 
-    pub(super) fn forsake(&mut self, ticket: u64) {
+    fn forsake(&mut self, ticket: u64) {
         for watched in self.watched.values_mut() {
             watched.changes.waiting.retain(|waiting| *waiting != ticket);
         }

@@ -1,7 +1,8 @@
-//! What is linked for a program that reaches native bundles: the
-//! functions of them it reaches, and the `main` that hands those to
-//! what loads the program. See "Native code" in
-//! `docs/spec/linking.md` and "Distribution" in `docs/spec/externs.md`.
+//! What is linked for a program: the groups of the standard target's
+//! native side it reaches, the functions of native bundles it reaches,
+//! and the `main` that hands both to what loads the program. See
+//! "Native code" in `docs/spec/linking.md` and "Distribution" in
+//! `docs/spec/externs.md`.
 //!
 //! Nothing here runs a linker: [`Link`] says what one is to join, and a
 //! [`Linker`] is what does.
@@ -11,6 +12,7 @@ use std::fmt::Write;
 use std::io::Read;
 use std::path::PathBuf;
 
+use ambient_host::host::{PACKAGE, group};
 use ambient_host::native::MACHINE;
 
 use super::Session;
@@ -20,7 +22,8 @@ use crate::symbol::PackageId;
 use crate::workspace::Sources;
 
 /// What the launcher is as an archive, compressed: what a link joins
-/// native bundles with, once [`archive`] has made it what it was.
+/// a `main` and native bundles with, once [`archive`] has made it what
+/// it was.
 const PACKED: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/launcher.a.gz"));
 
 /// The launcher as an archive.
@@ -41,17 +44,18 @@ pub const LIBRARIES: &str = include_str!(concat!(env!("OUT_DIR"), "/launcher.lib
 /// What a linker is to join into what loads one program.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Link {
-    /// The `main` of the executable, in C: it lists each function of a
-    /// native bundle the program reaches, and starts the launcher with
-    /// them.
+    /// The `main` of the executable, in C: it lists each group of the
+    /// standard target's native side and each function of a native
+    /// bundle the program reaches, and starts the launcher with them.
     pub main: String,
-    /// The native bundles those functions are in.
+    /// The native bundles those functions are in, if it reaches any.
     pub bundles: Vec<PathBuf>,
     /// The libraries of the system the bundles say they need.
     pub libraries: Vec<String>,
 }
 
-/// What joins native bundles with the launcher, and runs what it made.
+/// What joins a `main` and native bundles with the launcher, and runs
+/// what it made.
 pub trait Linker {
     /// The executable `link` describes, with no program after it.
     ///
@@ -74,7 +78,7 @@ pub struct Unlinked;
 
 impl Linker for Unlinked {
     fn link(&self, _: &Link) -> Result<Vec<u8>, String> {
-        Err("nothing here links a native bundle".to_owned())
+        Err("nothing here links an executable".to_owned())
     }
 
     fn run(&self, _: &[u8], _: &[String]) -> Result<i32, String> {
@@ -126,16 +130,25 @@ fn quoted(text: &str) -> String {
     format!("\"{}\"", text.chars().filter(plain).collect::<String>())
 }
 
-/// The `main` that starts the launcher with `roots`.
-fn main(roots: &BTreeSet<Root>) -> String {
+/// The `main` that starts the launcher with `roots` and with the
+/// groups whose functions `groups` names. Naming one is all that has
+/// the linker keep it.
+fn main(roots: &BTreeSet<Root>, groups: &BTreeSet<&str>) -> String {
     let mut main = String::from(
         "#include <stdint.h>\n\
          struct amb_call;\n\
+         struct amb_linked;\n\
          typedef uint64_t (*amb_extern)(struct amb_call *, uint64_t);\n\
+         typedef void (*amb_group)(struct amb_linked *);\n\
          struct amb_root { const char *package; const char *path; amb_extern function; \
          const unsigned char *built; };\n\
-         int ambient_launch(const struct amb_root *, uintptr_t, int, char **);\n",
+         struct amb_reached { const struct amb_root *roots; uintptr_t count; \
+         const amb_group *groups; uintptr_t group_count; };\n\
+         int ambient_launch(const struct amb_reached *, int, char **);\n",
     );
+    for group in groups {
+        let _ = writeln!(main, "void {group}(struct amb_linked *);");
+    }
     for root in roots {
         let _ = writeln!(
             main,
@@ -157,24 +170,41 @@ fn main(roots: &BTreeSet<Root>) -> String {
             root.symbol
         );
     }
+    // Each list ends with an entry nothing reads, since C has no
+    // list of none.
+    main.push_str("  { 0, 0, 0, 0 },\n};\nstatic const amb_group groups[] = {\n");
+    for group in groups {
+        let _ = writeln!(main, "  {group},");
+    }
     let _ = write!(
         main,
-        "}};\nint main(int argc, char **argv) {{\n  \
-         return ambient_launch(roots, {}, argc, argv);\n}}\n",
-        roots.len()
+        "  0,\n}};\nint main(int argc, char **argv) {{\n  \
+         const struct amb_reached reached = {{ roots, {}, groups, {} }};\n  \
+         return ambient_launch(&reached, argc, argv);\n}}\n",
+        roots.len(),
+        groups.len()
     );
     main
 }
 
 impl Session<'_> {
-    /// What is to be linked for the program of `parts`, if it reaches
-    /// an extern of a package that has native bundles.
+    /// What is to be linked for the program of `parts`: what it
+    /// reaches of the standard target's native side, and of the
+    /// packages that have native bundles.
     ///
     /// # Errors
     ///
     /// Fails if such a package has no bundle for this machine, or none
     /// that is there.
-    pub(super) fn linking(&self, project: &Project, parts: &Parts) -> Result<Option<Link>, String> {
+    pub(super) fn linking(&self, project: &Project, parts: &Parts) -> Result<Link, String> {
+        let system = parts
+            .natives
+            .iter()
+            .filter(|native| native.package == PACKAGE);
+        let groups: BTreeSet<&str> = system
+            .filter_map(|native| group(&native.path))
+            .map(|group| group.symbol)
+            .collect();
         let mut roots = BTreeSet::new();
         let mut bundles = BTreeSet::new();
         let mut libraries = Vec::new();
@@ -227,11 +257,11 @@ impl Session<'_> {
                 symbol: symbol(&native.package, &native.path),
             });
         }
-        Ok((!roots.is_empty()).then(|| Link {
-            main: main(&roots),
+        Ok(Link {
+            main: main(&roots, &groups),
             bundles: bundles.into_iter().collect(),
             libraries,
-        }))
+        })
     }
 }
 
@@ -257,7 +287,7 @@ mod tests {
             path: "tls.connect".to_owned(),
             symbol: symbol("7c1e", "tls.connect"),
         };
-        let main = main(&BTreeSet::from([root]));
+        let main = main(&BTreeSet::from([root]), &BTreeSet::new());
 
         assert!(main.contains("uint64_t amb_x_7c1e_tls_connect(struct amb_call *, uint64_t);"));
         let built = built("hue");
@@ -265,6 +295,16 @@ mod tests {
         assert!(main.contains(&format!(
             "{{ \"hue\", \"tls.connect\", amb_x_7c1e_tls_connect, &{built} }},"
         )));
-        assert!(main.contains("return ambient_launch(roots, 1, argc, argv);"));
+        assert!(main.contains("const struct amb_reached reached = { roots, 1, groups, 0 };"));
+    }
+
+    #[test]
+    fn a_main_names_each_group_and_no_other() {
+        let main = main(&BTreeSet::new(), &BTreeSet::from(["amb_system_http"]));
+
+        assert!(main.contains("void amb_system_http(struct amb_linked *);"));
+        assert!(main.contains("static const amb_group groups[] = {\n  amb_system_http,\n  0,\n};"));
+        assert!(main.contains("const struct amb_reached reached = { roots, 0, groups, 1 };"));
+        assert!(!main.contains("amb_system_crypto"));
     }
 }

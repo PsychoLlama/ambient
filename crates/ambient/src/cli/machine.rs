@@ -1,10 +1,10 @@
-//! The linker of this machine: what joins native bundles with the
-//! launcher for a real build. See "Native code" in
+//! The linker of this machine: what joins a `main` and native bundles
+//! with the launcher for a real build. See "Native code" in
 //! `docs/spec/linking.md`.
 //!
 //! What it makes is kept under one directory of the machine, by what
 //! it was made from, so a program is linked again only when what it
-//! reaches of its bundles changes. None of it reaches a store: an
+//! reaches of the native side or of its bundles changes. None of it reaches a store: an
 //! executable is no input to anything.
 
 use std::path::{Path, PathBuf};
@@ -103,7 +103,8 @@ impl Machine {
             .arg(&made);
         let ran = command.output().map_err(|error| {
             format!(
-                "the linker `{}` did not run: {error}",
+                "the linker `{}` did not run: {error}\nan executable is linked by the machine's C \
+                 compiler: install one, or name it in `CC`",
                 linker.to_string_lossy()
             )
         })?;
@@ -114,10 +115,7 @@ impl Machine {
         }
         if !ran.status.success() {
             let said = String::from_utf8_lossy(&ran.stderr);
-            return Err(format!(
-                "linking native bundles failed:\n{}",
-                said.trim_end()
-            ));
+            return Err(format!("linking failed:\n{}", said.trim_end()));
         }
         fs::rename(&made, place.join("launcher")).map_err(failed)
     }

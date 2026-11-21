@@ -13,7 +13,7 @@ use std::rc::Rc;
 use serde::{Deserialize, Serialize};
 
 use super::{FAILED, Frames, code, started};
-use crate::host::{self, World};
+use crate::host::{self, Linked, World};
 use crate::native::{self, Natives};
 use crate::pack::Pack;
 use crate::parts::Parts;
@@ -96,6 +96,17 @@ pub fn start_with(
     world: &Rc<RefCell<dyn World>>,
     more: impl FnOnce(Natives, Option<Pack>) -> Natives,
 ) -> i32 {
+    start_linked(program, world, &Linked::whole(), more)
+}
+
+/// As [`start_with`], in a process that was linked with `linked`.
+#[must_use]
+pub fn start_linked(
+    program: &[u8],
+    world: &Rc<RefCell<dyn World>>,
+    linked: &Linked,
+    more: impl FnOnce(Natives, Option<Pack>) -> Natives,
+) -> i32 {
     let run = || {
         let unreadable = |why: String| vec![format!("this is not a program: {why}")];
         let built: Built =
@@ -104,9 +115,11 @@ pub fn start_with(
             .map_err(|error| unreadable(error.to_string()))?;
         let trees = built.trees.as_deref().map(Pack::decode).transpose();
         let trees = trees.map_err(|error| unreadable(error.to_string()))?;
-        started(&parts, &more(host::natives(world), trees), || {
-            built.frames.clone()
-        })
+        started(
+            &parts,
+            &more(host::natives_linked(world, linked), trees),
+            || built.frames.clone(),
+        )
     };
     run().map_or_else(
         |problems: Vec<String>| {

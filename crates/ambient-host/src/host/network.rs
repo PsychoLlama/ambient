@@ -9,11 +9,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Read;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use ureq::http;
 
+use super::linked::Http;
 use super::pending::Sent;
 use super::trust::{self, Trust};
 use super::waits::Done;
@@ -49,6 +50,10 @@ pub(super) struct Network {
     unanswered: HashMap<i64, tiny_http::Request>,
     /// How many servers and requests have been numbered.
     numbered: i64,
+    /// The requests the servers' threads brought, each with its
+    /// server, and what they are brought through.
+    brought: Receiver<(i64, tiny_http::Request)>,
+    bringing: Sender<(i64, tiny_http::Request)>,
 }
 
 fn failed(kind: Kind, message: &dyn ToString) -> Failure {
@@ -60,7 +65,10 @@ fn failed(kind: Kind, message: &dyn ToString) -> Failure {
 
 impl Network {
     pub(super) fn new(sender: Sender<Sent>) -> Self {
+        let (bringing, brought) = channel();
         Self {
+            brought,
+            bringing,
             sender,
             agent: trust::config(ureq::tls::TlsConfig::default()).into(),
             trusting: HashMap::new(),
@@ -76,13 +84,24 @@ impl Network {
         self.numbered
     }
 
-    /// Whether a thread may yet send something a task waits for.
-    pub(super) fn waits(&self) -> bool {
+    /// What sends the requests that trust so, made if none has yet.
+    fn trusted_by(&mut self, trusted: Trust) -> Result<ureq::Agent, Failure> {
+        if let Some(agent) = self.trusting.get(&trusted) {
+            return Ok(agent.clone());
+        }
+        let agent = trust::agent(&trusted)?;
+        self.trusting.insert(trusted, agent.clone());
+        Ok(agent)
+    }
+}
+
+impl Http for Network {
+    fn waits(&self) -> bool {
         let accepting = |listener: &Listener| !listener.waiting.is_empty();
         !self.sending.is_empty() || self.listeners.values().any(accepting)
     }
 
-    pub(super) fn send(&mut self, ticket: u64, request: Request) {
+    fn send(&mut self, ticket: u64, request: Request) {
         self.sending.insert(ticket);
         let (agent, sender) = (self.agent.clone(), self.sender.clone());
         thread::spawn(move || {
@@ -90,9 +109,7 @@ impl Network {
         });
     }
 
-    /// Sends a request for the head of its response, trusting whom it
-    /// says. Why it trusts no one, if what it says cannot be read.
-    pub(super) fn open(
+    fn open(
         &mut self,
         ticket: u64,
         request: Request,
@@ -116,22 +133,11 @@ impl Network {
         Ok(())
     }
 
-    /// What sends the requests that trust so, made if none has yet.
-    fn trusted_by(&mut self, trusted: Trust) -> Result<ureq::Agent, Failure> {
-        if let Some(agent) = self.trusting.get(&trusted) {
-            return Ok(agent.clone());
-        }
-        let agent = trust::agent(&trusted)?;
-        self.trusting.insert(trusted, agent.clone());
-        Ok(agent)
-    }
-
-    /// Whether a response is still waited for, which it then is not.
-    pub(super) fn sent(&mut self, ticket: u64) -> bool {
+    fn sent(&mut self, ticket: u64) -> bool {
         self.sending.remove(&ticket)
     }
 
-    pub(super) fn listen(&mut self, host: &str, port: i64) -> Result<Listening, Failure> {
+    fn listen(&mut self, host: &str, port: i64) -> Result<Listening, Failure> {
         let port = u16::try_from(port).map_err(|_| failed(Kind::Invalid, &"no such port"))?;
         let server = tiny_http::Server::http((host, port)).map_err(|error| {
             let denied = error
@@ -146,6 +152,7 @@ impl Network {
         let server = Arc::new(server);
         let id = self.number();
         let (requests, sender) = (Arc::clone(&server), self.sender.clone());
+        let bringing = self.bringing.clone();
         let held = Arc::new(AtomicUsize::new(0));
         let count = Arc::clone(&held);
         // Ends when the server is unblocked, or the program is gone.
@@ -157,7 +164,9 @@ impl Network {
                     continue;
                 }
                 count.fetch_add(1, Ordering::Relaxed);
-                if sender.send(Sent::Request(id, request)).is_err() {
+                // The request stays here, and the program is only woken:
+                // what waits on every thread knows nothing of HTTP.
+                if bringing.send((id, request)).is_err() || sender.send(Sent::Arrived).is_err() {
                     return;
                 }
             }
@@ -175,14 +184,8 @@ impl Network {
         })
     }
 
-    /// Hands a request a server was sent to whatever waits to accept
-    /// one, or keeps it until something does. One whose body cannot
-    /// be read is refused here.
-    pub(super) fn arrived(
-        &mut self,
-        server: i64,
-        mut request: tiny_http::Request,
-    ) -> Option<(u64, Done)> {
+    fn arrived(&mut self) -> Option<(u64, Done)> {
+        let (server, mut request) = self.brought.try_recv().ok()?;
         // A request to a server that was closed meanwhile is dropped,
         // which ends its connection.
         let held = Arc::clone(&self.listeners.get(&server)?.held);
@@ -216,9 +219,7 @@ impl Network {
         Some((ticket, Done::Accepted(Some(incoming))))
     }
 
-    /// The next request of a server, if one is there or none will be;
-    /// otherwise the ticket waits for one.
-    pub(super) fn accept(&mut self, ticket: u64, server: i64) -> Option<Done> {
+    fn accept(&mut self, ticket: u64, server: i64) -> Option<Done> {
         let Some(listener) = self.listeners.get_mut(&server) else {
             return Some(Done::Accepted(None));
         };
@@ -231,7 +232,7 @@ impl Network {
         next.map(|incoming| Done::Accepted(Some(incoming)))
     }
 
-    pub(super) fn respond(&mut self, incoming: i64, response: Response) -> Result<(), Failure> {
+    fn respond(&mut self, incoming: i64, response: Response) -> Result<(), Failure> {
         let request = self
             .unanswered
             .remove(&incoming)
@@ -253,14 +254,11 @@ impl Network {
             .map_err(|error| failed(Kind::Failed, &error))
     }
 
-    /// Lets go of a request that was not answered, which ends its
-    /// connection.
-    pub(super) fn abandon(&mut self, incoming: i64) {
+    fn abandon(&mut self, incoming: i64) {
         self.unanswered.remove(&incoming);
     }
 
-    /// Stops a server, and gives the tickets that waited to accept.
-    pub(super) fn close(&mut self, server: i64) -> Vec<u64> {
+    fn close(&mut self, server: i64) -> Vec<u64> {
         let Some(listener) = self.listeners.remove(&server) else {
             return Vec::new();
         };
@@ -271,9 +269,7 @@ impl Network {
         listener.waiting.into()
     }
 
-    /// Stops waiting for what a ticket waited for. A request already
-    /// sent goes on, and its response is dropped.
-    pub(super) fn forsake(&mut self, ticket: u64) {
+    fn forsake(&mut self, ticket: u64) {
         self.sending.remove(&ticket);
         for listener in self.listeners.values_mut() {
             listener.waiting.retain(|waiting| *waiting != ticket);

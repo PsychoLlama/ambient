@@ -25,7 +25,7 @@ use clap::{Parser, Subcommand};
 
 pub use ambient_host::launch::carried;
 use ambient_host::launch::{FAILED, code, started};
-pub use build::{LAUNCHER, start};
+pub use build::start;
 pub use building::engine;
 pub use header::header;
 use init::Begun;
@@ -327,8 +327,9 @@ impl Session<'_> {
         let said = |problem: String| vec![problem];
         // A program that reaches a native bundle is run by what was
         // linked with it, which this process was not.
-        if let Some(link) = self.linking(&project, &linked.parts).map_err(said)? {
-            let executable = self.executable(&launch, &linked, Some(&link))?;
+        let link = self.linking(&project, &linked.parts).map_err(said)?;
+        if !link.bundles.is_empty() {
+            let executable = self.executable(&launch, &linked, &link)?;
             let args = self.world.borrow().args();
             return self.linker.run(&executable, &args).map_err(said);
         }

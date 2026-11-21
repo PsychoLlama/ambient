@@ -11,6 +11,7 @@ mod crypto;
 mod exchange;
 mod files;
 mod http;
+mod linked;
 mod net;
 mod network;
 mod pending;
@@ -32,6 +33,7 @@ pub use code::invalid;
 pub use commands::Command;
 pub use files::{Entry, Info};
 pub use http::{Incoming, Listening, Request, Response, Streamed};
+pub use linked::{GROUPS, Group, Linked, group};
 pub use net::{Address, Datagram, Held, Open, Opened, Reach, Reached};
 pub use signals::Signal;
 pub use system::System;
@@ -286,6 +288,15 @@ fn strings(items: Vec<String>) -> Value {
 /// one are the compiler's to add (`ambient::host::natives`).
 #[must_use]
 pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
+    natives_linked(world, &Linked::whole())
+}
+
+/// [`natives`], for a process that was linked with `linked`: it has
+/// the handlers of a group only if the link named it. One that asks a
+/// world is here whatever was linked, since it holds nothing of what
+/// the world asks in turn.
+#[must_use]
+pub fn natives_linked(world: &Rc<RefCell<dyn World>>, linked: &Linked) -> Natives {
     use http::{Handler, Starter};
     // What takes time is begun, and answered when it is over.
     let starters: [(&str, Starter); 6] = [
@@ -332,8 +343,11 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
         ("process_exit", |_, args| Ok(Value::Int(int(args, 0)?))),
     ];
     let outcomes = Rc::new(RefCell::new(waits::Outcomes(Rc::clone(world))));
-    let natives = crypto::offer(Natives::new().answered_by(outcomes));
-    let natives = exchange::offer(code::offer(natives));
+    let natives = exchange::offer(code::offer(Natives::new().answered_by(outcomes)));
+    let natives = linked
+        .natives
+        .iter()
+        .fold(natives, |natives, offer| offer(natives));
     let handlers = handlers
         .into_iter()
         .chain(files::HANDLERS)

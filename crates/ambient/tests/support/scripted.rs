@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use ambient::cli::{Command, Session};
+use ambient::cli::{Command, Link, Linker, Session};
 use ambient::engine::Engine;
 use ambient::host::{
     Address, Change, Done, Entry, Failure, Held, Incoming, Info, Kind, Listening, Open, Opened,
@@ -82,6 +82,20 @@ pub struct Scripted {
 /// Where a scripted session says the command's own file is.
 pub const LAUNCHER: &str = "bin/ambient";
 
+/// A linker that joins nothing: what it gives for an executable is
+/// the `main` it was asked to link, which says what a build reached.
+pub struct Named;
+
+impl Linker for Named {
+    fn link(&self, link: &Link) -> Result<Vec<u8>, String> {
+        Ok(link.main.clone().into_bytes())
+    }
+
+    fn run(&self, _: &[u8], _: &[String]) -> Result<i32, String> {
+        Err("nothing here runs what was linked".to_owned())
+    }
+}
+
 impl Scripted {
     /// What a command over `files` exits with in this world, and the
     /// world it leaves.
@@ -109,7 +123,7 @@ impl Scripted {
         snapshots: &dyn Snapshots,
         command: &Command,
     ) -> (i32, Self) {
-        self.execute_linked(files, store, snapshots, &ambient::cli::Unlinked, command)
+        self.execute_linked(files, store, snapshots, &Named, command)
     }
 
     /// [`Self::execute_from`], with `linker` to join native bundles.
