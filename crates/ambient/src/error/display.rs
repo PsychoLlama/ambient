@@ -82,8 +82,7 @@ impl fmt::Display for Error {
             | Self::NotLint(_)
             | Self::Lint { .. }
             | Self::BuiltTwice { .. }
-            | Self::NotAnnotation { .. }
-            | Self::ToolUngranted { .. } => self.fmt_build(f),
+            | Self::NotAnnotation { .. } => self.fmt_build(f),
             Self::NotBundle { .. }
             | Self::DuplicateHandler { .. }
             | Self::Unbound { .. }
@@ -91,6 +90,8 @@ impl fmt::Display for Error {
             | Self::SpawnOutsideGroup(_)
             | Self::SpawnBinding { .. }
             | Self::Ungranted { .. }
+            | Self::Takes { .. }
+            | Self::UnknownGrant { .. }
             | Self::ComptimeAbilities(_)
             | Self::EntryAbilities(_) => self.fmt_ability(f),
             Self::UntypedParameter { .. }
@@ -246,6 +247,19 @@ impl Error {
                 f,
                 "{symbol}: a spawned task cannot use `{ability}`, which is bound inside its group"
             ),
+            Self::Takes { symbol, ability } => write!(
+                f,
+                "{symbol}: it takes `{ability}`, which its package is not granted"
+            ),
+            Self::UnknownGrant {
+                package,
+                dependency,
+                grant,
+            } => write!(
+                f,
+                "{}: the grant `{grant}` to `{dependency}` names no ability and no module it can reach",
+                package.0
+            ),
             Self::Ungranted { symbol, ability } => write!(
                 f,
                 "{symbol}: a comptime call takes `{ability}`, which its package is not granted"
@@ -333,10 +347,6 @@ impl Error {
             Self::ToolConflict(symbol) => write!(
                 f,
                 "{symbol}: the targets it extends are built by different tools"
-            ),
-            Self::ToolUngranted { symbol, ability } => write!(
-                f,
-                "{symbol}: the tool takes `{ability}`, which its package is not granted"
             ),
             _ => Ok(()),
         }

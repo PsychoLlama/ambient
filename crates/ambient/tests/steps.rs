@@ -41,8 +41,7 @@ const STYLES: &str = r#"
     }
 "#;
 
-const STEP: &str = "grants = [\"ambient.build.annotations\"]\n\
-                    [[steps]]\ntarget = \"web.page\"\ntool = \"pkg.collect\"";
+const STEP: &str = "[[steps]]\ntarget = \"web.page\"\ntool = \"pkg.collect\"";
 
 /// A workspace of the target's package, the styles' with `step` in its
 /// manifest, and an app whose one module is `app`.

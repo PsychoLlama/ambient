@@ -61,19 +61,13 @@ impl Snapshots for Remote {
     }
 }
 
-/// What the tool `report` of a package granted `grants` was told,
-/// over `store` on a machine that fetches from `remote`.
-fn told_from(report: &str, grants: &str, store: &MemoryStore, remote: &Remote) -> String {
-    let grants: Vec<String> = grants
-        .split(' ')
-        .map(|grant| format!("\"ambient.build.{grant}\""))
-        .collect();
-    let manifest = format!(
-        "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\ngrants = [{}]\n[bin.main]\ntarget = \"pkg.main.page\"",
-        grants.join(", ")
-    );
+/// What the tool `report` of a package was told, over `store` on a
+/// machine that fetches from `remote`.
+fn told_from(report: &str, store: &MemoryStore, remote: &Remote) -> String {
+    let manifest = "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n\
+                    [bin.main]\ntarget = \"pkg.main.page\"";
     let files: BTreeMap<PathBuf, String> = [
-        ("app/ambient.toml", manifest),
+        ("app/ambient.toml", manifest.to_owned()),
         ("app/src/main.ab", format!("{HEAD}{report}")),
     ]
     .into_iter()
@@ -91,12 +85,12 @@ fn told_from(report: &str, grants: &str, store: &MemoryStore, remote: &Remote) -
     String::from_utf8_lossy(&world.files["out/told.txt"]).into_owned()
 }
 
-fn told(report: &str, grants: &str) -> String {
+fn told(report: &str) -> String {
     let remote = Remote {
         held: Vec::new(),
         asked: RefCell::new(0),
     };
-    told_from(report, grants, &MemoryStore::new(), &remote)
+    told_from(report, &MemoryStore::new(), &remote)
 }
 
 #[test]
@@ -107,7 +101,6 @@ fn a_tool_is_told_the_modules_of_a_package_and_what_each_defines() {
             let defined = cast::<List<Reference>>(build.definitions!({ package: "app", path: ["main"] }), []);
             return file("${modules.join_with(" ")}: ${names(defined)}");
         }"#,
-        "modules definitions",
     );
 
     assert_eq!(said, "main: page main note helper unused names file report");
@@ -121,7 +114,6 @@ fn a_tool_is_told_what_the_definitions_of_a_module_are_themselves_annotated_with
             let said = fn(found: Annotation): string => "${found.on.name}=${cast::<string>(found.value, "?")}";
             return file(cast::<List<Annotation>>(found, []).map(said).join_with(" "));
         }"#,
-        "annotated",
     );
 
     // Reached from the entry or not: a module is asked, and no walk made.
@@ -134,7 +126,6 @@ fn a_tool_is_told_what_a_definition_reaches_in_the_order_it_is_met() {
         r"fn report(of: Build): Files with build.reach {
             return file(names(cast::<List<Reference>>(build.reach!(of.entry), [])));
         }",
-        "reach",
     );
 
     assert_eq!(said, "main helper");
@@ -150,7 +141,6 @@ fn a_tool_runs_a_function_as_a_run_of_its_own() {
                 let error: Error => { return file(error.message); }
             }
         }"#,
-        "run",
     );
 
     assert_eq!(said, "42");
@@ -179,14 +169,8 @@ fn what_a_tool_fetches_is_held_to_its_digest_and_fetched_once() {
     };
     let store = MemoryStore::new();
 
-    assert_eq!(
-        told_from(&fetching(HELLO), "fetch", &store, &remote),
-        "hello"
-    );
-    assert_eq!(
-        told_from(&fetching(HELLO), "fetch", &store, &remote),
-        "hello"
-    );
+    assert_eq!(told_from(&fetching(HELLO), &store, &remote), "hello");
+    assert_eq!(told_from(&fetching(HELLO), &store, &remote), "hello");
     assert_eq!(*remote.asked.borrow(), 1);
 }
 
@@ -197,7 +181,7 @@ fn what_was_fetched_under_another_digest_is_refused() {
         asked: RefCell::new(0),
     };
 
-    let said = told_from(&fetching(HELLO), "fetch", &MemoryStore::new(), &remote);
+    let said = told_from(&fetching(HELLO), &MemoryStore::new(), &remote);
     assert!(said.contains("its digest is"), "{said}");
 }
 
@@ -207,7 +191,6 @@ fn a_tool_is_told_the_digest_of_bytes() {
         r#"fn report(of: Build): Files with build.digest {
             return file(build.digest!("hello".to_bytes()));
         }"#,
-        "digest",
     );
 
     assert_eq!(said, HELLO);
@@ -220,7 +203,6 @@ fn a_tool_keeps_bytes_under_their_digest_and_is_given_them_back() {
             let back = cast::<bytes>(build.kept!(build.keep!("hello".to_bytes())), null) ?? "lost".to_bytes();
             return [{ path: "told.txt", bytes: back }];
         }"#,
-        "keep kept",
     );
 
     assert_eq!(said, "hello");
@@ -233,7 +215,6 @@ fn a_tool_is_told_the_doc_comment_of_a_definition() {
             let doc = fn(of: Reference): string => cast::<string>(build.doc!(of), "none");
             return file("${doc(comptime tree.reference(helper))}, ${doc(of.entry)}");
         }"#,
-        "doc",
     );
 
     assert_eq!(said, "Gives one., none");

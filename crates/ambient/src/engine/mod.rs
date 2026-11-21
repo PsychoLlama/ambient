@@ -29,6 +29,7 @@ mod compile;
 mod environment;
 mod function;
 mod generate;
+mod grants;
 mod group;
 mod handed;
 mod link;
@@ -143,6 +144,8 @@ pub struct Engine<'a> {
     compile: Memo<(Symbol, String, bool), Artifact>,
     /// Whether each function asked about is handed its type arguments.
     handed: RefCell<HashMap<Symbol, bool>>,
+    /// What each held package holds, once it is asked.
+    holdings: RefCell<Option<Query<grants::Holdings>>>,
     /// The definitions being checked, outermost first. A comptime call
     /// makes checking re-entrant; this is how a cycle through one is seen.
     checking: RefCell<Vec<Symbol>>,
@@ -185,6 +188,7 @@ impl<'a> Engine<'a> {
             hash: RefCell::default(),
             compile: RefCell::default(),
             handed: RefCell::default(),
+            holdings: RefCell::default(),
             checking: RefCell::default(),
             roots: RefCell::default(),
             runner: run::Runner::default(),

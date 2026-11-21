@@ -239,8 +239,8 @@ impl Evaluate for Engine<'_> {
         Ok(value.data(&held))
     }
 
-    fn granted(&self, package: &PackageId, ability: &Symbol) -> bool {
-        self.sources.grants(package).contains(ability)
+    fn granted(&self, package: &PackageId, ability: &Symbol) -> Result<bool, Error> {
+        self.holds(package, ability)
     }
 
     fn nameable(&self, package: &PackageId, symbol: &Symbol) -> bool {

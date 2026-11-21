@@ -389,6 +389,9 @@ impl Session<'_> {
 /// that is code a comptime call gave, which the text does not have.
 fn report(project: &Project, engine: &Engine, error: &Error) -> String {
     let mut report = project.report(error, engine.blame(error));
+    for granting in engine.granting(error) {
+        report.push_str(&granting);
+    }
     if let Some(given) = engine.shown(error) {
         report.push_str("\nin the code the call gave:\n");
         report.push_str(given.trim_end());

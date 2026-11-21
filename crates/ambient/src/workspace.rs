@@ -29,10 +29,17 @@ pub trait Sources {
     /// whatever a workspace calls it. See `docs/spec/packages.md`.
     fn identity(&self, package: &PackageId) -> String;
 
-    /// The build abilities `package` is granted: what its comptime
-    /// calls may take from the build target. See "Authority" in
-    /// `docs/spec/comptime.md`.
-    fn grants(&self, package: &PackageId) -> Vec<Symbol>;
+    /// What `package` is granted outright, if it is held to what it is
+    /// granted: a package that is not is the workspace's own, and
+    /// takes anything. See "Grants" in `docs/spec/packages.md`.
+    fn holds(&self, package: &PackageId) -> Option<Held>;
+
+    /// Every package that is held.
+    fn held(&self) -> Vec<PackageId>;
+
+    /// Every grant a package makes one it depends on, in an order that
+    /// is the same on every build.
+    fn grants(&self) -> Vec<Granting>;
 
     /// Every build step a package declares: the target it is for and
     /// the tool it runs, in an order that is the same on every build.
@@ -42,6 +49,31 @@ pub trait Sources {
     /// The lints checking `package` runs, as its manifest lists them.
     /// See "Commands" in `docs/spec/tools.md`.
     fn lints(&self, package: &PackageId) -> Vec<Symbol>;
+}
+
+/// What a package that is held is granted by its workspace itself,
+/// whatever any package grants it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Held {
+    pub abilities: Vec<Symbol>,
+    /// Whether a program may reach native code of it.
+    pub native: bool,
+}
+
+/// What one package lets another take: a dependency declaration's
+/// grants, as its manifest writes them.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Granting {
+    /// The package whose manifest says so.
+    pub from: PackageId,
+    /// What that package calls the dependency.
+    pub local: String,
+    pub to: PackageId,
+    /// Each a path as a row's is, from a module of `from`: an ability,
+    /// or a module for every public ability of it.
+    pub abilities: Vec<String>,
+    /// Whether the dependency may bring native code.
+    pub native: bool,
 }
 
 /// Why a workspace refused a change.
@@ -75,7 +107,8 @@ pub struct Workspace {
     dependencies: BTreeMap<(PackageId, String), PackageId>,
     preludes: BTreeMap<PackageId, Vec<ModuleId>>,
     identities: BTreeMap<PackageId, String>,
-    grants: BTreeMap<PackageId, Vec<Symbol>>,
+    held: BTreeMap<PackageId, Held>,
+    grants: Vec<Granting>,
     steps: BTreeMap<PackageId, Vec<(Symbol, Symbol)>>,
     lints: BTreeMap<PackageId, Vec<Symbol>>,
     /// The preludes of a package that lists none.
@@ -145,13 +178,21 @@ impl Workspace {
             .insert(PackageId(package.to_owned()), id.to_owned());
     }
 
-    /// Grants `package` a build ability: its comptime calls may take
-    /// `ability` from the build target.
+    /// Holds `package` to what it is granted from now on: it is no
+    /// code of the workspace's own.
+    pub fn hold(&mut self, package: &str) -> &mut Held {
+        self.held.entry(PackageId(package.to_owned())).or_default()
+    }
+
+    /// Grants `package` an ability outright, and holds it to what it
+    /// is granted.
     pub fn grant(&mut self, package: &str, ability: Symbol) {
-        self.grants
-            .entry(PackageId(package.to_owned()))
-            .or_default()
-            .push(ability);
+        self.hold(package).abilities.push(ability);
+    }
+
+    /// Says what a package lets one it depends on take.
+    pub fn granting(&mut self, granting: Granting) {
+        self.grants.push(granting);
     }
 
     /// Declares a lint of `package`: checking it runs `tool`.
@@ -232,8 +273,18 @@ impl Sources for Workspace {
         self.lints.get(package).cloned().unwrap_or_default()
     }
 
-    fn grants(&self, package: &PackageId) -> Vec<Symbol> {
-        self.grants.get(package).cloned().unwrap_or_default()
+    fn holds(&self, package: &PackageId) -> Option<Held> {
+        self.held.get(package).cloned()
+    }
+
+    fn held(&self) -> Vec<PackageId> {
+        self.held.keys().cloned().collect()
+    }
+
+    fn grants(&self) -> Vec<Granting> {
+        let mut grants = self.grants.clone();
+        grants.sort();
+        grants
     }
 
     fn steps(&self) -> Vec<(Symbol, Symbol)> {

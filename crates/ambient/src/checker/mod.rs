@@ -151,9 +151,13 @@ pub trait Evaluate {
     /// Fails if the constant does not check.
     fn constant(&self, symbol: &Symbol) -> Result<Option<Value>, Error>;
 
-    /// Whether the comptime calls of `package` may take `ability` from
-    /// the build target.
-    fn granted(&self, package: &PackageId, ability: &Symbol) -> bool;
+    /// Whether `package` may take `ability`: it is granted it, or
+    /// held to nothing.
+    ///
+    /// # Errors
+    ///
+    /// A grant of the workspace names nothing.
+    fn granted(&self, package: &PackageId, ability: &Symbol) -> Result<bool, Error>;
 
     /// Whether code written in `package` could name `symbol`: it is of
     /// that package, or public in a module its own package lets others

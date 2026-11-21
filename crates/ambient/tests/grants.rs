@@ -1,6 +1,5 @@
-//! Build grants: what a package's manifest lets its comptime calls
-//! take, and the files they read. See "Authority" in
-//! `docs/spec/comptime.md`.
+//! Grants: what a dependent lets a dependency take, as a program runs
+//! and as it is built. See "Grants" in `docs/spec/packages.md`.
 
 #![allow(clippy::unwrap_used)]
 
@@ -10,13 +9,13 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use ambient::cli::{Chosen, Command};
-use ambient::store::MemoryStore;
 use support::scripted::Scripted;
 
 type Files = BTreeMap<PathBuf, String>;
 
-/// A program that prints what a comptime call read of `path`.
-const READS: &str = r#"
+/// A library that prints, reads a file of its own as it is built, and
+/// does neither.
+const NOTES: &str = r#"
     use system.console;
     use ambient.build;
     use ambient.Error;
@@ -28,123 +27,162 @@ const READS: &str = r#"
         }
     }
 
-    fn main(): int with console.print {
-        console.print!(comptime read("PATH"));
-        return 0;
-    }
+    pub fn kept(): string => comptime read("notes.txt");
+    pub fn say(text: string): null with console.print { console.print!(text); }
+    pub fn plain(): string => "plain";
 "#;
 
-/// A package whose manifest ends with `grants`, with a file of notes
-/// that says `notes`, and a program that reads `path` as it is built.
-fn package(grants: &str, notes: &str, path: &str) -> Files {
-    let file = |(path, text): (&str, String)| (PathBuf::from(path), text);
-    let files = [
-        (
-            "app/ambient.toml",
-            format!(
-                "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n{LISTED}\n{grants}"
-            ),
-        ),
-        ("app/src/main.ab", READS.replace("PATH", path)),
-        ("app/notes.txt", notes.to_owned()),
-        ("app/kept/one.txt", String::new()),
-        ("app/kept/two.txt", String::new()),
-        ("app/draft.txt", "unfinished".to_owned()),
-        ("secret.txt", "hidden".to_owned()),
-    ];
-    files.into_iter().map(file).collect()
+/// A library over [`NOTES`], which it declares as `declared` says.
+const OVER: &str = r"
+    use notes;
+    use system.console;
+
+    pub fn say(text: string): null with console.print { notes.say(text); }
+";
+
+fn manifest(name: &str, rest: &str) -> String {
+    format!("[package]\nname = \"{name}\"\nid = \"{name}\"\nversion = \"1.0.0\"\n{rest}")
 }
 
-/// The files beside its sources that the package says are its own.
-const LISTED: &str = "files = [\"notes.txt\", \"kept\"]";
+/// A dependency on a vendored package, granted as `granted` says.
+fn on(name: &str, granted: &str) -> String {
+    format!("{name} = {{ id = \"{name}\", version = \"1.0.0\"{granted} }}\n")
+}
 
-const GRANTED: &str = "grants = [\"ambient.build.read\"]";
+/// A workspace of an app whose `main` is `body`, and two packages it
+/// vendored: `notes`, and `over`, which calls it. The app declares
+/// what `declared` says, and `over` grants `notes` what `passed` says.
+fn workspace(body: &str, declared: &str, passed: &str) -> Files {
+    let vendored = "[workspace]\nmembers = [\"app\", \"vendor/*\"]\n\
+                    [workspace.vendored]\n\"vendor/notes\" = \"\"\n\"vendor/over\" = \"\"";
+    let main = format!(
+        "use notes;\nuse over;\nuse system.console;\n\
+         fn main(): int with console.print {{ {body} return 0; }}"
+    );
+    let dependencies = |declared: &str| format!("[dependencies]\n{declared}");
+    let files = [
+        ("ambient.toml", vendored.to_owned()),
+        ("app/ambient.toml", manifest("app", &dependencies(declared))),
+        ("app/src/main.ab", main),
+        (
+            "vendor/notes/ambient.toml",
+            manifest("notes", "files = [\"notes.txt\"]"),
+        ),
+        ("vendor/notes/src/lib.ab", NOTES.to_owned()),
+        ("vendor/notes/notes.txt", "milk".to_owned()),
+        (
+            "vendor/over/ambient.toml",
+            manifest("over", &dependencies(&on("notes", passed))),
+        ),
+        ("vendor/over/src/lib.ab", OVER.to_owned()),
+    ];
+    files
+        .into_iter()
+        .map(|(path, text)| (path.into(), text))
+        .collect()
+}
 
-/// What running the package over `store` prints and warns.
-fn run(files: &Files, store: &MemoryStore) -> (String, String) {
+/// What running an app that declares `declared` prints and warns.
+fn ran(files: &Files) -> (String, String) {
     let command = Command::Run {
         at: Chosen::default(),
         bin: None,
         args: Vec::new(),
     };
-    let (_, world) = Scripted::within("app").execute_over(files, store, &command);
+    let (_, world) = Scripted::within("app").execute(files, &command);
     (world.out, world.err)
 }
 
-#[test]
-fn a_granted_call_reads_a_file_of_its_package() {
-    let files = package(GRANTED, "milk", "notes.txt");
-
-    assert_eq!(
-        run(&files, &MemoryStore::new()),
-        ("milk\n".to_owned(), String::new())
-    );
+/// What an app whose `main` is `body` prints and warns, with `notes`
+/// granted as `granted` says and `over` nothing.
+fn said(body: &str, granted: &str) -> (String, String) {
+    let declared = on("notes", granted) + &on("over", "");
+    ran(&workspace(body, &declared, ""))
 }
 
+const SAYS: &str = "notes.say(\"hello\");";
+const PRINTS: &str = ", grants = [\"system.console.print\"]";
+
 #[test]
-fn a_call_takes_nothing_its_package_was_not_granted() {
-    let (out, err) = run(&package("", "milk", "notes.txt"), &MemoryStore::new());
+fn a_dependency_takes_nothing_it_is_not_granted() {
+    let (out, err) = said(SAYS, "");
 
     assert_eq!(out, "");
-    assert!(err.contains("ambient:build.read"), "{err}");
+    let takes = "notes:.say: it takes `system:console.print`, which its package is not granted\n  \
+                 where `app` declares `notes`, grant it: grants = [\"system.console.print\"]\n";
+    assert!(err.ends_with(takes), "{err}");
 }
 
 #[test]
-fn a_build_follows_the_files_it_read() {
-    let store = MemoryStore::new();
-    let said = |notes: &str| run(&package(GRANTED, notes, "notes.txt"), &store).0;
+fn checking_holds_a_dependency_as_running_does() {
+    let declared = on("notes", "") + &on("over", "");
+    let check = Command::Check {
+        at: Chosen::default(),
+    };
+    let files = workspace(SAYS, &declared, "");
+    let (code, world) = Scripted::within("app").execute(&files, &check);
 
-    assert_eq!(said("milk"), "milk\n");
-    assert_eq!(said("eggs"), "eggs\n");
+    assert_eq!(code, 1, "{}", world.err);
 }
 
 #[test]
-fn a_build_reads_nothing_outside_its_package() {
-    let said = |path: &str| run(&package(GRANTED, "milk", path), &MemoryStore::new()).0;
+fn a_dependency_takes_what_it_is_granted_by_ability_or_by_module() {
+    let hello = ("hello\n".to_owned(), String::new());
 
-    let refused = |path: &str| format!("{path} is not a file of the package\n");
-    assert_eq!(said("../secret.txt"), refused("../secret.txt"));
-    assert_eq!(said("/secret.txt"), refused("/secret.txt"));
+    assert_eq!(said(SAYS, PRINTS), hello);
+    assert_eq!(said(SAYS, ", grants = [\"system.console\"]"), hello);
 }
 
 #[test]
-fn a_build_reads_only_the_files_its_package_lists() {
-    let said = |path: &str| run(&package(GRANTED, "milk", path), &MemoryStore::new()).0;
+fn a_dependency_is_held_only_for_what_is_used_of_it() {
+    let plain = "console.print!(notes.plain());";
 
-    assert_eq!(
-        said("draft.txt"),
-        "draft.txt is not a file of the package\n"
-    );
-    assert_eq!(said("./notes.txt"), "milk\n");
-    assert!(said("ambient.toml").starts_with("[package]\nname = \"app\""));
+    assert_eq!(said(plain, ""), ("plain\n".to_owned(), String::new()));
 }
 
 #[test]
-fn a_granted_call_lists_a_directory_of_its_package() {
-    let lists = READS
-        .replace("build.read!(path)", "build.list!(path)")
-        .replace("build.read", "build.list")
-        .replace(
-            "let text: string => { return text; }",
-            "let names: List<string> => { return names.join_with(\" \"); }",
-        );
-    let mut files = package("grants = [\"ambient.build.list\"]", "milk", "kept");
-    files.insert(
-        PathBuf::from("app/src/main.ab"),
-        lists.replace("PATH", "kept"),
-    );
-
-    assert_eq!(run(&files, &MemoryStore::new()).0, "one.txt two.txt\n");
-}
-
-#[test]
-fn a_grant_names_an_ability() {
-    let files = package("grants = [\"ambient.build.peek\"]", "milk", "notes.txt");
-    let (out, err) = run(&files, &MemoryStore::new());
+fn a_comptime_call_of_a_dependency_takes_what_the_dependency_is_granted() {
+    let kept = "console.print!(notes.kept());";
+    let (out, err) = said(kept, "");
 
     assert_eq!(out, "");
-    assert_eq!(
-        err,
-        "error: app: the grant `ambient.build.peek` names no ability it can reach\n"
+    assert!(
+        err.contains("`ambient:build.read`, which its package is not granted"),
+        "{err}"
     );
+    let reads = ", grants = [\"ambient.build.read\"]";
+    assert_eq!(said(kept, reads), ("milk\n".to_owned(), String::new()));
+}
+
+#[test]
+fn a_dependency_grants_what_it_depends_on_only_what_it_holds() {
+    let through = |granted: &str| {
+        let declared = on("notes", "") + &on("over", granted);
+        ran(&workspace("over.say(\"hello\");", &declared, PRINTS))
+    };
+
+    assert_eq!(through(PRINTS), ("hello\n".to_owned(), String::new()));
+    // What `over` grants is nothing it was granted itself.
+    let (out, err) = through("");
+    assert_eq!(out, "");
+    assert!(err.contains("which its package is not granted"), "{err}");
+}
+
+#[test]
+fn a_grant_names_an_ability_or_a_module() {
+    let (_, err) = said(SAYS, ", grants = [\"system.console.shout\"]");
+
+    let unknown = "error: app: the grant `system.console.shout` to `notes` names no ability and \
+                   no module it can reach\n";
+    assert_eq!(err, unknown);
+}
+
+#[test]
+fn a_package_at_a_directory_is_granted_nothing_since_it_takes_anything() {
+    let beside = "notes = { path = \"../vendor/notes\", grants = [] }\n";
+    let (_, err) = ran(&workspace(SAYS, beside, ""));
+
+    let refused = "error: app/ambient.toml: the dependency `notes` says what a package at a \
+                   `path` is granted, which is everything\n";
+    assert_eq!(err, refused);
 }

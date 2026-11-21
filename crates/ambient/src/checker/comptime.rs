@@ -67,12 +67,13 @@ impl Checker<'_> {
         // package the call is written in.
         let row = self.env.functions.get(function).map(|taken| &taken.row);
         let package = &self.symbol.module.package;
-        let ungranted = |ability: &&Symbol| !evaluator.granted(package, ability);
-        if let Some(ability) = row.into_iter().flatten().find(ungranted) {
-            return Err(Error::Ungranted {
-                symbol: self.symbol.clone(),
-                ability: ability.clone(),
-            });
+        for ability in row.into_iter().flatten() {
+            if !evaluator.granted(package, ability)? {
+                return Err(Error::Ungranted {
+                    symbol: self.symbol.clone(),
+                    ability: ability.clone(),
+                });
+            }
         }
         let result = evaluator.evaluate(package, function, &values)?;
         let spliced = splice(&result).ok_or_else(|| Error::NotSpliceable {

@@ -54,7 +54,7 @@ const TOOL: &str = r#"
 /// `program`, and gives the world it left.
 fn build(program: &str) -> Scripted {
     let manifest = "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n\
-                    grants = [\"ambient.build.annotations\"]\n[bin.main]\ntarget = \"pkg.main.page\"";
+                    [bin.main]\ntarget = \"pkg.main.page\"";
     let files: BTreeMap<PathBuf, String> = [
         ("app/ambient.toml", manifest.to_owned()),
         ("app/src/main.ab", format!("{TOOL}{program}")),

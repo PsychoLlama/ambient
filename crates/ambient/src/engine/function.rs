@@ -88,7 +88,7 @@ impl Engine<'_> {
         }
         // What a comptime call may take is the package's grants.
         if !callees.is_empty() {
-            key.bytes(&encode(&self.sources.grants(&symbol.module.package)));
+            key.bytes(&encode(&self.granted_to(&symbol.module.package)?));
         }
         // A comptime call that takes abilities observed the world. Its
         // result is kept with the definition and looked at again before

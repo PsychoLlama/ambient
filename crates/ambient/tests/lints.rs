@@ -45,7 +45,7 @@ fn checked(source: &str, rest: &str) -> (i32, Scripted) {
     check(&files)
 }
 
-const LISTED: &str = "lints = [\"pkg.main.short\"]\ngrants = [\"ambient.build.definitions\"]";
+const LISTED: &str = "lints = [\"pkg.main.short\"]";
 
 #[test]
 fn checking_reports_what_a_listed_lint_finds_where_it_is() {

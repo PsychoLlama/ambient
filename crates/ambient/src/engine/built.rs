@@ -172,22 +172,10 @@ impl Engine<'_> {
     ///
     /// # Errors
     ///
-    /// Fails if the tool takes an ability its package is not granted,
-    /// does not compile for this machine, or faults.
+    /// Fails if the tool does not check, which one that takes an
+    /// ability its package is not granted does not, does not compile
+    /// for this machine, or faults.
     pub fn tool(&self, tool: &Symbol, args: &[Value]) -> Result<Value, Error> {
-        let package = &tool.module.package;
-        let granted = self.sources.grants(package);
-        let row = self.signature(tool)?.map(|(signature, _)| signature.row);
-        if let Some(ability) = row
-            .iter()
-            .flatten()
-            .find(|ability| !granted.contains(ability))
-        {
-            return Err(Error::ToolUngranted {
-                symbol: tool.clone(),
-                ability: ability.clone(),
-            });
-        }
-        self.run(package, tool, args)
+        self.run(&tool.module.package, tool, args)
     }
 }

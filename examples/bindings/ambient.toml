@@ -3,4 +3,3 @@ name = "bindings"
 id = "b41f7d0e63a84c1f9e2d5a7c08f3b6d9"
 version = "0.1.0"
 files = ["manifest.json"]
-grants = ["ambient.build.read"]

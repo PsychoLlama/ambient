@@ -4,4 +4,3 @@ id = "7c1e4b9a02d84f6e9b35a1c8d07e6f24"
 version = "0.1.0"
 description = "Builds a program for a JavaScript host, and the host that loads it"
 files = ["host"]
-grants = ["ambient.build.compile", "ambient.build.annotations", "ambient.build.signature", "ambient.build.digest", "ambient.build.doc", "ambient.build.host_code", "ambient.build.read", "ambient.errors.throw"]

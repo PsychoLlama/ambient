@@ -15,7 +15,7 @@ use crate::core::{self, Open, Tree};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, encode};
 use crate::lower::deep;
-use crate::surface::{DefinitionKind, Function, Reference, TypeDefinition};
+use crate::surface::{DefinitionKind, ExternKind, Function, Reference, TypeDefinition};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::{AbilityInfo, ContractInfo, Env, Ty, TypeInfo};
 
@@ -400,6 +400,9 @@ impl Engine<'_> {
                 })
             }
             DefinitionKind::Extern(native) => {
+                if let ExternKind::Function { row, .. } = &native.kind {
+                    self.held_to(symbol, row)?;
+                }
                 let env = self.environment(used, &[], &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
                     checker::check_extern(symbol, native, &package, &env)
@@ -425,6 +428,7 @@ impl Engine<'_> {
                 })
             }
             DefinitionKind::Function(function) => {
+                self.held_to(symbol, &function.row)?;
                 self.check_function(symbol, function, used, key, false)
             }
             // A constant's value is checked as the body of a function
@@ -439,6 +443,7 @@ impl Engine<'_> {
                 let function = self.generated(symbol)?;
                 key.bytes(&encode(&*function));
                 let used = definitions(|visit| whole(&function, visit));
+                self.held_to(symbol, &function.row)?;
                 let checked = self.check_function(symbol, &function, used, key, false);
                 // A node of it is nowhere in the text: one an error is
                 // at is kept apart from a node of the call.

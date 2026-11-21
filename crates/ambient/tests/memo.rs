@@ -164,21 +164,6 @@ fn a_failure_is_observed_like_any_result() {
     assert_eq!(fixed.main, Ok(int(7)));
 }
 
-// Grants
-
-#[test]
-fn a_comptime_call_takes_only_what_its_package_is_granted() {
-    let world = World::new(Cell::new(5));
-    let built = build_in(&program([]), &MemoryStore::new(), &world, true);
-    let ungranted = Error::Ungranted {
-        symbol: value("main", "main"),
-        ability: ask(),
-    };
-
-    assert_eq!(built.main, Err(ungranted));
-    assert!(built.ran.is_empty());
-}
-
 #[test]
 fn a_grant_checks_the_call_again() {
     let (store, world) = (MemoryStore::new(), World::new(Cell::new(5)));

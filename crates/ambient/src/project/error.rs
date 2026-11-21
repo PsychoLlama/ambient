@@ -40,11 +40,6 @@ pub enum ProjectError {
         package: String,
         prelude: String,
     },
-    /// A build grant names no ability the package can reach.
-    Grant {
-        package: String,
-        grant: String,
-    },
     /// A build step or a lint, as `kind` says, names a target or a
     /// function the package cannot reach.
     Step {
@@ -133,12 +128,6 @@ impl fmt::Display for ProjectError {
                 write!(
                     f,
                     "{package}: the prelude `{prelude}` names no package it can reach"
-                )
-            }
-            Self::Grant { package, grant } => {
-                write!(
-                    f,
-                    "{package}: the grant `{grant}` names no ability it can reach"
                 )
             }
             Self::Step {

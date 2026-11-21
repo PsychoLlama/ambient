@@ -30,7 +30,7 @@ use ambient_runtime::FAULT_PACKAGE;
 pub use bins::{Bin, Binary, MAIN};
 pub use contents::Contents;
 pub use declare::declared;
-pub use dependency::Dependency;
+pub use dependency::{Dependency, Granted};
 pub use error::ProjectError;
 pub use fetch::Kept;
 pub use files::{Disk, Files};
@@ -39,7 +39,7 @@ pub use locked::{
     Commit, LOCK, Lock, Locked, Nowhere, OFFLINE, Offline, Snapshots, Source, digest, fetched,
 };
 pub use manifest::{Bundle, Manifest, Package};
-use members::{Members, normal};
+use members::{Members, manifest, normal};
 pub use members::{apart, covered, named, nearest};
 pub use settle::Update;
 pub use vendor::{Vendored, kept, vendored};
@@ -51,7 +51,7 @@ use crate::surface::{Definition, GENERATOR};
 use crate::symbol::PackageId;
 use crate::symbol::{ModuleId, Namespace, Symbol};
 use crate::syntax::{Placed, Position};
-use crate::workspace::{Sources, Workspace};
+use crate::workspace::{Granting, Sources, Workspace};
 
 /// The name of a package's manifest.
 pub const MANIFEST: &str = "ambient.toml";
@@ -194,6 +194,7 @@ pub fn open_with(
     crate::library::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
     crate::system::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
     let root = opening.member(&directory)?;
+    opening.hold_vendored()?;
     let bins = opening.bins.remove(&root).unwrap_or_default();
     Ok(Project {
         bins,
@@ -307,6 +308,11 @@ impl Opening<'_> {
             return Err(ProjectError::Manifest { path, reason });
         }
         self.workspace.identify(&name, &manifest.id);
+        // A snapshot is no code of the workspace's: it takes what
+        // those that declare it grant.
+        if snapshot.is_some() {
+            self.workspace.hold(&name);
+        }
         if !manifest.native.is_empty() {
             self.natives.insert(name.clone(), manifest.native.clone());
         }
@@ -349,14 +355,18 @@ impl Opening<'_> {
             self.workspace
                 .depend(&name, local, &package)
                 .map_err(ProjectError::Workspace)?;
+            let granted = &manifest.granted[local];
+            self.workspace.granting(Granting {
+                from: PackageId(name.clone()),
+                local: local.clone(),
+                to: PackageId(package),
+                abilities: granted.abilities.clone(),
+                native: granted.native,
+            });
         }
         for prelude in &manifest.preludes {
             let module = self.prelude(&name, prelude)?;
             self.workspace.prelude(&name, module);
-        }
-        for grant in &manifest.grants {
-            let ability = self.grant(&name, grant)?;
-            self.workspace.grant(&name, ability);
         }
         for step in &manifest.steps {
             let named = |path| self.value(&name, path, "build step", &step.tool);
@@ -405,23 +415,22 @@ impl Opening<'_> {
         Ok(())
     }
 
-    /// The ability a build grant names, which is one some module that
-    /// was opened declares.
-    fn grant(&self, package: &str, grant: &str) -> Result<Symbol, ProjectError> {
-        let unknown = || ProjectError::Grant {
-            package: package.to_owned(),
-            grant: grant.to_owned(),
+    /// Holds each member that was vendored to what it is granted, as
+    /// the package it was copied from would be.
+    fn hold_vendored(&mut self) -> Result<(), ProjectError> {
+        let Some(base) = self.members.root.clone() else {
+            return Ok(());
         };
-        let (module, name) = grant.rsplit_once('.').ok_or_else(unknown)?;
-        let module = self.prelude(package, module);
-        let module = module.map_err(|_| unknown())?;
-        let declared = self.workspace.module(&module).is_some_and(|module| {
-            let ability = |definition: &Definition| {
-                definition.name == name && definition.kind.namespace() == Namespace::Ability
+        for path in manifest(self.files, &base)?.vendored.into_keys() {
+            let directory = normal(&base.join(path));
+            let copied = |opened: &(&String, &Contents)| {
+                Members::same(self.files, &opened.1.directory, &directory)
             };
-            module.definitions().iter().any(ability)
-        });
-        declared.then(|| module.ability(name)).ok_or_else(unknown)
+            if let Some((name, _)) = self.opened.iter().find(copied) {
+                self.workspace.hold(name);
+            }
+        }
+        Ok(())
     }
 
     /// The function or the target that the build step or the lint

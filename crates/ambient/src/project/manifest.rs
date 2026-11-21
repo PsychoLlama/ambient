@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 use super::bins::Bin;
-use super::dependency::{Declared, Dependency, inside};
+use super::dependency::{Declared, Dependency, Granted, inside};
 use super::version::Version;
 
 /// A build step: a tool of the package, and the target it adds files
@@ -68,9 +68,9 @@ pub struct Package {
     pub preludes: Vec<String>,
     /// Other packages, by the name this one uses for each.
     pub dependencies: BTreeMap<String, Dependency>,
-    /// The abilities the package's comptime calls may take from the
-    /// build target, each a path as a prelude's is, to an ability.
-    pub grants: Vec<String>,
+    /// What the package lets each dependency take, by the name it
+    /// uses for it.
+    pub granted: BTreeMap<String, Granted>,
     /// The files and directories beside the sources that are part of
     /// the package, each a path from the manifest's directory.
     pub files: Vec<PathBuf>,
@@ -98,8 +98,6 @@ struct Said {
     description: Option<String>,
     #[serde(default)]
     preludes: Vec<String>,
-    #[serde(default)]
-    grants: Vec<String>,
     #[serde(default)]
     files: Vec<PathBuf>,
     #[serde(default)]
@@ -192,11 +190,12 @@ impl Manifest {
                 }),
             };
         };
-        let mut dependencies = BTreeMap::new();
+        let (mut dependencies, mut granted) = (BTreeMap::new(), BTreeMap::new());
         for (name, declared) in written.dependencies {
             let read = declared.read();
-            let read = read.map_err(|wrong| format!("the dependency `{name}` {wrong}"))?;
-            dependencies.insert(name, read);
+            let (on, grants) = read.map_err(|wrong| format!("the dependency `{name}` {wrong}"))?;
+            dependencies.insert(name.clone(), on);
+            granted.insert(name, grants);
         }
         for (name, bin) in &written.bin {
             if let Some(wrong) = bin.wrong(name) {
@@ -233,7 +232,7 @@ impl Manifest {
             description: said.description,
             preludes: said.preludes,
             dependencies,
-            grants: said.grants,
+            granted,
             files: said.files,
             steps: written.steps,
             lints: said.lints,

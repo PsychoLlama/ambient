@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::pack::Refused;
 use crate::surface::Path;
-use crate::symbol::{ModuleId, Symbol};
+use crate::symbol::{ModuleId, PackageId, Symbol};
 use crate::verify::Invalid;
 
 /// A problem in the program being built.
@@ -198,7 +198,6 @@ pub enum Error {
     /// it does not name its own.
     ToolConflict(Symbol),
     /// A tool takes a build ability that its package was not granted.
-    ToolUngranted { symbol: Symbol, ability: Symbol },
     /// A program's entry has type parameters.
     GenericEntry(Symbol),
     /// An ability is used where nothing binds it. `closure` is whether
@@ -225,6 +224,15 @@ pub enum Error {
     /// A comptime call takes a build ability that the package it is
     /// written in was not granted.
     Ungranted { symbol: Symbol, ability: Symbol },
+    /// A function or an extern takes an ability its package is not
+    /// granted. See "Grants" in `docs/spec/packages.md`.
+    Takes { symbol: Symbol, ability: Symbol },
+    /// A grant in a manifest names no ability and no module.
+    UnknownGrant {
+        package: PackageId,
+        dependency: String,
+        grant: String,
+    },
     /// A comptime call names a function that takes abilities, and the
     /// build has no target to provide them.
     ComptimeAbilities(Symbol),
@@ -262,6 +270,7 @@ impl Error {
             | Self::ExportCycle(_)
             | Self::InternalModule { .. }
             | Self::DuplicateName { .. }
+            | Self::UnknownGrant { .. }
             | Self::Pack(_) => None,
             Self::UnknownSymbol(symbol)
             | Self::GenericAbort(symbol)
@@ -283,7 +292,6 @@ impl Error {
             | Self::Lint { symbol, .. }
             | Self::BuiltTwice { symbol, .. }
             | Self::NotAnnotation { symbol, .. }
-            | Self::ToolUngranted { symbol, .. }
             | Self::SpawnOutsideGroup(symbol)
             | Self::ComptimeAbilities(symbol)
             | Self::EntryAbilities(symbol)
@@ -325,6 +333,7 @@ impl Error {
             | Self::Unoffered { symbol, .. }
             | Self::SpawnBinding { symbol, .. }
             | Self::Ungranted { symbol, .. }
+            | Self::Takes { symbol, .. }
             | Self::UntypedParameter { symbol, .. }
             | Self::Untestable { symbol, .. }
             | Self::Backend { symbol, .. }

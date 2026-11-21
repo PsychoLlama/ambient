@@ -47,6 +47,17 @@ impl Dependency {
     }
 }
 
+/// What a declaration lets its dependency take. See "Grants" in
+/// `docs/spec/packages.md`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Granted {
+    /// Each a path as a row's is: an ability, or a module for every
+    /// public ability of it.
+    pub abilities: Vec<String>,
+    /// Whether the dependency may bring native code.
+    pub native: bool,
+}
+
 /// A dependency as it is written: every key any kind of one takes.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,6 +72,8 @@ pub(super) struct Declared {
     rev: Option<String>,
     /// The package's directory in the repository, if not its top.
     directory: Option<PathBuf>,
+    grants: Option<Vec<String>>,
+    native: Option<bool>,
 }
 
 /// Whether a path names something under where it starts.
@@ -70,9 +83,26 @@ pub(super) fn inside(path: &Path) -> bool {
 }
 
 impl Declared {
+    /// The dependency this says and what it is granted, or what is
+    /// wrong with how it says either.
+    pub(super) fn read(mut self) -> Result<(Dependency, Granted), &'static str> {
+        let (grants, native) = (self.grants.take(), self.native.take());
+        let dependency = self.placed()?;
+        // A package at a directory is the workspace's own, and held
+        // to nothing.
+        if dependency.path().is_some() && (grants.is_some() || native.is_some()) {
+            return Err("says what a package at a `path` is granted, which is everything");
+        }
+        let granted = Granted {
+            abilities: grants.unwrap_or_default(),
+            native: native.unwrap_or(false),
+        };
+        Ok((dependency, granted))
+    }
+
     /// The dependency this says, or what is wrong with how it says
     /// where its package is.
-    pub(super) fn read(self) -> Result<Dependency, &'static str> {
+    fn placed(self) -> Result<Dependency, &'static str> {
         let states = [&self.branch, &self.tag, &self.rev];
         let states = states.into_iter().flatten().count();
         match (self.git, self.path) {
