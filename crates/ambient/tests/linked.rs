@@ -189,7 +189,7 @@ fn executed_told(scratch: &Scratch, command: &Command, told: fn(String) -> Strin
 /// Writes the package, whose bundle is the file at `path` in it.
 fn package(scratch: &Scratch, path: &str) {
     let manifest = format!(
-        "name = \"app\"\nid = \"{ID}\"\nversion = \"0.1.0\"\n\n\
+        "[package]\nname = \"app\"\nid = \"{ID}\"\nversion = \"0.1.0\"\n\n\
          [native.{MACHINE}]\npath = \"{path}\"\n"
     );
     scratch.write("app/ambient.toml", &manifest);

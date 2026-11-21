@@ -120,13 +120,20 @@ pub fn vendored(
     };
     let listed = written(&relative(files, base, &directory));
     let workspace = manifests.of(base)?;
-    let members = workspace.entry("members").or_insert(value(Array::new()));
+    let workspace = workspace
+        .entry("workspace")
+        .or_insert(Item::Table(Table::new()));
+    let members = &mut workspace["members"];
+    if members.is_none() {
+        *members = value(Array::new());
+    }
     if let Some(members) = members.as_array_mut() {
         members.push(listed.as_str());
     }
-    let record = workspace
-        .entry("vendored")
-        .or_insert(Item::Table(Table::new()));
+    let record = &mut workspace["vendored"];
+    if record.is_none() {
+        *record = Item::Table(Table::new());
+    }
     record[listed.as_str()] = value(snapshot.to_string());
     // Whatever named the original's directory would find two members
     // of one package: it depends on the one in the workspace instead.

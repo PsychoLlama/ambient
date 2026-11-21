@@ -57,8 +57,9 @@ const GRANTED: &str = "grants = [\"ambient.build.compile\", \"ambient.build.host
 /// A package whose one module is `source`, with host code for
 /// JavaScript, and whose manifest ends with `grants`.
 fn package(source: &str, grants: &str) -> Files {
-    let manifest =
-        format!("name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\nfiles = [\"js\"]\n{grants}");
+    let manifest = format!(
+        "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\nfiles = [\"js\"]\n{grants}"
+    );
     let files = [
         ("app/ambient.toml", manifest),
         ("app/src/main.ab", source.to_owned()),

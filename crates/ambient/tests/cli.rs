@@ -22,7 +22,7 @@ fn a_package_is_its_manifest_and_a_module_for_each_file() {
     let files = files([
         (
             "app/ambient.toml",
-            "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nwords = { path = \"../lib\" }",
+            "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nwords = { path = \"../lib\" }",
         ),
         (
             "app/src/main.ab",
@@ -43,7 +43,7 @@ fn a_package_is_its_manifest_and_a_module_for_each_file() {
         ),
         (
             "lib/ambient.toml",
-            "name = \"shout\"\nid = \"shout\"\nversion = \"0.1.0\"",
+            "[package]\nname = \"shout\"\nid = \"shout\"\nversion = \"0.1.0\"",
         ),
         (
             "lib/src/lib.ab",
@@ -406,7 +406,7 @@ FAIL  app:main.test_faults
 fn a_test_a_generated_module_was_given_is_run() {
     let file = |(path, text): (&str, &str)| (PathBuf::from(path), text.to_owned());
     let files = [
-        ("app/ambient.toml", "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\""),
+        ("app/ambient.toml", "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\""),
         (
             "app/src/make.ab",
             "use ambient.code; use ambient.tree; use ambient.test.{unmet};
@@ -595,7 +595,7 @@ fn a_new_package_is_named_for_its_directory_and_given_an_id() {
     let id = format!("{:016x}{:016x}", 1, 2);
     assert_eq!(
         world.file("./ambient.toml"),
-        format!("name = \"tea\"\nid = \"{id}\"\nversion = \"0.1.0\"\n")
+        format!("[package]\nname = \"tea\"\nid = \"{id}\"\nversion = \"0.1.0\"\n")
     );
     // What was there already is left as it was.
     assert_eq!(world.file("./src/main.ab"), "kept");
@@ -627,19 +627,19 @@ fn a_package_says_an_id_that_is_its_own() {
     };
 
     assert_eq!(
-        refused("name = \"app\""),
+        refused("[package]\nname = \"app\""),
         "error: app/ambient.toml: a package's manifest says its `id`\n"
     );
     assert_eq!(
-        refused("name = \"app\"\nid = \"ambient\"\nversion = \"0.1.0\""),
+        refused("[package]\nname = \"app\"\nid = \"ambient\"\nversion = \"0.1.0\""),
         "error: app/ambient.toml: a package's ID cannot be `ambient`\n"
     );
     assert_eq!(
-        refused("name = \"app\"\nid = \"system\"\nversion = \"0.1.0\""),
+        refused("[package]\nname = \"app\"\nid = \"system\"\nversion = \"0.1.0\""),
         "error: app/ambient.toml: a package's ID cannot be `system`\n"
     );
     assert_eq!(
-        refused("name = \"system\"\nid = \"app\"\nversion = \"0.1.0\""),
+        refused("[package]\nname = \"system\"\nid = \"app\"\nversion = \"0.1.0\""),
         "error: app/ambient.toml: a package cannot be named `system`\n"
     );
 }

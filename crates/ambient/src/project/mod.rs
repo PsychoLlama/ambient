@@ -27,6 +27,7 @@ use ambient_host::hash::Hash;
 use ambient_runtime::FAULT_PACKAGE;
 pub use contents::Contents;
 pub use declare::declared;
+pub use dependency::Dependency;
 pub use error::ProjectError;
 pub use fetch::Kept;
 pub use files::{Disk, Files};
@@ -34,7 +35,6 @@ use git::Git;
 pub use locked::{
     Commit, LOCK, Lock, Locked, Nowhere, OFFLINE, Offline, Snapshots, Source, digest, fetched,
 };
-pub use dependency::Dependency;
 pub use manifest::{Bundle, Manifest, Package};
 pub use members::covered;
 use members::{Members, normal};

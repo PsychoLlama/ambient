@@ -34,7 +34,7 @@ const SHORT: &str = r#"
 /// Checks a package whose module is `source` and whose manifest ends
 /// with `rest`, and gives what was reported.
 fn checked(source: &str, rest: &str) -> (i32, Scripted) {
-    let manifest = format!("name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n{rest}");
+    let manifest = format!("[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n{rest}");
     let files: BTreeMap<PathBuf, String> = [
         ("app/ambient.toml", manifest),
         ("app/src/main.ab", source.to_owned()),

@@ -41,7 +41,9 @@ fn package(grants: &str, notes: &str, path: &str) -> Files {
     let files = [
         (
             "app/ambient.toml",
-            format!("name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n{LISTED}\n{grants}"),
+            format!(
+                "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n{LISTED}\n{grants}"
+            ),
         ),
         ("app/src/main.ab", READS.replace("PATH", path)),
         ("app/notes.txt", notes.to_owned()),
@@ -115,7 +117,7 @@ fn a_build_reads_only_the_files_its_package_lists() {
         "draft.txt is not a file of the package\n"
     );
     assert_eq!(said("./notes.txt"), "milk\n");
-    assert!(said("ambient.toml").starts_with("name = \"app\""));
+    assert!(said("ambient.toml").starts_with("[package]\nname = \"app\""));
 }
 
 #[test]

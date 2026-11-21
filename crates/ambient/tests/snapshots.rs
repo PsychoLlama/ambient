@@ -19,7 +19,7 @@ fn package(at: &str) -> Files {
     let files = [
         (
             "ambient.toml",
-            "name = \"app\"\nid = \"app\"\nversion = \"1.0.0\"\nfiles = [\"notes.txt\", \"kept\"]",
+            "[package]\nname = \"app\"\nid = \"app\"\nversion = \"1.0.0\"\nfiles = [\"notes.txt\", \"kept\"]",
         ),
         ("src/main.ab", "pub fn main(): int => 1;"),
         ("src/data/table.csv", "1,2"),

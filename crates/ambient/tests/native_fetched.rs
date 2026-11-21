@@ -88,7 +88,7 @@ impl Linker for Asked {
 /// manifest says it.
 fn package(bundle: &str) -> Files {
     let manifest = format!(
-        "name = \"app\"\nid = \"00000000000000000000000000000001\"\nversion = \"1.0.0\"\n\n\
+        "[package]\nname = \"app\"\nid = \"00000000000000000000000000000001\"\nversion = \"1.0.0\"\n\n\
          [native.{MACHINE}]\n{bundle}\n"
     );
     let files = [

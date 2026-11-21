@@ -162,7 +162,7 @@ pub fn app(source: &str) -> BTreeMap<PathBuf, String> {
     let files = [
         (
             "app/ambient.toml",
-            "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"",
+            "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"",
         ),
         ("app/src/main.ab", source),
     ];

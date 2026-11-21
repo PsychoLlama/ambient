@@ -138,7 +138,7 @@ fn only_a_brand_is_put_on_a_type() {
 fn only_its_module_brands_a_value() {
     let file = |(path, text): (&str, &str)| (PathBuf::from(path), text.to_owned());
     let files: BTreeMap<PathBuf, String> = [
-        ("app/ambient.toml", "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\""),
+        ("app/ambient.toml", "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\""),
         ("app/src/units.ab", "pub type(nominal) Meters;\npub fn meters(n: int): int & Meters => Meters(n);"),
         (
             "app/src/main.ab",

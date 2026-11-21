@@ -48,7 +48,7 @@ const STEP: &str = "grants = [\"ambient.build.annotations\"]\n\
 /// manifest, and an app whose one module is `app`.
 fn workspace(step: &str, app: &str) -> BTreeMap<PathBuf, String> {
     let manifest = |name: &str, rest: &str| {
-        format!("name = \"{name}\"\nid = \"{name}\"\nversion = \"0.1.0\"\n{rest}")
+        format!("[package]\nname = \"{name}\"\nid = \"{name}\"\nversion = \"0.1.0\"\n{rest}")
     };
     let web = "[dependencies]\nweb = { path = \"../web\" }";
     let both = format!("{web}\nstyles = {{ path = \"../styles\" }}");

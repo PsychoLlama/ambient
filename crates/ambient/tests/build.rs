@@ -214,7 +214,7 @@ fn the_command_builds_a_file_that_runs_on_its_own() {
     std::fs::create_dir_all(package.join("src")).unwrap();
     std::fs::write(
         package.join("ambient.toml"),
-        "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"",
+        "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"",
     )
     .unwrap();
     std::fs::write(package.join("src/main.ab"), GREETS).unwrap();

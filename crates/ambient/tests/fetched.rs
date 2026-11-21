@@ -58,7 +58,8 @@ fn git(directory: &Path, args: &[&str]) -> String {
 /// directory of its own, among files that are not the package's. Gives
 /// the commit.
 fn repository(scratch: &Scratch) -> String {
-    let manifest = "name = \"numbers\"\nid = \"n\"\nversion = \"1.2.0\"\nfiles = [\"notes.txt\"]";
+    let manifest =
+        "[package]\nname = \"numbers\"\nid = \"n\"\nversion = \"1.2.0\"\nfiles = [\"notes.txt\"]";
     scratch.write("repo/packages/numbers/ambient.toml", manifest);
     scratch.write(
         "repo/packages/numbers/src/lib.ab",
@@ -81,7 +82,7 @@ fn repository(scratch: &Scratch) -> String {
 fn opened(scratch: &Scratch, state: &str) -> Project {
     let repo = scratch.0.join("repo");
     let manifest = format!(
-        "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n[dependencies]\n\
+        "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n[dependencies]\n\
          numbers = {{ git = \"{}\", {state} directory = \"packages/numbers\" }}",
         repo.display()
     );
@@ -159,7 +160,7 @@ fn a_branch_a_repository_lacks_is_reported() {
     scratch.write(
         "app/ambient.toml",
         &format!(
-            "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n[dependencies]\n\
+            "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n[dependencies]\n\
              numbers = {{ git = \"{}\", branch = \"absent\" }}",
             scratch.0.join("repo").display()
         ),

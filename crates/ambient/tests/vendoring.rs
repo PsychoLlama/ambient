@@ -93,7 +93,7 @@ fn a_dependent_no_longer_names_the_directory_of_the_original() {
         "{manifest}"
     );
     assert!(
-        manifest.contains("members = [\"vendor/numbers\"]"),
+        manifest.contains("[workspace]\nmembers = [\"vendor/numbers\"]"),
         "{manifest}"
     );
 }
@@ -126,8 +126,8 @@ fn a_copy_goes_to_the_workspace_and_every_member_that_was_opened_depends_on_it()
     assert_eq!(
         file(&files, "work/ambient.toml"),
         format!(
-            "members = [\"app\", \"twice\", \"vendor/numbers\"]\n\n\
-             [vendored]\n\"vendor/numbers\" = \"{}\"\n",
+            "[workspace]\nmembers = [\"app\", \"twice\", \"vendor/numbers\"]\n\n\
+             [workspace.vendored]\n\"vendor/numbers\" = \"{}\"\n",
             snapshot(&files, "work/vendor/numbers").trim_end()
         )
     );

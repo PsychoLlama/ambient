@@ -30,8 +30,9 @@ pub fn package(at: &'static str, id: &str) -> Package {
 impl Package {
     pub fn versioned(at: &'static str, id: &str, version: &str) -> Self {
         let name = at.rsplit('/').next().unwrap();
-        let manifest =
-            format!("name = \"{name}\"\nid = \"{id}\"\nversion = \"{version}\"\n[dependencies]\n");
+        let manifest = format!(
+            "[package]\nname = \"{name}\"\nid = \"{id}\"\nversion = \"{version}\"\n[dependencies]\n"
+        );
         Self {
             at,
             manifest,
@@ -83,7 +84,7 @@ pub fn files<const N: usize>(members: Option<&[&str]>, packages: [Package; N]) -
 /// The manifest of a workspace that lists `members`.
 pub fn workspace(members: &[&str]) -> String {
     let listed: Vec<String> = members.iter().map(|at| format!("\"{at}\"")).collect();
-    format!("members = [{}]", listed.join(", "))
+    format!("[workspace]\nmembers = [{}]", listed.join(", "))
 }
 
 /// What running `app` exits with, or the error it reports.

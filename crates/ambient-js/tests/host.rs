@@ -130,7 +130,7 @@ fn target() -> BTreeMap<PathBuf, String> {
 /// `output`: the module, and the JavaScript that loads it.
 fn build(output: &Path) {
     let manifest = format!(
-        "name = \"app\"\nid = \"{PACKAGE}\"\nversion = \"0.1.0\"\nfiles = [\"js\"]\n\
+        "[package]\nname = \"app\"\nid = \"{PACKAGE}\"\nversion = \"0.1.0\"\nfiles = [\"js\"]\n\
          [dependencies]\njs = {{ path = \"../js\" }}"
     );
     let mut files = target();

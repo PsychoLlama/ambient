@@ -69,7 +69,7 @@ fn told_from(report: &str, grants: &str, store: &MemoryStore, remote: &Remote) -
         .map(|grant| format!("\"ambient.build.{grant}\""))
         .collect();
     let manifest = format!(
-        "name = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\ngrants = [{}]",
+        "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\ngrants = [{}]",
         grants.join(", ")
     );
     let files: BTreeMap<PathBuf, String> = [

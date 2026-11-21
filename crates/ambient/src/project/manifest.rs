@@ -85,31 +85,60 @@ pub struct Package {
     pub native: BTreeMap<String, Bundle>,
 }
 
-/// A manifest as it is written.
+/// What a manifest says under `package`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Written {
+struct Said {
     name: Option<String>,
     id: Option<String>,
     version: Option<Version>,
     #[serde(default)]
     preludes: Vec<String>,
     #[serde(default)]
-    dependencies: BTreeMap<String, Declared>,
-    #[serde(default)]
     grants: Vec<String>,
     #[serde(default)]
     files: Vec<PathBuf>,
     #[serde(default)]
-    steps: Vec<Step>,
-    #[serde(default)]
     lints: Vec<String>,
     target: Option<String>,
+}
+
+/// What a manifest says under `workspace`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Listed {
     #[serde(default)]
-    native: BTreeMap<String, Bundle>,
-    members: Option<Vec<PathBuf>>,
+    members: Vec<PathBuf>,
     #[serde(default)]
     vendored: BTreeMap<PathBuf, String>,
+}
+
+/// A manifest as it is written: a table for the package, one for the
+/// workspace, and one for each kind of thing a package lists by name.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Written {
+    package: Option<Said>,
+    workspace: Option<Listed>,
+    #[serde(default)]
+    dependencies: BTreeMap<String, Declared>,
+    #[serde(default)]
+    steps: Vec<Step>,
+    #[serde(default)]
+    native: BTreeMap<String, Bundle>,
+}
+
+impl Written {
+    /// A table this has that only a package's manifest does, if any.
+    fn of_a_package(&self) -> Option<&'static str> {
+        let tables = [
+            ("dependencies", self.dependencies.is_empty()),
+            ("steps", self.steps.is_empty()),
+            ("native", self.native.is_empty()),
+        ];
+        let said = tables.into_iter().find(|(_, empty)| !empty);
+        said.map(|(table, _)| table)
+    }
 }
 
 /// A manifest: a package's, a workspace's, or one that is both.
@@ -132,28 +161,46 @@ impl Manifest {
     /// The text is not a manifest, and why.
     pub fn read(text: &str) -> Result<Self, String> {
         let written: Written = toml::from_str(text).map_err(|error| error.message().to_owned())?;
-        let (members, vendored) = (written.members, written.vendored);
+        let of_a_package = written.of_a_package();
+        let (members, vendored) = match written.workspace {
+            Some(listed) => (Some(listed.members), listed.vendored),
+            None => (None, BTreeMap::new()),
+        };
+        let Some(said) = written.package else {
+            return match (of_a_package, &members) {
+                (Some(table), _) => Err(format!(
+                    "`{table}` is said of a package, and there is no `package`"
+                )),
+                (None, None) => {
+                    Err("a manifest says a `package`, a `workspace`, or both".to_owned())
+                }
+                (None, Some(_)) => Ok(Self {
+                    package: None,
+                    members,
+                    vendored,
+                }),
+            };
+        };
         let mut dependencies = BTreeMap::new();
         for (name, declared) in written.dependencies {
             let read = declared.read();
             let read = read.map_err(|wrong| format!("the dependency `{name}` {wrong}"))?;
             dependencies.insert(name, read);
         }
-        let package = match (written.name, written.id, written.version) {
-            (Some(name), Some(id), Some(version)) => Some(Package {
-                name,
-                id,
-                version,
-                preludes: written.preludes,
-                dependencies,
-                grants: written.grants,
-                files: written.files,
-                steps: written.steps,
-                lints: written.lints,
-                target: written.target,
-                native: written.native,
-            }),
-            (None, None, None) if members.is_some() => None,
+        for (platform, bundle) in &written.native {
+            if let Some(wrong) = bundle.wrong() {
+                return Err(format!("the native bundle for `{platform}` {wrong}"));
+            }
+        }
+        if let Some(path) = said.files.iter().find(|path| !inside(path)) {
+            return Err(format!(
+                "the file `{}` is not under the package's directory",
+                path.display()
+            ));
+        }
+        // Each is asked for by name: what is missing is what to write.
+        let (name, id, version) = match (said.name, said.id, said.version) {
+            (Some(name), Some(id), Some(version)) => (name, id, version),
             (name, id, _) => {
                 let missing = match (name, id) {
                     (None, _) => "name",
@@ -163,21 +210,21 @@ impl Manifest {
                 return Err(format!("a package's manifest says its `{missing}`"));
             }
         };
-        for (platform, bundle) in package.iter().flat_map(|package| &package.native) {
-            if let Some(wrong) = bundle.wrong() {
-                return Err(format!("the native bundle for `{platform}` {wrong}"));
-            }
-        }
-        let outside = |path: &&PathBuf| !inside(path);
-        let mut files = package.iter().flat_map(|package| &package.files);
-        if let Some(path) = files.find(outside) {
-            return Err(format!(
-                "the file `{}` is not under the package's directory",
-                path.display()
-            ));
-        }
+        let package = Package {
+            name,
+            id,
+            version,
+            preludes: said.preludes,
+            dependencies,
+            grants: said.grants,
+            files: said.files,
+            steps: written.steps,
+            lints: said.lints,
+            target: said.target,
+            native: written.native,
+        };
         Ok(Self {
-            package,
+            package: Some(package),
             members,
             vendored,
         })
@@ -190,11 +237,11 @@ mod tests {
 
     #[test]
     fn a_manifest_is_a_package_a_workspace_or_both() {
-        let package = "name = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n";
-        let both = format!("members = [\"b\"]\n{package}");
+        let package = "[package]\nname = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n";
+        let both = format!("{package}[workspace]\nmembers = [\"b\"]");
         let read = |text: &str| Manifest::read(text).map(|m| (m.package.is_some(), m.members));
         assert_eq!(read(package), Ok((true, None)));
-        assert_eq!(read("members = []"), Ok((false, Some(Vec::new()))));
+        assert_eq!(read("[workspace]"), Ok((false, Some(Vec::new()))));
         assert_eq!(read(&both), Ok((true, Some(vec!["b".into()]))));
     }
 
@@ -202,7 +249,7 @@ mod tests {
     fn a_version_is_a_semantic_version() {
         let read = |version: &str| {
             Manifest::read(&format!(
-                "name = \"a\"\nid = \"a\"\nversion = \"{version}\""
+                "[package]\nname = \"a\"\nid = \"a\"\nversion = \"{version}\""
             ))
             .is_ok()
         };
@@ -214,16 +261,25 @@ mod tests {
 
     #[test]
     fn a_manifest_that_is_neither_says_what_it_lacks() {
-        let lacks = |text: &str| Manifest::read(text).err();
-        let says = |what: &str| Some(format!("a package's manifest says its `{what}`"));
-        assert_eq!(lacks(""), says("name"));
-        assert_eq!(lacks("name = \"a\""), says("id"));
-        assert_eq!(lacks("name = \"a\"\nid = \"a\""), says("version"));
+        let lacks = |text: &str| Manifest::read(text).unwrap_err();
+        let neither = "a manifest says a `package`, a `workspace`, or both";
+        assert_eq!(lacks(""), neither);
+        let says = |what: &str| format!("a package's manifest says its `{what}`");
+        assert_eq!(lacks("[package]"), says("name"));
+        assert_eq!(lacks("[package]\nname = \"a\""), says("id"));
+        assert_eq!(
+            lacks("[package]\nname = \"a\"\nid = \"a\""),
+            says("version")
+        );
+        assert_eq!(
+            lacks("[workspace]\n[dependencies]\nb = { path = \"b\" }"),
+            "`dependencies` is said of a package, and there is no `package`"
+        );
     }
 
     #[test]
     fn a_file_a_package_lists_is_under_its_directory() {
-        let package = "name = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n";
+        let package = "[package]\nname = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n";
         let read = |files: &str| Manifest::read(&format!("{package}files = [{files}]")).is_ok();
         assert!(read("\"pages\", \"notes/today.txt\""));
         for outside in ["\"../secret\"", "\"/etc\"", "\"\"", "\"./pages\""] {
@@ -233,7 +289,7 @@ mod tests {
 
     #[test]
     fn a_native_bundle_says_its_digest_or_where_it_is() {
-        let package = "name = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n[native.linux]\n";
+        let package = "[package]\nname = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n[native.linux]\n";
         let read = |bundle: &str| Manifest::read(&format!("{package}{bundle}")).err();
         let said = |wrong: &str| Some(format!("the native bundle for `linux` {wrong}"));
         assert_eq!(
@@ -253,7 +309,7 @@ mod tests {
 
     #[test]
     fn a_dependency_says_where_it_is_or_which_version() {
-        let package = "name = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n[dependencies]\n";
+        let package = "[package]\nname = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n[dependencies]\n";
         let read = |dependency: &str| Manifest::read(&format!("{package}{dependency}")).err();
         let said = |wrong: &str| Some(format!("the dependency `b` says {wrong}"));
         assert_eq!(read("b = { path = \"../b\" }"), None);
@@ -274,7 +330,7 @@ mod tests {
 
     #[test]
     fn a_dependency_that_says_where_its_package_is_says_no_id() {
-        let package = "name = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n[dependencies]\n";
+        let package = "[package]\nname = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n[dependencies]\n";
         let read =
             |found: &str| Manifest::read(&format!("{package}b = {{ id = \"b\", {found} }}")).err();
         let said = |wrong: &str| Some(format!("the dependency `b` says {wrong}"));
@@ -284,7 +340,7 @@ mod tests {
 
     #[test]
     fn a_dependency_in_a_repository_says_at_most_one_state_of_it() {
-        let package = "name = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n[dependencies]\n";
+        let package = "[package]\nname = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n[dependencies]\n";
         let rev = "0123456789abcdef0123456789abcdef01234567";
         let read = |found: &str| {
             let found = found.replace("REV", rev);

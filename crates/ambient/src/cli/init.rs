@@ -104,7 +104,8 @@ impl Session<'_> {
             .make_directory(&path.join("src").to_string_lossy())
             .and_then(|()| identifier(&mut *world))
             .and_then(|id| {
-                let text = format!("name = \"{name}\"\nid = \"{id}\"\nversion = \"0.1.0\"\n");
+                let text =
+                    format!("[package]\nname = \"{name}\"\nid = \"{id}\"\nversion = \"0.1.0\"\n");
                 world.store(&manifest.to_string_lossy(), text.as_bytes())
             })
             .and_then(|()| {
