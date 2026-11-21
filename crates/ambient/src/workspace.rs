@@ -76,6 +76,41 @@ pub struct Granting {
     pub native: bool,
 }
 
+/// The packages that may bring native code, of those that are held:
+/// each the workspace says may, and each a declaration says may whose
+/// own package may. A grant of it is cut as any is, and it names no
+/// ability, so it is known with no module read.
+fn bringing(sources: &dyn Sources) -> Vec<PackageId> {
+    let outright = |package: &PackageId| sources.holds(package).is_some_and(|held| held.native);
+    let mut may: Vec<PackageId> = sources.held().into_iter().filter(outright).collect();
+    let grants = sources.grants();
+    loop {
+        let allowed =
+            |package: &PackageId| sources.holds(package).is_none() || may.contains(package);
+        let passed =
+            |grant: &&Granting| grant.native && allowed(&grant.from) && !allowed(&grant.to);
+        let Some(grant) = grants.iter().find(passed) else {
+            return may;
+        };
+        may.push(grant.to.clone());
+    }
+}
+
+/// Whether a program may reach native code of `package`. See "Grants"
+/// in `docs/spec/packages.md`.
+#[must_use]
+pub fn native(sources: &dyn Sources, package: &PackageId) -> bool {
+    sources.holds(package).is_none() || bringing(sources).contains(package)
+}
+
+/// The declarations that could let `package` bring native code: those
+/// of packages that may themselves.
+#[must_use]
+pub fn could_allow(sources: &dyn Sources, package: &PackageId) -> Vec<Granting> {
+    let leads = |grant: &Granting| grant.to == *package && native(sources, &grant.from);
+    sources.grants().into_iter().filter(leads).collect()
+}
+
 /// Why a workspace refused a change.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WorkspaceError {
@@ -294,5 +329,38 @@ impl Sources for Workspace {
         packages.sort_by_key(|(package, _)| self.identity(package));
         let steps = packages.into_iter().flat_map(|(_, steps)| steps);
         steps.cloned().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Granting, Workspace, native};
+    use crate::symbol::PackageId;
+
+    /// A declaration that lets its dependency bring native code.
+    fn allowing(from: &str, to: &str) -> Granting {
+        Granting {
+            from: PackageId(from.to_owned()),
+            local: to.to_owned(),
+            to: PackageId(to.to_owned()),
+            abilities: Vec::new(),
+            native: true,
+        }
+    }
+
+    #[test]
+    fn native_code_is_brought_only_through_what_may_bring_it() {
+        let mut workspace = Workspace::new();
+        workspace.hold("http");
+        workspace.hold("sqlite");
+        let may =
+            |workspace: &Workspace, name: &str| native(workspace, &PackageId(name.to_owned()));
+        workspace.granting(allowing("http", "sqlite"));
+        // `http` may not itself, so it has nothing to pass on.
+        assert!(!may(&workspace, "sqlite"));
+
+        workspace.granting(allowing("app", "http"));
+        assert!(may(&workspace, "sqlite"));
+        assert!(may(&workspace, "app"));
     }
 }

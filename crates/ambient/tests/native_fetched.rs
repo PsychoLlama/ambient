@@ -109,14 +109,29 @@ fn listed() -> Files {
 /// What building the binary `bin` of `files` on `mirror` exits with, the
 /// bundles the linker was handed, and what was said went wrong.
 fn built(files: &Files, mirror: &dyn Snapshots, bin: &str) -> (i32, Vec<PathBuf>, String) {
+    built_in("app", files, mirror, bin)
+}
+
+/// [`built`], of the package in the directory `within`.
+fn built_in(
+    within: &str,
+    files: &Files,
+    mirror: &dyn Snapshots,
+    bin: &str,
+) -> (i32, Vec<PathBuf>, String) {
     let build = Command::Build {
         at: Chosen::default(),
         bin: Some(bin.to_owned()),
         output: None,
     };
     let linker = Asked::default();
-    let (code, world) =
-        Scripted::within("app").execute_linked(files, &MemoryStore::new(), mirror, &linker, &build);
+    let (code, world) = Scripted::within(within).execute_linked(
+        files,
+        &MemoryStore::new(),
+        mirror,
+        &linker,
+        &build,
+    );
     let bundles = linker
         .0
         .borrow()
@@ -220,4 +235,55 @@ fn a_build_with_no_network_fails_where_it_would_fetch() {
     assert_eq!(code, 1);
     assert!(said.contains(OFFLINE), "{said}");
     assert!(mirror.asked.borrow().is_empty());
+}
+
+/// A workspace of a package that was vendored, whose library calls
+/// into its bundle, and a program over it that declares it with
+/// `allowed` after where it is.
+fn vendored(allowed: &str) -> Files {
+    let manifest = |name: &str, rest: &str| {
+        format!("[package]\nname = \"{name}\"\nid = \"{name}\"\nversion = \"1.0.0\"\n{rest}")
+    };
+    let bundle = format!(
+        "[native.{MACHINE}]\ndigest = \"{}\"\nurl = \"{URL}\"",
+        digest(BUNDLE)
+    );
+    let declared =
+        format!("[dependencies]\ndep = {{ id = \"dep\", version = \"1.0.0\"{allowed} }}");
+    let listed = "[workspace]\nmembers = [\"user\", \"dep\"]\n[workspace.vendored]\ndep = \"\"";
+    let files = [
+        ("ambient.toml", listed.to_owned()),
+        ("dep/ambient.toml", manifest("dep", &bundle)),
+        (
+            "dep/src/lib.ab",
+            "extern fn double(n: int): int;\npub fn twice(n: int): int => double(n);".to_owned(),
+        ),
+        ("user/ambient.toml", manifest("user", &declared)),
+        (
+            "user/src/main.ab",
+            "use dep;\npub fn main(): int => dep.twice(21);".to_owned(),
+        ),
+    ];
+    files
+        .into_iter()
+        .map(|(path, text)| (path.into(), text))
+        .collect()
+}
+
+#[test]
+fn a_dependency_brings_native_code_only_where_its_declaration_says_it_may() {
+    let mirror = serving(BUNDLE);
+    let (code, bundles, said) = built_in("user", &vendored(""), &mirror, "main");
+
+    assert_eq!((code, bundles), (1, Vec::new()));
+    let barred = "error: the program reaches native code of the package `dep`, which nothing that \
+                  declares it allows. Native code is held to no grant: allowing it trusts the \
+                  package with the machine.\n  \
+                  where `user` declares `dep`, allow it: native = true\n";
+    assert_eq!(said, barred);
+    // What may not be linked is not fetched either.
+    assert!(mirror.asked.borrow().is_empty());
+
+    let allowed = built_in("user", &vendored(", native = true"), &mirror, "main");
+    assert_eq!((allowed.0, allowed.2), (0, String::new()));
 }

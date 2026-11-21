@@ -21,15 +21,8 @@ use crate::workspace::Granting;
 /// machine a build is run on.
 const BUILD: &str = "build";
 
-/// What a package that is held holds.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(super) struct Holding {
-    abilities: BTreeSet<Symbol>,
-    native: bool,
-}
-
-/// What each held package of a workspace holds.
-pub(super) type Holdings = BTreeMap<PackageId, Holding>;
+/// The abilities each held package of a workspace holds.
+pub(super) type Holdings = BTreeMap<PackageId, BTreeSet<Symbol>>;
 
 /// Whether `package` takes `ability` whatever it is granted: it is the
 /// package's own, or the standard library's and reaches no world.
@@ -49,7 +42,6 @@ struct Granted {
     from: PackageId,
     to: PackageId,
     abilities: Vec<Symbol>,
-    native: bool,
 }
 
 /// The least each held package holds that satisfies every grant: one
@@ -58,29 +50,29 @@ struct Granted {
 fn least(mut held: Holdings, granted: &[Granted]) -> Holdings {
     loop {
         let mut added = Vec::new();
-        for grant in granted.iter().filter(|grant| held.contains_key(&grant.to)) {
+        for grant in granted {
+            let Some(to) = held.get(&grant.to) else {
+                continue;
+            };
             // A package that is not held is the workspace's own.
             let from = held.get(&grant.from);
             let passes = |ability: &&Symbol| {
-                free(&grant.from, ability)
-                    || from.is_none_or(|from| from.abilities.contains(ability))
+                free(&grant.from, ability) || from.is_none_or(|from| from.contains(ability))
             };
-            let native = grant.native && from.is_none_or(|from| from.native);
-            let to = &held[&grant.to];
-            let news = |ability: &&Symbol| !to.abilities.contains(ability);
-            let abilities = grant.abilities.iter().filter(passes).filter(news);
-            let abilities: Vec<Symbol> = abilities.cloned().collect();
-            if !abilities.is_empty() || (native && !to.native) {
-                added.push((grant.to.clone(), abilities, native));
+            let news = grant.abilities.iter().filter(passes);
+            let news: Vec<Symbol> = news
+                .filter(|ability| !to.contains(ability))
+                .cloned()
+                .collect();
+            if !news.is_empty() {
+                added.push((grant.to.clone(), news));
             }
         }
         if added.is_empty() {
             return held;
         }
-        for (to, abilities, native) in added {
-            let to = held.entry(to).or_default();
-            to.abilities.extend(abilities);
-            to.native |= native;
+        for (to, abilities) in added {
+            held.entry(to).or_default().extend(abilities);
         }
     }
 }
@@ -123,7 +115,6 @@ impl Engine<'_> {
             from: grant.from.clone(),
             to: grant.to.clone(),
             abilities,
-            native: grant.native,
         })
     }
 
@@ -141,11 +132,7 @@ impl Engine<'_> {
             let ends = read.iter().flat_map(|grant| [&grant.from, &grant.to]);
             for package in ends.chain(self.sources.held().iter()) {
                 if let Some(outright) = self.sources.holds(package) {
-                    let holding = Holding {
-                        abilities: outright.abilities.into_iter().collect(),
-                        native: outright.native,
-                    };
-                    held.insert(package.clone(), holding);
+                    held.insert(package.clone(), outright.abilities.into_iter().collect());
                 }
             }
             Ok(Arc::new(least(held, &read)))
@@ -163,7 +150,7 @@ impl Engine<'_> {
         let holdings = self.holdings()?;
         Ok(holdings
             .get(package)
-            .is_some_and(|held| held.abilities.contains(ability)))
+            .is_some_and(|held| held.contains(ability)))
     }
 
     /// Everything `package` was granted, for a key: nothing, for a
@@ -175,24 +162,9 @@ impl Engine<'_> {
         let holdings = self.holdings()?;
         let held = holdings.get(package);
         Ok(Some(
-            held.map(|held| held.abilities.iter().cloned().collect())
+            held.map(|held| held.iter().cloned().collect())
                 .unwrap_or_default(),
         ))
-    }
-
-    /// Whether a program may reach native code of `package`.
-    ///
-    /// # Errors
-    ///
-    /// A grant of the workspace names nothing.
-    pub fn native(&self, package: &PackageId) -> Result<bool, Error> {
-        if self.sources.holds(package).is_none() {
-            return Ok(true);
-        }
-        Ok(self
-            .holdings()?
-            .get(package)
-            .is_some_and(|held| held.native))
     }
 
     /// How what `error` says a package is not granted could be granted
@@ -243,7 +215,9 @@ impl Engine<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Granted, Holding, Holdings, free, least};
+    use std::collections::BTreeSet;
+
+    use super::{Granted, Holdings, free, least};
     use crate::symbol::{ModuleId, PackageId, Symbol};
 
     fn read() -> Symbol {
@@ -256,7 +230,6 @@ mod tests {
             from: PackageId(from.to_owned()),
             to: PackageId(to.to_owned()),
             abilities: vec![read()],
-            native: true,
         }
     }
 
@@ -264,14 +237,9 @@ mod tests {
     /// start to nothing.
     fn held(packages: &[&str], granted: &[Granted]) -> Vec<bool> {
         let package = |name: &&str| PackageId((*name).to_owned());
-        let nothing = packages
-            .iter()
-            .map(|name| (package(name), Holding::default()));
+        let nothing = packages.iter().map(|name| (package(name), BTreeSet::new()));
         let least = least(nothing.collect::<Holdings>(), granted);
-        let holds = |name: &&str| {
-            let held = &least[&package(name)];
-            held.native && held.abilities.contains(&read())
-        };
+        let holds = |name: &&str| least[&package(name)].contains(&read());
         packages.iter().map(holds).collect()
     }
 

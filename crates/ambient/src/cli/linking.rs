@@ -19,7 +19,7 @@ use super::Session;
 use crate::engine::Parts;
 use crate::project::{Project, fetched};
 use crate::symbol::PackageId;
-use crate::workspace::Sources;
+use crate::workspace::{Granting, Sources, could_allow, native};
 
 /// What the launcher is as an archive, compressed: what a link joins
 /// a `main` and native bundles with, once [`archive`] has made it what
@@ -187,6 +187,34 @@ fn main(roots: &BTreeSet<Root>, groups: &BTreeSet<&str>) -> String {
     main
 }
 
+/// What to add to a manifest for a package to bring native code, for
+/// each declaration that could say so.
+pub(super) fn allowing(project: &Project, package: &str) -> String {
+    let could = could_allow(&project.workspace, &PackageId(package.to_owned()));
+    let line = |grant: &Granting| {
+        let Granting { from, local, .. } = grant;
+        format!(
+            "\n  where `{}` declares `{local}`, allow it: native = true",
+            from.0
+        )
+    };
+    could.iter().map(line).collect()
+}
+
+/// Fails if a program may not reach native code of `package`, which
+/// it does. See "Grants" in `docs/spec/packages.md`.
+fn barred(project: &Project, package: &str) -> Result<(), String> {
+    if native(&project.workspace, &PackageId(package.to_owned())) {
+        return Ok(());
+    }
+    Err(format!(
+        "the program reaches native code of the package `{package}`, which nothing that \
+         declares it allows. Native code is held to no grant: allowing it trusts the package \
+         with the machine.{}",
+        allowing(project, package)
+    ))
+}
+
 impl Session<'_> {
     /// What is to be linked for the program of `parts`: what it
     /// reaches of the standard target's native side, and of the
@@ -219,6 +247,7 @@ impl Session<'_> {
             let Some(package) = offering.get(&native.package).copied() else {
                 continue;
             };
+            barred(project, package)?;
             let bundle = project.natives[package].get(MACHINE).ok_or_else(|| {
                 // A platform is named as the compiler names it, which
                 // is seldom what its author guessed.

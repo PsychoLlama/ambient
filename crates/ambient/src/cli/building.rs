@@ -9,6 +9,7 @@ use std::rc::Rc;
 use ambient_runtime::FAULT_PACKAGE;
 
 use super::Session;
+use super::linking::allowing;
 use crate::backend::native::Natives;
 use crate::engine::{Engine, refused};
 use crate::library;
@@ -16,7 +17,7 @@ use crate::project::{Contents, Files, Project};
 use crate::store::Store;
 use crate::symbol::PackageId;
 use crate::value::Value;
-use crate::workspace::Sources;
+use crate::workspace::{Sources, native};
 
 impl Session<'_> {
     pub(super) fn engine<'e>(&'e self, project: &'e Project) -> Engine<'e> {
@@ -35,8 +36,16 @@ pub fn engine<'e>(files: &dyn Files, store: &'e dyn Store, project: &'e Project)
     // Host code is asked for by the ID of the package that keeps it.
     let mut hosts: Hosts = BTreeMap::new();
     for (name, contents) in &packages {
-        let id = project.workspace.identity(&PackageId(name.clone()));
-        hosts.entry(id).or_default().push(contents.clone());
+        let package = PackageId(name.clone());
+        let id = project.workspace.identity(&package);
+        // Host code is native code: a package that may bring none
+        // has none to give, and says how it would.
+        let host = if native(&project.workspace, &package) {
+            Ok(contents.clone())
+        } else {
+            Err(allowing(project, name))
+        };
+        hosts.entry(id).or_default().push(host);
     }
     let hosts = Rc::new(hosts);
     Engine::new(&project.workspace, store).with_build_for(library::build(), move |from| {
@@ -46,7 +55,7 @@ pub fn engine<'e>(files: &dyn Files, store: &'e dyn Store, project: &'e Project)
 
 /// The files of each package of a project, by the package's ID: two
 /// snapshots of one package are two sets of them.
-type Hosts = BTreeMap<String, Vec<Contents>>;
+type Hosts = BTreeMap<String, Vec<Result<Contents, String>>>;
 
 /// Why a build was not answered: the tag of `ambient.build` for it,
 /// and what to say.
@@ -98,18 +107,22 @@ fn natives(files: &Rc<dyn Files>, contents: Option<&Contents>, hosts: &Rc<Hosts>
             let kept = hosts.get(package).map(Vec::as_slice).unwrap_or_default();
             // Snapshots of one package declare one extern, so the
             // host code of any of them that has it is the extern's.
-            let read = kept.iter().find_map(|contents| {
+            let read = kept.iter().flatten().find_map(|contents| {
                 let inside = contents.holds(&path)?;
                 files.read(&contents.directory.join(inside)).ok()
             });
             let missing = || {
-                Refused(
-                    "not_found",
-                    format!(
+                let barred = kept.iter().find_map(|host| host.as_ref().err());
+                let why = match barred {
+                    Some(allowing) => format!(
+                        "the package `{package}` may bring no native code, which host code is.{allowing}"
+                    ),
+                    None => format!(
                         "the package `{package}` has no host code at {}",
                         path.display()
                     ),
-                )
+                };
+                Refused("not_found", why)
             };
             Ok(read
                 .map(Value::String)
