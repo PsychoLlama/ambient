@@ -1,7 +1,7 @@
 /// Abilities made from a description of what a host offers. Nothing
 /// of `web` is written: an ability for each thing the host offers,
 /// and what binds them all to the host, are read from `manifest.json`
-/// as the package is compiled, which the package's manifest grants it.
+/// as the package is compiled.
 pub mod bind;
 pub mod host;
 pub mod web;

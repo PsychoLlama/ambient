@@ -43,7 +43,8 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A grant is written beside what the [lock](releases.md#locks) pins, where a review sees it. A snapshot that takes more is not built until more is granted, so no update widens what a dependency reaches.
 - TODO: a grant says only that an ability may be taken. Granting one through a handler the dependent names, which narrows what is reached, is not designed.
 - TODO: what a person lets a workspace they did not write do on their machine is not designed: a member is trusted.
-- TODO: none of this is built. A package's manifest lists build abilities of its own choosing, which its comptime calls and tools take; no row is held, and native code is linked wherever it is reached.
+- TODO: a grant's path is read when a held package is first asked about, so one that names nothing is not reported while nothing held is checked.
+- TODO: a command run in a vendored member's directory opens no package that declares it, so it holds the member to nothing granted.
 
 ## Package instances
 
