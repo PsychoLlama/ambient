@@ -127,6 +127,7 @@ impl Resolver<'_> {
                 }
             }
             Expr::AbilityId(ability) => Expr::AbilityId(self.ability(ability)?),
+            Expr::Module(module) => Expr::Module(module.clone()),
             Expr::Group(body) => Expr::Group(Box::new(self.expr(body)?)),
             Expr::Cell { .. } => self.block(expr)?,
             Expr::Boundary(body) => Expr::Boundary(Box::new(self.expr(body)?)),

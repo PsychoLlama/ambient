@@ -6,7 +6,9 @@ A comptime call runs an ordinary function during compilation and splices what it
 
 - A comptime call is marked at the call site; the callee is any function.
 - There is no separate class of compile-time functions.
-- An argument is an expression of [singleton type](types.md), a closed type, a closed row, or the name of a definition.
+- An argument is an expression of [singleton type](types.md), a closed type, a closed row, the name of a definition, or the name of a [module](modules.md).
+- A list, a tuple, or a record written in place of arguments is an argument. A list's type is no singleton, since it says neither how long the list is nor which member is where; what is written does.
+- A module is named by an import of the call's own module, for a parameter of the type a [build ability](tools.md#build-abilities) takes a module as. The function is handed which module, as data: a module is still no value, and nothing of it is demanded.
 - A [constant](constants.md) named for a parameter of an ordinary type is handed over as its value, and the call depends on the constant's hash. Only plain data is handed so: a constant that holds a function is not.
 - A parameter's type says what it receives: one of an ordinary type receives the argument's value, and one whose type is a tree receives the tree.
 - An expression is never handed over as code not yet evaluated: it is passed as the value its type says it has, so no name in it comes to mean something else where it lands.

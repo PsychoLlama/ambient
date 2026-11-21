@@ -473,6 +473,7 @@ impl<'a> Checker<'a> {
                 // Resolution only ever names an ability here.
                 _ => (core::Expr::Null, Ty::Never),
             },
+            Expr::Module(module) => comptime::module(module),
             Expr::Comptime(call) => self.comptime(call)?,
             Expr::Cast {
                 value,

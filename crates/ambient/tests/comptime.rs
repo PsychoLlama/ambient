@@ -113,6 +113,23 @@ fn an_argument_must_be_known_from_its_type() {
 }
 
 #[test]
+fn a_list_written_in_place_is_an_argument_wherever_it_is_written() {
+    // A list's type does not say what it holds, so one is known by
+    // what is written: alone, and inside a record.
+    let held = ty::record([("held", ty::list(ty::int()))]);
+    let same = b::function("same")
+        .param("of", held.clone())
+        .returns(held)
+        .body(b::name("of"));
+    let argument = b::record([("held", b::list([b::int(1), b::int(2)]))]);
+    let call = b::comptime(b::call(b::name("same"), [argument]));
+    let main = main(ty::list(ty::int()), b::field(call, "held"));
+
+    let gave = run([same, main], &[]).unwrap();
+    assert_eq!(gave, Value::List(vec![Value::Int(1), Value::Int(2)]));
+}
+
+#[test]
 fn arguments_and_results_may_be_structured() {
     let swap = b::function("swap")
         .param("pair", ty::record([("a", ty::int()), ("b", ty::string())]))

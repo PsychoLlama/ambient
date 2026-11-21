@@ -26,6 +26,18 @@ impl Resolver<'_> {
         }
     }
 
+    /// The module imported as `alias`, if one is, generated or not.
+    pub(super) fn imported(&self, alias: &str) -> Option<ModuleId> {
+        match self.scope.generated.get(alias) {
+            Some(Lazy::Module(module)) => Some(module.clone()),
+            _ => self
+                .scope
+                .modules
+                .get(alias)
+                .map(|(module, _)| module.clone()),
+        }
+    }
+
     /// A definition named directly, or through one imported module.
     pub(super) fn lookup(&self, namespace: Namespace, path: &Path) -> Result<Symbol, Error> {
         let unknown = || Error::UnknownName {

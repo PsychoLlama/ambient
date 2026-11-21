@@ -28,6 +28,7 @@ pub use shape::Shape;
 pub use shown::Shown;
 
 use crate::literal::{Brand, Literal};
+use crate::symbol::ModuleId;
 
 /// A file of definitions.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -479,6 +480,11 @@ pub enum Expr<N = Path> {
     /// What an observer is told an ability is: a string that is equal
     /// only for the same ability.
     AbilityId(N),
+    /// A module an argument of a comptime call names: which one, as
+    /// the `build.Module` it is handed as. Only resolving makes one,
+    /// so a module is named as a value nowhere else. See "Calls" in
+    /// `docs/spec/comptime.md`.
+    Module(ModuleId),
     /// Binds the handlers in `bundle` for the extent of `body`. With
     /// `only`, the body sees no other binding.
     ///

@@ -592,6 +592,21 @@ fn a_comptime_call_is_handed_a_constant_as_its_value() {
 }
 
 #[test]
+fn a_comptime_call_is_handed_the_module_an_argument_names() {
+    let main = r#"
+        use pkg.flows;
+        use ambient.build.Module;
+        fn named(of: Module): string => "${of.package}:${of.path.join_with(".")}";
+        const NAME: string = comptime named(flows);
+        fn main(): string => NAME;
+    "#;
+    let workspace = support::text::modules(&[("flows", "pub fn one(): int => 1;"), ("main", main)]);
+
+    let gave = support::run_in(&workspace);
+    assert_eq!(gave, Ok(Value::String("app:flows".to_owned())));
+}
+
+#[test]
 fn a_module_is_not_reached_through_a_name_in_a_constants_form() {
     let other = "pub fn one(): int => 1;";
     let main = "use pkg.other as OTHER;\nfn main(): int => OTHER.one();";

@@ -252,7 +252,8 @@ macro_rules! children {
             | Self::Literal(_)
             | Self::Name(_)
             | Self::Instantiate { .. }
-            | Self::AbilityId(_) => {}
+            | Self::AbilityId(_)
+            | Self::Module(_) => {}
             Self::Call { callee, args } => {
                 $visit(callee);
                 args.$iter().for_each($visit);

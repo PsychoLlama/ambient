@@ -6,7 +6,7 @@ use crate::core;
 use crate::error::Error;
 use crate::literal::Literal;
 use crate::surface::{Expr, Key, Reference};
-use crate::symbol::Symbol;
+use crate::symbol::{ModuleId, Symbol};
 use crate::types::Ty;
 use crate::value::Value;
 
@@ -91,8 +91,29 @@ impl Checker<'_> {
 
 impl Checker<'_> {
     /// The value an argument of a comptime call is known to be: what a
-    /// constant it names holds, or the one value its type has.
+    /// constant it names holds, the one value its type has, or a
+    /// list, a tuple, or a record written in place of such. A list's
+    /// type says neither how long it is nor which member is where, so
+    /// one is known only by what is written.
     fn argument(&mut self, arg: &Expr<Reference>) -> Result<Value, Error> {
+        let mut all = |members: &[Expr<Reference>]| {
+            let known = members.iter().map(|member| self.argument(member));
+            known.collect::<Result<Vec<_>, _>>()
+        };
+        match arg {
+            Expr::List(members) => return Ok(Value::List(all(members)?)),
+            Expr::Tuple(members) => return Ok(Value::Tuple(all(members)?)),
+            Expr::Record(fields) if fields.iter().all(|(key, _)| matches!(key, Key::Field(_))) => {
+                let (keys, values): (Vec<_>, Vec<_>) = fields.iter().cloned().unzip();
+                let named = keys.into_iter().filter_map(|key| match key {
+                    Key::Field(name) => Some(name),
+                    Key::Ability(_) => None,
+                });
+                return Ok(Value::Record(named.zip(all(&values)?).collect()));
+            }
+            Expr::Module(module) => return Ok(module_value(module)),
+            _ => {}
+        }
         let (_, ty) = self.infer(arg)?;
         let held = match (arg, self.evaluator) {
             (Expr::Name(Reference::Definition(named)), Some(evaluator))
@@ -191,6 +212,28 @@ impl Checker<'_> {
         }
         Ok(())
     }
+}
+
+/// A module as a `build.Module`: the package it is of, named as a
+/// reference names it, and its path.
+fn module_value(module: &ModuleId) -> Value {
+    let path = module.path.0.iter().cloned().map(Value::String);
+    Value::Record(
+        [
+            (
+                "package".to_owned(),
+                Value::String(module.package.0.clone()),
+            ),
+            ("path".to_owned(), Value::List(path.collect())),
+        ]
+        .into(),
+    )
+}
+
+/// A module a comptime argument names, as the data it is handed as.
+pub(super) fn module(module: &ModuleId) -> (core::Expr, Ty) {
+    // Text and a list of text are spliced whatever they hold.
+    splice(&module_value(module)).unwrap_or((core::Expr::Null, Ty::Never))
 }
 
 /// The one value a singleton type has.

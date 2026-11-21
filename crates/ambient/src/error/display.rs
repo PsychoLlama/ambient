@@ -391,7 +391,8 @@ impl Error {
         match self {
             Self::NotComptime { symbol, found } => write!(
                 f,
-                "{symbol}: a comptime argument must have one possible value, found `{found}`"
+                "{symbol}: a comptime argument must have one possible value, found `{found}`: \
+                 write it out in place, or name a constant that holds it"
             ),
             Self::NoTree { symbol, found } => {
                 write!(

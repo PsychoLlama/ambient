@@ -153,6 +153,7 @@ impl<'a> Writer<'a> {
             Expr::AbilityId(ability) => {
                 text(format!("intrinsics.ability_id({})", self.name(ability)))
             }
+            Expr::Module(module) => text(module.to_string()),
             Expr::List(items) => list("[", self.all(items), "]"),
             Expr::Tuple(members) => list("(", self.all(members), ")"),
             Expr::Record(fields) => {

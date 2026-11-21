@@ -437,8 +437,16 @@ impl<'a> Resolver<'a> {
     }
 
     /// An argument of a comptime call: an expression, or the name of
-    /// an ability, which is no expression anywhere else.
+    /// an ability or of a module this one imports, which are no
+    /// expressions anywhere else. A name that is a value is that.
     fn named(&mut self, arg: &Expr) -> Result<Expr<Reference>, Error> {
+        if let Expr::Name(path) = arg
+            && let [alias] = path.0.as_slice()
+            && self.name(path).is_err()
+            && let Some(module) = self.imported(alias)
+        {
+            return Ok(Expr::Module(module));
+        }
         if let Expr::Name(path) = arg
             && matches!(self.name(path), Err(Error::NotPerformed { .. }))
         {
