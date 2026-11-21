@@ -194,6 +194,10 @@ impl World for System {
         saturating(self.started.elapsed().as_nanos())
     }
 
+    fn offset(&mut self, moment: i64) -> i64 {
+        super::zone::offset(moment)
+    }
+
     fn listen(&mut self, host: &str, port: i64) -> Result<Listening, Failure> {
         self.pending.http()?.listen(host, port)
     }

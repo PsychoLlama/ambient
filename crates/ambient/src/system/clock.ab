@@ -3,6 +3,13 @@ use ambient.time.{Duration};
 /// Milliseconds since the start of 1970, by the system's clock.
 pub ability now(): int;
 
+/// How far ahead of UTC the machine's time zone is at a moment, which
+/// is behind for a length below zero. Added to the moment it gives
+/// what `time.date` reads as the date there. It is asked of a moment
+/// because it changes: with daylight saving, and when a place changes
+/// its rules.
+pub ability offset(at: int): int & Duration;
+
 /// Nanoseconds since some moment that does not change while the program
 /// runs. It never goes back.
 pub ability elapsed(): int;

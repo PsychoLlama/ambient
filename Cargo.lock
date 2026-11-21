@@ -61,6 +61,7 @@ dependencies = [
  "corosensei",
  "getrandom 0.4.3",
  "hmac",
+ "libc",
  "memmap2",
  "notify",
  "postcard",

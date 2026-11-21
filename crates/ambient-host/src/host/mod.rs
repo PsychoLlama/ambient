@@ -26,6 +26,7 @@ mod system;
 mod trust;
 mod waits;
 mod watching;
+mod zone;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -179,6 +180,9 @@ pub trait World {
     fn now(&mut self) -> i64;
     /// Nanoseconds since a fixed moment.
     fn elapsed(&mut self) -> i64;
+    /// The milliseconds the machine's time zone is ahead of UTC at a
+    /// moment, which is milliseconds since the start of 1970.
+    fn offset(&mut self, moment: i64) -> i64;
     /// Starts listening on a port of an address of this machine; port
     /// zero is any that is free.
     ///

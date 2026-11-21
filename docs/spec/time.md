@@ -11,5 +11,7 @@ The standard library reads a moment as a date and writes it as text. It is writt
 - The day of the week is a number from 1, Monday, to 7.
 - A moment is written as RFC 3339 text in UTC, to the millisecond.
 - Reading takes RFC 3339 text at any offset, a date alone as its first moment, and text with no offset as UTC. It gives a moment or null; nothing is read halfway.
-- TODO: there are no time zones. A date is in UTC, and a program that wants another offset adds it.
+- A date somewhere else is the date of the moment with that place's offset added: an offset is a length of time, ahead of UTC or behind it.
+- The library knows no place's offset. How far ahead the machine's own zone is at a moment is the [world's](targets.md#the-system-package) to say, and is asked of each moment, since daylight saving changes it.
+- TODO: there are no named time zones. A program that wants the date in a place other than its machine's is told that place's offset.
 - TODO: nothing writes a date in words or by a pattern.

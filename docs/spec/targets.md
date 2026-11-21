@@ -56,6 +56,7 @@ A target defines the world a program runs in: a root binding for every ability t
 ## Standard targets
 
 - The `system` package defines a target for a program run from a command line: its streams, its arguments and environment, files, clocks, random bits, commands it runs, and its exit.
+- Its clock says the moment it is, and how far ahead of UTC the machine's own time zone is at a moment it is asked of. It names no zone and knows no other place's.
 - Each of those is a module of abilities, so a row says which of them a function reaches.
 - An operation on a file that can fail in ordinary use gives an [error](errors.md) as a value; the kinds are tags of the module.
 - A file is read, written, and added to as text or as [bytes](operations.md#bytes), each by an ability of its own. Reading as text a file that is not UTF-8 is an error of a kind of its own.

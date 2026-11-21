@@ -7,6 +7,7 @@ version = "0.2.0"
 edition = "2024"
 
 [workspace.dependencies]
+libc = "0.2"
 ambient-host = { path = "crates/ambient-host" }
 ambient-native = { path = "crates/ambient-native" }
 ambient-runtime = { path = "crates/ambient-runtime" }

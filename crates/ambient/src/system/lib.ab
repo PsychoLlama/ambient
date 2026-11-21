@@ -51,6 +51,7 @@ extern handler(suspending) fs_change for fs.change;
 extern handler fs_unwatch for fs.unwatch;
 extern handler clock_now for clock.now;
 extern handler clock_elapsed for clock.elapsed;
+extern handler clock_offset for clock.offset;
 extern handler(suspending) clock_sleep for clock.sleep;
 extern handler process_exit for process.exit;
 extern handler(suspending) process_run for process.run;
@@ -109,6 +110,7 @@ pub target cli {
     fs.unwatch: fs_unwatch,
     clock.now: clock_now,
     clock.elapsed: clock_elapsed,
+    clock.offset: clock_offset,
     clock.sleep: clock_sleep,
     process.exit: process_exit,
     process.run: process_run,

@@ -38,6 +38,9 @@ pub struct Scripted {
     /// What the clock says. Waiting for work moves it on to when the
     /// work is over.
     pub time: i64,
+    /// How far ahead of UTC the machine's zone is from each moment
+    /// on, in milliseconds; before the first it is not ahead at all.
+    pub offsets: BTreeMap<i64, i64>,
     /// The work under way: when it is over, its ticket, and what
     /// comes of it.
     pub waits: Vec<(i64, u64, Done)>,
@@ -359,6 +362,11 @@ impl World for Scripted {
 
     fn elapsed(&mut self) -> i64 {
         self.time * 1_000_000
+    }
+
+    fn offset(&mut self, moment: i64) -> i64 {
+        let before = self.offsets.range(..=moment).next_back();
+        before.map_or(0, |(_, offset)| *offset)
     }
 
     fn listen(&mut self, _host: &str, port: i64) -> Result<Listening, Failure> {

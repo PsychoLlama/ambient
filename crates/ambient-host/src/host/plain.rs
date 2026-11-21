@@ -60,9 +60,12 @@ pub(super) const RANDOM: Offer = Offer {
     starters: &[],
 };
 
-const TIMES: [(&str, Handler); 2] = [
+const TIMES: [(&str, Handler); 3] = [
     ("clock_now", |world, _| Ok(Value::Int(world.now()))),
     ("clock_elapsed", |world, _| Ok(Value::Int(world.elapsed()))),
+    ("clock_offset", |world, args| {
+        Ok(Value::Int(world.offset(int(args, 0)?)))
+    }),
 ];
 
 const SLEEPING: [(&str, Starter); 1] = [("clock_sleep", |args| Ok(Work::Sleep(int(args, 0)?)))];

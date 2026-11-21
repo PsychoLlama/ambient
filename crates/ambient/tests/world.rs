@@ -191,6 +191,25 @@ fn a_command_is_told_where_to_run_and_what_to_read() {
 }
 
 #[test]
+fn a_program_is_told_how_far_ahead_of_utc_its_machine_is_at_a_moment() {
+    let source = r"
+        use ambient.time;
+        use system.clock;
+
+        fn hour(at: int): int with clock.offset => time.date(at + clock.offset!(at)).hour;
+        fn main(): (winter: int, summer: int) with clock.offset => (hour(0), hour(1000));
+    ";
+    let hours = |count: i64| count * 3_600_000;
+    let world = Scripted {
+        offsets: [(0, hours(-5)), (1000, hours(-4))].into(),
+        ..Scripted::default()
+    };
+
+    let gave = Value::Tuple(vec![Value::Int(19), Value::Int(20)]);
+    assert_eq!(run(source, &world).0, Ok(gave));
+}
+
+#[test]
 fn a_program_is_told_how_it_was_started_and_what_time_it_is() {
     let source = r#"
         use ambient.time;
