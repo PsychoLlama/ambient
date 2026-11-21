@@ -64,7 +64,7 @@ fn build(program: &str) -> Scripted {
     .collect();
     let command = Command::Build {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         output: Some(PathBuf::from("out")),
     };
     Scripted::within("app").execute(&files, &command).1

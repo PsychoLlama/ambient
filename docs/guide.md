@@ -30,7 +30,7 @@ ambient init hello           # makes a package that runs and has a test
 cd hello                     # a command is for the package it is run in
 ambient run                  # runs the binary `main`: `main` of the module `main`
 ambient run -- one two       # what follows `--` is what env.args gives
-ambient run --bin fmt        # runs another binary of the package
+ambient run --bin fmt        # runs another binary of the package; `--bin` alone says which there are
 ambient check                # checks every definition, runs nothing
 ambient test                 # runs every function named test_*
 ambient build                # one file that runs `main`: no package, no compiler

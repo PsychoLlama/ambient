@@ -24,7 +24,7 @@ fn build(source: &str, launcher: &[u8]) -> Vec<u8> {
     };
     let command = Command::Build {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         output: None,
     };
     let (code, after) = world.execute(&app(source), &command);
@@ -188,7 +188,7 @@ fn a_program_that_is_wrong_builds_nothing() {
     };
     let command = Command::Build {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         output: Some(PathBuf::from("out")),
     };
 
@@ -261,7 +261,7 @@ fn built_under(target: &str) -> (i32, Scripted) {
     let files = declaring(PAGE, &format!("[bin.main]\ntarget = \"{target}\""));
     let command = Command::Build {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         output: None,
     };
     Scripted::within("app").execute(&files, &command)

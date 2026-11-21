@@ -158,7 +158,7 @@ fn build(output: &Path) {
     };
     let command = Command::Build {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         output: Some(output.to_owned()),
     };
     assert_eq!(session.execute(&command), 0);

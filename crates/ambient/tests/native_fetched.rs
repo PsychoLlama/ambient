@@ -111,7 +111,7 @@ fn listed() -> Files {
 fn built(files: &Files, mirror: &dyn Snapshots, bin: &str) -> (i32, Vec<PathBuf>, String) {
     let build = Command::Build {
         at: Chosen::default(),
-        bin: bin.to_owned(),
+        bin: Some(bin.to_owned()),
         output: None,
     };
     let linker = Asked::default();

@@ -97,7 +97,7 @@ pub fn ran(files: &Files) -> Result<i32, String> {
 pub fn ran_at(files: &Files, at: &str) -> Result<i32, String> {
     let command = Command::Run {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         args: Vec::new(),
     };
     let (code, world) = Scripted::within(at).execute(files, &command);

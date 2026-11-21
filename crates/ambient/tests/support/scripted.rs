@@ -232,7 +232,7 @@ pub fn check(files: &dyn Files) -> (i32, Scripted) {
 pub fn run(files: &dyn Files) -> (i32, Scripted) {
     let command = Command::Run {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         args: Vec::new(),
     };
     Scripted::within("app").execute(files, &command)

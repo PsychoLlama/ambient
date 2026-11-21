@@ -13,9 +13,10 @@ use std::rc::Rc;
 
 use ambient_host::launch::Built;
 
-use super::Session;
 use super::launch::{Launch, Linked};
 use super::linking::Link;
+use super::picked::{self, Picked};
+use super::{Chosen, Session};
 use crate::backend::wasm::{self, Wasm};
 use crate::engine::Backend;
 use crate::host::{self, World};
@@ -27,6 +28,9 @@ use crate::project::Binary;
 /// "Distribution" in `docs/spec/externs.md`.
 const COMPILES: &str = "a program that packs or compiles code cannot yet reach a native bundle: \
      what loads it is the command, which is linked with none";
+
+/// What building says where it is told one place for several binaries.
+const SEVERAL: &str = "`--output` is where one binary is put: say which with `--bin`";
 
 /// Runs the program an executable carried in `world`, and gives the
 /// code to exit with. What went wrong is written to the world's
@@ -40,30 +44,44 @@ pub fn start(program: &[u8], world: &Rc<RefCell<dyn World>>) -> i32 {
 }
 
 impl Session<'_> {
-    /// Makes an executable of the binary `bin` of the package at
-    /// `path`: at `output`, or else in the directory the command was
-    /// run in, named as the binary says.
+    /// Builds the binary `bin` of the packages `chosen` is, or else
+    /// every binary they have: at `output`, which is where one is put,
+    /// or else where each is put when the command says nothing.
+    pub(super) fn build(
+        &self,
+        chosen: &Chosen,
+        bin: Option<&str>,
+        output: Option<&Path>,
+    ) -> Result<i32, Vec<String>> {
+        let offered = self.offered(chosen)?;
+        let picked = picked::every(&offered, bin)?;
+        if output.is_some() && picked.len() > 1 {
+            return Err(vec![SEVERAL.to_owned()]);
+        }
+        for picked in picked {
+            self.built(picked, output)?;
+        }
+        Ok(0)
+    }
+
+    /// Makes an executable of a binary: at `output`, or else in the
+    /// directory the command was run in, named as the binary says.
     ///
     /// A binary whose target does not extend the command-line target
     /// is built by [`Self::build_under`].
-    pub(super) fn build(
-        &self,
-        path: &Path,
-        bin: &str,
-        output: Option<&Path>,
-    ) -> Result<i32, Vec<String>> {
-        let project = self.open(path)?;
-        let binary = Self::binary(&project, bin)?;
-        let engine = self.engine(&project);
+    fn built(&self, picked: Picked, output: Option<&Path>) -> Result<(), Vec<String>> {
+        let Picked { package, binary } = picked;
+        let project = &package.project;
+        let engine = self.engine(project);
         let launch = Launch {
-            project: &project,
+            project,
             engine: &engine,
         };
-        let Some(target) = Self::target(&project, &engine, binary)? else {
-            return self.build_under(&launch, path, binary, output);
+        let Some(target) = Self::target(project, &engine, binary)? else {
+            return self.build_under(&launch, &package.directory, binary, output);
         };
         let linked = launch.link(&binary.entry, &target)?;
-        let link = self.linking(&project, &linked.parts);
+        let link = self.linking(project, &linked.parts);
         let link = link.map_err(|problem| vec![problem])?;
 
         let output = output.map_or_else(|| binary.name.clone(), |path| path.display().to_string());
@@ -88,7 +106,7 @@ impl Session<'_> {
         };
         written.map_err(|failure| vec![format!("{output}: {}", failure.message)])?;
         self.world.borrow_mut().write(&format!("built {output}\n"));
-        Ok(0)
+        Ok(())
     }
 
     /// Makes the directory the file at `output` is to be written in,
@@ -143,14 +161,14 @@ impl Session<'_> {
         path: &Path,
         binary: &Binary,
         output: Option<&Path>,
-    ) -> Result<i32, Vec<String>> {
+    ) -> Result<(), Vec<String>> {
         let Launch { project, engine } = launch;
         let refused = |error| vec![super::report(project, engine, &error)];
         // Only a target that was named is one the command line's is not.
         let target = binary.target.clone().unwrap_or_else(crate::system::target);
         if let Some(files) = engine.built(&binary.entry, &target).map_err(refused)? {
             let directory = output.map_or_else(|| path.join("build"), Path::to_owned);
-            return self.written(&directory, &files);
+            return self.written(&directory, &files).map(|_| ());
         }
         let root = engine.program(&binary.entry, &target).map_err(refused)?;
         let parts = engine.link(&root, &Wasm).map_err(refused)?;
@@ -163,6 +181,6 @@ impl Session<'_> {
         stored.map_err(|failure| vec![format!("{output}: {}", failure.message)])?;
         let built = format!("built {output}, {} bytes\n", module.len());
         self.world.borrow_mut().write(&built);
-        Ok(0)
+        Ok(())
     }
 }

@@ -227,7 +227,7 @@ fn an_executable_runs_the_function_of_a_bundle_its_program_reaches() {
     let output = scratch.0.join("made/here/out");
     let build = Command::Build {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: Some("main".to_owned()),
         output: Some(output.clone()),
     };
 
@@ -240,7 +240,7 @@ fn a_program_that_reaches_a_bundle_is_run_by_what_was_linked_with_it() {
     let scratch = Scratch::new();
     let run = Command::Run {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         args: Vec::new(),
     };
 
@@ -252,7 +252,7 @@ fn a_target_of_the_package_binds_a_handler_of_its_bundle() {
     let scratch = Scratch::new();
     let run = Command::Run {
         at: Chosen::default(),
-        bin: "tripling".to_owned(),
+        bin: Some("tripling".to_owned()),
         args: Vec::new(),
     };
 
@@ -264,7 +264,7 @@ fn a_thread_of_a_bundle_answers_a_task_that_waits() {
     let scratch = Scratch::new();
     let run = Command::Run {
         at: Chosen::default(),
-        bin: "waiting".to_owned(),
+        bin: Some("waiting".to_owned()),
         args: Vec::new(),
     };
 
@@ -276,7 +276,7 @@ fn a_program_is_not_run_under_a_target_that_is_no_command_lines() {
     let scratch = Scratch::new();
     let run = Command::Run {
         at: Chosen::default(),
-        bin: "stranded".to_owned(),
+        bin: Some("stranded".to_owned()),
         args: Vec::new(),
     };
 
@@ -289,7 +289,7 @@ fn a_bundle_that_holds_its_languages_library_is_linked() {
     let scratch = Scratch::new();
     let run = Command::Run {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         args: Vec::new(),
     };
 
@@ -304,7 +304,7 @@ fn a_bundle_that_brings_a_runtime_of_its_own_is_not_linked() {
     let scratch = Scratch::new();
     let build = Command::Build {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: Some("main".to_owned()),
         output: Some(scratch.0.join("out")),
     };
     let brings = |header: String| header + "int64_t amb_int_value(uint64_t value) { return 0; }\n";
@@ -317,7 +317,7 @@ fn a_bundle_built_for_another_layout_is_not_linked() {
     let scratch = Scratch::new();
     let build = Command::Build {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: Some("main".to_owned()),
         output: Some(scratch.0.join("out")),
     };
     let other = |header: String| header.replace(&built(ID), "amb_built_for_another");

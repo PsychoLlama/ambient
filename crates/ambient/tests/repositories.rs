@@ -41,7 +41,7 @@ fn remote(files: &Files) -> Remote<'_> {
 fn run() -> Command {
     Command::Run {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         args: Vec::new(),
     }
 }

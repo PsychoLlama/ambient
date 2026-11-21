@@ -86,7 +86,7 @@ fn the_tally_counts_the_words_of_a_file() {
     };
     let command = Command::Run {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         args: Vec::new(),
     };
     let (code, world) = world.inside(example("tally")).execute(&Disk, &command);
@@ -99,7 +99,7 @@ fn the_tally_counts_the_words_of_a_file() {
 fn the_stock_keeps_its_counts_in_a_file_of_json() {
     let command = Command::Run {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         args: Vec::new(),
     };
     let world = Scripted {
@@ -134,7 +134,7 @@ fn the_notes_are_served_and_kept_in_a_file_of_json() {
     };
     let command = Command::Run {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         args: Vec::new(),
     };
     let (code, world) = world.inside(example("notes")).execute(&Disk, &command);
@@ -158,7 +158,7 @@ fn the_notes_are_served_and_kept_in_a_file_of_json() {
 fn binary_saying(name: &str, bin: &str, world: Scripted) -> Scripted {
     let command = Command::Run {
         at: Chosen::default(),
-        bin: bin.to_owned(),
+        bin: Some(bin.to_owned()),
         args: Vec::new(),
     };
     let (code, world) = world.inside(example(name)).execute(&Disk, &command);
@@ -170,7 +170,7 @@ fn binary_saying(name: &str, bin: &str, world: Scripted) -> Scripted {
 fn binary(name: &str, bin: &str, world: Scripted) -> Scripted {
     let command = Command::Run {
         at: Chosen::default(),
-        bin: bin.to_owned(),
+        bin: Some(bin.to_owned()),
         args: Vec::new(),
     };
     let (code, world) = world.inside(example(name)).execute(&Disk, &command);
@@ -283,7 +283,7 @@ fn the_worlds_play_a_game_back_from_what_was_recorded() {
     let play = |world: Scripted| {
         let command = Command::Run {
             at: Chosen::default(),
-            bin: "main".to_owned(),
+            bin: None,
             args: Vec::new(),
         };
         let world = Scripted {

@@ -81,7 +81,7 @@ fn told_from(report: &str, grants: &str, store: &MemoryStore, remote: &Remote) -
     .collect();
     let command = Command::Build {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         output: Some(PathBuf::from("out")),
     };
     let world = Scripted::within("app")

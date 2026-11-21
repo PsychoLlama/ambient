@@ -242,15 +242,65 @@ fn testing_a_workspace_tests_every_member() {
     assert!(said.contains("FAIL  other:.test_other"), "{said}");
 }
 
+/// Says the snapshot of those members, which is done for one.
+fn snapshot_of(names: &[&str]) -> Command {
+    Command::Snapshot {
+        at: Chosen::named(names),
+    }
+}
+
 #[test]
-fn a_workspace_that_is_no_package_is_not_run() {
+fn a_command_for_one_package_is_told_which_at_a_workspace_that_is_none() {
+    let said = "error: this is a workspace and no package: name a member with `--package`\n";
+
+    assert_eq!(
+        at_the_top(&pair(SEVEN, SEVEN), &snapshot_of(&[])),
+        (1, said.to_owned())
+    );
+}
+
+/// A workspace of two packages that each have the binary `main`,
+/// which gives 1 in `one` and 2 in `other`, and `one` a `deploy` too.
+fn mains() -> Files {
+    let mut files = pair(SEVEN, SEVEN);
+    let source = |gives: i32| format!("fn main(): int => {gives};\nfn deploy(): int => 9;");
+    files.insert("one/src/main.ab".into(), source(1));
+    files.insert("other/src/main.ab".into(), source(2));
+    let one = files.get_mut(&PathBuf::from("one/ambient.toml")).unwrap();
+    *one = one.replace("[dependencies]", "[bin.deploy]\n[dependencies]");
+    files
+}
+
+/// What running the binary `bin`, or the one there is, comes to at
+/// the top of [`mains`].
+fn ran_of(bin: Option<&str>) -> (i32, String) {
     let run = Command::Run {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: bin.map(str::to_owned),
         args: Vec::new(),
     };
-    let said = "error: this is a workspace and no package: name a member with `--package`\n";
-    assert_eq!(at_the_top(&pair(SEVEN, SEVEN), &run), (1, said.to_owned()));
+    at_the_top(&mains(), &run)
+}
+
+#[test]
+fn a_binary_only_one_member_has_is_run_from_the_workspace() {
+    assert_eq!(ran_of(Some("deploy")), (9, String::new()));
+}
+
+#[test]
+fn a_binary_two_members_have_is_run_only_where_its_package_is_named() {
+    let there = "There are:\n  one: deploy, main\n  other: main\n";
+    let which = "error: more than one package has a binary `main`: say which with `--package`";
+
+    assert_eq!(ran_of(Some("main")), (1, format!("{which}. {there}")));
+    assert_eq!(
+        ran_of(None),
+        (1, format!("error: say which binary with `--bin`. {there}"))
+    );
+    assert_eq!(
+        at_the_top(&mains(), &run_of(&["other"])),
+        (2, String::new())
+    );
 }
 
 #[test]
@@ -293,7 +343,7 @@ fn a_member_named_twice_is_tested_once() {
 fn run_of(names: &[&str]) -> Command {
     Command::Run {
         at: Chosen::named(names),
-        bin: "main".to_owned(),
+        bin: None,
         args: Vec::new(),
     }
 }
@@ -341,7 +391,7 @@ fn a_command_for_one_package_is_not_told_two() {
     let said = "error: this is done for one package: name one with `--package`\n";
 
     assert_eq!(
-        at_the_top(&app_beside(SEVEN), &run_of(&["app", "numbers"])),
+        at_the_top(&app_beside(SEVEN), &snapshot_of(&["app", "numbers"])),
         (1, said.to_owned())
     );
 }

@@ -73,7 +73,7 @@ fn workspace(step: &str, app: &str) -> BTreeMap<PathBuf, String> {
 fn build(files: &BTreeMap<PathBuf, String>) -> Scripted {
     let command = Command::Build {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         output: Some(PathBuf::from("out")),
     };
     Scripted::within("app").execute(files, &command).1

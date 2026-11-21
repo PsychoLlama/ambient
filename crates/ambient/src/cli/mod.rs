@@ -13,6 +13,7 @@ mod launch;
 mod linking;
 mod machine;
 mod package;
+mod picked;
 mod sealing;
 mod test;
 mod trace;
@@ -34,11 +35,12 @@ use init::Begun;
 use launch::Launch;
 pub use linking::{Link, Linker, Unlinked, archive, built, symbol};
 pub use machine::Machine;
+use picked::Picked;
 
 use crate::engine::Engine;
 use crate::error::Error;
 use crate::host::{self, World};
-use crate::project::{self, Binary, Files, MAIN, Project, Snapshots, Update};
+use crate::project::{self, Binary, Files, Project, Snapshots, Update};
 use crate::store::Store;
 use crate::surface::DefinitionKind;
 use crate::symbol::{PackageId, Symbol};
@@ -62,9 +64,10 @@ pub enum Command {
         #[command(flatten)]
         at: Chosen,
         /// The binary to run, by the name its manifest declares it
-        /// under.
-        #[arg(long, default_value = MAIN)]
-        bin: String,
+        /// under: the only one there is, or `main`, if not said. With
+        /// no name, says what there is.
+        #[arg(long, value_name = "NAME", num_args = 0..=1, default_missing_value = "")]
+        bin: Option<String>,
         /// What the program is started with.
         #[arg(last = true)]
         args: Vec<String>,
@@ -80,18 +83,20 @@ pub enum Command {
         #[command(flatten)]
         at: Chosen,
     },
-    /// Makes an executable of a binary of a package: one file that
+    /// Makes an executable of each binary of a package: one file that
     /// runs it without the package or the compiler. A binary whose
     /// target is built by a tool gives that tool's files instead.
     Build {
         #[command(flatten)]
         at: Chosen,
-        /// The binary to build, by the name its manifest declares it
-        /// under.
-        #[arg(long, default_value = MAIN)]
-        bin: String,
-        /// The file to make, or the directory for a tool's files; one
-        /// named as the binary says, if not said.
+        /// The one binary to build, by the name its manifest declares
+        /// it under; every one, if not said. With no name, says what
+        /// there is.
+        #[arg(long, value_name = "NAME", num_args = 0..=1, default_missing_value = "")]
+        bin: Option<String>,
+        /// The file to make of the one binary built, or the directory
+        /// for a tool's files; one named as the binary says, if not
+        /// said.
         #[arg(long, short)]
         output: Option<PathBuf>,
     },
@@ -106,9 +111,9 @@ pub enum Command {
     Fetch {
         #[command(flatten)]
         at: Chosen,
-        /// The one binary a build will be of; every one of the
-        /// package, if not said.
-        #[arg(long)]
+        /// The one binary a build will be of; every one, if not said.
+        /// With no name, says what there is.
+        #[arg(long, value_name = "NAME", num_args = 0..=1, default_missing_value = "")]
         bin: Option<String>,
     },
     /// Says the C header a native bundle of a package is written
@@ -191,10 +196,8 @@ impl Session<'_> {
             Command::Add { on, name, at } => self
                 .one(at)
                 .and_then(|path| self.add(&path, on, name.as_deref())),
-            Command::Run { at, bin, .. } => self.one(at).and_then(|path| self.run(&path, bin)),
-            Command::Build { at, bin, output } => self
-                .one(at)
-                .and_then(|path| self.build(&path, bin, output.as_deref())),
+            Command::Run { at, bin, .. } => self.run(at, bin.as_deref()),
+            Command::Build { at, bin, output } => self.build(at, bin.as_deref(), output.as_deref()),
             Command::Check { at } => self.check(at).map(|()| 0),
             Command::Init { path, library } => {
                 let begun = if *library {
@@ -210,9 +213,7 @@ impl Session<'_> {
             Command::Vendor { name, at } => self
                 .one(at)
                 .and_then(|path| self.vendor(&path, name.as_deref())),
-            Command::Fetch { at, bin } => self
-                .one(at)
-                .and_then(|path| self.fetch(&path, bin.as_deref())),
+            Command::Fetch { at, bin } => self.fetch(at, bin.as_deref()),
             Command::Header { at } => self.one(at).and_then(|path| self.header(&path)),
             Command::Snapshot { at } => self.one(at).and_then(|path| self.snapshot(&path)),
             Command::Test { at, only } => self.test(at, only.as_deref()),
@@ -244,22 +245,6 @@ impl Session<'_> {
         Ok(project)
     }
 
-    /// The binary of `project`'s package that a command names.
-    fn binary<'p>(project: &'p Project, bin: &str) -> Result<&'p Binary, Vec<String>> {
-        let lacks = || {
-            let why = if bin == MAIN {
-                format!("`src/{MAIN}.ab` defines no `{MAIN}`")
-            } else {
-                format!("its manifest declares no `[bin.{bin}]`")
-            };
-            vec![format!(
-                "the package `{}` has no binary `{bin}`: {why}",
-                project.root
-            )]
-        };
-        project.bins.get(bin).ok_or_else(lacks)
-    }
-
     /// The target `binary` is run or built under on a command line:
     /// the one it names, or the command-line target itself. Nothing,
     /// if the one it names does not extend that one: such a target is
@@ -278,48 +263,57 @@ impl Session<'_> {
         Ok(extends.then_some(target))
     }
 
-    /// Fetches what a build of the package at `path` reads: opening it
-    /// fetches the packages, and asking what is to be linked fetches
-    /// the native bundles, for the binary `bin` or else for each.
-    fn fetch(&self, path: &Path, bin: Option<&str>) -> Result<i32, Vec<String>> {
-        let project = self.open(path)?;
-        let binaries: Vec<&Binary> = match bin {
-            Some(bin) => vec![Self::binary(&project, bin)?],
-            None => project.bins.values().collect(),
+    /// Fetches what a build of the packages `chosen` is reads: opening
+    /// each fetches the packages, and asking what is to be linked
+    /// fetches the native bundles, for the binary `bin` or else for
+    /// each there is.
+    fn fetch(&self, chosen: &Chosen, bin: Option<&str>) -> Result<i32, Vec<String>> {
+        let offered = self.offered(chosen)?;
+        // A package with nothing to run has nothing to link.
+        let none = bin.is_none()
+            && offered
+                .iter()
+                .all(|package| package.project.bins.is_empty());
+        let picked = if none {
+            Vec::new()
+        } else {
+            picked::every(&offered, bin)?
         };
-        let engine = self.engine(&project);
-        let launch = Launch {
-            project: &project,
-            engine: &engine,
-        };
-        for binary in binaries {
+        for Picked { package, binary } in picked {
+            let project = &package.project;
+            let engine = self.engine(project);
+            let launch = Launch {
+                project,
+                engine: &engine,
+            };
             // What a tool builds is linked with no native bundle.
-            let Some(target) = Self::target(&project, &engine, binary)? else {
+            let Some(target) = Self::target(project, &engine, binary)? else {
                 continue;
             };
             let linked = launch.link(&binary.entry, &target)?;
-            let reached = self.linking(&project, &linked.parts);
+            let reached = self.linking(project, &linked.parts);
             reached.map_err(|problem| vec![problem])?;
         }
         Ok(0)
     }
 
-    fn run(&self, path: &Path, bin: &str) -> Result<i32, Vec<String>> {
-        let project = self.open(path)?;
-        let binary = Self::binary(&project, bin)?;
-        let engine = self.engine(&project);
+    fn run(&self, chosen: &Chosen, bin: Option<&str>) -> Result<i32, Vec<String>> {
+        let offered = self.offered(chosen)?;
+        let Picked { package, binary } = picked::one(&offered, bin)?;
+        let project = &package.project;
+        let engine = self.engine(project);
         let launch = Launch {
-            project: &project,
+            project,
             engine: &engine,
         };
-        let Some(target) = Self::target(&project, &engine, binary)? else {
+        let Some(target) = Self::target(project, &engine, binary)? else {
             return Err(vec![UNRUN.to_owned()]);
         };
         let linked = launch.link(&binary.entry, &target)?;
         let said = |problem: String| vec![problem];
         // A program that reaches a native bundle is run by what was
         // linked with it, which this process was not.
-        let link = self.linking(&project, &linked.parts).map_err(said)?;
+        let link = self.linking(project, &linked.parts).map_err(said)?;
         if !link.bundles.is_empty() {
             let executable = self.executable(&launch, &linked, &link)?;
             let args = self.world.borrow().args();

@@ -64,7 +64,7 @@ const GRANTED: &str = "grants = [\"ambient.build.read\"]";
 fn run(files: &Files, store: &MemoryStore) -> (String, String) {
     let command = Command::Run {
         at: Chosen::default(),
-        bin: "main".to_owned(),
+        bin: None,
         args: Vec::new(),
     };
     let (_, world) = Scripted::within("app").execute_over(files, store, &command);
