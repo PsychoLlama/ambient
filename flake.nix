@@ -82,14 +82,11 @@
           coding = pkgs.mkShell {
             inputsFrom = [ default ];
 
-            # Share the Rust build cache across worktrees.
-            # Only local - not set in CI.
-            shellHook = ''
-              if _git_common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
-                export CARGO_TARGET_DIR="$(dirname "$_git_common")/target"
-                unset _git_common
-              fi
-            '';
+            # Each worktree builds into its own `target`. One shared by
+            # all of them is not sound: cargo names a crate's artifacts
+            # by its path within the workspace and takes them as fresh
+            # by their time, so a checkout is handed what another built
+            # from other source.
           };
         }
       );
