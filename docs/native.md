@@ -63,6 +63,7 @@ libraries = ["-lm"]
 - The platform is named as the compiler names the machine `ambient` was built for. A package with no bundle for it says which platforms it has.
 - `path` is for a package in the workspace. A published one gives a `digest`, and a `url` to fetch it from.
 - `libraries` is what the machine's linker is told to link besides.
+- A package outside the workspace brings its bundle only where what depends on it says `native = true` beside where it is. No grant holds native code, so that trusts the package with the machine.
 
 Linking uses the machine's `cc`, or `$CC`.
 
