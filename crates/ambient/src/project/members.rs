@@ -67,8 +67,27 @@ pub(super) fn manifest(files: &dyn Files, directory: &Path) -> Result<Manifest, 
     Manifest::read(&text).map_err(|reason| ProjectError::Manifest { path, reason })
 }
 
-/// The packages a command at `directory` covers: every member, if it
-/// is a workspace's directory, and else the package there.
+/// The nearest directory, `directory` or above it, that holds a
+/// manifest: the package or the workspace a command run there is for.
+///
+/// # Errors
+///
+/// No directory there or above holds one.
+pub fn nearest(files: &dyn Files, directory: &Path) -> Result<PathBuf, ProjectError> {
+    let mut at = Some(normal(directory));
+    while let Some(here) = at {
+        if files.read(&here.join(MANIFEST)).is_ok() {
+            return Ok(here);
+        }
+        at = above(files, &here);
+    }
+    Err(ProjectError::Nowhere {
+        at: directory.to_owned(),
+    })
+}
+
+/// The packages a command at `directory` covers: the package there,
+/// or every member if it is a workspace's directory and no package.
 ///
 /// # Errors
 ///
@@ -76,13 +95,12 @@ pub(super) fn manifest(files: &dyn Files, directory: &Path) -> Result<Manifest, 
 pub fn covered(files: &dyn Files, directory: &Path) -> Result<Vec<PathBuf>, ProjectError> {
     let directory = &normal(directory);
     let said = manifest(files, directory)?;
-    let Some(listed) = said.members else {
+    let Some(listed) = said.members.filter(|_| said.package.is_none()) else {
         return Ok(vec![directory.clone()]);
     };
-    let mut covered: Vec<PathBuf> = said.package.iter().map(|_| directory.clone()).collect();
     let listed = expanded(files, directory, &listed);
-    covered.extend(listed.iter().map(|path| normal(&directory.join(path))));
-    Ok(covered)
+    let member = |path: &PathBuf| normal(&directory.join(path));
+    Ok(listed.iter().map(member).collect())
 }
 
 /// The directory of the member called `name` of the workspace the

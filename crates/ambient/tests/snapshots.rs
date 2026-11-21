@@ -33,13 +33,8 @@ fn package(at: &str) -> Files {
 
 /// The snapshot of the package at `at`, as the command line says it.
 fn snapshot(files: &Files, at: &str) -> String {
-    let path = PathBuf::from(at);
-    let (code, world) = Scripted::default().execute(
-        files,
-        &Command::Snapshot {
-            at: Chosen::at(path),
-        },
-    );
+    let at_it = Chosen::default();
+    let (code, world) = Scripted::within(at).execute(files, &Command::Snapshot { at: at_it });
     assert_eq!((code, world.err.as_str()), (0, ""));
     world.out
 }

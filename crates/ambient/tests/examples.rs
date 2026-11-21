@@ -25,9 +25,9 @@ fn every_example_checks() {
     for entry in std::fs::read_dir(example("")).unwrap() {
         let path = entry.unwrap().path();
         let command = Command::Check {
-            at: Chosen::at(path.clone()),
+            at: Chosen::default(),
         };
-        let (code, world) = Scripted::default().execute(&Disk, &command);
+        let (code, world) = Scripted::within(&path).execute(&Disk, &command);
 
         assert_eq!((code, world.err.as_str()), (0, ""));
         support::scripted::verify(&Disk, &path);
@@ -41,14 +41,11 @@ fn every_example_checks() {
 fn every_test_of_an_example_passes() {
     for entry in std::fs::read_dir(example("")).unwrap() {
         let path = entry.unwrap().path();
-        let (code, world) = Scripted::default().execute(
-            &Disk,
-            &Command::Test {
-                paths: vec![path],
-                packages: Vec::new(),
-                only: None,
-            },
-        );
+        let test = Command::Test {
+            at: Chosen::default(),
+            only: None,
+        };
+        let (code, world) = Scripted::within(path).execute(&Disk, &test);
 
         assert_eq!((code, world.err.as_str()), (0, ""), "{}", world.out);
     }
@@ -57,14 +54,11 @@ fn every_test_of_an_example_passes() {
 #[test]
 fn the_logging_package_passes_its_tests() {
     let path = example("../packages/logging");
-    let (code, world) = Scripted::default().execute(
-        &Disk,
-        &Command::Test {
-            paths: vec![path],
-            packages: Vec::new(),
-            only: None,
-        },
-    );
+    let test = Command::Test {
+        at: Chosen::default(),
+        only: None,
+    };
+    let (code, world) = Scripted::within(path).execute(&Disk, &test);
 
     assert_eq!((code, world.err.as_str()), (0, ""), "{}", world.out);
 }
@@ -91,11 +85,11 @@ fn the_tally_counts_the_words_of_a_file() {
         ..Scripted::default()
     };
     let command = Command::Run {
-        at: Chosen::at(example("tally")),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
-    let (code, world) = world.execute(&Disk, &command);
+    let (code, world) = world.inside(example("tally")).execute(&Disk, &command);
 
     assert_eq!((code, world.err.as_str()), (0, ""));
     assert_eq!(world.out, "3 the\n1 and\n1 cat\n1 end\n1 hat\n");
@@ -104,7 +98,7 @@ fn the_tally_counts_the_words_of_a_file() {
 #[test]
 fn the_stock_keeps_its_counts_in_a_file_of_json() {
     let command = Command::Run {
-        at: Chosen::at(example("stock")),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
@@ -113,7 +107,7 @@ fn the_stock_keeps_its_counts_in_a_file_of_json() {
         args: ["add", "jam", "3"].map(str::to_owned).to_vec(),
         ..Scripted::default()
     };
-    let (code, world) = world.execute(&Disk, &command);
+    let (code, world) = world.inside(example("stock")).execute(&Disk, &command);
 
     assert_eq!((code, world.err.as_str()), (0, ""));
     assert_eq!(world.out, "jam         3\ntea         2\n");
@@ -139,11 +133,11 @@ fn the_notes_are_served_and_kept_in_a_file_of_json() {
         ..Scripted::default()
     };
     let command = Command::Run {
-        at: Chosen::at(example("notes")),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
-    let (code, world) = world.execute(&Disk, &command);
+    let (code, world) = world.inside(example("notes")).execute(&Disk, &command);
 
     assert_eq!((code, world.err.as_str()), (0, ""));
     let answers: Vec<_> = world
@@ -163,11 +157,11 @@ fn the_notes_are_served_and_kept_in_a_file_of_json() {
 /// it wrote to standard error.
 fn binary_saying(name: &str, bin: &str, world: Scripted) -> Scripted {
     let command = Command::Run {
-        at: Chosen::at(example(name)),
+        at: Chosen::default(),
         bin: bin.to_owned(),
         args: Vec::new(),
     };
-    let (code, world) = world.execute(&Disk, &command);
+    let (code, world) = world.inside(example(name)).execute(&Disk, &command);
     assert_eq!(code, 0, "{}", world.err);
     world
 }
@@ -175,11 +169,11 @@ fn binary_saying(name: &str, bin: &str, world: Scripted) -> Scripted {
 /// Runs a binary of an example in a world, which must not fail.
 fn binary(name: &str, bin: &str, world: Scripted) -> Scripted {
     let command = Command::Run {
-        at: Chosen::at(example(name)),
+        at: Chosen::default(),
         bin: bin.to_owned(),
         args: Vec::new(),
     };
-    let (code, world) = world.execute(&Disk, &command);
+    let (code, world) = world.inside(example(name)).execute(&Disk, &command);
     assert_eq!((code, world.err.as_str()), (0, ""));
     world
 }
@@ -288,7 +282,7 @@ fn a_function_that_was_posted_is_called_by_its_hash() {
 fn the_worlds_play_a_game_back_from_what_was_recorded() {
     let play = |world: Scripted| {
         let command = Command::Run {
-            at: Chosen::at(example("worlds")),
+            at: Chosen::default(),
             bin: "main".to_owned(),
             args: Vec::new(),
         };
@@ -296,7 +290,7 @@ fn the_worlds_play_a_game_back_from_what_was_recorded() {
             args: vec!["game.tape".to_owned()],
             ..world
         };
-        let (code, after) = world.execute(&Disk, &command);
+        let (code, after) = world.inside(example("worlds")).execute(&Disk, &command);
         assert_eq!((code, after.err.as_str()), (0, ""));
         after
     };

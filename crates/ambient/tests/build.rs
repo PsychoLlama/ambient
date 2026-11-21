@@ -20,10 +20,10 @@ use support::scripted::{LAUNCHER, Scripted, app, declaring};
 fn build(source: &str, launcher: &[u8]) -> Vec<u8> {
     let world = Scripted {
         files: [(LAUNCHER.to_owned(), launcher.to_vec())].into(),
-        ..Scripted::default()
+        ..Scripted::within("app")
     };
     let command = Command::Build {
-        at: Chosen::at("app"),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         output: None,
     };
@@ -68,7 +68,7 @@ fn an_executable_is_what_was_linked_and_then_the_program() {
 
     let world = Scripted {
         args: vec!["Ada".to_owned(), "--help".to_owned()],
-        ..Scripted::default()
+        ..Scripted::within("app")
     };
     let (code, after) = started(&executable, world);
     assert_eq!((code, after.out.as_str()), (3, "hello, Ada and --help\n"));
@@ -100,7 +100,7 @@ fn an_executable_is_linked_with_the_native_side_its_program_reaches() {
 
 #[test]
 fn native_code_of_the_standard_target_is_offered_only_by_the_group_it_names() {
-    let world: Rc<RefCell<dyn World>> = Rc::new(RefCell::new(Scripted::default()));
+    let world: Rc<RefCell<dyn World>> = Rc::new(RefCell::new(Scripted::within("app")));
     let offered = |linked: &Groups| {
         let natives = natives_linked(&world, linked);
         let paths = natives.named().map(|(_, path)| path.to_owned());
@@ -135,7 +135,7 @@ fn a_fault_in_an_executable_is_reported_where_it_was_written() {
         }
     ";
 
-    let (code, after) = started(&build(source, b""), Scripted::default());
+    let (code, after) = started(&build(source, b""), Scripted::within("app"));
     assert_eq!(code, 1);
     assert_eq!(
         after.err,
@@ -171,7 +171,7 @@ fn a_program_that_packs_code_is_launched_by_the_command() {
 
 #[test]
 fn an_executable_packs_its_own_code_and_loads_it() {
-    let (code, after) = started(&build(PACKS, b""), Scripted::default());
+    let (code, after) = started(&build(PACKS, b""), Scripted::within("app"));
     assert_eq!(
         (code, after.out.as_str()),
         (0, "hello, ada\n"),
@@ -184,10 +184,10 @@ fn an_executable_packs_its_own_code_and_loads_it() {
 fn a_program_that_is_wrong_builds_nothing() {
     let world = Scripted {
         files: [(LAUNCHER.to_owned(), Vec::new())].into(),
-        ..Scripted::default()
+        ..Scripted::within("app")
     };
     let command = Command::Build {
-        at: Chosen::at("app"),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
     };
@@ -219,8 +219,8 @@ fn the_command_builds_a_file_that_runs_on_its_own() {
     let executable = directory.join("greet");
 
     let build = Process::new(ambient)
-        .args(["build", "app", "--output", "greet"])
-        .current_dir(&directory)
+        .args(["build", "--output", "../greet"])
+        .current_dir(&package)
         .env("XDG_CACHE_HOME", directory.join("cache"))
         .output()
         .unwrap();
@@ -260,11 +260,11 @@ const PAGE: &str = r#"
 fn built_under(target: &str) -> (i32, Scripted) {
     let files = declaring(PAGE, &format!("[bin.main]\ntarget = \"{target}\""));
     let command = Command::Build {
-        at: Chosen::at("app"),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         output: None,
     };
-    Scripted::default().execute(&files, &command)
+    Scripted::within("app").execute(&files, &command)
 }
 
 #[test]

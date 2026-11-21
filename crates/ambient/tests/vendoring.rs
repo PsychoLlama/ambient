@@ -30,7 +30,7 @@ fn numbers() -> Package {
 fn command(name: Option<&str>) -> Command {
     Command::Vendor {
         name: name.map(str::to_owned),
-        package: None,
+        at: Chosen::default(),
     }
 }
 
@@ -46,13 +46,8 @@ fn kept(files: &Files) -> String {
 
 /// The snapshot of the package at `at`.
 fn snapshot(files: &Files, at: &str) -> String {
-    let path = PathBuf::from(at);
-    let said = Scripted::default().execute(
-        files,
-        &Command::Snapshot {
-            at: Chosen::at(path),
-        },
-    );
+    let at_it = Chosen::default();
+    let said = Scripted::within(at).execute(files, &Command::Snapshot { at: at_it });
     said.1.out
 }
 
@@ -140,7 +135,7 @@ fn a_copy_goes_to_the_workspace_and_every_member_that_was_opened_depends_on_it()
     files.insert("work/ambient.toml".into(), workspace(&["app", "twice"]));
     let vendor = Command::Vendor {
         name: Some("numbers".to_owned()),
-        package: Some("app".to_owned()),
+        at: Chosen::named(&["app"]),
     };
     let mut files = written(files, "work", &vendor).unwrap();
 
@@ -164,7 +159,7 @@ fn a_package_is_vendored_once_and_only_from_outside_the_workspace() {
     let listed = files(Some(&["app", "near"]), [inside, near, numbers()]);
     let near = Command::Vendor {
         name: Some("near".to_owned()),
-        package: None,
+        at: Chosen::default(),
     };
 
     assert_eq!(

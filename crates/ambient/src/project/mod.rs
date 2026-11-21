@@ -40,7 +40,7 @@ pub use locked::{
 };
 pub use manifest::{Bundle, Manifest, Package};
 use members::{Members, normal};
-pub use members::{apart, covered, named};
+pub use members::{apart, covered, named, nearest};
 pub use settle::Update;
 pub use vendor::{Vendored, kept, vendored};
 pub use version::{Line, Version};

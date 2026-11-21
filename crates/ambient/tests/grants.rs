@@ -63,11 +63,11 @@ const GRANTED: &str = "grants = [\"ambient.build.read\"]";
 /// What running the package over `store` prints and warns.
 fn run(files: &Files, store: &MemoryStore) -> (String, String) {
     let command = Command::Run {
-        at: Chosen::at("app"),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
-    let (_, world) = Scripted::default().execute_over(files, store, &command);
+    let (_, world) = Scripted::within("app").execute_over(files, store, &command);
     (world.out, world.err)
 }
 

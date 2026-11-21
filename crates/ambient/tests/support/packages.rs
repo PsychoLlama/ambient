@@ -96,11 +96,11 @@ pub fn ran(files: &Files) -> Result<i32, String> {
 /// reports.
 pub fn ran_at(files: &Files, at: &str) -> Result<i32, String> {
     let command = Command::Run {
-        at: Chosen::at(at),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
-    let (code, world) = Scripted::default().execute(files, &command);
+    let (code, world) = Scripted::within(at).execute(files, &command);
     if world.err.is_empty() {
         Ok(code)
     } else {

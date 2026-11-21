@@ -13,5 +13,5 @@ Structured logs as an ability: an Ambient package with no native code. The root 
 
 ## Testing
 
-- `ambient test packages/logging`, which `crates/ambient/tests/examples.rs` runs.
+- `ambient test` here, which `crates/ambient/tests/examples.rs` runs.
 - `examples/logs` is a program that uses the package under the `system` target.

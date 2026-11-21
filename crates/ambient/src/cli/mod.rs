@@ -77,10 +77,8 @@ pub enum Command {
         /// The name the package uses for it; its own, if not said.
         #[arg(long = "as")]
         name: Option<String>,
-        /// The member of the workspace here that is to depend on it,
-        /// by name; the package here, if not said.
-        #[arg(long, short, value_name = "NAME")]
-        package: Option<String>,
+        #[command(flatten)]
+        at: Chosen,
     },
     /// Makes an executable of a binary of a package: one file that
     /// runs it without the package or the compiler. A binary whose
@@ -134,20 +132,16 @@ pub enum Command {
     Update {
         /// The dependency, by the name the package uses for it.
         name: Option<String>,
-        /// The member of the workspace here that depends on it, by
-        /// name; the package here, if not said.
-        #[arg(long, short, value_name = "NAME")]
-        package: Option<String>,
+        #[command(flatten)]
+        at: Chosen,
     },
     /// Copies a dependency into the workspace, where it can be read
     /// and changed; with none named, says which copies were changed.
     Vendor {
         /// The dependency, by the name the package uses for it.
         name: Option<String>,
-        /// The member of the workspace here that depends on it, by
-        /// name; the package here, if not said.
-        #[arg(long, short, value_name = "NAME")]
-        package: Option<String>,
+        #[command(flatten)]
+        at: Chosen,
     },
     /// Says a package's snapshot: the hash of the files that are it.
     Snapshot {
@@ -157,13 +151,8 @@ pub enum Command {
     /// Runs every test of a package: each function that takes nothing
     /// and whose name begins with `test_`.
     Test {
-        /// The directory of each package to test, or of its workspace.
-        #[arg(default_value = ".")]
-        paths: Vec<PathBuf>,
-        /// The members of the workspace at each path to test, by
-        /// name; every member, if none is said.
-        #[arg(long = "package", short, value_name = "NAME")]
-        packages: Vec<String>,
+        #[command(flatten)]
+        at: Chosen,
         /// Runs only the tests whose module path and name hold this.
         #[arg(long)]
         only: Option<String>,
@@ -177,8 +166,8 @@ const UNRUN: &str = "a program is run under the command-line target, or one that
 
 /// What a command works with.
 pub struct Session<'a> {
-    /// Where the command is run: the directory a command that takes
-    /// none is for.
+    /// Where the command is run: what it is for is the package or the
+    /// workspace there or above.
     pub directory: &'a Path,
     pub files: &'a dyn Files,
     pub store: &'a dyn Store,
@@ -198,12 +187,10 @@ impl Session<'_> {
     /// went wrong is written to the world's standard error.
     #[must_use]
     pub fn execute(&self, command: &Command) -> i32 {
-        let here = Chosen::at(self.directory);
-        let within = |package: &Option<String>| self.one(&here.of(package.as_deref()));
         let done = match command {
-            Command::Add { on, name, package } => {
-                within(package).and_then(|path| self.add(&path, on, name.as_deref()))
-            }
+            Command::Add { on, name, at } => self
+                .one(at)
+                .and_then(|path| self.add(&path, on, name.as_deref())),
             Command::Run { at, bin, .. } => self.one(at).and_then(|path| self.run(&path, bin)),
             Command::Build { at, bin, output } => self
                 .one(at)
@@ -217,22 +204,18 @@ impl Session<'_> {
                 };
                 self.init(path, begun)
             }
-            Command::Update { name, package } => {
-                within(package).and_then(|path| self.update(&path, name.as_deref()))
-            }
-            Command::Vendor { name, package } => {
-                within(package).and_then(|path| self.vendor(&path, name.as_deref()))
-            }
+            Command::Update { name, at } => self
+                .one(at)
+                .and_then(|path| self.update(&path, name.as_deref())),
+            Command::Vendor { name, at } => self
+                .one(at)
+                .and_then(|path| self.vendor(&path, name.as_deref())),
             Command::Fetch { at, bin } => self
                 .one(at)
                 .and_then(|path| self.fetch(&path, bin.as_deref())),
             Command::Header { at } => self.one(at).and_then(|path| self.header(&path)),
             Command::Snapshot { at } => self.one(at).and_then(|path| self.snapshot(&path)),
-            Command::Test {
-                paths,
-                packages,
-                only,
-            } => self.test(paths, packages, only.as_deref()),
+            Command::Test { at, only } => self.test(at, only.as_deref()),
         };
         done.unwrap_or_else(|problems| {
             let mut world = self.world.borrow_mut();

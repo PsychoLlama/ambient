@@ -106,10 +106,18 @@ impl Linker for Named {
 
 impl Scripted {
     /// A world whose commands are run in the directory `within`.
-    pub fn within(within: &str) -> Self {
+    pub fn within(within: impl Into<PathBuf>) -> Self {
         Self {
-            within: PathBuf::from(within),
+            within: within.into(),
             ..Self::default()
+        }
+    }
+
+    /// This world, with its commands run in the directory `within`.
+    pub fn inside(self, within: impl Into<PathBuf>) -> Self {
+        Self {
+            within: within.into(),
+            ..self
         }
     }
 
@@ -216,23 +224,18 @@ pub fn verify(files: &dyn Files, path: &std::path::Path) {
 
 /// Checks the package `app` of `files`.
 pub fn check(files: &dyn Files) -> (i32, Scripted) {
-    let path = PathBuf::from("app");
-    Scripted::default().execute(
-        files,
-        &Command::Check {
-            at: Chosen::at(path),
-        },
-    )
+    let at = Chosen::default();
+    Scripted::within("app").execute(files, &Command::Check { at })
 }
 
 /// Runs `main` of module `main` of the package `app` of `files`.
 pub fn run(files: &dyn Files) -> (i32, Scripted) {
     let command = Command::Run {
-        at: Chosen::at("app"),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
-    Scripted::default().execute(files, &command)
+    Scripted::within("app").execute(files, &command)
 }
 
 /// Runs `main` of a program written as one module under the

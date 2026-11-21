@@ -332,7 +332,10 @@ fn a_directory_without_a_manifest_is_not_a_package() {
     let (code, world) = run(&files([("app/src/main.ab", "")]));
 
     assert_eq!(code, 1);
-    assert_eq!(world.err, "error: app/ambient.toml: no such file\n");
+    assert_eq!(
+        world.err,
+        "error: app: there is no `ambient.toml` here or above\n"
+    );
 }
 
 fn test(files: &Files) -> (i32, Scripted) {
@@ -341,13 +344,11 @@ fn test(files: &Files) -> (i32, Scripted) {
 
 /// Runs the tests of `files` whose names hold `only`, or all of them.
 fn testing(files: &Files, only: Option<&str>) -> (i32, Scripted) {
-    let path = PathBuf::from("app");
     let only = only.map(str::to_owned);
-    Scripted::default().execute(
+    Scripted::within("app").execute(
         files,
         &ambient::cli::Command::Test {
-            paths: vec![path],
-            packages: Vec::new(),
+            at: ambient::cli::Chosen::default(),
             only,
         },
     )
@@ -443,13 +444,11 @@ fn a_test_that_passed_is_not_run_again_until_it_changes() {
     ";
     let store = ambient::store::MemoryStore::new();
     let summary = |source: &str| {
-        let path = PathBuf::from("app");
         let command = ambient::cli::Command::Test {
-            paths: vec![path],
-            packages: Vec::new(),
+            at: ambient::cli::Chosen::default(),
             only: None,
         };
-        let (_, world) = Scripted::default().execute_over(&app(source), &store, &command);
+        let (_, world) = Scripted::within("app").execute_over(&app(source), &store, &command);
         world.out.lines().last().unwrap().to_owned()
     };
 
@@ -537,13 +536,11 @@ fn tested(world: &Scripted, path: &str) -> (i32, Scripted) {
     let held = |bytes: &Vec<u8>| String::from_utf8_lossy(bytes).into_owned();
     let written = |(path, bytes): (&String, &Vec<u8>)| (PathBuf::from(path), held(bytes));
     let files: Files = world.files.iter().map(written).collect();
-    let path = PathBuf::from(path);
     let test = ambient::cli::Command::Test {
-        paths: vec![path],
-        packages: Vec::new(),
+        at: ambient::cli::Chosen::default(),
         only: None,
     };
-    Scripted::default().execute(&files, &test)
+    Scripted::within(path).execute(&files, &test)
 }
 
 #[test]

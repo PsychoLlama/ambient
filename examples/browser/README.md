@@ -5,7 +5,7 @@ A package with a target of its own, which extends the JavaScript target (`packag
 From the root of the repository:
 
 ```sh
-cargo run --release -- build examples/browser
+(cd examples/browser && cargo run --release -- build)
 python3 -m http.server
 ```
 

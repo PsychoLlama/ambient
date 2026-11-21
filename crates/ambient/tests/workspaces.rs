@@ -190,7 +190,7 @@ fn at_the_top(files: &Files, command: &Command) -> (i32, String) {
 #[test]
 fn checking_a_workspace_checks_every_member() {
     let check = Command::Check {
-        at: Chosen::at("."),
+        at: Chosen::default(),
     };
     let wrong = "pub fn wrong(): int => \"no\";";
 
@@ -206,7 +206,7 @@ fn checking_a_workspace_checks_every_member() {
 #[test]
 fn a_workspace_lists_members_by_a_pattern() {
     let check = Command::Check {
-        at: Chosen::at("."),
+        at: Chosen::default(),
     };
     let wrong = "pub fn wrong(): int => \"no\";";
     let packages = [
@@ -225,10 +225,8 @@ fn a_workspace_lists_members_by_a_pattern() {
 
 #[test]
 fn testing_a_workspace_tests_every_member() {
-    // The workspace and a member of it: the member is tested once.
     let test = Command::Test {
-        paths: vec![".".into(), "one".into()],
-        packages: Vec::new(),
+        at: Chosen::default(),
         only: None,
     };
     let (code, said) = at_the_top(
@@ -247,26 +245,54 @@ fn testing_a_workspace_tests_every_member() {
 #[test]
 fn a_workspace_that_is_no_package_is_not_run() {
     let run = Command::Run {
-        at: Chosen::at("."),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
-    let said = "error: .: this is a workspace and no package: name a member with `--package`\n";
+    let said = "error: this is a workspace and no package: name a member with `--package`\n";
     assert_eq!(at_the_top(&pair(SEVEN, SEVEN), &run), (1, said.to_owned()));
 }
 
-/// The members called `names` of the workspace at the top.
-fn members(names: &[&str]) -> Chosen {
-    Chosen {
-        path: PathBuf::from("."),
-        packages: names.iter().map(|name| (*name).to_owned()).collect(),
-    }
+#[test]
+fn a_command_is_for_the_package_it_is_run_in_or_under() {
+    let files = app_beside(SEVEN);
+    let ran = |within: &str| Scripted::within(within).execute(&files, &run_of(&[])).0;
+
+    assert_eq!(ran("app"), 7);
+    assert_eq!(ran("app/src"), 7);
+}
+
+#[test]
+fn a_package_that_lists_members_is_itself_what_a_command_there_is_for() {
+    let wrong = "pub fn wrong(): int => \"no\";";
+    let mut files = pair(SEVEN, wrong);
+    let listing = "[package]\nname = \"top\"\nid = \"top\"\nversion = \"1.0.0\"\n\
+                   [workspace]\nmembers = [\"one\", \"other\"]";
+    files.insert("ambient.toml".into(), listing.to_owned());
+    files.insert("src/lib.ab".into(), SEVEN.to_owned());
+    let check = |names: &[&str]| Command::Check {
+        at: Chosen::named(names),
+    };
+
+    assert_eq!(at_the_top(&files, &check(&[])), (0, String::new()));
+    assert_eq!(at_the_top(&files, &check(&["other"])).0, 1);
+}
+
+#[test]
+fn a_member_named_twice_is_tested_once() {
+    let test = Command::Test {
+        at: Chosen::named(&["one", "one"]),
+        only: None,
+    };
+    let (_, said) = at_the_top(&pair("fn test_one(): null => null;", SEVEN), &test);
+
+    assert_eq!(said.matches("ok    one:.test_one").count(), 1, "{said}");
 }
 
 /// Runs `main` of those members, which is done for one.
 fn run_of(names: &[&str]) -> Command {
     Command::Run {
-        at: members(names),
+        at: Chosen::named(names),
         bin: "main".to_owned(),
         args: Vec::new(),
     }
@@ -292,7 +318,7 @@ fn a_command_at_a_workspace_is_for_the_member_it_names() {
 #[test]
 fn a_package_a_member_depends_on_by_its_directory_is_named_as_a_member() {
     let check = Command::Check {
-        at: members(&["numbers"]),
+        at: Chosen::named(&["numbers"]),
     };
     let (code, said) = at_the_top(&app_beside("pub fn wrong(): int => \"no\";"), &check);
 
@@ -323,7 +349,9 @@ fn a_command_for_one_package_is_not_told_two() {
 #[test]
 fn checking_the_members_a_command_names_checks_no_other() {
     let wrong = "pub fn wrong(): int => \"no\";";
-    let check = |names: &[&str]| Command::Check { at: members(names) };
+    let check = |names: &[&str]| Command::Check {
+        at: Chosen::named(names),
+    };
     let files = pair(wrong, SEVEN);
 
     assert_eq!(at_the_top(&files, &check(&["other"])), (0, String::new()));
@@ -335,7 +363,7 @@ fn a_dependency_is_added_to_the_member_a_command_names() {
     let add = Command::Add {
         on: PathBuf::from("other"),
         name: None,
-        package: Some("one".to_owned()),
+        at: Chosen::named(&["one"]),
     };
     let files = written(pair(SEVEN, SEVEN), ".", &add).unwrap();
 
@@ -352,7 +380,7 @@ fn added(files: Files, on: &str, name: Option<&str>) -> Result<Files, String> {
     let command = Command::Add {
         on: PathBuf::from(on),
         name: name.map(str::to_owned),
-        package: None,
+        at: Chosen::default(),
     };
     written(files, "app", &command)
 }

@@ -110,13 +110,13 @@ fn listed() -> Files {
 /// bundles the linker was handed, and what was said went wrong.
 fn built(files: &Files, mirror: &dyn Snapshots, bin: &str) -> (i32, Vec<PathBuf>, String) {
     let build = Command::Build {
-        at: Chosen::at("app"),
+        at: Chosen::default(),
         bin: bin.to_owned(),
         output: None,
     };
     let linker = Asked::default();
     let (code, world) =
-        Scripted::default().execute_linked(files, &MemoryStore::new(), mirror, &linker, &build);
+        Scripted::within("app").execute_linked(files, &MemoryStore::new(), mirror, &linker, &build);
     let bundles = linker
         .0
         .borrow()
@@ -201,11 +201,11 @@ fn a_bundle_with_nowhere_to_fetch_it_from_is_said_to_have_none() {
 fn what_was_fetched_beforehand_is_built_with_no_network() {
     let mirror = serving(BUNDLE);
     let fetch = Command::Fetch {
-        at: Chosen::at("app"),
+        at: Chosen::default(),
         bin: None,
     };
     let store = MemoryStore::new();
-    let fetched = Scripted::default().execute_from(&listed(), &store, &mirror, &fetch);
+    let fetched = Scripted::within("app").execute_from(&listed(), &store, &mirror, &fetch);
 
     assert_eq!((fetched.0, fetched.1.err.as_str()), (0, ""));
     assert_eq!(built(&listed(), &Offline(&mirror), "main").0, 0);

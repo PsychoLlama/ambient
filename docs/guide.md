@@ -26,14 +26,17 @@ pub fn main(): null with console.print {
 ```
 
 ```
-ambient init hello                 # makes a package that runs and has a test
-ambient run hello                  # runs the binary `main`: `main` of the module `main`
-ambient run hello -- one two       # what follows `--` is what env.args gives
-ambient run hello --bin fmt        # runs another binary of the package
-ambient check hello                # checks every definition, runs nothing
-ambient test hello                 # runs every function named test_*
-ambient build hello                # one file that runs `main`: no package, no compiler
+ambient init hello           # makes a package that runs and has a test
+cd hello                     # a command is for the package it is run in
+ambient run                  # runs the binary `main`: `main` of the module `main`
+ambient run -- one two       # what follows `--` is what env.args gives
+ambient run --bin fmt        # runs another binary of the package
+ambient check                # checks every definition, runs nothing
+ambient test                 # runs every function named test_*
+ambient build                # one file that runs `main`: no package, no compiler
 ```
+
+A command finds its package where it is run or above, so it works from `src/` as well.
 
 What a package runs is a binary: a function of `main.ab`, which the manifest declares under the function's name. `main` needs no declaring; it is declared to say more of it.
 
@@ -554,4 +557,4 @@ pub fn main(): string {
 - Only a function that captured nothing is packed: one written at the top of a module, not one written inside another that uses what is around it.
 - A function written inside another may call itself, and then says its parameter and return types.
 - A package is depended on by where it is: at a path (`text = { path = "../text" }`, which `ambient add ../text` writes), or in a git repository: `text = { git = "…", branch = "main" }`, or a `tag`, or a whole commit as `rev`. Neither says an ID: the package's own manifest does. `ambient.lock` holds the commit that led to and the ID of the package there, and only `ambient update` reads the branch again. A member of the workspace may also be named by its ID and a version: `text = { id = "…", version = "1.0.0" }`. There are no releases to depend on yet.
-- A workspace is a manifest that lists its members under `[workspace]`: `members = ["app", "libs/*"]`, where `*` is every directory there that holds a package. `ambient check` and `ambient test` there cover every member; `-p text` names the one a command is for, as in `ambient run -p app` or `ambient add text -p app`.
+- A workspace is a manifest that lists its members under `[workspace]`: `members = ["app", "libs/*"]`, where `*` is every directory there that holds a package. A command run there, where there is no package, is for every member; `-p text` names the one it is for from anywhere in the workspace, as in `ambient run -p app` or `ambient add text -p app`.

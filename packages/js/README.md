@@ -44,7 +44,7 @@ extern fn written(address: Address): string;
 
 A path is a call of a global function; `get` reads one; `new` makes an object; `method`, `property`, and `set` are of the first thing the extern takes; `{ build: "digest" }` is the digest of the program's own module. An extern that gives a handle, as `address` does, gives the JavaScript object, which the host holds until the program lets the handle go.
 
-`ambient build <package>`, of a binary whose manifest names the target (`target = "pkg.main.page"` under `[bin.main]`), writes a directory:
+`ambient build`, of a binary whose manifest names the target (`target = "pkg.main.page"` under `[bin.main]`), writes a directory:
 
 - `program.wasm`: the program.
 - `program.js`: what loads it, with a function for each extern the program reaches and no other.

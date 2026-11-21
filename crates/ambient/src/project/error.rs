@@ -67,6 +67,10 @@ pub enum ProjectError {
         id: String,
         line: Line,
     },
+    /// A command is run where there is no package.
+    Nowhere {
+        at: PathBuf,
+    },
     /// A command names a member its workspace does not have.
     Unlisted {
         name: String,
@@ -92,6 +96,17 @@ pub enum ProjectError {
         found: String,
     },
     Workspace(WorkspaceError),
+}
+
+/// A directory as a message names it: where the command is run is `.`.
+fn shown(directory: &std::path::Path) -> std::path::Display<'_> {
+    let here = directory.as_os_str().is_empty();
+    if here {
+        std::path::Path::new(".")
+    } else {
+        directory
+    }
+    .display()
 }
 
 impl fmt::Display for ProjectError {
@@ -157,10 +172,13 @@ impl fmt::Display for ProjectError {
                 "{package}: the dependency `{name}` is on package `{id}` in the version line `{line}`, \
                  which no member of the workspace is"
             ),
+            Self::Nowhere { at } => {
+                write!(f, "{}: there is no `ambient.toml` here or above", shown(at))
+            }
             Self::Unlisted { name, at } => write!(
                 f,
                 "{}: no member of the workspace here is named `{name}`",
-                at.display()
+                shown(at)
             ),
             Self::Fetch {
                 package,

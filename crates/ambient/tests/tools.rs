@@ -73,7 +73,7 @@ fn package(source: &str, grants: &str) -> Files {
 /// and gives the world it left.
 fn build(files: &Files, world: Scripted) -> Scripted {
     let command = Command::Build {
-        at: Chosen::at("app"),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
     };
@@ -90,7 +90,7 @@ fn a_target_built_by_a_tool_gives_the_files_the_tool_does() {
     use ambient::backend::wasm::Program;
     use ambient::value::{Value, decode};
 
-    let built = build(&package(PAGE, GRANTED), Scripted::default());
+    let built = build(&package(PAGE, GRANTED), Scripted::within("app"));
 
     assert_eq!(built.err, "");
     assert!(
@@ -113,10 +113,10 @@ fn a_build_takes_away_what_the_one_before_wrote_and_it_does_not_give() {
     let renamed = PAGE.replace("notes/externs.txt", "externs.txt");
     let kept = ("out/mine.txt".to_owned(), b"kept".to_vec());
 
-    let first = build(&package(PAGE, GRANTED), Scripted::default());
+    let first = build(&package(PAGE, GRANTED), Scripted::within("app"));
     let world = Scripted {
         files: first.files.into_iter().chain([kept]).collect(),
-        ..Scripted::default()
+        ..Scripted::within("app")
     };
     let second = build(&package(&renamed, GRANTED), world);
 
@@ -136,14 +136,14 @@ fn a_build_takes_away_what_the_one_before_wrote_and_it_does_not_give() {
 fn a_build_follows_the_host_code_its_tool_read() {
     let store = MemoryStore::new();
     let command = Command::Build {
-        at: Chosen::at("app"),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
     };
     let externs = |code: &str| {
         let mut files = package(PAGE, GRANTED);
         files.insert(PathBuf::from("app/js/main.js"), code.to_owned());
-        let (_, built) = Scripted::default().execute_over(&files, &store, &command);
+        let (_, built) = Scripted::within("app").execute_over(&files, &store, &command);
         text(&built, "out/notes/externs.txt")
     };
 
@@ -155,7 +155,7 @@ fn a_build_follows_the_host_code_its_tool_read() {
 fn a_tool_takes_only_what_its_package_is_granted() {
     let built = build(
         &package(PAGE, "grants = [\"ambient.build.compile\"]"),
-        Scripted::default(),
+        Scripted::within("app"),
     );
 
     assert!(
@@ -173,7 +173,7 @@ fn a_tool_takes_only_what_its_package_is_granted() {
 fn what_a_target_is_built_by_takes_a_build_and_gives_files() {
     let source = PAGE.replace("built by bundle", "built by hosted");
 
-    let built = build(&package(&source, GRANTED), Scripted::default());
+    let built = build(&package(&source, GRANTED), Scripted::within("app"));
 
     assert!(
         built
@@ -191,7 +191,7 @@ fn a_tool_that_cannot_compile_its_program_is_told_why() {
         "target page built by bundle {}",
     );
 
-    let built = build(&package(&source, GRANTED), Scripted::default());
+    let built = build(&package(&source, GRANTED), Scripted::within("app"));
 
     assert!(
         text(&built, "out/error.txt").contains("say"),
@@ -204,7 +204,7 @@ fn a_tool_that_cannot_compile_its_program_is_told_why() {
 fn a_file_a_build_gives_is_under_its_directory() {
     let source = PAGE.replace("notes/externs.txt", "../externs.txt");
 
-    let built = build(&package(&source, GRANTED), Scripted::default());
+    let built = build(&package(&source, GRANTED), Scripted::within("app"));
 
     assert!(
         built
@@ -249,7 +249,7 @@ const SIGNED: &str = r#"
 #[test]
 fn a_tool_is_told_the_type_of_a_function_that_has_one_to_give() {
     let granted = "grants = [\"ambient.build.signature\"]";
-    let built = build(&package(SIGNED, granted), Scripted::default());
+    let built = build(&package(SIGNED, granted), Scripted::within("app"));
 
     assert_eq!(built.err, "");
     let said = text(&built, "out/signature.txt");

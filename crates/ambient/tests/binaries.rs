@@ -15,11 +15,11 @@ const TWO: &str = "fn main(): int => 3;\nfn deploy(): int => 4;";
 /// and whose `main` module is `source`, exits with and reports.
 fn ran(declared: &str, source: &str, bin: &str) -> (i32, String) {
     let command = Command::Run {
-        at: Chosen::at("app"),
+        at: Chosen::default(),
         bin: bin.to_owned(),
         args: Vec::new(),
     };
-    let (code, world) = Scripted::default().execute(&declaring(source, declared), &command);
+    let (code, world) = Scripted::within("app").execute(&declaring(source, declared), &command);
     (code, world.err)
 }
 
@@ -79,12 +79,12 @@ fn two_binaries_whose_executables_are_named_the_same_are_refused() {
 fn an_executable_is_named_as_its_binary_says() {
     let built = |declared: &str| {
         let command = Command::Build {
-            at: Chosen::at("app"),
+            at: Chosen::default(),
             bin: "deploy".to_owned(),
             output: None,
         };
         let files = declaring(TWO, declared);
-        Scripted::default().execute(&files, &command).1.out
+        Scripted::within("app").execute(&files, &command).1.out
     };
 
     assert_eq!(built("[bin.deploy]"), "built deploy\n");

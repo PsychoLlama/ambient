@@ -27,7 +27,7 @@ pub target world extends cli { line: reads }
 A native bundle is an object file or an archive, for one platform, with a function for each extern a program may reach.
 
 ```
-ambient header my-package > native/ambient.h
+ambient header > native/ambient.h   # in the package
 ```
 
 The header is everything a bundle is written against. It has:

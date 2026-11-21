@@ -80,11 +80,11 @@ fn told_from(report: &str, grants: &str, store: &MemoryStore, remote: &Remote) -
     .map(|(path, text)| (PathBuf::from(path), text))
     .collect();
     let command = Command::Build {
-        at: Chosen::at("app"),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
     };
-    let world = Scripted::default()
+    let world = Scripted::within("app")
         .execute_from(&files, store, remote, &command)
         .1;
     assert_eq!(world.err, "");

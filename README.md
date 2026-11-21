@@ -36,7 +36,7 @@ Everything else comes from those properties.
 Working language demos are in [the `examples/` directory](./examples):
 
 ```sh
-cargo run -p ambient -- run examples/hello
+cd examples/hello && cargo run -p ambient -- run
 ```
 
 See [guide](docs/guide.md) for a tour of the language.

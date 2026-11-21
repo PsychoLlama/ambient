@@ -40,7 +40,7 @@ fn remote(files: &Files) -> Remote<'_> {
 
 fn run() -> Command {
     Command::Run {
-        at: Chosen::at("app"),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         args: Vec::new(),
     }
@@ -48,7 +48,7 @@ fn run() -> Command {
 
 /// What running `app` exits with on `machine`, or what it reports.
 fn ran(machine: &Remote) -> Result<i32, String> {
-    let world = support::scripted::Scripted::default();
+    let world = support::scripted::Scripted::within("app");
     let store = ambient::store::MemoryStore::new();
     let (code, world) = world.execute_from(machine.files, &store, machine, &run());
     if world.err.is_empty() {
@@ -180,7 +180,7 @@ fn main_at(files: &Files, digit: char) -> Remote<'_> {
 fn update(name: Option<&str>) -> Command {
     Command::Update {
         name: name.map(str::to_owned),
-        package: None,
+        at: Chosen::default(),
     }
 }
 
@@ -304,7 +304,7 @@ fn a_pinned_dependency_is_vendored_and_built_with_nothing_to_fetch() {
     let files = locked(&pinning());
     let vendor = Command::Vendor {
         name: Some("numbers".to_owned()),
-        package: None,
+        at: Chosen::default(),
     };
     let mut files = remote(&files).written(&vendor).unwrap();
     // The pin still says where the copy came from.

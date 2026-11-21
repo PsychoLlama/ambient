@@ -148,7 +148,7 @@ fn build(output: &Path) {
         files.insert(PathBuf::from(path), text.to_owned());
     }
     let session = Session {
-        directory: Path::new("."),
+        directory: Path::new("app"),
         files: &files,
         store: &MemoryStore::new(),
         snapshots: &ambient::project::Nowhere,
@@ -157,7 +157,7 @@ fn build(output: &Path) {
         linker: &ambient::cli::Unlinked,
     };
     let command = Command::Build {
-        at: Chosen::at("app"),
+        at: Chosen::default(),
         bin: "main".to_owned(),
         output: Some(output.to_owned()),
     };

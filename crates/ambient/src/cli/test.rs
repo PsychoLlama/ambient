@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 
 use ambient_runtime::FAULT_PACKAGE;
@@ -26,29 +26,12 @@ const PREFIX: &str = "test_";
 const PASSED: &str = "test passed";
 
 impl Session<'_> {
-    /// Runs the tests of the packages at `paths`, or of the members
-    /// there called one of `named`, says how each went, and gives the
-    /// code to exit with: zero if none failed. With `only`, the tests
-    /// are those whose module path and name hold it.
-    pub(super) fn test(
-        &self,
-        paths: &[PathBuf],
-        named: &[String],
-        only: Option<&str>,
-    ) -> Result<i32, Vec<String>> {
-        // A package two of the paths cover is tested once.
-        let mut packages = Vec::new();
-        for path in paths {
-            let at = Chosen {
-                path: path.clone(),
-                packages: named.to_vec(),
-            };
-            for package in self.each(&at)? {
-                if !packages.contains(&package) {
-                    packages.push(package);
-                }
-            }
-        }
+    /// Runs the tests of the packages `chosen` is, says how each
+    /// went, and gives the code to exit with: zero if none failed.
+    /// With `only`, the tests are those whose module path and name
+    /// hold it.
+    pub(super) fn test(&self, chosen: &Chosen, only: Option<&str>) -> Result<i32, Vec<String>> {
+        let packages = self.each(chosen)?;
         let mut code = 0;
         for package in &packages {
             code = code.max(self.tested(package, only)?);
