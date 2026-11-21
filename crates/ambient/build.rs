@@ -63,9 +63,11 @@ fn identify() {
     println!("cargo::rustc-env=AMBIENT_BUILD={:016x}", hasher.finish());
 }
 
+include!("../ambient-host/platform.rs");
+
 /// What a build of the launcher is told, whatever it is building.
 fn launching(cargo: &std::ffi::OsStr, verb: &str, target: &Path) -> Command {
-    let machine = env::var("TARGET").unwrap_or_default();
+    let machine = platform(&env::var("TARGET").unwrap_or_default());
     let mut build = Command::new(cargo);
     build
         .args([verb, "--locked", "--package", "ambient-launcher"])
@@ -84,8 +86,8 @@ fn launching(cargo: &std::ffi::OsStr, verb: &str, target: &Path) -> Command {
     build
 }
 
-/// Builds the launcher for the machine the command is being built for
-/// and as the command is: a release build of one is of the other,
+/// Builds the launcher for the platform the command being built makes
+/// programs for (`platform`) and as the command is: a release build of one is of the other,
 /// stripped and optimized as a whole, since every executable carries
 /// it.
 ///
@@ -94,8 +96,9 @@ fn launching(cargo: &std::ffi::OsStr, verb: &str, target: &Path) -> Command {
 /// link needs: see "Native code" in `docs/spec/linking.md`.
 fn launcher(cargo: &std::ffi::OsStr, out: &Path) {
     println!("cargo::rerun-if-changed=../ambient-launcher");
+    println!("cargo::rerun-if-changed=../ambient-host/platform.rs");
     let target = out.join("launching");
-    let machine = env::var("TARGET").unwrap_or_default();
+    let machine = platform(&env::var("TARGET").unwrap_or_default());
     let release = env::var("PROFILE").is_ok_and(|profile| profile == "release");
     let profile = if release { "release" } else { "debug" };
     let made = target.join(machine).join(profile);

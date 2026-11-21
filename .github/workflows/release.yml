@@ -21,8 +21,8 @@ jobs:
         include:
           # Linked statically: a binary linked in the devshell otherwise
           # names a loader in the Nix store, and runs nowhere else. The
-          # launcher inside it is built the same way, so what `ambient
-          # build` makes is as portable.
+          # launcher inside it is not: `ambient build` links a program
+          # with the C library of the machine it is run on.
           - os: ubuntu-latest
             name: x86_64-linux
             target: x86_64-unknown-linux-musl

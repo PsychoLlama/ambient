@@ -37,10 +37,13 @@ fn identify() {
     println!("cargo::rustc-env=AMBIENT_BUILD={:016x}", hasher.finish());
 }
 
+include!("platform.rs");
+
 fn main() {
     identify();
-    // The machine native code is for: what the native backend's name
+    println!("cargo::rerun-if-changed=platform.rs");
+    // The platform native code is for: what the native backend's name
     // ends with.
-    let target = env::var("TARGET").unwrap_or_default();
+    let target = platform(&env::var("TARGET").unwrap_or_default());
     println!("cargo::rustc-env=AMBIENT_TARGET={target}");
 }

@@ -28,8 +28,10 @@ pub use posts::{Posts, amb_bundle_answer, amb_bundle_refuse, amb_bundle_waiting}
 pub use values::{Host, Inside, encode};
 pub use waits::{Answer, Answers, Waits};
 
-/// The machine native code here is for: what a native bundle says it
-/// is for, to be linked into a program built here.
+/// The platform native code here is for: what a native bundle says it
+/// is for, to be linked into a program built here. It is the one this
+/// was built for, or the one a command built for it links programs
+/// for (`platform.rs`).
 pub const MACHINE: &str = env!("AMBIENT_TARGET");
 
 /// What names the native backend ([`Running::backend`], `Backend::name`):
