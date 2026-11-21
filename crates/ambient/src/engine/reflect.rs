@@ -9,6 +9,7 @@ use super::Engine;
 use super::asked::{record, refused};
 use crate::checker;
 use crate::error::Error;
+use crate::exchange;
 use crate::hash::{Hash, Hasher};
 use crate::surface::GENERATOR;
 use crate::symbol::{ModuleId, PackageId, Symbol};
@@ -22,6 +23,27 @@ pub(super) use crate::project::digest;
 /// Where the store keeps the bytes of a digest, fetched or kept.
 fn held(digest: &str) -> Hash {
     Hasher::new("kept").bytes(digest.as_bytes()).finish()
+}
+
+/// The module a `build.Module` among `args` names.
+fn module(args: &[Value], position: usize) -> Result<ModuleId, String> {
+    let wrong = || format!("argument {position} is not a module");
+    let Some(Value::Record(fields)) = args.get(position) else {
+        return Err(wrong());
+    };
+    let (Some(Value::String(package)), Some(Value::List(path))) =
+        (fields.get("package"), fields.get("path"))
+    else {
+        return Err(wrong());
+    };
+    let mut parts = Vec::new();
+    for part in path {
+        let Value::String(part) = part else {
+            return Err(wrong());
+        };
+        parts.push(part.as_str());
+    }
+    Ok(ModuleId::new(package, &parts.join(".")))
 }
 
 fn text(args: &[Value], position: usize) -> Result<&str, String> {
@@ -46,7 +68,11 @@ impl<'a> Engine<'a> {
         let failed = |error: Error| refused("failed", error.to_string());
         Some(match question {
             "modules" => text(args, 0).map(|package| self.modules(package)),
-            "definitions" => self.listed(args),
+            "definitions" => module(args, 0).map(|module| match self.defined(&module) {
+                Ok(defined) => Value::List(defined.iter().map(checker::reference).collect()),
+                Err(refused) => refused,
+            }),
+            "annotated" => self.annotated(args),
             "doc" => super::asked::definition(args, 0).map(|of| match self.resolve(&of) {
                 Ok(resolved) => resolved
                     .definition
@@ -85,43 +111,63 @@ impl<'a> Engine<'a> {
     }
 
     /// The modules of the package a workspace calls `package`, each
-    /// as its path.
+    /// as a `build.Module`.
     fn modules(&self, package: &str) -> Value {
-        let path =
-            |module: ModuleId| Value::List(module.path.0.into_iter().map(Value::String).collect());
+        let path = |module: ModuleId| {
+            let path = module.path.0.into_iter().map(Value::String).collect();
+            record([
+                ("package", Value::String(package.to_owned())),
+                ("path", Value::List(path)),
+            ])
+        };
         let modules = self.sources.modules(&PackageId(package.to_owned()));
         Value::List(modules.into_iter().map(path).collect())
     }
 
     /// The definitions of a module, public and not, in the order they
-    /// are written, and then those its call gives if it is generated.
-    fn listed(&self, args: &[Value]) -> Result<Value, String> {
-        let Some(Value::List(path)) = args.get(1) else {
-            return Err("argument 1 is not a module's path".to_owned());
-        };
-        let mut parts = Vec::new();
-        for part in path {
-            let Value::String(part) = part else {
-                return Err("argument 1 is not a module's path".to_owned());
-            };
-            parts.push(part.as_str());
-        }
-        let module = ModuleId::new(text(args, 0)?, &parts.join("."));
-        let Some(read) = self.sources.module(&module) else {
-            return Ok(refused("not_found", format!("no module `{module}`")));
+    /// are written, and then those its call gives if it is generated;
+    /// or the error a build is given in their place.
+    fn defined(&self, module: &ModuleId) -> Result<Vec<Symbol>, Value> {
+        let Some(read) = self.sources.module(module) else {
+            return Err(refused("not_found", format!("no module `{module}`")));
         };
         let written = read.definitions().iter();
         let written = written
             .filter(|definition| definition.name != GENERATOR)
             .map(|definition| module.symbol(definition.kind.namespace(), &definition.name));
         let mut symbols: Vec<Symbol> = written.collect();
-        match self.generated_in(&module) {
-            Ok(generated) => symbols.extend(generated),
-            Err(error) => return Ok(refused("failed", error.to_string())),
+        let generated = self.generated_in(module);
+        symbols.extend(generated.map_err(|error| refused("failed", error.to_string()))?);
+        Ok(symbols)
+    }
+
+    /// What the definitions of a module are themselves annotated with
+    /// under a key, as a list of `build.Annotation`. Nothing is
+    /// checked for it, so it holds whatever the definitions reach.
+    fn annotated(&self, args: &[Value]) -> Result<Value, String> {
+        let module = module(args, 0)?;
+        let Some(Value::Tag { package, tag }) = args.get(1) else {
+            return Err("an annotation's key is a tag".to_owned());
+        };
+        let defined = match self.defined(&module) {
+            Ok(defined) => defined,
+            Err(refused) => return Ok(refused),
+        };
+        let mut found = Vec::new();
+        for symbol in &defined {
+            let said = match self.annotations_of(symbol) {
+                Ok(said) => said,
+                Err(error) => return Ok(refused("failed", error.to_string())),
+            };
+            let keyed = said.iter();
+            let keyed = keyed.filter(|said| said.package == *package && said.tag == *tag);
+            found.extend(keyed.map(|said| {
+                // What was encoded here decodes.
+                let value = exchange::decode(&said.value).unwrap_or(Value::Null);
+                record([("on", checker::reference(symbol)), ("value", value)])
+            }));
         }
-        Ok(Value::List(
-            symbols.iter().map(checker::reference).collect(),
-        ))
+        Ok(Value::List(found))
     }
 
     /// The definitions `from` reaches, itself first, in the order a

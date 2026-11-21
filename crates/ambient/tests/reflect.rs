@@ -20,16 +20,17 @@ use support::scripted::Scripted;
 const HEAD: &str = r#"
     use ambient.build;
     use ambient.tree;
-    use ambient.build.{Build, Files, Ran};
+    use ambient.build.{Annotation, Build, Files, Module, Ran};
     use ambient.tree.{Reference};
     use ambient.Error;
 
     target page built by report {}
 
     fn main(): int => helper() + 1;
+    tag note;
     /// Gives one.
-    fn helper(): int => 1;
-    fn unused(): int => 2;
+    #[note("reached")] fn helper(): int => 1;
+    #[note("apart")] fn unused(): int => 2;
 
     fn names(of: List<Reference>): string => of.map(fn(of: Reference): string => of.name).join_with(" ");
     fn file(text: string): Files => [{ path: "told.txt", bytes: text.to_bytes() }];
@@ -103,14 +104,29 @@ fn told(report: &str, grants: &str) -> String {
 fn a_tool_is_told_the_modules_of_a_package_and_what_each_defines() {
     let said = told(
         r#"fn report(of: Build): Files with build.modules, build.definitions {
-            let modules = build.modules!("app").map(fn(path: List<string>): string => path.join_with("."));
-            let defined = cast::<List<Reference>>(build.definitions!("app", ["main"]), []);
+            let modules = build.modules!("app").map(fn(of: Module): string => of.path.join_with("."));
+            let defined = cast::<List<Reference>>(build.definitions!({ package: "app", path: ["main"] }), []);
             return file("${modules.join_with(" ")}: ${names(defined)}");
         }"#,
         "modules definitions",
     );
 
-    assert_eq!(said, "main: page main helper unused names file report");
+    assert_eq!(said, "main: page main note helper unused names file report");
+}
+
+#[test]
+fn a_tool_is_told_what_the_definitions_of_a_module_are_themselves_annotated_with() {
+    let said = told(
+        r#"fn report(of: Build): Files with build.annotated {
+            let found = build.annotated!({ package: "app", path: ["main"] }, note);
+            let said = fn(found: Annotation): string => "${found.on.name}=${cast::<string>(found.value, "?")}";
+            return file(cast::<List<Annotation>>(found, []).map(said).join_with(" "));
+        }"#,
+        "annotated",
+    );
+
+    // Reached from the entry or not: a module is asked, and no walk made.
+    assert_eq!(said, "helper=reached unused=apart");
 }
 
 #[test]

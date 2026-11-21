@@ -19,7 +19,7 @@ A tool is a function a build runs to make something other than a program's defin
 - They are [verifiable](memoization.md) unless this section says otherwise.
 - The files of a package: reading one as text or as bytes, and listing a directory. Which files those are is the [package's](packages.md#layout) to say.
 - The build target binds none of the [`system`](targets.md#the-system-package) abilities, whose files are those of the machine a program runs on.
-- A definition: its tree, its interface, its [annotations](annotations.md), and its [metadata](trees.md). A module's definitions, and a package's modules.
+- A definition: its tree, its interface, its [annotations](annotations.md), and its [metadata](trees.md). A module's definitions, the [annotations](annotations.md#collecting) of a key on them, and a package's modules.
 - What a definition reaches: its definitions, its externs, and the annotations of a key, [in order](annotations.md#collecting).
 - Compiling an entry under a target for a backend, which gives the module and the externs it imports.
 - An extern's [host code](externs.md#native-bundles) for a platform, from the package that declares it.

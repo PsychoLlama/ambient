@@ -67,6 +67,7 @@ pub(super) fn natives() -> Natives {
         .asking(FAULT_PACKAGE, "build.signing", "signature")
         .asking(FAULT_PACKAGE, "build.moduling", "modules")
         .asking(FAULT_PACKAGE, "build.defining", "definitions")
+        .asking(FAULT_PACKAGE, "build.noting", "annotated")
         .asking(FAULT_PACKAGE, "build.reaching", "reach")
         .asking(FAULT_PACKAGE, "build.documenting", "doc")
         .asking(FAULT_PACKAGE, "build.running", "run")

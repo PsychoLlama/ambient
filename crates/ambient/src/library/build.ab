@@ -87,13 +87,18 @@ pub type Diagnostic = { on: Reference, message: string };
 /// A package's manifest lists the lints checking it runs.
 pub type Diagnostics = List<Diagnostic>;
 
-/// The modules of a package, each by its path: the package is named
-/// as a reference names it.
-pub ability modules(package: string): List<List<string>>;
+/// The modules of a package, which is named as a reference names it.
+pub ability modules(package: string): List<Module>;
 
 /// The definitions of a module, public and not, in the order they are
 /// written.
-pub ability definitions(package: string, module: List<string>): List<Reference> | Error;
+pub ability definitions(of: Module): List<Reference> | Error;
+
+/// The annotations of a key on the definitions of a module: what each
+/// definition is itself annotated with, in the order they are written,
+/// and nothing of what it reaches. It asks less than `annotations`, so
+/// what asks it is made again for less.
+pub ability annotated(of: Module, key: Tag): List<Annotation> | Error;
 
 /// The doc comment of a definition, if it has one.
 pub ability doc(of: Reference): string | null | Error;
@@ -133,6 +138,7 @@ pub ability now(): int;
 extern handler compiling for compile;
 extern handler moduling for modules;
 extern handler defining for definitions;
+extern handler noting for annotated;
 extern handler reaching for reach;
 extern handler documenting for doc;
 extern handler running for run;
@@ -159,6 +165,7 @@ pub target world {
     signature: signing,
     modules: moduling,
     definitions: defining,
+    annotated: noting,
     reach: reaching,
     doc: documenting,
     run: running,

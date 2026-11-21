@@ -22,6 +22,8 @@ An annotation is data a build reads and a program never does. It is how a defini
 - A definition met twice gives its annotations once.
 - Reach is by definition, so an annotation in a branch that is never taken is still given.
 - An annotation in a generic function is one annotation, whatever types the function is used at.
+- A tool may instead ask for the annotations of a key on the definitions of one module: what each is itself annotated with, in the order they are written, and nothing of what it reaches.
+- That asks less, so what asks it is run again for less: it is how a module's definitions are chosen among, where reach is how a program's are gathered.
 - A target's annotations are read only by the tools that ask for their key, so a program built for one target pays nothing for what its libraries say to another.
 
 ## Unbuilt

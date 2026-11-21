@@ -22,7 +22,7 @@ const SHORT: &str = r#"
 
     fn short(of: Selection): Diagnostics with build.definitions {
         return of.modules.fold([], fn(found: Diagnostics, module: Module): Diagnostics {
-            let defined = cast::<List<Reference>>(build.definitions!(module.package, module.path), []);
+            let defined = cast::<List<Reference>>(build.definitions!(module), []);
             return defined.fold(found, named);
         });
     }
