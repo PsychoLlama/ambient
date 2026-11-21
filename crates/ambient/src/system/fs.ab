@@ -37,6 +37,12 @@ pub ability write(path: string, text: string): null | Error;
 /// Makes a file hold `content`, replacing what it held.
 pub ability write_bytes(path: string, content: bytes): null | Error;
 
+/// Makes a file hold `content`, replacing what it held, that only its
+/// owner may read or write: a key, a token. The file is never open to
+/// others with the content in it, whatever the process would otherwise
+/// leave a new file as.
+pub ability write_private(path: string, content: bytes): null | Error;
+
 /// The names of what a directory holds, in order.
 pub ability list(path: string): List<string> | Error;
 

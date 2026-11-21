@@ -64,7 +64,7 @@ fn read_text(world: &mut dyn World, path: &str) -> Result<String, Failure> {
     })
 }
 
-pub(super) const HANDLERS: [(&str, Handler); 13] = [
+pub(super) const HANDLERS: [(&str, Handler); 14] = [
     ("fs_read", |world, args| {
         Ok(gave(read_text(world, text(args, 0)?), Value::String))
     }),
@@ -78,6 +78,11 @@ pub(super) const HANDLERS: [(&str, Handler); 13] = [
     }),
     ("fs_write_bytes", |world, args| {
         Ok(nothing(world.store(text(args, 0)?, bytes(args, 1)?)))
+    }),
+    ("fs_write_private", |world, args| {
+        Ok(nothing(
+            world.store_private(text(args, 0)?, bytes(args, 1)?),
+        ))
     }),
     ("fs_append", |world, args| {
         Ok(nothing(

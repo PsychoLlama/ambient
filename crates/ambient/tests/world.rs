@@ -381,6 +381,22 @@ fn a_program_reads_its_whole_environment() {
 }
 
 #[test]
+fn a_file_is_written_for_its_owner_alone() {
+    let source = r#"
+        use system.fs;
+
+        fn main(): string with fs {
+            let _ = fs.write_private!("key", "secret".to_bytes());
+            return cast::<string>(fs.read!("key"), "");
+        }
+    "#;
+    let (gave, world) = run(source, &Scripted::default());
+
+    assert_eq!(gave, Ok(Value::String("secret".to_owned())));
+    assert_eq!(world.private, ["key"]);
+}
+
+#[test]
 fn a_file_that_is_not_text_is_read_and_written_as_bytes() {
     let source = r#"
         use system.fs;

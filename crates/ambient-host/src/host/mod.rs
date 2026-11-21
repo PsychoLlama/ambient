@@ -14,6 +14,7 @@ mod http;
 mod linked;
 mod net;
 mod network;
+mod owned;
 mod pending;
 mod pinned;
 mod plain;
@@ -144,6 +145,15 @@ pub trait World {
     ///
     /// Nothing is there, or it cannot be looked at.
     fn info(&mut self, path: &str) -> Result<Info, Failure>;
+    /// Makes a file hold `bytes`, as [`Self::store`] does, that only
+    /// its owner may read or write. It is made so, or made so before
+    /// anything is written if it was there: never open to others with
+    /// the bytes in it.
+    ///
+    /// # Errors
+    ///
+    /// The file cannot be written, or cannot be kept from others.
+    fn store_private(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure>;
     /// Adds `bytes` to the end of a file, making it if it is not there.
     ///
     /// # Errors

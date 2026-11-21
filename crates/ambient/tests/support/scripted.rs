@@ -38,6 +38,8 @@ pub struct Scripted {
     /// What the clock says. Waiting for work moves it on to when the
     /// work is over.
     pub time: i64,
+    /// The files that were written for their owner alone.
+    pub private: Vec<String>,
     /// How far ahead of UTC the machine's zone is from each moment
     /// on, in milliseconds; before the first it is not ahead at all.
     pub offsets: BTreeMap<i64, i64>,
@@ -324,6 +326,11 @@ impl World for Scripted {
     fn store(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
         self.files.insert(path.to_owned(), bytes.to_owned());
         Ok(())
+    }
+
+    fn store_private(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
+        self.private.push(path.to_owned());
+        self.store(path, bytes)
     }
 
     fn list(&mut self, path: &str) -> Result<Vec<String>, Failure> {

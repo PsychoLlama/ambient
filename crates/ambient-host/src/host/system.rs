@@ -128,6 +128,10 @@ impl World for System {
         std::fs::write(path, bytes).map_err(|error| failure(&error))
     }
 
+    fn store_private(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
+        super::owned::store(path, bytes).map_err(|error| failure(&error))
+    }
+
     fn install(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
         self.store(path, bytes)?;
         #[cfg(unix)]
