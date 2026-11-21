@@ -12,7 +12,7 @@ use std::process::Command as Process;
 use std::rc::Rc;
 
 use ambient::cli::{Command, carried, start};
-use ambient::host::World;
+use ambient::host::{GROUPS, Groups, World, group, natives_linked};
 use support::scripted::{LAUNCHER, Scripted, app};
 
 /// Builds `main` of a package whose one module is `source`, where the
@@ -91,16 +91,32 @@ fn an_executable_is_linked_with_the_native_side_its_program_reaches() {
         let executable = build(source, b"");
         let linked = String::from_utf8_lossy(&executable).into_owned();
         let named = |group: &&str| linked.contains(&format!("  {group},\n"));
-        let all = [
-            "amb_system_http",
-            "amb_system_watching",
-            "amb_system_crypto",
-        ];
-        all.into_iter().filter(named).collect::<Vec<_>>()
+        let all = GROUPS.iter().map(|group| group.symbol);
+        all.filter(named).collect::<Vec<_>>()
     };
 
-    assert_eq!(groups(GREETS), Vec::<&str>::new());
+    assert_eq!(groups(GREETS), ["amb_system_console", "amb_system_env"]);
     assert_eq!(groups(fetches), ["amb_system_http"]);
+}
+
+#[test]
+fn native_code_of_the_standard_target_is_offered_only_by_the_group_it_names() {
+    let world: Rc<RefCell<dyn World>> = Rc::new(RefCell::new(Scripted::default()));
+    let offered = |linked: &Groups| {
+        let natives = natives_linked(&world, linked);
+        let paths = natives.named().map(|(_, path)| path.to_owned());
+        paths.collect::<Vec<_>>()
+    };
+
+    assert_eq!(offered(&Groups::default()), Vec::<String>::new());
+    for linked in GROUPS {
+        let paths = offered(&linked.linked());
+        assert!(!paths.is_empty(), "{} offers nothing", linked.symbol);
+        for path in paths {
+            let named = group(&path).map(|group| group.symbol);
+            assert_eq!(named, Some(linked.symbol), "{path}");
+        }
+    }
 }
 
 #[test]

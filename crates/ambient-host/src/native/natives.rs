@@ -150,6 +150,13 @@ impl Natives {
         self.waits.clone()
     }
 
+    /// Each extern native code is offered for: its package, and its
+    /// module path and name.
+    pub fn named(&self) -> impl Iterator<Item = (&str, &str)> {
+        let offered = self.offered.keys();
+        offered.map(|(package, path)| (package.as_str(), path.as_str()))
+    }
+
     /// The native code offered for one extern.
     #[must_use]
     pub fn get(&self, native: &Native) -> Option<&Offered> {

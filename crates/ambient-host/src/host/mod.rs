@@ -15,6 +15,7 @@ mod linked;
 mod net;
 mod network;
 mod pending;
+mod plain;
 mod queue;
 mod reaching;
 mod signals;
@@ -292,84 +293,18 @@ pub fn natives(world: &Rc<RefCell<dyn World>>) -> Natives {
 }
 
 /// [`natives`], for a process that was linked with `linked`: it has
-/// the handlers of a group only if the link named it. One that asks a
-/// world is here whatever was linked, since it holds nothing of what
-/// the world asks in turn.
+/// the handlers of the groups the link named, and no other. Whatever
+/// native code the command-line target gains is offered by a group.
 #[must_use]
 pub fn natives_linked(world: &Rc<RefCell<dyn World>>, linked: &Linked) -> Natives {
-    use http::{Handler, Starter};
-    // What takes time is begun, and answered when it is over.
-    let starters: [(&str, Starter); 6] = [
-        ("process_signal", |_| Ok(Work::Signal)),
-        ("fs_change", |args| Ok(Work::Change(files::watcher(args)?))),
-        ("console_read_line", |_| Ok(Work::ReadLine)),
-        ("console_read", |args| Ok(Work::Read(int(args, 0)?))),
-        ("clock_sleep", |args| Ok(Work::Sleep(int(args, 0)?))),
-        ("process_run", |args| Ok(Work::Run(Command::read(args)?))),
-    ];
-    let handlers: [(&str, Handler); 11] = [
-        ("console_write", |world, args| {
-            world.write(text(args, 0)?);
-            Ok(Value::Null)
-        }),
-        ("console_print", |world, args| {
-            world.write(&format!("{}\n", text(args, 0)?));
-            Ok(Value::Null)
-        }),
-        ("console_warn", |world, args| {
-            world.warn(&format!("{}\n", text(args, 0)?));
-            Ok(Value::Null)
-        }),
-        ("env_args", |world, _| Ok(strings(world.args()))),
-        ("env_variable", |world, args| {
-            Ok(optional(world.variable(text(args, 0)?)))
-        }),
-        ("env_variables", |world, _| {
-            let pair =
-                |(name, value)| Value::Tuple(vec![Value::String(name), Value::String(value)]);
-            Ok(Value::List(
-                world.variables().into_iter().map(pair).collect(),
-            ))
-        }),
-        ("env_directory", |world, _| Ok(optional(world.directory()))),
-        ("random_bits", |world, _| {
-            let bits = world.random().map_err(|failure| failure.message)?;
-            Ok(Value::Int(bits.cast_signed()))
-        }),
-        ("clock_now", |world, _| Ok(Value::Int(world.now()))),
-        ("clock_elapsed", |world, _| Ok(Value::Int(world.elapsed()))),
-        // What a root handler of an ability that does not return gives
-        // is what the program gives.
-        ("process_exit", |_, args| Ok(Value::Int(int(args, 0)?))),
-    ];
     let outcomes = Rc::new(RefCell::new(waits::Outcomes(Rc::clone(world))));
-    let natives = exchange::offer(code::offer(Natives::new().answered_by(outcomes)));
+    let natives = Natives::new().answered_by(outcomes);
     let natives = linked
         .natives
         .iter()
         .fold(natives, |natives, offer| offer(natives));
-    let handlers = handlers
-        .into_iter()
-        .chain(files::HANDLERS)
-        .chain(files::WATCHING)
-        .chain(http::HANDLERS)
-        .chain(net::HANDLERS);
-    let starters = starters
-        .into_iter()
-        .chain(http::STARTERS)
-        .chain(net::STARTERS);
-    let natives = handlers.fold(natives, |natives, (name, handler)| {
-        let world = Rc::clone(world);
-        natives.with(PACKAGE, name, move |args| {
-            handler(&mut *world.borrow_mut(), args)
-        })
-    });
-    starters.fold(natives, |natives, (name, starter)| {
-        let world = Rc::clone(world);
-        natives.reaching(PACKAGE, name, move |running, args| {
-            let work = starter(args)?;
-            world.borrow_mut().begin(running.later()?, work);
-            Ok(Value::Null)
-        })
-    })
+    linked
+        .offers
+        .iter()
+        .fold(natives, |natives, offer| offer.over(natives, world))
 }
