@@ -204,6 +204,26 @@ fn checking_a_workspace_checks_every_member() {
 }
 
 #[test]
+fn a_workspace_lists_members_by_a_pattern() {
+    let check = Command::Check {
+        at: Chosen::at("."),
+    };
+    let wrong = "pub fn wrong(): int => \"no\";";
+    let packages = [
+        package("libs/one", "one").library(wrong),
+        package("libs/other", "other").library(wrong),
+        package("apart", "apart").library(wrong),
+    ];
+    let (_, said) = at_the_top(&files(Some(&["libs/*"]), packages), &check);
+
+    let checked = |at: &str| said.contains(&format!("{at}/src/lib.ab:1:"));
+    assert!(
+        checked("libs/one") && checked("libs/other") && !checked("apart"),
+        "{said}"
+    );
+}
+
+#[test]
 fn testing_a_workspace_tests_every_member() {
     // The workspace and a member of it: the member is tested once.
     let test = Command::Test {

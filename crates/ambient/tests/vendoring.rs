@@ -89,6 +89,24 @@ fn a_copy_is_the_snapshot_it_was_copied_from_until_it_is_changed() {
 }
 
 #[test]
+fn a_copy_a_pattern_matches_is_not_listed_again() {
+    let mut files = files(None, [app(), numbers()]);
+    let listed = "[workspace]\nmembers = [\"vendor/*\"]\n";
+    files
+        .get_mut(&PathBuf::from("app/ambient.toml"))
+        .unwrap()
+        .push_str(listed);
+    let files = vendored(files).unwrap();
+
+    let manifest = file(&files, "app/ambient.toml");
+    assert!(
+        manifest.contains("members = [\"vendor/*\"]\n"),
+        "{manifest}"
+    );
+    assert_eq!(ran(&files), Ok(7));
+}
+
+#[test]
 fn a_dependent_no_longer_names_the_directory_of_the_original() {
     let files = vendored(files(None, [app(), numbers()])).unwrap();
 

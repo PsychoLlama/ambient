@@ -147,8 +147,9 @@ impl Written {
 #[derive(Clone, Debug)]
 pub struct Manifest {
     pub package: Option<Package>,
-    /// The directories of a workspace's members, from the manifest's
-    /// own, if it is a workspace's.
+    /// The members of a workspace as its manifest lists them, if it is
+    /// a workspace's: each a directory from the manifest's own, or a
+    /// pattern for several (`project/listed.rs`).
     pub members: Option<Vec<PathBuf>>,
     /// The snapshot each member that was vendored was copied from, by
     /// its directory. See "Vendoring" in `docs/spec/releases.md`.
@@ -168,6 +169,10 @@ impl Manifest {
             Some(listed) => (Some(listed.members), listed.vendored),
             None => (None, BTreeMap::new()),
         };
+        let mut listed = members.iter().flatten();
+        if let Some((member, wrong)) = listed.find_map(|at| Some((at, super::listed::wrong(at)?))) {
+            return Err(format!("the member `{}` {wrong}", member.display()));
+        }
         let Some(said) = written.package else {
             return match (of_a_package, &members) {
                 (Some(table), _) => Err(format!(
@@ -300,6 +305,16 @@ mod tests {
             said("main` says a `name` that is not the name of a file")
         );
         assert!(read("[bin.main]\nentry = \"a\"").is_some());
+    }
+
+    #[test]
+    fn a_member_is_a_directory_or_a_pattern_of_whole_names() {
+        let read = |members: &str| Manifest::read(&format!("[workspace]\nmembers = [{members}]"));
+        assert!(read("\"app\", \"libs/*\"").is_ok());
+        assert_eq!(
+            read("\"libs/**\"").unwrap_err(),
+            "the member `libs/**` has a `*` that is not the whole name of a directory"
+        );
     }
 
     #[test]

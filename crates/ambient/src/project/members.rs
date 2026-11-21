@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 use super::dependency::Dependency;
+use super::listed::expanded;
 use super::manifest::{Manifest, Package};
 use super::{Files, Line, MANIFEST, ProjectError};
 
@@ -79,6 +80,7 @@ pub fn covered(files: &dyn Files, directory: &Path) -> Result<Vec<PathBuf>, Proj
         return Ok(vec![directory.clone()]);
     };
     let mut covered: Vec<PathBuf> = said.package.iter().map(|_| directory.clone()).collect();
+    let listed = expanded(files, directory, &listed);
     covered.extend(listed.iter().map(|path| normal(&directory.join(path))));
     Ok(covered)
 }
@@ -139,6 +141,7 @@ fn workspace(files: &dyn Files, directory: &Path) -> Result<Option<Vec<PathBuf>>
             Err(_) => None,
         };
         if let Some(listed) = listed {
+            let listed = expanded(files, &root, &listed);
             let mut members: Vec<PathBuf> =
                 listed.iter().map(|path| normal(&root.join(path))).collect();
             let own = key(files, &root) == wanted;

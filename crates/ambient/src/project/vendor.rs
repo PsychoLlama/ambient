@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use toml_edit::{Array, DocumentMut, Item, Table, value};
 
+use super::listed::covers;
 use super::members::{Members, manifest, normal, relative};
 use super::{Contents, Files, MANIFEST, Project, ProjectError};
 use crate::symbol::PackageId;
@@ -118,7 +119,10 @@ pub fn vendored(
         files,
         read: BTreeMap::new(),
     };
-    let listed = written(&relative(files, base, &directory));
+    let listed = relative(files, base, &directory);
+    let patterns = manifest(files, base)?.members.unwrap_or_default();
+    let covered = patterns.iter().any(|pattern| covers(pattern, &listed));
+    let listed = written(&listed);
     let workspace = manifests.of(base)?;
     let workspace = workspace
         .entry("workspace")
@@ -127,7 +131,8 @@ pub fn vendored(
     if members.is_none() {
         *members = value(Array::new());
     }
-    if let Some(members) = members.as_array_mut() {
+    // A pattern that matches the copy lists it already.
+    if let Some(members) = members.as_array_mut().filter(|_| !covered) {
         members.push(listed.as_str());
     }
     let record = &mut workspace["vendored"];

@@ -14,6 +14,7 @@ mod error;
 mod fetch;
 mod files;
 mod git;
+mod listed;
 mod locked;
 mod manifest;
 mod members;
