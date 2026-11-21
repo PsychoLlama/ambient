@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::process::Command as Process;
 use std::rc::Rc;
 
-use ambient::cli::{Command, carried, start};
+use ambient::cli::{Chosen, Command, carried, start};
 use ambient::host::{GROUPS, Groups, World, group, natives_linked};
 use support::scripted::{LAUNCHER, Scripted, app, declaring};
 
@@ -23,7 +23,7 @@ fn build(source: &str, launcher: &[u8]) -> Vec<u8> {
         ..Scripted::default()
     };
     let command = Command::Build {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: "main".to_owned(),
         output: None,
     };
@@ -187,7 +187,7 @@ fn a_program_that_is_wrong_builds_nothing() {
         ..Scripted::default()
     };
     let command = Command::Build {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
     };
@@ -260,7 +260,7 @@ const PAGE: &str = r#"
 fn built_under(target: &str) -> (i32, Scripted) {
     let files = declaring(PAGE, &format!("[bin.main]\ntarget = \"{target}\""));
     let command = Command::Build {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: "main".to_owned(),
         output: None,
     };

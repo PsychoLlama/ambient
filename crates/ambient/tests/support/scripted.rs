@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use ambient::cli::{Command, Link, Linker, Session};
+use ambient::cli::{Chosen, Command, Link, Linker, Session};
 use ambient::engine::Engine;
 use ambient::host::{
     Address, Change, Done, Entry, Failure, Held, Incoming, Info, Kind, Listening, Open, Opened,
@@ -33,6 +33,9 @@ pub struct Scripted {
     pub ran: Vec<ambient::host::Command>,
     /// Where a path that does not say where it starts is.
     pub directory: Option<String>,
+    /// Where a command is run, among the files it is run over: the
+    /// directory a command that takes none is for. Their top, if empty.
+    pub within: PathBuf,
     /// How many random numbers were asked for; the next is one more.
     pub rolled: u64,
     /// What the clock says. Waiting for work moves it on to when the
@@ -102,6 +105,14 @@ impl Linker for Named {
 }
 
 impl Scripted {
+    /// A world whose commands are run in the directory `within`.
+    pub fn within(within: &str) -> Self {
+        Self {
+            within: PathBuf::from(within),
+            ..Self::default()
+        }
+    }
+
     /// What a command over `files` exits with in this world, and the
     /// world it leaves.
     pub fn execute(self, files: &dyn Files, command: &Command) -> (i32, Self) {
@@ -142,7 +153,14 @@ impl Scripted {
     ) -> (i32, Self) {
         let scripted = Rc::new(RefCell::new(self));
         let world: Rc<RefCell<dyn World>> = scripted.clone();
+        let within = scripted.borrow().within.clone();
+        let within = if within.as_os_str().is_empty() {
+            PathBuf::from(".")
+        } else {
+            within
+        };
         let session = Session {
+            directory: &within,
             files,
             store,
             snapshots,
@@ -199,13 +217,18 @@ pub fn verify(files: &dyn Files, path: &std::path::Path) {
 /// Checks the package `app` of `files`.
 pub fn check(files: &dyn Files) -> (i32, Scripted) {
     let path = PathBuf::from("app");
-    Scripted::default().execute(files, &Command::Check { path })
+    Scripted::default().execute(
+        files,
+        &Command::Check {
+            at: Chosen::at(path),
+        },
+    )
 }
 
 /// Runs `main` of module `main` of the package `app` of `files`.
 pub fn run(files: &dyn Files) -> (i32, Scripted) {
     let command = Command::Run {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: "main".to_owned(),
         args: Vec::new(),
     };

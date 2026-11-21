@@ -1,7 +1,7 @@
 //! The `ambient` command.
 
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::rc::Rc;
 
@@ -56,6 +56,7 @@ fn main() -> ExitCode {
         None => Box::new(Unlinked),
     };
     let session = Session {
+        directory: Path::new("."),
         files: &Disk,
         store: store.as_ref(),
         snapshots,

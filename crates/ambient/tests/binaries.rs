@@ -5,9 +5,7 @@
 
 mod support;
 
-use std::path::PathBuf;
-
-use ambient::cli::Command;
+use ambient::cli::{Chosen, Command};
 use support::scripted::{Scripted, declaring};
 
 /// A `main` module of two functions that could each be a program.
@@ -17,7 +15,7 @@ const TWO: &str = "fn main(): int => 3;\nfn deploy(): int => 4;";
 /// and whose `main` module is `source`, exits with and reports.
 fn ran(declared: &str, source: &str, bin: &str) -> (i32, String) {
     let command = Command::Run {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: bin.to_owned(),
         args: Vec::new(),
     };
@@ -81,7 +79,7 @@ fn two_binaries_whose_executables_are_named_the_same_are_refused() {
 fn an_executable_is_named_as_its_binary_says() {
     let built = |declared: &str| {
         let command = Command::Build {
-            path: PathBuf::from("app"),
+            at: Chosen::at("app"),
             bin: "deploy".to_owned(),
             output: None,
         };

@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use ambient::backend::native::MACHINE;
-use ambient::cli::{Command, Link, Linker};
+use ambient::cli::{Chosen, Command, Link, Linker};
 use ambient::hash::Hash;
 use ambient::project::{Commit, OFFLINE, Offline, Snapshots, Source, digest};
 use ambient::store::MemoryStore;
@@ -110,7 +110,7 @@ fn listed() -> Files {
 /// bundles the linker was handed, and what was said went wrong.
 fn built(files: &Files, mirror: &dyn Snapshots, bin: &str) -> (i32, Vec<PathBuf>, String) {
     let build = Command::Build {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: bin.to_owned(),
         output: None,
     };
@@ -201,7 +201,7 @@ fn a_bundle_with_nowhere_to_fetch_it_from_is_said_to_have_none() {
 fn what_was_fetched_beforehand_is_built_with_no_network() {
     let mirror = serving(BUNDLE);
     let fetch = Command::Fetch {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: None,
     };
     let store = MemoryStore::new();

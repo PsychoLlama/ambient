@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use std::cell::RefCell;
 
-use ambient::cli::Command;
+use ambient::cli::{Chosen, Command};
 use ambient::hash::Hash;
 use ambient::project::{Commit, Contents, Manifest, Snapshots, Source};
 use ambient::store::MemoryStore;
@@ -96,7 +96,7 @@ pub fn ran(files: &Files) -> Result<i32, String> {
 /// reports.
 pub fn ran_at(files: &Files, at: &str) -> Result<i32, String> {
     let command = Command::Run {
-        path: PathBuf::from(at),
+        at: Chosen::at(at),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
@@ -108,10 +108,10 @@ pub fn ran_at(files: &Files, at: &str) -> Result<i32, String> {
     }
 }
 
-/// `files` with what `command` wrote over them, or what it refused
-/// with.
-pub fn written(mut files: Files, command: &Command) -> Result<Files, String> {
-    let (_, world) = Scripted::default().execute(&files, command);
+/// `files` with what `command`, run in the directory `within`, wrote
+/// over them, or what it refused with.
+pub fn written(mut files: Files, within: &str, command: &Command) -> Result<Files, String> {
+    let (_, world) = Scripted::within(within).execute(&files, command);
     if !world.err.is_empty() {
         return Err(world.err);
     }
@@ -177,10 +177,11 @@ impl<'a> Remote<'a> {
         self
     }
 
-    /// What `command` over the files comes to on this machine, with
-    /// what it wrote: the files after it, or what it refused with.
+    /// What `command` over the files comes to on this machine, run in
+    /// the directory `app`, with what it wrote: the files after it, or
+    /// what it refused with.
     pub fn written(&self, command: &Command) -> Result<Files, String> {
-        let world = Scripted::default();
+        let world = Scripted::within("app");
         let store = MemoryStore::new();
         let (_, world) = world.execute_from(self.files, &store, self, command);
         if !world.err.is_empty() {

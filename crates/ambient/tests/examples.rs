@@ -7,7 +7,7 @@ mod support;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use ambient::cli::Command;
+use ambient::cli::{Chosen, Command};
 use ambient::host::{Request, Response};
 use ambient::project::Disk;
 use sha2::{Digest, Sha256};
@@ -24,7 +24,9 @@ fn every_example_checks() {
     let mut checked = 0;
     for entry in std::fs::read_dir(example("")).unwrap() {
         let path = entry.unwrap().path();
-        let command = Command::Check { path: path.clone() };
+        let command = Command::Check {
+            at: Chosen::at(path.clone()),
+        };
         let (code, world) = Scripted::default().execute(&Disk, &command);
 
         assert_eq!((code, world.err.as_str()), (0, ""));
@@ -43,6 +45,7 @@ fn every_test_of_an_example_passes() {
             &Disk,
             &Command::Test {
                 paths: vec![path],
+                packages: Vec::new(),
                 only: None,
             },
         );
@@ -58,6 +61,7 @@ fn the_logging_package_passes_its_tests() {
         &Disk,
         &Command::Test {
             paths: vec![path],
+            packages: Vec::new(),
             only: None,
         },
     );
@@ -87,7 +91,7 @@ fn the_tally_counts_the_words_of_a_file() {
         ..Scripted::default()
     };
     let command = Command::Run {
-        path: example("tally"),
+        at: Chosen::at(example("tally")),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
@@ -100,7 +104,7 @@ fn the_tally_counts_the_words_of_a_file() {
 #[test]
 fn the_stock_keeps_its_counts_in_a_file_of_json() {
     let command = Command::Run {
-        path: example("stock"),
+        at: Chosen::at(example("stock")),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
@@ -135,7 +139,7 @@ fn the_notes_are_served_and_kept_in_a_file_of_json() {
         ..Scripted::default()
     };
     let command = Command::Run {
-        path: example("notes"),
+        at: Chosen::at(example("notes")),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
@@ -159,7 +163,7 @@ fn the_notes_are_served_and_kept_in_a_file_of_json() {
 /// it wrote to standard error.
 fn binary_saying(name: &str, bin: &str, world: Scripted) -> Scripted {
     let command = Command::Run {
-        path: example(name),
+        at: Chosen::at(example(name)),
         bin: bin.to_owned(),
         args: Vec::new(),
     };
@@ -171,7 +175,7 @@ fn binary_saying(name: &str, bin: &str, world: Scripted) -> Scripted {
 /// Runs a binary of an example in a world, which must not fail.
 fn binary(name: &str, bin: &str, world: Scripted) -> Scripted {
     let command = Command::Run {
-        path: example(name),
+        at: Chosen::at(example(name)),
         bin: bin.to_owned(),
         args: Vec::new(),
     };
@@ -284,7 +288,7 @@ fn a_function_that_was_posted_is_called_by_its_hash() {
 fn the_worlds_play_a_game_back_from_what_was_recorded() {
     let play = |world: Scripted| {
         let command = Command::Run {
-            path: example("worlds"),
+            at: Chosen::at(example("worlds")),
             bin: "main".to_owned(),
             args: Vec::new(),
         };

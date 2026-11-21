@@ -9,7 +9,7 @@ mod support;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use ambient::cli::Command;
+use ambient::cli::{Chosen, Command};
 use ambient::store::MemoryStore;
 use support::scripted::Scripted;
 
@@ -63,7 +63,7 @@ const GRANTED: &str = "grants = [\"ambient.build.read\"]";
 /// What running the package over `store` prints and warns.
 fn run(files: &Files, store: &MemoryStore) -> (String, String) {
     let command = Command::Run {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: "main".to_owned(),
         args: Vec::new(),
     };

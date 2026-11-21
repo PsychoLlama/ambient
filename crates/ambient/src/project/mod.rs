@@ -38,8 +38,8 @@ pub use locked::{
     Commit, LOCK, Lock, Locked, Nowhere, OFFLINE, Offline, Snapshots, Source, digest, fetched,
 };
 pub use manifest::{Bundle, Manifest, Package};
-pub use members::covered;
 use members::{Members, normal};
+pub use members::{apart, covered, named};
 pub use settle::Update;
 pub use vendor::{Vendored, kept, vendored};
 pub use version::{Line, Version};

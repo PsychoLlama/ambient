@@ -7,7 +7,7 @@ mod support;
 
 use std::path::PathBuf;
 
-use ambient::cli::Command;
+use ambient::cli::{Chosen, Command};
 use support::packages::{Files, Package, files, package, ran, written};
 use support::scripted::Scripted;
 
@@ -189,7 +189,9 @@ fn at_the_top(files: &Files, command: &Command) -> (i32, String) {
 
 #[test]
 fn checking_a_workspace_checks_every_member() {
-    let check = Command::Check { path: ".".into() };
+    let check = Command::Check {
+        at: Chosen::at("."),
+    };
     let wrong = "pub fn wrong(): int => \"no\";";
 
     assert_eq!(at_the_top(&pair(SEVEN, SEVEN), &check), (0, String::new()));
@@ -206,6 +208,7 @@ fn testing_a_workspace_tests_every_member() {
     // The workspace and a member of it: the member is tested once.
     let test = Command::Test {
         paths: vec![".".into(), "one".into()],
+        packages: Vec::new(),
         only: None,
     };
     let (code, said) = at_the_top(
@@ -224,12 +227,103 @@ fn testing_a_workspace_tests_every_member() {
 #[test]
 fn a_workspace_that_is_no_package_is_not_run() {
     let run = Command::Run {
-        path: ".".into(),
+        at: Chosen::at("."),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
-    let said = "error: ambient.toml: this is a workspace's manifest, not a package's\n";
+    let said = "error: .: this is a workspace and no package: name a member with `--package`\n";
     assert_eq!(at_the_top(&pair(SEVEN, SEVEN), &run), (1, said.to_owned()));
+}
+
+/// The members called `names` of the workspace at the top.
+fn members(names: &[&str]) -> Chosen {
+    Chosen {
+        path: PathBuf::from("."),
+        packages: names.iter().map(|name| (*name).to_owned()).collect(),
+    }
+}
+
+/// Runs `main` of those members, which is done for one.
+fn run_of(names: &[&str]) -> Command {
+    Command::Run {
+        at: members(names),
+        bin: "main".to_owned(),
+        args: Vec::new(),
+    }
+}
+
+/// A workspace that lists `app`, which depends on `numbers` beside it,
+/// whose library is `library`.
+fn app_beside(library: &'static str) -> Files {
+    let app = app().on("numbers", "path = \"../numbers\"");
+    files(
+        Some(&["app"]),
+        [app, package("numbers", "n").library(library)],
+    )
+}
+
+#[test]
+fn a_command_at_a_workspace_is_for_the_member_it_names() {
+    let files = app_beside(SEVEN);
+
+    assert_eq!(at_the_top(&files, &run_of(&["app"])), (7, String::new()));
+}
+
+#[test]
+fn a_package_a_member_depends_on_by_its_directory_is_named_as_a_member() {
+    let check = Command::Check {
+        at: members(&["numbers"]),
+    };
+    let (code, said) = at_the_top(&app_beside("pub fn wrong(): int => \"no\";"), &check);
+
+    assert_eq!(code, 1);
+    assert!(said.contains("numbers/src/lib.ab:1:"), "{said}");
+}
+
+#[test]
+fn a_name_no_member_has_is_refused() {
+    let said = "error: .: no member of the workspace here is named `absent`\n";
+
+    assert_eq!(
+        at_the_top(&app_beside(SEVEN), &run_of(&["absent"])),
+        (1, said.to_owned())
+    );
+}
+
+#[test]
+fn a_command_for_one_package_is_not_told_two() {
+    let said = "error: this is done for one package: name one with `--package`\n";
+
+    assert_eq!(
+        at_the_top(&app_beside(SEVEN), &run_of(&["app", "numbers"])),
+        (1, said.to_owned())
+    );
+}
+
+#[test]
+fn checking_the_members_a_command_names_checks_no_other() {
+    let wrong = "pub fn wrong(): int => \"no\";";
+    let check = |names: &[&str]| Command::Check { at: members(names) };
+    let files = pair(wrong, SEVEN);
+
+    assert_eq!(at_the_top(&files, &check(&["other"])), (0, String::new()));
+    assert_eq!(at_the_top(&files, &check(&["other", "one"])).0, 1);
+}
+
+#[test]
+fn a_dependency_is_added_to_the_member_a_command_names() {
+    let add = Command::Add {
+        on: PathBuf::from("other"),
+        name: None,
+        package: Some("one".to_owned()),
+    };
+    let files = written(pair(SEVEN, SEVEN), ".", &add).unwrap();
+
+    let manifest = &files[&PathBuf::from("one/ambient.toml")];
+    assert!(
+        manifest.ends_with("other = { path = \"../other\" }\n"),
+        "{manifest}"
+    );
 }
 
 /// The files once `app` is made to depend on the package at `on`,
@@ -238,9 +332,9 @@ fn added(files: Files, on: &str, name: Option<&str>) -> Result<Files, String> {
     let command = Command::Add {
         on: PathBuf::from(on),
         name: name.map(str::to_owned),
-        path: PathBuf::from("app"),
+        package: None,
     };
-    written(files, &command)
+    written(files, "app", &command)
 }
 
 #[test]

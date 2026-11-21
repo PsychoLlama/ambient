@@ -67,6 +67,11 @@ pub enum ProjectError {
         id: String,
         line: Line,
     },
+    /// A command names a member its workspace does not have.
+    Unlisted {
+        name: String,
+        at: PathBuf,
+    },
     /// A pinned dependency could not be fetched.
     Fetch {
         package: String,
@@ -151,6 +156,11 @@ impl fmt::Display for ProjectError {
                 f,
                 "{package}: the dependency `{name}` is on package `{id}` in the version line `{line}`, \
                  which no member of the workspace is"
+            ),
+            Self::Unlisted { name, at } => write!(
+                f,
+                "{}: no member of the workspace here is named `{name}`",
+                at.display()
             ),
             Self::Fetch {
                 package,

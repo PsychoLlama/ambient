@@ -8,7 +8,7 @@ mod support;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use ambient::cli::Command;
+use ambient::cli::{Chosen, Command};
 use support::scripted::Scripted;
 
 /// A target, and the tool it is built by: a list of what the build
@@ -72,7 +72,7 @@ fn workspace(step: &str, app: &str) -> BTreeMap<PathBuf, String> {
 /// world it left.
 fn build(files: &BTreeMap<PathBuf, String>) -> Scripted {
     let command = Command::Build {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
     };

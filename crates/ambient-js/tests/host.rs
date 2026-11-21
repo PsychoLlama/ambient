@@ -14,7 +14,7 @@ use std::process::Command as Process;
 use std::rc::Rc;
 
 use ambient::backend::wasm::{self, Wasm};
-use ambient::cli::{Command, Session};
+use ambient::cli::{Chosen, Command, Session};
 use ambient::engine::Engine;
 use ambient::host::System;
 use ambient::project::{Disk, Files};
@@ -148,6 +148,7 @@ fn build(output: &Path) {
         files.insert(PathBuf::from(path), text.to_owned());
     }
     let session = Session {
+        directory: Path::new("."),
         files: &files,
         store: &MemoryStore::new(),
         snapshots: &ambient::project::Nowhere,
@@ -156,7 +157,7 @@ fn build(output: &Path) {
         linker: &ambient::cli::Unlinked,
     };
     let command = Command::Build {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: "main".to_owned(),
         output: Some(output.to_owned()),
     };

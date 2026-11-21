@@ -7,7 +7,7 @@ mod support;
 
 use std::path::PathBuf;
 
-use ambient::cli::Command;
+use ambient::cli::{Chosen, Command};
 use support::packages::{Files, Package, files, package, ran, ran_at, workspace, written};
 use support::scripted::Scripted;
 
@@ -30,24 +30,29 @@ fn numbers() -> Package {
 fn command(name: Option<&str>) -> Command {
     Command::Vendor {
         name: name.map(str::to_owned),
-        path: PathBuf::from("app"),
+        package: None,
     }
 }
 
 /// `files` once `app` has vendored what it calls `numbers`.
 fn vendored(files: Files) -> Result<Files, String> {
-    written(files, &command(Some("numbers")))
+    written(files, "app", &command(Some("numbers")))
 }
 
 /// What the command line says of the vendored copies of `files`.
 fn kept(files: &Files) -> String {
-    Scripted::default().execute(files, &command(None)).1.out
+    Scripted::within("app").execute(files, &command(None)).1.out
 }
 
 /// The snapshot of the package at `at`.
 fn snapshot(files: &Files, at: &str) -> String {
     let path = PathBuf::from(at);
-    let said = Scripted::default().execute(files, &Command::Snapshot { path });
+    let said = Scripted::default().execute(
+        files,
+        &Command::Snapshot {
+            at: Chosen::at(path),
+        },
+    );
     said.1.out
 }
 
@@ -117,9 +122,9 @@ fn a_copy_goes_to_the_workspace_and_every_member_that_was_opened_depends_on_it()
     files.insert("work/ambient.toml".into(), workspace(&["app", "twice"]));
     let vendor = Command::Vendor {
         name: Some("numbers".to_owned()),
-        path: PathBuf::from("work/app"),
+        package: Some("app".to_owned()),
     };
-    let mut files = written(files, &vendor).unwrap();
+    let mut files = written(files, "work", &vendor).unwrap();
 
     files.retain(|path, _| !path.starts_with("far"));
     assert_eq!(ran_at(&files, "work/app"), Ok(21));
@@ -141,11 +146,11 @@ fn a_package_is_vendored_once_and_only_from_outside_the_workspace() {
     let listed = files(Some(&["app", "near"]), [inside, near, numbers()]);
     let near = Command::Vendor {
         name: Some("near".to_owned()),
-        path: PathBuf::from("app"),
+        package: None,
     };
 
     assert_eq!(
-        written(listed, &near).unwrap_err(),
+        written(listed, "app", &near).unwrap_err(),
         "error: app/ambient.toml: `near` is in the workspace already\n"
     );
     assert_eq!(

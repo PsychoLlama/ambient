@@ -8,7 +8,7 @@ mod support;
 
 use std::path::PathBuf;
 
-use ambient::cli::Command;
+use ambient::cli::{Chosen, Command};
 use support::packages::{Files, Package, Remote, branch, files, package, pinned, rev};
 
 const GIT: &str = "https://example.com/numbers";
@@ -40,7 +40,7 @@ fn remote(files: &Files) -> Remote<'_> {
 
 fn run() -> Command {
     Command::Run {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: "main".to_owned(),
         args: Vec::new(),
     }
@@ -180,7 +180,7 @@ fn main_at(files: &Files, digit: char) -> Remote<'_> {
 fn update(name: Option<&str>) -> Command {
     Command::Update {
         name: name.map(str::to_owned),
-        path: PathBuf::from("app"),
+        package: None,
     }
 }
 
@@ -304,7 +304,7 @@ fn a_pinned_dependency_is_vendored_and_built_with_nothing_to_fetch() {
     let files = locked(&pinning());
     let vendor = Command::Vendor {
         name: Some("numbers".to_owned()),
-        path: PathBuf::from("app"),
+        package: None,
     };
     let mut files = remote(&files).written(&vendor).unwrap();
     // The pin still says where the copy came from.

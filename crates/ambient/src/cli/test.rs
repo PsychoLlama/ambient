@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use ambient_runtime::FAULT_PACKAGE;
 
-use super::{Launch, Session};
+use super::{Chosen, Launch, Session};
 use crate::backend::native::Natives;
 use crate::engine::Engine;
 use crate::error::Error;
@@ -26,14 +26,24 @@ const PREFIX: &str = "test_";
 const PASSED: &str = "test passed";
 
 impl Session<'_> {
-    /// Runs the tests of the packages at `paths`, says how each went, and
-    /// gives the code to exit with: zero if none failed. With `only`,
-    /// the tests are those whose module path and name hold it.
-    pub(super) fn test(&self, paths: &[PathBuf], only: Option<&str>) -> Result<i32, Vec<String>> {
+    /// Runs the tests of the packages at `paths`, or of the members
+    /// there called one of `named`, says how each went, and gives the
+    /// code to exit with: zero if none failed. With `only`, the tests
+    /// are those whose module path and name hold it.
+    pub(super) fn test(
+        &self,
+        paths: &[PathBuf],
+        named: &[String],
+        only: Option<&str>,
+    ) -> Result<i32, Vec<String>> {
         // A package two of the paths cover is tested once.
         let mut packages = Vec::new();
         for path in paths {
-            for package in self.covered(path)? {
+            let at = Chosen {
+                path: path.clone(),
+                packages: named.to_vec(),
+            };
+            for package in self.each(&at)? {
                 if !packages.contains(&package) {
                     packages.push(package);
                 }

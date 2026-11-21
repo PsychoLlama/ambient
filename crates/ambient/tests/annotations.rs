@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use ambient::builder::{annotated, function, int, string, tag, ty};
-use ambient::cli::Command;
+use ambient::cli::{Chosen, Command};
 use ambient::engine::Engine;
 use ambient::store::MemoryStore;
 use ambient::surface::Definition;
@@ -63,7 +63,7 @@ fn build(program: &str) -> Scripted {
     .map(|(path, text)| (PathBuf::from(path), text))
     .collect();
     let command = Command::Build {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
     };

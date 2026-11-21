@@ -8,7 +8,7 @@ mod support;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use ambient::cli::Command;
+use ambient::cli::{Chosen, Command};
 use support::scripted::Scripted;
 
 type Files = BTreeMap<PathBuf, String>;
@@ -34,7 +34,12 @@ fn package(at: &str) -> Files {
 /// The snapshot of the package at `at`, as the command line says it.
 fn snapshot(files: &Files, at: &str) -> String {
     let path = PathBuf::from(at);
-    let (code, world) = Scripted::default().execute(files, &Command::Snapshot { path });
+    let (code, world) = Scripted::default().execute(
+        files,
+        &Command::Snapshot {
+            at: Chosen::at(path),
+        },
+    );
     assert_eq!((code, world.err.as_str()), (0, ""));
     world.out
 }

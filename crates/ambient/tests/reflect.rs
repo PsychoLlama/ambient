@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use ambient::cli::Command;
+use ambient::cli::{Chosen, Command};
 use ambient::hash::Hash;
 use ambient::project::{Commit, Snapshots, Source};
 use ambient::store::MemoryStore;
@@ -80,7 +80,7 @@ fn told_from(report: &str, grants: &str, store: &MemoryStore, remote: &Remote) -
     .map(|(path, text)| (PathBuf::from(path), text))
     .collect();
     let command = Command::Build {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
     };

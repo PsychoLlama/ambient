@@ -10,13 +10,13 @@
 mod support;
 
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command as Process;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ambient::backend::native::MACHINE;
-use ambient::cli::{Command, Machine, Session, Unlinked, built, symbol};
+use ambient::cli::{Chosen, Command, Machine, Session, Unlinked, built, symbol};
 use ambient::host::System;
 use ambient::project::{Disk, Nowhere};
 use ambient::store::MemoryStore;
@@ -87,6 +87,7 @@ impl Drop for Scratch {
 fn header(scratch: &Scratch) -> String {
     let world = Rc::new(RefCell::new(Scripted::default()));
     let session = Session {
+        directory: Path::new("."),
         files: &Disk,
         store: &MemoryStore::new(),
         snapshots: &Nowhere,
@@ -95,7 +96,12 @@ fn header(scratch: &Scratch) -> String {
         linker: &Unlinked,
     };
     let path = scratch.0.join("app");
-    assert_eq!(session.execute(&Command::Header { path }), 0);
+    assert_eq!(
+        session.execute(&Command::Header {
+            at: Chosen::at(path)
+        }),
+        0
+    );
     world.borrow().out.clone()
 }
 
@@ -209,6 +215,7 @@ fn package(scratch: &Scratch, path: &str) {
 /// `scratch`.
 fn executed_of(scratch: &Scratch, command: &Command) -> i32 {
     let session = Session {
+        directory: Path::new("."),
         files: &Disk,
         store: &MemoryStore::new(),
         snapshots: &Nowhere,
@@ -224,7 +231,7 @@ fn an_executable_runs_the_function_of_a_bundle_its_program_reaches() {
     let scratch = Scratch::new();
     let output = scratch.0.join("made/here/out");
     let build = Command::Build {
-        path: scratch.0.join("app"),
+        at: Chosen::at(scratch.0.join("app")),
         bin: "main".to_owned(),
         output: Some(output.clone()),
     };
@@ -237,7 +244,7 @@ fn an_executable_runs_the_function_of_a_bundle_its_program_reaches() {
 fn a_program_that_reaches_a_bundle_is_run_by_what_was_linked_with_it() {
     let scratch = Scratch::new();
     let run = Command::Run {
-        path: scratch.0.join("app"),
+        at: Chosen::at(scratch.0.join("app")),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
@@ -249,7 +256,7 @@ fn a_program_that_reaches_a_bundle_is_run_by_what_was_linked_with_it() {
 fn a_target_of_the_package_binds_a_handler_of_its_bundle() {
     let scratch = Scratch::new();
     let run = Command::Run {
-        path: scratch.0.join("app"),
+        at: Chosen::at(scratch.0.join("app")),
         bin: "tripling".to_owned(),
         args: Vec::new(),
     };
@@ -261,7 +268,7 @@ fn a_target_of_the_package_binds_a_handler_of_its_bundle() {
 fn a_thread_of_a_bundle_answers_a_task_that_waits() {
     let scratch = Scratch::new();
     let run = Command::Run {
-        path: scratch.0.join("app"),
+        at: Chosen::at(scratch.0.join("app")),
         bin: "waiting".to_owned(),
         args: Vec::new(),
     };
@@ -273,7 +280,7 @@ fn a_thread_of_a_bundle_answers_a_task_that_waits() {
 fn a_program_is_not_run_under_a_target_that_is_no_command_lines() {
     let scratch = Scratch::new();
     let run = Command::Run {
-        path: scratch.0.join("app"),
+        at: Chosen::at(scratch.0.join("app")),
         bin: "stranded".to_owned(),
         args: Vec::new(),
     };
@@ -286,7 +293,7 @@ fn a_program_is_not_run_under_a_target_that_is_no_command_lines() {
 fn a_bundle_that_holds_its_languages_library_is_linked() {
     let scratch = Scratch::new();
     let run = Command::Run {
-        path: scratch.0.join("app"),
+        at: Chosen::at(scratch.0.join("app")),
         bin: "main".to_owned(),
         args: Vec::new(),
     };
@@ -301,7 +308,7 @@ fn a_bundle_that_holds_its_languages_library_is_linked() {
 fn a_bundle_that_brings_a_runtime_of_its_own_is_not_linked() {
     let scratch = Scratch::new();
     let build = Command::Build {
-        path: scratch.0.join("app"),
+        at: Chosen::at(scratch.0.join("app")),
         bin: "main".to_owned(),
         output: Some(scratch.0.join("out")),
     };
@@ -314,7 +321,7 @@ fn a_bundle_that_brings_a_runtime_of_its_own_is_not_linked() {
 fn a_bundle_built_for_another_layout_is_not_linked() {
     let scratch = Scratch::new();
     let build = Command::Build {
-        path: scratch.0.join("app"),
+        at: Chosen::at(scratch.0.join("app")),
         bin: "main".to_owned(),
         output: Some(scratch.0.join("out")),
     };

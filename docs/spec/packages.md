@@ -109,7 +109,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - Two members of one name are an error: a name identifies nothing, and two packages that share one are taken for a mistake.
 - A member takes nothing from its workspace's manifest: a package means the same in any workspace.
 - A command that checks or tests, run at a workspace's directory, covers every member.
-- A command may be told the member it is for by the member's name, from anywhere in the workspace. One that runs or builds at a workspace's directory that is no package has to be.
+- A command may be told the members it is for by name, at the workspace's directory or at any member's. One that is for a single package, as running and building are, has to be at a workspace's directory that is no package.
 - A workspace has one [store](build.md), one [index](symbols.md), and one [lock](releases.md#locks).
 
 ## Beginning

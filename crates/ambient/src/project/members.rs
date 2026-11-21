@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
+use super::dependency::Dependency;
 use super::manifest::{Manifest, Package};
 use super::{Files, Line, MANIFEST, ProjectError};
 
@@ -80,6 +81,42 @@ pub fn covered(files: &dyn Files, directory: &Path) -> Result<Vec<PathBuf>, Proj
     let mut covered: Vec<PathBuf> = said.package.iter().map(|_| directory.clone()).collect();
     covered.extend(listed.iter().map(|path| normal(&directory.join(path))));
     Ok(covered)
+}
+
+/// The directory of the member called `name` of the workspace the
+/// package at `directory` is in, or that `directory` is the top of.
+/// A member is one the workspace lists, or one at a directory a member
+/// depends on.
+///
+/// # Errors
+///
+/// A manifest is missing or malformed, or no member is called that.
+pub fn named(files: &dyn Files, directory: &Path, name: &str) -> Result<PathBuf, ProjectError> {
+    let mut members = Members::around(files, &normal(directory))?;
+    let mut pending: Vec<Member> = members.all().cloned().collect();
+    while let Some(member) = pending.pop() {
+        if member.package.name == name {
+            return Ok(member.directory);
+        }
+        let beside = member.package.dependencies.values();
+        for path in beside.filter_map(Dependency::path) {
+            let path = normal(&member.directory.join(path));
+            if !members.holds(files, &path) {
+                pending.push(members.at(files, &path)?.clone());
+            }
+        }
+    }
+    Err(ProjectError::Unlisted {
+        name: name.to_owned(),
+        at: directory.to_owned(),
+    })
+}
+
+/// Whether the manifest at `directory` is a workspace's and no
+/// package's: somewhere a command for one package has to be told which.
+#[must_use]
+pub fn apart(files: &dyn Files, directory: &Path) -> bool {
+    manifest(files, &normal(directory)).is_ok_and(|said| said.package.is_none())
 }
 
 /// The directory above `directory`, if there is one.

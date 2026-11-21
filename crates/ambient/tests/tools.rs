@@ -8,7 +8,7 @@ mod support;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use ambient::cli::Command;
+use ambient::cli::{Chosen, Command};
 use ambient::store::MemoryStore;
 use support::scripted::Scripted;
 
@@ -73,7 +73,7 @@ fn package(source: &str, grants: &str) -> Files {
 /// and gives the world it left.
 fn build(files: &Files, world: Scripted) -> Scripted {
     let command = Command::Build {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
     };
@@ -136,7 +136,7 @@ fn a_build_takes_away_what_the_one_before_wrote_and_it_does_not_give() {
 fn a_build_follows_the_host_code_its_tool_read() {
     let store = MemoryStore::new();
     let command = Command::Build {
-        path: PathBuf::from("app"),
+        at: Chosen::at("app"),
         bin: "main".to_owned(),
         output: Some(PathBuf::from("out")),
     };

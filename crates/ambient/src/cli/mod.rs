@@ -5,6 +5,7 @@
 
 mod build;
 mod building;
+mod chosen;
 mod files;
 mod header;
 mod init;
@@ -27,6 +28,7 @@ pub use ambient_host::launch::carried;
 use ambient_host::launch::{FAILED, code, started};
 pub use build::start;
 pub use building::engine;
+pub use chosen::Chosen;
 pub use header::header;
 use init::Begun;
 use launch::Launch;
@@ -57,9 +59,8 @@ pub struct Cli {
 pub enum Command {
     /// Runs a binary of a package as a program.
     Run {
-        /// The package's directory.
-        #[arg(default_value = ".")]
-        path: PathBuf,
+        #[command(flatten)]
+        at: Chosen,
         /// The binary to run, by the name its manifest declares it
         /// under.
         #[arg(long, default_value = MAIN)]
@@ -76,17 +77,17 @@ pub enum Command {
         /// The name the package uses for it; its own, if not said.
         #[arg(long = "as")]
         name: Option<String>,
-        /// The directory of the package that is to depend on it.
-        #[arg(long = "in", default_value = ".")]
-        path: PathBuf,
+        /// The member of the workspace here that is to depend on it,
+        /// by name; the package here, if not said.
+        #[arg(long, short, value_name = "NAME")]
+        package: Option<String>,
     },
     /// Makes an executable of a binary of a package: one file that
     /// runs it without the package or the compiler. A binary whose
     /// target is built by a tool gives that tool's files instead.
     Build {
-        /// The package's directory.
-        #[arg(default_value = ".")]
-        path: PathBuf,
+        #[command(flatten)]
+        at: Chosen,
         /// The binary to build, by the name its manifest declares it
         /// under.
         #[arg(long, default_value = MAIN)]
@@ -98,17 +99,15 @@ pub enum Command {
     },
     /// Checks every definition of a package and of those it depends on.
     Check {
-        /// The package's directory.
-        #[arg(default_value = ".")]
-        path: PathBuf,
+        #[command(flatten)]
+        at: Chosen,
     },
     /// Fetches what a build of a package reads, for building later
     /// with no network: every package the workspace's lock holds, and
     /// the native bundles for this machine that its binaries reach.
     Fetch {
-        /// The package's directory.
-        #[arg(default_value = ".")]
-        path: PathBuf,
+        #[command(flatten)]
+        at: Chosen,
         /// The one binary a build will be of; every one of the
         /// package, if not said.
         #[arg(long)]
@@ -117,9 +116,8 @@ pub enum Command {
     /// Says the C header a native bundle of a package is written
     /// against: what it may call, and a prototype for each extern.
     Header {
-        /// The package's directory.
-        #[arg(default_value = ".")]
-        path: PathBuf,
+        #[command(flatten)]
+        at: Chosen,
     },
     /// Makes a package to begin from: one that runs and has a test.
     Init {
@@ -136,31 +134,36 @@ pub enum Command {
     Update {
         /// The dependency, by the name the package uses for it.
         name: Option<String>,
-        /// The directory of the package that depends on it.
-        #[arg(long = "in", default_value = ".")]
-        path: PathBuf,
+        /// The member of the workspace here that depends on it, by
+        /// name; the package here, if not said.
+        #[arg(long, short, value_name = "NAME")]
+        package: Option<String>,
     },
     /// Copies a dependency into the workspace, where it can be read
     /// and changed; with none named, says which copies were changed.
     Vendor {
         /// The dependency, by the name the package uses for it.
         name: Option<String>,
-        /// The directory of the package that depends on it.
-        #[arg(long = "in", default_value = ".")]
-        path: PathBuf,
+        /// The member of the workspace here that depends on it, by
+        /// name; the package here, if not said.
+        #[arg(long, short, value_name = "NAME")]
+        package: Option<String>,
     },
     /// Says a package's snapshot: the hash of the files that are it.
     Snapshot {
-        /// The package's directory.
-        #[arg(default_value = ".")]
-        path: PathBuf,
+        #[command(flatten)]
+        at: Chosen,
     },
     /// Runs every test of a package: each function that takes nothing
     /// and whose name begins with `test_`.
     Test {
-        /// The directory of each package to test.
+        /// The directory of each package to test, or of its workspace.
         #[arg(default_value = ".")]
         paths: Vec<PathBuf>,
+        /// The members of the workspace at each path to test, by
+        /// name; every member, if none is said.
+        #[arg(long = "package", short, value_name = "NAME")]
+        packages: Vec<String>,
         /// Runs only the tests whose module path and name hold this.
         #[arg(long)]
         only: Option<String>,
@@ -174,6 +177,9 @@ const UNRUN: &str = "a program is run under the command-line target, or one that
 
 /// What a command works with.
 pub struct Session<'a> {
+    /// Where the command is run: the directory a command that takes
+    /// none is for.
+    pub directory: &'a Path,
     pub files: &'a dyn Files,
     pub store: &'a dyn Store,
     /// The snapshots this machine keeps, and what fetches one.
@@ -192,11 +198,17 @@ impl Session<'_> {
     /// went wrong is written to the world's standard error.
     #[must_use]
     pub fn execute(&self, command: &Command) -> i32 {
+        let here = Chosen::at(self.directory);
+        let within = |package: &Option<String>| self.one(&here.of(package.as_deref()));
         let done = match command {
-            Command::Add { on, name, path } => self.add(path, on, name.as_deref()),
-            Command::Run { path, bin, .. } => self.run(path, bin),
-            Command::Build { path, bin, output } => self.build(path, bin, output.as_deref()),
-            Command::Check { path } => self.check(path).map(|()| 0),
+            Command::Add { on, name, package } => {
+                within(package).and_then(|path| self.add(&path, on, name.as_deref()))
+            }
+            Command::Run { at, bin, .. } => self.one(at).and_then(|path| self.run(&path, bin)),
+            Command::Build { at, bin, output } => self
+                .one(at)
+                .and_then(|path| self.build(&path, bin, output.as_deref())),
+            Command::Check { at } => self.check(at).map(|()| 0),
             Command::Init { path, library } => {
                 let begun = if *library {
                     Begun::Library
@@ -205,12 +217,22 @@ impl Session<'_> {
                 };
                 self.init(path, begun)
             }
-            Command::Update { name, path } => self.update(path, name.as_deref()),
-            Command::Vendor { name, path } => self.vendor(path, name.as_deref()),
-            Command::Fetch { path, bin } => self.fetch(path, bin.as_deref()),
-            Command::Header { path } => self.header(path),
-            Command::Snapshot { path } => self.snapshot(path),
-            Command::Test { paths, only } => self.test(paths, only.as_deref()),
+            Command::Update { name, package } => {
+                within(package).and_then(|path| self.update(&path, name.as_deref()))
+            }
+            Command::Vendor { name, package } => {
+                within(package).and_then(|path| self.vendor(&path, name.as_deref()))
+            }
+            Command::Fetch { at, bin } => self
+                .one(at)
+                .and_then(|path| self.fetch(&path, bin.as_deref())),
+            Command::Header { at } => self.one(at).and_then(|path| self.header(&path)),
+            Command::Snapshot { at } => self.one(at).and_then(|path| self.snapshot(&path)),
+            Command::Test {
+                paths,
+                packages,
+                only,
+            } => self.test(paths, packages, only.as_deref()),
         };
         done.unwrap_or_else(|problems| {
             let mut world = self.world.borrow_mut();
@@ -325,17 +347,11 @@ impl Session<'_> {
         Ok(code(&gave))
     }
 
-    /// The packages a command at `path` covers: every member, at a
-    /// workspace's directory.
-    fn covered(&self, path: &Path) -> Result<Vec<PathBuf>, Vec<String>> {
-        project::covered(self.files, path).map_err(|error| vec![error.to_string()])
-    }
-
-    /// Checks each package at `path`, and reports what is wrong with
-    /// any of them.
-    fn check(&self, path: &Path) -> Result<(), Vec<String>> {
+    /// Checks each package a command is for, and reports what is
+    /// wrong with any of them.
+    fn check(&self, at: &Chosen) -> Result<(), Vec<String>> {
         let mut problems = BTreeSet::new();
-        for package in self.covered(path)? {
+        for package in self.each(at)? {
             problems.extend(self.checked(&package).err().into_iter().flatten());
         }
         if problems.is_empty() {

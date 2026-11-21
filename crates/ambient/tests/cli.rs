@@ -347,6 +347,7 @@ fn testing(files: &Files, only: Option<&str>) -> (i32, Scripted) {
         files,
         &ambient::cli::Command::Test {
             paths: vec![path],
+            packages: Vec::new(),
             only,
         },
     )
@@ -445,6 +446,7 @@ fn a_test_that_passed_is_not_run_again_until_it_changes() {
         let path = PathBuf::from("app");
         let command = ambient::cli::Command::Test {
             paths: vec![path],
+            packages: Vec::new(),
             only: None,
         };
         let (_, world) = Scripted::default().execute_over(&app(source), &store, &command);
@@ -538,6 +540,7 @@ fn tested(world: &Scripted, path: &str) -> (i32, Scripted) {
     let path = PathBuf::from(path);
     let test = ambient::cli::Command::Test {
         paths: vec![path],
+        packages: Vec::new(),
         only: None,
     };
     Scripted::default().execute(&files, &test)
