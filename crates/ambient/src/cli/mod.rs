@@ -168,9 +168,9 @@ pub enum Command {
     /// Runs every test of a package: each function that takes nothing
     /// and whose name begins with `test_`.
     Test {
-        /// The package's directory.
+        /// The directory of each package to test.
         #[arg(default_value = ".")]
-        path: PathBuf,
+        paths: Vec<PathBuf>,
         /// Runs only the tests whose module path and name hold this.
         #[arg(long)]
         only: Option<String>,
@@ -239,7 +239,7 @@ impl Session<'_> {
             } => self.fetch(path, entry.as_deref(), target.as_deref()),
             Command::Header { path } => self.header(path),
             Command::Snapshot { path } => self.snapshot(path),
-            Command::Test { path, only } => self.test(path, only.as_deref()),
+            Command::Test { paths, only } => self.test(paths, only.as_deref()),
         };
         done.unwrap_or_else(|problems| {
             let mut world = self.world.borrow_mut();

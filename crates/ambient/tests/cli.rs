@@ -357,7 +357,13 @@ fn test(files: &Files) -> (i32, Scripted) {
 fn testing(files: &Files, only: Option<&str>) -> (i32, Scripted) {
     let path = PathBuf::from("app");
     let only = only.map(str::to_owned);
-    Scripted::default().execute(files, &ambient::cli::Command::Test { path, only })
+    Scripted::default().execute(
+        files,
+        &ambient::cli::Command::Test {
+            paths: vec![path],
+            only,
+        },
+    )
 }
 
 #[test]
@@ -451,7 +457,10 @@ fn a_test_that_passed_is_not_run_again_until_it_changes() {
     let store = ambient::store::MemoryStore::new();
     let summary = |source: &str| {
         let path = PathBuf::from("app");
-        let command = ambient::cli::Command::Test { path, only: None };
+        let command = ambient::cli::Command::Test {
+            paths: vec![path],
+            only: None,
+        };
         let (_, world) = Scripted::default().execute_over(&app(source), &store, &command);
         world.out.lines().last().unwrap().to_owned()
     };
@@ -541,7 +550,10 @@ fn tested(world: &Scripted, path: &str) -> (i32, Scripted) {
     let written = |(path, bytes): (&String, &Vec<u8>)| (PathBuf::from(path), held(bytes));
     let files: Files = world.files.iter().map(written).collect();
     let path = PathBuf::from(path);
-    let test = ambient::cli::Command::Test { path, only: None };
+    let test = ambient::cli::Command::Test {
+        paths: vec![path],
+        only: None,
+    };
     Scripted::default().execute(&files, &test)
 }
 

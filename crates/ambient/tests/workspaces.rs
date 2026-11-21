@@ -203,8 +203,9 @@ fn checking_a_workspace_checks_every_member() {
 
 #[test]
 fn testing_a_workspace_tests_every_member() {
+    // The workspace and a member of it: the member is tested once.
     let test = Command::Test {
-        path: ".".into(),
+        paths: vec![".".into(), "one".into()],
         only: None,
     };
     let (code, said) = at_the_top(
@@ -216,10 +217,8 @@ fn testing_a_workspace_tests_every_member() {
     );
 
     assert_eq!(code, 1);
-    assert!(
-        said.contains("ok    one:.test_one") && said.contains("FAIL  other:.test_other"),
-        "{said}"
-    );
+    assert_eq!(said.matches("ok    one:.test_one").count(), 1, "{said}");
+    assert!(said.contains("FAIL  other:.test_other"), "{said}");
 }
 
 #[test]

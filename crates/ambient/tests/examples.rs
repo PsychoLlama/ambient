@@ -39,7 +39,13 @@ fn every_example_checks() {
 fn every_test_of_an_example_passes() {
     for entry in std::fs::read_dir(example("")).unwrap() {
         let path = entry.unwrap().path();
-        let (code, world) = Scripted::default().execute(&Disk, &Command::Test { path, only: None });
+        let (code, world) = Scripted::default().execute(
+            &Disk,
+            &Command::Test {
+                paths: vec![path],
+                only: None,
+            },
+        );
 
         assert_eq!((code, world.err.as_str()), (0, ""), "{}", world.out);
     }
@@ -48,7 +54,13 @@ fn every_test_of_an_example_passes() {
 #[test]
 fn the_logging_package_passes_its_tests() {
     let path = example("../packages/logging");
-    let (code, world) = Scripted::default().execute(&Disk, &Command::Test { path, only: None });
+    let (code, world) = Scripted::default().execute(
+        &Disk,
+        &Command::Test {
+            paths: vec![path],
+            only: None,
+        },
+    );
 
     assert_eq!((code, world.err.as_str()), (0, ""), "{}", world.out);
 }
