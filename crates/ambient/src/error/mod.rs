@@ -201,8 +201,14 @@ pub enum Error {
     ToolUngranted { symbol: Symbol, ability: Symbol },
     /// A program's entry has type parameters.
     GenericEntry(Symbol),
-    /// An ability is used where nothing binds it.
-    Unbound { symbol: Symbol, ability: Symbol },
+    /// An ability is used where nothing binds it. `closure` is whether
+    /// that is in a function written in place, which may take it in
+    /// its row.
+    Unbound {
+        symbol: Symbol,
+        ability: Symbol,
+        closure: bool,
+    },
     /// A program's entry takes an ability that the target it is run
     /// under does not bind.
     Unoffered {

@@ -416,6 +416,14 @@ fn entry_of(project: &Project, entry: &str) -> Symbol {
 /// that is code a comptime call gave, which the text does not have.
 fn report(project: &Project, engine: &Engine, error: &Error) -> String {
     let mut report = project.report(error, engine.blame(error));
+    // Only a name given on the command line leads to a library module
+    // that is not there: an import of one is refused as an import.
+    if matches!(error, Error::UnknownModule(module) if module.path.0.is_empty()) {
+        report.push_str(
+            ": a name with no module before it is of the package's library module; \
+             what `main` defines is named as `main.name`",
+        );
+    }
     if let Some(given) = engine.shown(error) {
         report.push_str("\nin the code the call gave:\n");
         report.push_str(given.trim_end());

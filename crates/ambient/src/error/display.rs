@@ -213,8 +213,20 @@ impl Error {
             Self::DuplicateHandler { symbol, ability } => {
                 write!(f, "{symbol}: two handlers for `{ability}`")
             }
-            Self::Unbound { symbol, ability } => {
-                write!(f, "{symbol}: `{ability}` is not bound here")
+            Self::Unbound {
+                symbol,
+                ability,
+                closure,
+            } => {
+                write!(f, "{symbol}: `{ability}` is not bound here")?;
+                if *closure {
+                    let name = &ability.name;
+                    write!(
+                        f,
+                        ": write `with {name}` on this function for what calls it to bind"
+                    )?;
+                }
+                Ok(())
             }
             Self::Unoffered {
                 symbol,

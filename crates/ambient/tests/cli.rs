@@ -182,6 +182,31 @@ fn an_error_inside_a_lambda_is_at_its_place_in_the_definition() {
 }
 
 #[test]
+fn an_ability_unbound_in_a_function_written_in_place_says_what_to_write() {
+    let source = "use ambient.errors.throw;\nfn risky(): int with throw => 1;\n\
+                  fn main(): int {\n  let held = fn(): int => risky();\n  return 0;\n}";
+    let (_, world) = check(&app(source));
+
+    let said = world.err.trim_end().split("here: ").nth(1);
+    let hint = "write `with throw` on this function for what calls it to bind";
+    assert_eq!(said, Some(hint), "{}", world.err);
+}
+
+#[test]
+fn a_name_with_no_module_is_told_it_is_of_the_library_module() {
+    let command = ambient::cli::Command::Run {
+        path: PathBuf::from("app"),
+        entry: "main".to_owned(),
+        target: None,
+        args: Vec::new(),
+    };
+    let (_, world) = Scripted::default().execute(&app("fn main(): int => 0;"), &command);
+
+    let hint = "what `main` defines is named as `main.name`\n";
+    assert!(world.err.ends_with(hint), "{}", world.err);
+}
+
+#[test]
 fn a_fault_is_reported_with_the_functions_it_left() {
     let source = "
         fn divide(by: int): int => 10 / by;

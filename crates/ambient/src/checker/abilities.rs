@@ -38,9 +38,11 @@ impl Checker<'_> {
     /// frame outside binds it, each lambda in between captures it.
     fn require_at(&mut self, depth: usize, ability: &Symbol) -> Result<(), Error> {
         let symbol = self.symbol;
+        let closure = self.frames.len() > 1;
         let unbound = || Error::Unbound {
             symbol: symbol.clone(),
             ability: ability.clone(),
+            closure,
         };
         let Some(frame) = self.frames.get_mut(depth) else {
             return Err(unbound());
