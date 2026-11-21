@@ -37,15 +37,18 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - The library module lists the package's public modules by [path](modules.md); a module it does not list is internal.
 - A public module exposes its public definitions to dependents; nothing else leaves the package.
 - A public module is reached by the same path its own package uses, so moving one is a change of interface, made as an [edit](trees.md) across dependents.
-- A package may define any number of named entries, each a function.
-- A package declares its version, its dependencies, its [preludes](modules.md), its [build grants](comptime.md), its [build steps](tools.md#builds), its [lints](tools.md#commands), its native bundles, and the files beside its sources that are part of it.
+- A package has any number of [binaries](#binaries), each a function it offers to be run.
+- A package declares its version, its binaries, its dependencies, its [preludes](modules.md), its [build grants](comptime.md), its [build steps](tools.md#builds), its [lints](tools.md#commands), its native bundles, and the files beside its sources that are part of it.
 - A package is distributed as source.
 
 ## Layout
 
 - A package is a directory: a manifest, and its modules as source files under one directory of sources.
 - A source file is the [module](modules.md) its path under the sources names, and the file named `lib` at their top is the library module.
-- The manifest says the package's name, its ID, and its version, and lists its dependencies, its preludes, its [build grants](comptime.md), each the path of an ability, its [build steps](tools.md#builds), each the paths of a target and of a tool, its [native bundles](externs.md#distribution), each a platform and a digest, and its other files. It may name the [target](#running) its programs are run and built under.
+- The manifest says the package's name, its ID, and its version, and lists its [binaries](#binaries), its dependencies, its preludes, its [build grants](comptime.md), each the path of an ability, its [build steps](tools.md#builds), each the paths of a target and of a tool, its [native bundles](externs.md#distribution), each a platform and a digest, and its other files.
+- The manifest may say a description of the package: text for whoever reads it, which means nothing to a build.
+- What the manifest says of the package itself is under `package`, and what it says as a [workspace's](#workspaces) under `workspace`. Its binaries, dependencies, build steps, and native bundles are each under a table of their kind.
+- The file named `main` at the top of the sources is the module the package's binaries are in.
 - A dependency is listed by its local name, with where the package is, a directory or a git repository, or else its ID and what [selects](releases.md#selection) it.
 - A dependency at a directory is on the package there. It states no ID and no version: the package there is a member, as it is.
 - A file of the package is one under its sources or one its manifest lists. Nothing else in its directory is part of it, and no [comptime](comptime.md) call reads anything else.
@@ -55,13 +58,24 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - No package's ID is the standard library's, or the [`system`](targets.md) package's.
 - Every package reaches the standard library under the name `ambient`, and the `system` package under its own, without declaring them.
 
+## Binaries
+
+- A binary is a program a package offers: a function of its `main` module, and the [target](targets.md) it is run and built under.
+- A binary is known by the name of its function, and the manifest declares it under that name. Nothing else of a package is run from a command line, so what a package offers to be run is read from its manifest and never guessed from its modules.
+- A package that has a `main` module has the binary `main`, declared or not. Every other binary is declared.
+- A binary's function is defined in `main` itself. A program kept in another module is run through a function there that calls it.
+- A binary may name its target: one of its package or of a dependency. With none it is the `system` package's command-line target.
+- A binary may say the name of its executable. With none it is the binary's own name.
+- A declared binary whose function `main` does not define is an error, and so are two binaries with one executable name.
+- Only the binaries of the package a command is at are asked. What a dependency declares is how that package is run on its own, and says nothing of a program that uses it.
+- A package is one library: it has a single library module, and a dependent pays only for what it reaches, so a second would give nothing.
+- A package is a library to what imports it and a program for each binary it has, and may be both.
+
 ## Running
 
-- The command line runs a function of a package as a program under the `system` package's command-line [target](targets.md), and exits with what it gives if that is an integer.
-- It may instead be run under a target the package names that extends that one. That is how a program binds a package's [native handler](externs.md), which only a target can.
-- The target is the one the command is told, or else the one the package's manifest names: its own or a dependency's.
-- Only the manifest of the package a command is at is asked. What a dependency's manifest names is how that package is run on its own, and says nothing of a program that uses it.
-- A package is not declared a library or a program: it is a library to what imports it and a program where one of its functions is run, and may be both.
+- The command line runs a [binary](#binaries) of a package as a program under the `system` package's command-line [target](targets.md), and exits with what it gives if that is an integer.
+- It is instead run under the target the binary names, which extends that one. That is how a program binds a package's [native handler](externs.md), which only a target can.
+- The binary is the one the command names, or else `main`.
 - A [fault](values.md) that ends the program is reported as its error: the kind, the message, and the definitions its trace names.
 - Checking a package checks every definition of it, and of the packages it depends on what those reach, and reports each that is wrong. Each is reported by file, line, and column.
 - TODO: checking a package checks every definition of each package it depends on, reached or not.
@@ -70,12 +84,13 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 ## Building
 
-- Building makes an executable of a function of a package: one file that runs the program on a machine that has neither the package nor the compiler.
+- Building makes an executable of a [binary](#binaries) of a package: one file that runs the program on a machine that has neither the package nor the compiler.
 - The executable is the program as compiled for the machine that built it, and what loads and runs it; nothing is compiled when it starts.
-- It runs as the command line runs the function: under the same [target](targets.md), started with every argument it is given, exiting with what the function gives.
+- It runs as the command line runs the binary: under the same [target](targets.md), started with every argument it is given, exiting with what the function gives.
+- The executable is named as the binary says, unless the command says where to make it.
 - A [fault](values.md) is reported as it is when run from the package: the executable carries the name of each definition it holds and the place of each expression that can fault, as they were when it was built.
 - An executable never reads a [store](build.md) and never writes one.
-- A build may instead be of a function under a target the package names, which gives what that target's [tool](tools.md#builds) does: a WebAssembly module and whatever its [host](targets.md#webassembly-hosts) loads it with.
+- A binary whose target does not extend the command-line target is built into what that target's [tool](tools.md#builds) gives: a WebAssembly module and whatever its [host](targets.md#webassembly-hosts) loads it with.
 - A target that extends the command-line target is built as that one is: an executable.
 - What loads the program holds no compiler: an executable carries only what running needs, and can [load](exchange.md) compiled code as a program run from its package can.
 - A program that packs or compiles code needs the compiler as it runs, so what loads that one is the compiler's own executable.
@@ -87,17 +102,19 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 - Every package belongs to a workspace; a lone package is a workspace of one.
 - A workspace is a directory whose manifest lists its members, each the directory of a package. The workspace's own directory may be one of them.
+- A member may be listed as a pattern, in which `*` stands for the whole name of a directory: every directory there that holds a manifest. A pattern has no other form, so finding the members reads only the directories it names.
 - A package's workspace is the nearest directory above it whose manifest lists it, and a package at a directory a member depends on is a member too.
 - A member stands in for every dependency in its workspace on its package ID and [line](releases.md#versions) of versions, whatever publisher the declaration names.
 - Two members of one package ID and line are an error, so what stands in is never a choice.
 - Two members of one name are an error: a name identifies nothing, and two packages that share one are taken for a mistake.
 - A member takes nothing from its workspace's manifest: a package means the same in any workspace.
 - A command that checks or tests, run at a workspace's directory, covers every member.
+- A command may be told the member it is for by the member's name, from anywhere in the workspace. One that runs or builds at a workspace's directory that is no package has to be.
 - A workspace has one [store](build.md), one [index](symbols.md), and one [lock](releases.md#locks).
 
 ## Beginning
 
-- A new package is made in a directory and named for it: a manifest with a newly generated ID, and one module that runs and has a [test](#testing), so the first change is made to something that works.
+- A new package is made in a directory and named for it: a manifest with a newly generated ID, and one module that runs and has a [test](#testing), so the first change is made to something that works. Its manifest declares the binary `main`, with the package's name for its executable.
 - A package may instead be begun as a library: its one module is the [library module](#layout), with a public function and a test.
 - A source file that is there already is left as it is.
 - A package is not made over one that is there.
