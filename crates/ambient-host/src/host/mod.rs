@@ -284,6 +284,15 @@ fn strings(items: Vec<String>) -> Value {
     Value::List(items.into_iter().map(Value::String).collect())
 }
 
+/// `natives`, with the extern functions of `system` that are no
+/// abilities: what is only computed, as a hash is. They reach no
+/// world, so a test and a build have them as any program does. See
+/// "The system package" in `docs/spec/targets.md`.
+#[must_use]
+pub fn computing(natives: Natives) -> Natives {
+    exchange::offer(crypto::offer(natives))
+}
+
 /// The native code for every handler of the command-line target that
 /// needs no compiler, over one world. Packing a function and compiling
 /// one are the compiler's to add (`ambient::host::natives`).

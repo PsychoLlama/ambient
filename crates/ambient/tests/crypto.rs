@@ -29,6 +29,17 @@ fn hash(algorithm: &str, data: &str) -> String {
 }
 
 #[test]
+fn a_comptime_call_hashes_as_a_program_does() {
+    let source = "use system.crypto;
+        fn digest(data: string): string => crypto.hash(crypto.sha1, data.to_bytes()).hex();
+        const DIGEST: string = comptime digest(\"abc\");
+        fn main(): string => DIGEST;";
+    let (gave, _) = Scripted::default().program(source);
+    let digest = "a9993e364706816aba3e25717850c26c9cd0d89d";
+    assert_eq!(gave, Ok(Value::String(digest.to_owned())));
+}
+
+#[test]
 fn bytes_are_hashed_by_the_algorithm_a_tag_names() {
     // The digests of "abc" each standard gives.
     assert_eq!(

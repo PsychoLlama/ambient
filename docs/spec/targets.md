@@ -50,6 +50,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - A browser's target binds fetching and not serving; an embedder's binds its host's own abilities beside whichever of these the host can do.
 - Its ID is fixed, so every target means the same ability by `system.fs.read`, and a library written against one runs under any target that binds it.
 - It comes with the compiler, as its native code does, and a package reaches it under the name `system` without declaring it.
+- Its [extern](externs.md) functions that are no abilities are bound by no target, so a program reaches them under any: a [test](packages.md#testing) and a [comptime](comptime.md) call as well.
 - A host may be built without it; a program is then limited as any [embedder's](#embedding) is.
 
 ## Standard targets

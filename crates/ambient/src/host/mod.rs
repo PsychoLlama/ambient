@@ -14,8 +14,8 @@ use std::rc::Rc;
 pub use ambient_host::host::{
     Address, Change, Changed, Chunk, Command, Datagram, Done, Entry, Failure, GROUPS, Group, Held,
     Incoming, Info, Kind, Line, Linked as Groups, Listening, Open, Opened, Ran, Reach, Reached,
-    Request, Response, Signal, Streamed, System, Trust, Work, World, bytes, error, group, invalid,
-    natives_linked,
+    Request, Response, Signal, Streamed, System, Trust, Work, World, bytes, computing, error,
+    group, invalid, natives_linked,
 };
 pub use code::{Linked, compiles, link, offer as compiling};
 

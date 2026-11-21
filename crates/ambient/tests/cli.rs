@@ -454,6 +454,23 @@ fn only_the_tests_asked_for_are_run() {
 }
 
 #[test]
+fn a_test_reaches_what_the_system_package_only_computes() {
+    let source = r#"
+        use system.exchange;
+        use ambient.test.{check, unmet};
+
+        fn test_reads_back(): null with unmet {
+            let sent = cast::<bytes>(exchange.encode([1, 2]), "".to_bytes());
+            let read = cast::<List<int>>(exchange.decode(sent), []);
+            check(read == [1, 2], "a value is read back");
+        }
+    "#;
+    let (code, world) = test(&app(source));
+
+    assert_eq!((code, world.err.as_str()), (0, ""), "{}", world.out);
+}
+
+#[test]
 fn a_test_reaches_no_world_it_is_not_given() {
     let source = r#"
         use system.console;

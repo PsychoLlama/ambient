@@ -126,11 +126,12 @@ fn tests(project: &Project, engine: &Engine) -> Result<Vec<Symbol>, Error> {
     Ok(tests)
 }
 
-/// The native code a test's target binds: a failure a test tells of
-/// is added to `unmet`, and the test goes on.
+/// The native code a test has: what its target binds, and what
+/// `system` only computes. A failure a test tells of is added to
+/// `unmet`, and the test goes on.
 fn checks(unmet: &Rc<RefCell<Vec<String>>>) -> Natives {
     let unmet = Rc::clone(unmet);
-    Natives::new().with(FAULT_PACKAGE, "test.told", move |args| {
+    crate::host::computing(Natives::new()).with(FAULT_PACKAGE, "test.told", move |args| {
         let [Value::Record(failure)] = args else {
             return Err("a test tells of a failure, which is a record".to_owned());
         };
