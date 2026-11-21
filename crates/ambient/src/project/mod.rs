@@ -8,6 +8,7 @@
 
 mod contents;
 mod declare;
+mod dependency;
 mod error;
 mod fetch;
 mod files;
@@ -33,7 +34,8 @@ use git::Git;
 pub use locked::{
     Commit, LOCK, Lock, Locked, Nowhere, OFFLINE, Offline, Snapshots, Source, digest, fetched,
 };
-pub use manifest::{Bundle, Dependency, Manifest, Package};
+pub use dependency::Dependency;
+pub use manifest::{Bundle, Manifest, Package};
 pub use members::covered;
 use members::{Members, normal};
 pub use settle::Update;
