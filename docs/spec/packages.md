@@ -75,7 +75,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 - The command line runs a [binary](#binaries) of a package as a program under the `system` package's command-line [target](targets.md), and exits with what it gives if that is an integer.
 - It is instead run under the target the binary names, which extends that one. That is how a program binds a package's [native handler](externs.md), which only a target can.
-- The binary is the one the command names, or else `main`.
+- The binary is the one the command names. Told none, it is the only binary of the packages the command [is for](#commands), or else `main` of the one package it is for; where neither says which, the command says what there is to choose from.
 - A [fault](values.md) that ends the program is reported as its error: the kind, the message, and the definitions its trace names.
 - Checking a package checks every definition of it, and of the packages it depends on what those reach, and reports each that is wrong. Each is reported by file, line, and column.
 - TODO: checking a package checks every definition of each package it depends on, reached or not.
@@ -87,7 +87,9 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - Building makes an executable of a [binary](#binaries) of a package: one file that runs the program on a machine that has neither the package nor the compiler.
 - The executable is the program as compiled for the machine that built it, and what loads and runs it; nothing is compiled when it starts.
 - It runs as the command line runs the binary: under the same [target](targets.md), started with every argument it is given, exiting with what the function gives.
-- The executable is named as the binary says, unless the command says where to make it.
+- Building is of the binary the command names, or else of every binary of the packages the command [is for](#commands).
+- What is built is put in the directory `build` of the workspace: an executable there under the name its binary says, and what a tool gives in a directory there of that name. Two binaries built at once under one name are an error.
+- A command that builds one binary may say where to put it instead.
 - A [fault](values.md) is reported as it is when run from the package: the executable carries the name of each definition it holds and the place of each expression that can fault, as they were when it was built.
 - An executable never reads a [store](build.md) and never writes one.
 - A binary whose target does not extend the command-line target is built into what that target's [tool](tools.md#builds) gives: a WebAssembly module and whatever its [host](targets.md#webassembly-hosts) loads it with.
@@ -108,13 +110,19 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - Two members of one package ID and line are an error, so what stands in is never a choice.
 - Two members of one name are an error: a name identifies nothing, and two packages that share one are taken for a mistake.
 - A member takes nothing from its workspace's manifest: a package means the same in any workspace.
-- A command that checks or tests, run at a workspace's directory, covers every member.
-- A command may be told the members it is for by name, at the workspace's directory or at any member's. One that is for a single package, as running and building are, has to be at a workspace's directory that is no package.
 - A workspace has one [store](build.md), one [index](symbols.md), and one [lock](releases.md#locks).
+
+## Commands
+
+- A command is for the package it is run in: the nearest directory, where it is run or above, that holds a manifest. No command is told a directory to work in.
+- Run in a workspace's directory that is no package, a command is for every member.
+- A command may be told the members it is for by name, anywhere in their workspace. A member is named the same wherever the command is run.
+- A command that is for one package, as one that adds a dependency is, is told which where it would be for several.
+- A command told a binary and no member is for the one member that has it.
 
 ## Beginning
 
-- A new package is made in a directory and named for it: a manifest with a newly generated ID, and one module that runs and has a [test](#testing), so the first change is made to something that works. Its manifest declares the binary `main`, with the package's name for its executable.
+- A new package is made in a directory and named for it: a manifest with a newly generated ID, and one module that runs and has a [test](#testing), so the first change is made to something that works. Its manifest declares the binary `main`, with the package's name for its executable, and what it builds is kept out of its repository.
 - A package may instead be begun as a library: its one module is the [library module](#layout), with a public function and a test.
 - A source file that is there already is left as it is.
 - A package is not made over one that is there.
