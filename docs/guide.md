@@ -33,7 +33,7 @@ ambient run -- one two       # what follows `--` is what env.args gives
 ambient run --bin fmt        # runs another binary of the package; `--bin` alone says which there are
 ambient check                # checks every definition, runs nothing
 ambient test                 # runs every function named test_*
-ambient build                # one file that runs `main`: no package, no compiler
+ambient build                # `build/hello`, one file that runs `main`: no package, no compiler
 ```
 
 A command finds its package where it is run or above, so it works from `src/` as well.
@@ -48,7 +48,7 @@ version = "0.1.0"
 description = "Says hello"   # for whoever reads it
 
 [bin.main]
-name = "hello"               # what `ambient build` calls the file; `main`, if not said
+name = "hello"               # what `ambient build` calls the file in `build/`; `main`, if not said
 
 [bin.fmt]                    # `fmt` of `main.ab`, which may call into any module
 target = "pkg.tools.world"   # the target it runs under; the command line's, if not said

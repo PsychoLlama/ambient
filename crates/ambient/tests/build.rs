@@ -30,11 +30,11 @@ fn build(source: &str, launcher: &[u8]) -> Vec<u8> {
     let (code, after) = world.execute(&app(source), &command);
     assert_eq!(
         (code, after.out.as_str()),
-        (0, "built main\n"),
+        (0, "built app/build/main\n"),
         "{}",
         after.err
     );
-    after.files["main"].clone()
+    after.files["app/build/main"].clone()
 }
 
 /// Starts what an executable carries in `world`, as the command does
@@ -271,7 +271,11 @@ fn built_under(target: &str) -> (i32, Scripted) {
 fn a_binary_is_built_under_the_target_its_manifest_names() {
     let (code, after) = built_under("pkg.main.page");
     assert_eq!(code, 0, "{}", after.err);
-    assert!(after.out.starts_with("built main.wasm, "), "{}", after.out);
+    assert!(
+        after.out.starts_with("built app/build/main.wasm, "),
+        "{}",
+        after.out
+    );
 
     let (code, after) = built_under("pkg.main.missing");
     assert_eq!(code, 1);
@@ -293,7 +297,7 @@ fn a_program_is_built_as_a_module_for_a_host_that_supplies_its_native_code() {
         heard.borrow_mut().extend(args.iter().cloned());
         Ok(Value::Null)
     });
-    let mut program = Program::load(&after.files["main.wasm"], &natives).unwrap();
+    let mut program = Program::load(&after.files["app/build/main.wasm"], &natives).unwrap();
     let gave = program.call(&[]).unwrap();
 
     assert_eq!(decode(gave, program.guest()), Value::Int(3));

@@ -58,14 +58,20 @@ impl Session<'_> {
         if output.is_some() && picked.len() > 1 {
             return Err(vec![SEVERAL.to_owned()]);
         }
+        if let Some((one, other)) = picked::rivals(&picked) {
+            return Err(vec![format!(
+                "`{}` and `{}` each have a binary built as `{}`: build one with `--package`",
+                one.package.project.root, other.package.project.root, one.binary.name
+            )]);
+        }
         for picked in picked {
             self.built(picked, output)?;
         }
         Ok(0)
     }
 
-    /// Makes an executable of a binary: at `output`, or else in the
-    /// directory the command was run in, named as the binary says.
+    /// Makes an executable of a binary: at `output`, or else where
+    /// what is built of its package is put, named as the binary says.
     ///
     /// A binary whose target does not extend the command-line target
     /// is built by [`Self::build_under`].
@@ -78,13 +84,14 @@ impl Session<'_> {
             engine: &engine,
         };
         let Some(target) = Self::target(project, &engine, binary)? else {
-            return self.build_under(&launch, &package.directory, binary, output);
+            return self.build_under(&launch, &package.built(), binary, output);
         };
         let linked = launch.link(&binary.entry, &target)?;
         let link = self.linking(project, &linked.parts);
         let link = link.map_err(|problem| vec![problem])?;
 
-        let output = output.map_or_else(|| binary.name.clone(), |path| path.display().to_string());
+        let output = output.map_or_else(|| package.built().join(&binary.name), Path::to_owned);
+        let output = output.display().to_string();
         let program = Self::carried(&launch, &linked);
         self.room(&output)?;
         // A program that packs or compiles code is started by the
@@ -146,11 +153,11 @@ impl Session<'_> {
         Ok([launcher, Self::carried(launch, linked)].concat())
     }
 
-    /// Builds `binary` of the package at `path` under the target it
-    /// names. See "Builds" in `docs/spec/tools.md`.
+    /// Builds `binary` under the target it names, into `built` where
+    /// the command says nowhere. See "Builds" in `docs/spec/tools.md`.
     ///
     /// A target built by a tool gives that tool's files, written into
-    /// the directory `output`, or else `build` in the package's own.
+    /// the directory `output`, or else one named as the binary says.
     /// One with no tool gives the WebAssembly module alone, at
     /// `output` or named as the binary says: whatever loads it supplies
     /// the native code its target binds, which the module names in
@@ -158,7 +165,7 @@ impl Session<'_> {
     fn build_under(
         &self,
         launch: &Launch,
-        path: &Path,
+        built: &Path,
         binary: &Binary,
         output: Option<&Path>,
     ) -> Result<(), Vec<String>> {
@@ -167,15 +174,16 @@ impl Session<'_> {
         // Only a target that was named is one the command line's is not.
         let target = binary.target.clone().unwrap_or_else(crate::system::target);
         if let Some(files) = engine.built(&binary.entry, &target).map_err(refused)? {
-            let directory = output.map_or_else(|| path.join("build"), Path::to_owned);
+            let directory = output.map_or_else(|| built.join(&binary.name), Path::to_owned);
             return self.written(&directory, &files).map(|_| ());
         }
         let root = engine.program(&binary.entry, &target).map_err(refused)?;
         let parts = engine.link(&root, &Wasm).map_err(refused)?;
         let module = wasm::module(&parts).map_err(|message| vec![message])?;
 
-        let named = || format!("{}.wasm", binary.name);
-        let output = output.map_or_else(named, |path| path.display().to_string());
+        let named = || built.join(format!("{}.wasm", binary.name));
+        let output = output.map_or_else(named, Path::to_owned);
+        let output = output.display().to_string();
         self.room(&output)?;
         let stored = self.world.borrow_mut().store(&output, &module);
         stored.map_err(|failure| vec![format!("{output}: {}", failure.message)])?;

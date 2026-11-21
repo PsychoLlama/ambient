@@ -282,6 +282,30 @@ fn ran_of(bin: Option<&str>) -> (i32, String) {
     at_the_top(&mains(), &run)
 }
 
+/// What building those members of [`mains`] says, from `one`.
+fn built_of(names: &[&str]) -> String {
+    let build = Command::Build {
+        at: Chosen::named(names),
+        bin: None,
+        output: None,
+    };
+    let (_, world) = Scripted::within("one").execute(&mains(), &build);
+    world.out + &world.err
+}
+
+#[test]
+fn what_a_member_builds_is_put_in_its_workspace() {
+    assert_eq!(built_of(&[]), "built build/deploy\nbuilt build/main\n");
+}
+
+#[test]
+fn two_members_are_not_built_into_one_file() {
+    let said = "error: `one` and `other` each have a binary built as `main`: \
+                build one with `--package`\n";
+
+    assert_eq!(built_of(&["one", "other"]), said);
+}
+
 #[test]
 fn a_binary_only_one_member_has_is_run_from_the_workspace() {
     assert_eq!(ran_of(Some("deploy")), (9, String::new()));

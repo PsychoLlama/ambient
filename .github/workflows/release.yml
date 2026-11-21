@@ -97,8 +97,8 @@ jobs:
           "$AMBIENT" init tried
           cd tried
           "$AMBIENT" test
-          "$AMBIENT" build --output program
-          [[ "$(./program)" == "hello, world" ]]
+          "$AMBIENT" build
+          [[ "$(./build/tried)" == "hello, world" ]]
 
       - name: Check that nothing is linked at run time
         if: runner.os == 'Linux'

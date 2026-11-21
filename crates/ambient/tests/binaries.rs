@@ -108,7 +108,7 @@ fn built(declared: &str, bin: Option<&str>, output: Option<&str>) -> String {
 fn building_told_no_binary_builds_every_one() {
     assert_eq!(
         built("[bin.deploy]", None, None),
-        "built deploy\nbuilt main\n"
+        "built app/build/deploy\nbuilt app/build/main\n"
     );
 }
 
@@ -143,6 +143,9 @@ fn two_binaries_whose_executables_are_named_the_same_are_refused() {
 fn an_executable_is_named_as_its_binary_says() {
     let built = |declared: &str| built(declared, Some("deploy"), None);
 
-    assert_eq!(built("[bin.deploy]"), "built deploy\n");
-    assert_eq!(built("[bin.deploy]\nname = \"ship-it\""), "built ship-it\n");
+    assert_eq!(built("[bin.deploy]"), "built app/build/deploy\n");
+    assert_eq!(
+        built("[bin.deploy]\nname = \"ship-it\""),
+        "built app/build/ship-it\n"
+    );
 }

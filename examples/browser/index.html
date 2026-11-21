@@ -6,7 +6,7 @@
 <script type="module">
   // What the build wrote: the module, its host, and the JavaScript of
   // each extern the program reaches (`js/main.js`).
-  import { start } from "./build/program.js";
+  import { start } from "./build/browser/program.js";
 
   const program = await start();
   document.getElementById("said").append(`gave ${await program.run()}\n`);

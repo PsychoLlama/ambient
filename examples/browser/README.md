@@ -11,4 +11,4 @@ python3 -m http.server
 
 Then open <http://localhost:8000/examples/browser/>. The page shows each line the program says and then what it gave.
 
-The manifest names the target `main` is built under (`target = "pkg.main.page"`): `page` of module `main`. The build is written to `examples/browser/build`: the module, the host that loads it, and `program.js`, which the page imports. It holds the JavaScript of the externs the program reaches and no others.
+The manifest names the target `main` is built under (`target = "pkg.main.page"`): `page` of module `main`. The build is written to `examples/browser/build/browser`, named for the binary: the module, the host that loads it, and `program.js`, which the page imports. It holds the JavaScript of the externs the program reaches and no others.

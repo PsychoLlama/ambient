@@ -1,7 +1,7 @@
 /target
 # Modules built from the examples
 *.wasm
-# What `ambient build --target` writes for an example
+# What `ambient build` makes of an example
 /examples/*/build/
 /.direnv
 # Nix build result symlinks

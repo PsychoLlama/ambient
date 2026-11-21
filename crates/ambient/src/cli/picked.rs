@@ -21,6 +21,18 @@ pub(super) struct Picked<'a> {
     pub(super) binary: &'a Binary,
 }
 
+impl Offered {
+    /// Where what is built of the package is put: the directory
+    /// `build` of its workspace, or its own if no workspace lists it.
+    pub(super) fn built(&self) -> PathBuf {
+        let workspace = self.project.above.as_ref().unwrap_or(&self.directory);
+        workspace.join(BUILT)
+    }
+}
+
+/// The directory of a workspace that what is built is put in.
+const BUILT: &str = "build";
+
 /// What is said where no package a command is for has a binary.
 const NONE: &str = "there is no binary here: a package has one where its `src/main.ab` \
      defines `main`, or where its manifest declares it under `[bin.<name>]`";
@@ -107,6 +119,17 @@ pub(super) fn every<'a>(
         return Err(vec![NONE.to_owned()]);
     }
     Ok(every)
+}
+
+/// The first two of `picked` that would be built as one thing: two
+/// packages' binaries whose executables are called the same.
+pub(super) fn rivals<'a>(picked: &[Picked<'a>]) -> Option<(Picked<'a>, Picked<'a>)> {
+    let same = |one: &Picked, other: &Picked| one.binary.name == other.binary.name;
+    let rival = |(index, one): (usize, &Picked<'a>)| {
+        let other = picked[..index].iter().find(|other| same(one, other))?;
+        Some((*other, *one))
+    };
+    picked.iter().enumerate().find_map(rival)
 }
 
 impl Session<'_> {
