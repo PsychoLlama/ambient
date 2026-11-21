@@ -2,3 +2,4 @@
 name = "logging"
 id = "c4a81f09d6b74e2f9a3570be1d28c6e5"
 version = "0.1.0"
+description = "Structured logs as an ability"

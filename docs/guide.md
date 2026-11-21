@@ -42,6 +42,7 @@ What a package runs is a binary: a function of `main.ab`, which the manifest dec
 name = "hello"
 id = "f990a7d1ea86238e6f887caf27d32800"
 version = "0.1.0"
+description = "Says hello"   # for whoever reads it
 
 [bin.main]
 name = "hello"               # what `ambient build` calls the file; `main`, if not said

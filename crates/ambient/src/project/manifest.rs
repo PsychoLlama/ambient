@@ -59,6 +59,9 @@ pub struct Package {
     /// comes to be called. See "Identity" in `docs/spec/packages.md`.
     pub id: String,
     pub version: Version,
+    /// What the package is, for whoever reads its manifest. No build
+    /// reads it.
+    pub description: Option<String>,
     /// The modules in scope in every module of the package, each a path
     /// that begins with `pkg` or a dependency. Listing any replaces the
     /// standard library's.
@@ -92,6 +95,7 @@ struct Said {
     name: Option<String>,
     id: Option<String>,
     version: Option<Version>,
+    description: Option<String>,
     #[serde(default)]
     preludes: Vec<String>,
     #[serde(default)]
@@ -226,6 +230,7 @@ impl Manifest {
             name,
             id,
             version,
+            description: said.description,
             preludes: said.preludes,
             dependencies,
             grants: said.grants,
@@ -305,6 +310,20 @@ mod tests {
             said("main` says a `name` that is not the name of a file")
         );
         assert!(read("[bin.main]\nentry = \"a\"").is_some());
+    }
+
+    #[test]
+    fn a_package_may_say_what_it_is() {
+        let package = "[package]\nname = \"a\"\nid = \"a\"\nversion = \"1.0.0\"\n";
+        let described = |rest: &str| {
+            let read = Manifest::read(&format!("{package}{rest}")).unwrap();
+            read.package.unwrap().description
+        };
+        assert_eq!(described(""), None);
+        assert_eq!(
+            described("description = \"Says hello\""),
+            Some("Says hello".to_owned())
+        );
     }
 
     #[test]
