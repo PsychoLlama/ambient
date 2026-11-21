@@ -258,6 +258,31 @@ const PAGE: &str = r#"
     }
 "#;
 
+/// Builds `main` of `PAGE`, told no target, with `target` in its manifest.
+fn built_as_its_manifest_says(target: &str) -> (i32, Scripted) {
+    let mut files = app(PAGE);
+    let manifest = files.get_mut(&PathBuf::from("app/ambient.toml")).unwrap();
+    *manifest = format!("{manifest}\ntarget = \"{target}\"");
+    let command = Command::Build {
+        path: PathBuf::from("app"),
+        entry: "main.main".to_owned(),
+        output: None,
+        target: None,
+    };
+    Scripted::default().execute(&files, &command)
+}
+
+#[test]
+fn a_command_told_no_target_uses_the_one_the_manifest_names() {
+    let (code, after) = built_as_its_manifest_says("pkg.main.page");
+    assert_eq!(code, 0, "{}", after.err);
+    assert!(after.out.starts_with("built app.wasm, "), "{}", after.out);
+
+    let (code, after) = built_as_its_manifest_says("pkg.main.missing");
+    assert_eq!(code, 1);
+    assert!(after.err.contains("pkg.main.missing"), "{}", after.err);
+}
+
 #[test]
 fn a_program_is_built_as_a_module_for_a_host_that_supplies_its_native_code() {
     use ambient::backend::native::Natives;

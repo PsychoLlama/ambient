@@ -45,7 +45,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 - A package is a directory: a manifest, and its modules as source files under one directory of sources.
 - A source file is the [module](modules.md) its path under the sources names, and the file named `lib` at their top is the library module.
-- The manifest says the package's name, its ID, and its version, and lists its dependencies, its preludes, its [build grants](comptime.md), each the path of an ability, its [build steps](tools.md#builds), each the paths of a target and of a tool, its [native bundles](externs.md#distribution), each a platform and a digest, and its other files.
+- The manifest says the package's name, its ID, and its version, and lists its dependencies, its preludes, its [build grants](comptime.md), each the path of an ability, its [build steps](tools.md#builds), each the paths of a target and of a tool, its [native bundles](externs.md#distribution), each a platform and a digest, and its other files. It may name the [target](#running) its programs are run and built under.
 - A dependency is listed by its local name, with where the package is, a directory or a git repository, or else its ID and what [selects](releases.md#selection) it.
 - A dependency at a directory is on the package there. It states no ID and no version: the package there is a member, as it is.
 - A file of the package is one under its sources or one its manifest lists. Nothing else in its directory is part of it, and no [comptime](comptime.md) call reads anything else.
@@ -59,6 +59,9 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 - The command line runs a function of a package as a program under the `system` package's command-line [target](targets.md), and exits with what it gives if that is an integer.
 - It may instead be run under a target the package names that extends that one. That is how a program binds a package's [native handler](externs.md), which only a target can.
+- The target is the one the command is told, or else the one the package's manifest names: its own or a dependency's.
+- Only the manifest of the package a command is at is asked. What a dependency's manifest names is how that package is run on its own, and says nothing of a program that uses it.
+- A package is not declared a library or a program: it is a library to what imports it and a program where one of its functions is run, and may be both.
 - A [fault](values.md) that ends the program is reported as its error: the kind, the message, and the definitions its trace names.
 - Checking a package checks every definition of it, and of the packages it depends on what those reach, and reports each that is wrong. Each is reported by file, line, and column.
 - TODO: checking a package checks every definition of each package it depends on, reached or not.

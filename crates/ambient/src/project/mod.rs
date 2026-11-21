@@ -75,6 +75,9 @@ pub struct Project {
     /// The native bundles of each package that has any, by its name
     /// and then by the platform each is for.
     pub natives: BTreeMap<String, BTreeMap<String, Bundle>>,
+    /// The target the manifest of the package at `root` names, which a
+    /// command there runs and builds under when it is told none.
+    pub target: Option<Symbol>,
 }
 
 /// A module read from a file.
@@ -180,12 +183,15 @@ pub fn open_with(
         workspace: Workspace::new(),
         opened: BTreeMap::new(),
         natives: BTreeMap::new(),
+        targets: BTreeMap::new(),
         modules: Vec::new(),
     };
     crate::library::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
     crate::system::install(&mut opening.workspace).map_err(ProjectError::Workspace)?;
     let root = opening.member(&directory)?;
+    let target = opening.targets.remove(&root);
     Ok(Project {
+        target,
         above: opening.members.root,
         locked: settled.written,
         workspace: opening.workspace,
@@ -208,6 +214,8 @@ struct Opening<'a> {
     opened: BTreeMap<String, Contents>,
     /// The native bundles of each package opened so far that has any.
     natives: BTreeMap<String, BTreeMap<String, Bundle>>,
+    /// The target each package's manifest names, by the package.
+    targets: BTreeMap<String, Symbol>,
     modules: Vec<Read>,
 }
 
@@ -353,6 +361,10 @@ impl Opening<'_> {
         for lint in &manifest.lints {
             let tool = self.value(&name, lint, "lint", lint)?;
             self.workspace.lint(&name, tool);
+        }
+        if let Some(target) = &manifest.target {
+            let named = self.value(&name, target, "target", target)?;
+            self.targets.insert(name.clone(), named);
         }
         Ok(name)
     }

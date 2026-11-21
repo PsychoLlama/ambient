@@ -60,7 +60,7 @@ impl Session<'_> {
             engine: &engine,
         };
         let Some(target) = Self::target(&project, &engine, target)? else {
-            return self.build_under(path, entry, target.unwrap_or_default(), output);
+            return self.build_under(path, entry, target, output);
         };
         let linked = launch.link(&entry_of(&project, entry), &target)?;
         let link = self.linking(&project, &linked.parts);
@@ -141,13 +141,15 @@ impl Session<'_> {
         &self,
         path: &Path,
         entry: &str,
-        target: &str,
+        target: Option<&str>,
         output: Option<&Path>,
     ) -> Result<i32, Vec<String>> {
         let project = self.open(path)?;
         let engine = self.engine(&project);
         let refused = |error| vec![super::report(&project, &engine, &error)];
-        let (entry, target) = (entry_of(&project, entry), entry_of(&project, target));
+        // Only a target that was said is one the command line's is not.
+        let target = Self::told(&project, target).unwrap_or_else(crate::system::target);
+        let entry = entry_of(&project, entry);
         if let Some(files) = engine.built(&entry, &target).map_err(refused)? {
             let directory = output.map_or_else(|| path.join("build"), Path::to_owned);
             return self.written(&directory, &files);

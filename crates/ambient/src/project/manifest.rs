@@ -76,6 +76,10 @@ pub struct Package {
     /// The lints checking the package runs, each a path as a
     /// prelude's is, to a function. See "Commands" in `docs/spec/tools.md`.
     pub lints: Vec<String>,
+    /// The target a command at the package runs and builds under when
+    /// it is told none: a path as a prelude's is, to a target. See
+    /// "Running" in `docs/spec/packages.md`.
+    pub target: Option<String>,
     /// Its native bundles, each by the platform it is for: what the
     /// native backend calls the machine.
     pub native: BTreeMap<String, Bundle>,
@@ -217,6 +221,7 @@ struct Written {
     steps: Vec<Step>,
     #[serde(default)]
     lints: Vec<String>,
+    target: Option<String>,
     #[serde(default)]
     native: BTreeMap<String, Bundle>,
     members: Option<Vec<PathBuf>>,
@@ -262,6 +267,7 @@ impl Manifest {
                 files: written.files,
                 steps: written.steps,
                 lints: written.lints,
+                target: written.target,
                 native: written.native,
             }),
             (None, None, None) if members.is_some() => None,

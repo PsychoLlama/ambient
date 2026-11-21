@@ -268,20 +268,27 @@ impl Session<'_> {
         Ok(project)
     }
 
+    /// The target a command is told to use, or else the one the
+    /// package's manifest names, if either says one.
+    fn told(project: &Project, named: Option<&str>) -> Option<Symbol> {
+        let named = named.map(|named| entry_of(project, named));
+        named.or_else(|| project.target.clone())
+    }
+
     /// The target a program of `project` is run or built under on a
-    /// command line: the one `named` in its package, or the
-    /// command-line target itself. Nothing, if the one named does not
-    /// extend that one: such a target is built by a tool of its own.
+    /// command line: the one `named` in its package, or the one its
+    /// manifest names, or the command-line target itself. Nothing, if
+    /// the one named does not extend that one: such a target is built
+    /// by a tool of its own.
     fn target(
         project: &Project,
         engine: &Engine,
         named: Option<&str>,
     ) -> Result<Option<Symbol>, Vec<String>> {
         let standard = crate::system::target();
-        let Some(named) = named else {
+        let Some(target) = Self::told(project, named) else {
             return Ok(Some(standard));
         };
-        let target = entry_of(project, named);
         let extends = engine.extends(&target, &standard);
         let extends = extends.map_err(|error| vec![report(project, engine, &error)])?;
         Ok(extends.then_some(target))
