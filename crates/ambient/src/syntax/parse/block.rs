@@ -62,6 +62,13 @@ fn returns(statements: &[Statement]) -> Returns {
     }
 }
 
+/// What a block of arms is written after.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Arms {
+    Match,
+    Else,
+}
+
 impl Parser {
     /// A block, as the expression it is.
     pub(super) fn block(&mut self) -> Parsed<Expr> {
@@ -94,7 +101,7 @@ impl Parser {
             let value = self.expr()?;
             // What an `else` binds is not what the pattern binds.
             let otherwise = if !using && self.eat_word("else") {
-                Some(self.arms()?)
+                Some(self.arms(Arms::Else)?)
             } else {
                 None
             };
@@ -251,16 +258,23 @@ impl Parser {
     /// block, or one expression.
     fn match_statement(&mut self, began: usize) -> Parsed<Statement> {
         let subject = self.expr()?;
-        Ok(Statement::Branch(began, subject, self.arms()?))
+        Ok(Statement::Branch(began, subject, self.arms(Arms::Match)?))
     }
 
     /// Arms between braces, each a block or one expression.
-    fn arms(&mut self) -> Parsed<Vec<(Pattern, Vec<Statement>)>> {
+    fn arms(&mut self, of: Arms) -> Parsed<Vec<(Pattern, Vec<Statement>)>> {
         self.expect("{")?;
         let mut arms = Vec::new();
         while !self.eat("}") {
             let mut binds = Vec::new();
-            let pattern = self.pattern(Mode::Testing, &mut binds)?;
+            let began = self.position();
+            let pattern = self.pattern(Mode::Testing, &mut binds);
+            // Most often what was written is the statements to run.
+            if of == Arms::Else && (pattern.is_err() || !self.at("=>")) {
+                let arms = "the `else` of a `let` holds arms, as `_ => { return; }`";
+                return self.fail_at(began, arms);
+            }
+            let pattern = pattern?;
             self.expect("=>")?;
             let body = self.scoped(|parser| {
                 parser.locals.extend(binds);

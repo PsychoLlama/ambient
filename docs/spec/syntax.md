@@ -19,6 +19,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 
 - The language has no node for leaving a function early, so a `return` is always the last thing some path through its body does.
 - An `if` or a match written as a statement may return in some branches and not others; the statements after it are then what the other branches go on to do.
+- In an arm, parentheses around members written `name: Type` are a tuple type the value is tested as, as after `let at:`; around anything else they take a tuple apart.
 - A `let` may be followed by `else` and arms: the value is matched, the rest of the block is what happens where it fits the pattern, and each arm is what happens where it does not. Every such arm ends in a `return`.
 - A name bound by a `let` may say what it binds, as `items: List<int>`; a value that may not be that needs an `else`.
 - A `let` of one name that says what it binds, with no `else`, tests nothing: the value is held to that type, takes from it what it leaves out, and is bound as it.

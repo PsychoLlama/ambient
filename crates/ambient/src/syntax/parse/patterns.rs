@@ -34,6 +34,11 @@ impl Parser {
                 };
                 Ok(Pattern::Bind(name, Box::new(inner)))
             }
+            // In an arm a bare name is a type, so a name and a `:`
+            // begin a tuple type's member and never a pattern.
+            Token::Mark("(") if mode == Mode::Testing && self.names_a_member() => {
+                Ok(Pattern::Is(self.ty()?))
+            }
             Token::Mark("(") => {
                 let at = self.position();
                 self.advance();
@@ -73,6 +78,12 @@ impl Parser {
             }
             _ => Ok(Pattern::Is(self.ty()?)),
         }
+    }
+
+    /// Whether what follows the `(` here is a name and a `:`, as a
+    /// tuple type's member is written.
+    fn names_a_member(&self) -> bool {
+        matches!(self.peek_at(1), Token::Word(_)) && matches!(self.peek_at(2), Token::Mark(":"))
     }
 
     fn literal(&mut self, literal: Literal) -> Pattern {

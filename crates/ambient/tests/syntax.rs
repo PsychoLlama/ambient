@@ -405,6 +405,28 @@ fn every_arm_of_the_else_of_a_let_leaves() {
 }
 
 #[test]
+fn statements_in_the_else_of_a_let_are_told_to_be_arms() {
+    let source =
+        "fn main(n: int | null): int {\n  let m: int = n else { return 0; };\n  return m;\n}";
+    let (line, column, message) = refused(source);
+
+    assert_eq!((line, column), (2, 25));
+    assert_eq!(
+        message,
+        "the `else` of a `let` holds arms, as `_ => { return; }`"
+    );
+}
+
+#[test]
+fn an_arm_binds_what_it_tests_as_a_tuple_type() {
+    let arm = "fn main(v: unknown): int => match v { let at: (x: int, y: int) => at.x, _ => 0 };";
+    let tuple = "fn main(v: (a: int, b: int)): int => match v { (1, int) => 1, _ => 0 };";
+
+    assert!(parse(arm).is_ok());
+    assert!(parse(tuple).is_ok());
+}
+
+#[test]
 fn parentheses_group_one_thing_or_hold_two_or_more() {
     let short = "a tuple has two or more members";
 
