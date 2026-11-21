@@ -28,6 +28,7 @@ pub(super) fn raise(ty: &core::Type, slots: &[Symbol]) -> Result<Ty, Invalid> {
         core::Type::String => Ty::String,
         core::Type::Bytes => Ty::Bytes,
         core::Type::Tag => Ty::Tag,
+        core::Type::Callable => Ty::Callable,
         core::Type::Literal(literal) => Ty::Literal(literal.clone()),
         core::Type::Brand(brand) => Ty::Brand(brand.clone()),
         core::Type::Branded(ty, brands) => {
@@ -128,6 +129,7 @@ impl Verifier<'_> {
             | Ty::String
             | Ty::Bytes
             | Ty::Tag
+            | Ty::Callable
             | Ty::Bound(_)
             | Ty::Brand(_)
             | Ty::Literal(_) => Ok(()),

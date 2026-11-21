@@ -267,6 +267,10 @@ pub enum Type<N = Path> {
     Bytes,
     /// Every tag value.
     Tag,
+    /// Every function, of whatever type. No source writes it: it is
+    /// what a pattern tests where the subject's type says the rest.
+    /// See "Narrowing" in `docs/spec/types.md`.
+    Callable,
     Literal(Literal),
     /// A brand on its own: the type of a handle minted under it.
     Brand(Brand),

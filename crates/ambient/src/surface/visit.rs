@@ -23,6 +23,7 @@ impl<N> Type<N> {
             | Self::String
             | Self::Bytes
             | Self::Tag
+            | Self::Callable
             | Self::Bound(_)
             | Self::Brand(_)
             | Self::Literal(_) => {}

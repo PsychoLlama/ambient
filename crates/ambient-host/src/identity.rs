@@ -46,6 +46,7 @@ fn spell(ty: &Type, hash: &dyn Fn(Slot) -> Hash) -> Option<String> {
         // A brand on a type is not there as a program runs.
         Type::Branded(ty, _) => return spell(ty, hash),
         Type::Tag => "tag".to_owned(),
+        Type::Callable => "callable".to_owned(),
         Type::Literal(literal) => match literal {
             Literal::Bool(value) => format!("={value}"),
             Literal::Int(value) => format!("={value}"),

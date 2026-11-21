@@ -136,7 +136,9 @@ impl Env {
     /// `proof` holds the judgements this one is being proved under.
     /// Meeting one again proves it: subtyping is coinductive.
     fn sub(&self, sub: &Ty, sup: &Ty, proof: &mut Proof) -> bool {
-        if sub == sup {
+        // Every function is one, whatever its type.
+        let function = matches!(sub, Ty::Function { .. } | Ty::Generic { .. });
+        if sub == sup || (function && *sup == Ty::Callable) {
             return true;
         }
         match (sub, sup) {
@@ -285,7 +287,9 @@ impl Env {
             | (Ty::List(_), Ty::List(_))
             | (Ty::Iterator(_), Ty::Iterator(_))
             | (Ty::Generic { .. }, Ty::Generic { .. })
-            | (Ty::Function { .. }, Ty::Function { .. }) => false,
+            | (Ty::Function { .. }, Ty::Function { .. })
+            | (Ty::Callable, Ty::Function { .. } | Ty::Generic { .. })
+            | (Ty::Function { .. } | Ty::Generic { .. }, Ty::Callable) => false,
             (Ty::Union(members), other) | (other, Ty::Union(members)) => {
                 members.iter().all(|m| self.apart(m, other, next))
             }

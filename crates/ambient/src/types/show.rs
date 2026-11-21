@@ -112,6 +112,7 @@ fn show(ty: &Ty, out: &mut String) {
         Ty::String => out.push_str("string"),
         Ty::Bytes => out.push_str("bytes"),
         Ty::Tag => out.push_str("Tag"),
+        Ty::Callable => out.push_str("a function"),
         Ty::Literal(literal) => {
             let _ = write!(out, "{literal}");
         }

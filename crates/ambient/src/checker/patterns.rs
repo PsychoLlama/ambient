@@ -103,15 +103,23 @@ impl Checker<'_> {
             Pattern::Is(written) => {
                 self.well_formed(written)?;
                 let written = self.env.normalize(written);
+                // The least test that tells as much is the one made: a
+                // shape, then every part with a function only asked to
+                // be one, then all of the type that can be tested.
+                let tells = |test: &Pat| {
+                    let through = self.env.narrow(subject, test);
+                    through.is_none_or(|through| self.env.subtype(&through, &written))
+                };
+                let shape = Pattern::Is(self.env.shape_test(&written));
+                let loose = Pattern::Is(self.env.loose_test(&written));
                 let near = Pattern::Is(self.env.nearest_test(&written));
-                let through = self.env.narrow(subject, &near);
-                if through.is_some_and(|through| !self.env.subtype(&through, &written)) {
+                let Some(asked) = [shape, loose, near].into_iter().find(tells) else {
                     return Err(Error::Untestable {
                         symbol: self.symbol.clone(),
                         found: self.env.show(&written),
                     });
-                }
-                near
+                };
+                asked
             }
             Pattern::Tuple(members) => {
                 let subject = self.env.unfold(subject);

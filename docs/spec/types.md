@@ -90,6 +90,8 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - A type no value can be tested for, as one that holds a [method](methods.md) is, is tested as the nearest type that can be: itself without its methods, and `unknown` for each part no test can tell.
 - That stands only where it tells as much: what the nearer test lets through of the subject's type is all of the type that was written. Otherwise the test is an error.
 - A [cast](#unknown-and-casts) to such a type is tested the same way, and gives what the test lets through.
+- A test asks no more than tells its values from the rest of the subject's type: where a shape alone does, the shape is all that is tested, and a function is then tested only for being one.
+- A function is tested for its type only where that leaves more to tell, and such a test never takes all of a type: a function says the one type it was written as, which may be within the type asked for.
 - Each arm sees the subject's type less what earlier arms always match.
 - A match is exhaustive over the static type of its subject: after the last arm nothing is left.
 - An arm that can match nothing is an error.

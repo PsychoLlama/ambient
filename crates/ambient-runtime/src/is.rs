@@ -82,6 +82,9 @@ pub mod descriptor {
     pub const BYTES: u64 = 22;
     /// Then the brand a handle was minted under, a tag.
     pub const HANDLE: u64 = 23;
+    /// A function of whatever type: the kind of the value is all that
+    /// is tested.
+    pub const CALLABLE: u64 = 24;
 }
 
 /// The tests a descriptor makes of the values inside a value.
@@ -279,6 +282,8 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
             // Brands are tags, and equal tags are one object.
             d::HANDLE => kind(value) == KIND_HANDLE && words(value)[0] == node(1),
             d::TAG => kind(value) == KIND_TAG,
+            // A method is the function reading it gives.
+            d::CALLABLE => matches!(kind(value), KIND_CLOSURE | KIND_METHOD),
             d::LITERAL => match node(1) {
                 d::LITERAL_BOOL => value == boolean(node(2) != 0),
                 d::LITERAL_INT => integer && int(value) == node(2) as i64,
@@ -338,6 +343,12 @@ unsafe fn look(value: Word, ty: u64, scope: Env, scopes: &mut Vec<Scope>) -> Loo
                     return Look::Answer(false);
                 }
                 match tested(value) {
+                    // Every iterator is one of whatever it gives.
+                    Tested::Function(_)
+                        if (node(1) as usize as *const u64).read() == d::UNKNOWN =>
+                    {
+                        true
+                    }
                     Tested::Function(function) => {
                         let named = node(2) != 0 && type_name(function) == node(2);
                         let item = (node(1), scope);

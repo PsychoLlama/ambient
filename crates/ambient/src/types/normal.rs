@@ -25,6 +25,7 @@ impl Env {
             | Ty::String
             | Ty::Bytes
             | Ty::Tag
+            | Ty::Callable
             | Ty::Literal(_)
             | Ty::Brand(_)
             | Ty::Bound(_)

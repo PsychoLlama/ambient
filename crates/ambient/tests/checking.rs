@@ -323,6 +323,19 @@ fn a_cast_yields_the_target_type_or_the_alternative() {
 // Match
 
 #[test]
+fn a_test_for_a_function_type_takes_none_of_a_type_whole() {
+    // A function says the one type it was written as, so one of these
+    // arms may turn away a function its type describes.
+    let giving = |ret| ty::function([], ret);
+    let arm = |ret, taken| (pat::is(giving(ret)), b::int(taken));
+    let either = ty::union([giving(ty::int()), giving(ty::string())]);
+    let told = b::match_(x(), [arm(ty::int(), 1), arm(ty::string(), 2)]);
+
+    let result = check([taking(either, ty::int(), told)]);
+    assert!(matches!(result, Err(Error::NotExhaustive { .. })));
+}
+
+#[test]
 fn a_match_is_exhaustive() {
     let on_bool = |arms| taking(ty::bool(), ty::int(), b::match_(x(), arms));
 

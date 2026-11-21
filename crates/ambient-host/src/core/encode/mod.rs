@@ -293,6 +293,7 @@ fn encode_type(ty: &Type, out: &mut Sink<'_>) {
             }
         }
         Type::Tag => out.push(16),
+        Type::Callable => out.push(24),
         Type::Literal(literal) => {
             out.push(7);
             encode_literal(literal, out);

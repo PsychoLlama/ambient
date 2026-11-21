@@ -21,6 +21,7 @@ impl Resolver<'_> {
             Type::String => Type::String,
             Type::Bytes => Type::Bytes,
             Type::Tag => Type::Tag,
+            Type::Callable => Type::Callable,
             Type::Literal(literal) => Type::Literal(literal.clone()),
             Type::Brand(brand) => Type::Brand(brand.clone()),
             Type::Branded(ty, brands) => Type::Branded(Box::new(self.ty(ty)?), self.types(brands)?),

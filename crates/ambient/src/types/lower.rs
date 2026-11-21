@@ -72,6 +72,7 @@ impl Env {
             Ty::String => core::Type::String,
             Ty::Bytes => core::Type::Bytes,
             Ty::Tag => core::Type::Tag,
+            Ty::Callable => core::Type::Callable,
             Ty::Literal(literal) => core::Type::Literal(literal.clone()),
             Ty::Brand(brand) => core::Type::Brand(brand.clone()),
             Ty::Branded(ty, brands) => {

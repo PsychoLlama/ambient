@@ -4,6 +4,7 @@
 use super::{Env, Ty, TyKey, entry, field};
 use crate::literal::Literal;
 use crate::surface::{Key, Pattern, Reference, Shape};
+use crate::symbol::Symbol;
 
 type Pat = Pattern<Reference>;
 
@@ -42,6 +43,91 @@ impl Env {
                     .collect(),
             ),
             _ => Ty::Unknown,
+        }
+    }
+
+    /// The least a test for `ty` can ask: the shape of a value of it,
+    /// and nothing of what the value holds. A function is asked only
+    /// to be one, and an iterator only to be one. It lets through
+    /// every value of `ty`, and whatever else has the shape.
+    #[must_use]
+    pub fn shape_test(&self, ty: &Ty) -> Ty {
+        let unknown = |ty: &Ty| match ty {
+            Ty::Method { .. } => None,
+            _ => Some(Ty::Unknown),
+        };
+        match self.unfold(ty) {
+            Ty::Record(fields) => {
+                let held = fields.iter();
+                let held = held.filter_map(|(key, ty)| Some((key.clone(), unknown(ty)?)));
+                Ty::Record(held.collect())
+            }
+            Ty::Tuple(members) => Ty::Tuple(members.each(|_| Ty::Unknown)),
+            Ty::List(_) => Ty::List(Box::new(Ty::Unknown)),
+            Ty::Iterator(_) => Ty::Iterator(Box::new(Ty::Unknown)),
+            Ty::Function { .. } | Ty::Generic { .. } => Ty::Callable,
+            Ty::Branded(ty, _) => self.shape_test(&ty),
+            Ty::Union(members) => self.union(
+                members
+                    .iter()
+                    .map(|member| self.shape_test(member))
+                    .collect(),
+            ),
+            other => self.nearest_test(&other),
+        }
+    }
+
+    /// A test for `ty` that asks of each part what [`Self::nearest_test`]
+    /// does, but of a function only that it is one, and of an iterator
+    /// only that it is one. A type definition that refers to itself is
+    /// left as it is.
+    #[must_use]
+    pub fn loose_test(&self, ty: &Ty) -> Ty {
+        let each = |types: &[Ty]| types.iter().map(|ty| self.loose_test(ty)).collect();
+        match &self.nearest_test(ty) {
+            Ty::Record(fields) => {
+                let loose = |(key, ty): &(TyKey, Ty)| (key.clone(), self.loose_test(ty));
+                Ty::Record(fields.iter().map(loose).collect())
+            }
+            Ty::Tuple(members) => Ty::Tuple(members.each(|member| self.loose_test(member))),
+            Ty::List(member) => Ty::List(Box::new(self.loose_test(member))),
+            Ty::Iterator(_) => Ty::Iterator(Box::new(Ty::Unknown)),
+            Ty::Function { .. } | Ty::Generic { .. } => Ty::Callable,
+            Ty::Union(members) => self.union(each(members)),
+            near => near.clone(),
+        }
+    }
+
+    /// Whether a test for `ty` asks a function, or an iterator a
+    /// function steps, for its type. Such a value says the one type it
+    /// was written as, which may be within the one asked for, so the
+    /// test may turn away a value of `ty`.
+    #[must_use]
+    pub fn asks_a_name(&self, ty: &Ty) -> bool {
+        self.names(ty, &mut Vec::new())
+    }
+
+    /// [`Self::asks_a_name`], given the definitions already looked into.
+    fn names<'a>(&'a self, ty: &'a Ty, seen: &mut Vec<&'a Symbol>) -> bool {
+        match ty {
+            Ty::Function { .. } | Ty::Generic { .. } => true,
+            Ty::Iterator(item) => **item != Ty::Unknown,
+            Ty::Branded(ty, _) | Ty::List(ty) => self.names(ty, seen),
+            Ty::Record(fields) => fields.iter().any(|(_, ty)| self.names(ty, seen)),
+            Ty::Tuple(members) => members.iter().any(|member| self.names(member, seen)),
+            Ty::Union(members) => members.iter().any(|member| self.names(member, seen)),
+            Ty::Named(name, args) => {
+                let definition = match name {
+                    Reference::Definition(symbol) if !seen.contains(&symbol) => {
+                        seen.push(symbol);
+                        self.types.get(symbol)
+                    }
+                    _ => None,
+                };
+                args.iter().any(|arg| self.names(arg, seen))
+                    || definition.is_some_and(|info| self.names(&info.ty, seen))
+            }
+            _ => false,
         }
     }
 
@@ -136,7 +222,12 @@ impl Env {
             Pattern::Wildcard => true,
             Pattern::Bind(_, inner) => self.covers(&ty, inner),
             Pattern::Literal(literal) => ty == Ty::Literal(literal.clone()),
-            Pattern::Is(tested) => self.subtype(&ty, &self.normalize(tested)),
+            // A test that asks a function for its type may turn away one
+            // whose own type is within it.
+            Pattern::Is(tested) => {
+                let tested = self.normalize(tested);
+                self.subtype(&ty, &tested) && !self.asks_a_name(&tested)
+            }
             Pattern::Record(patterns) => match &ty {
                 Ty::Record(fields) => patterns.iter().all(|(name, pattern)| {
                     field(fields, name).is_some_and(|ty| self.covers(ty, pattern))
@@ -299,7 +390,7 @@ impl Env {
             Ty::Tag | Ty::Literal(Literal::Tag { .. }) => Shape::Tag,
             Ty::Tuple(_) => Shape::Tuple,
             Ty::List(_) => Shape::List,
-            Ty::Function { .. } | Ty::Generic { .. } => Shape::Function,
+            Ty::Function { .. } | Ty::Generic { .. } | Ty::Callable => Shape::Function,
             Ty::Cell(_) => Shape::Cell,
             Ty::Iterator(_) => Shape::Iterator,
             Ty::Union(members) => {

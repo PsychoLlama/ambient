@@ -23,7 +23,7 @@ The core tree is the checked form of a definition and the only form that is hash
 
 ## Types
 
-- Primitive types, `never`, and `unknown` are leaves.
+- Primitive types, `never`, and `unknown` are leaves, and so is the test for a function of any type, which only a pattern holds.
 - A literal type holds the literal.
 - Record, tuple, list, set, map, function, union, intersection, brand, and cell types are nodes over their component types.
 - A record type's fields are ordered by key, so field order is not content; fields are ordered by name and handlers by [tag](definitions.md).

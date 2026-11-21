@@ -29,7 +29,8 @@ fn node_size(ty: &Type) -> usize {
         | Type::Float
         | Type::String
         | Type::Bytes
-        | Type::Tag => 1,
+        | Type::Tag
+        | Type::Callable => 1,
         // A brand on a type is not there as a program runs.
         Type::Branded(ty, _) => node_size(ty),
         Type::Function { params, row, .. } => 5 + params.len() + row.len(),
@@ -117,6 +118,7 @@ impl Statics {
             Type::String => tag(self, d::STRING),
             Type::Bytes => tag(self, d::BYTES),
             Type::Tag => tag(self, d::TAG),
+            Type::Callable => tag(self, d::CALLABLE),
             Type::Function { params, ret, row } => {
                 tag(self, d::FUNCTION);
                 self.children(params, slots, at + 1);

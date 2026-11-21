@@ -38,6 +38,9 @@ pub enum Type {
     String,
     Bytes,
     Tag,
+    /// Every function, of whatever type: what a pattern tests where
+    /// the subject's type says the rest. No value is typed by it.
+    Callable,
     Literal(Literal),
     /// A brand on its own: the type of a handle minted under it.
     Brand(Brand),
