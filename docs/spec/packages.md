@@ -24,6 +24,27 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - Adopting a fork changes the publisher in the declaration and changes no import.
 - A build takes only what its entry [reaches](build.md), so a dependency costs a program only what the program uses of it. No declaration is optional, and none is switched on.
 
+## Grants
+
+- A grant is what a dependent lets a dependency take. A dependency declaration lists [abilities](abilities.md), each by its path; a module there stands for every public ability of it, as in a row.
+- A declaration that lists none grants none.
+- What a package takes is read from its code, and its manifest says nothing of it: the [row](abilities.md) of each of its functions and externs, of each [comptime](comptime.md) call written in it, and of each [tool](tools.md) of it that a build runs.
+- A package takes freely the abilities it defines, and those of the standard library that are no [build abilities](tools.md#build-abilities): nothing behind them is a world.
+- A definition a build checks that takes anything else, which its package is not granted, is a compile error. It names the definition, the ability, and each declaration that could grant it.
+- Only what a build checks is held, so a dependency needs grants only for what is used of it.
+- A [member](#workspaces) is granted everything: it is the workspace's own code. A declaration of a package at a directory therefore lists no grant.
+- A [vendored](releases.md#vendoring) member is held as the package it was copied from is: to the declarations that lead to it.
+- A package grants only what it holds. What a declaration grants is cut to what its own package defines or is granted, so nothing beneath a dependency takes more than the dependency was granted.
+- A package several declarations lead to holds what any of them grants it. A grant is of a [package instance](#package-instances) and of no path to it: as a program runs, a function still performs only what its caller hands it.
+- What each package holds follows from manifests alone, whatever a build reaches: the least that satisfies every declaration, which packages that depend on each other have too.
+- A grant names an ability its own package can name. An ability of a package the dependent does not declare is granted by declaring that package.
+- [Native code](externs.md) is no ability. A declaration says apart from its grants that the dependency may bring it, which is cut as a grant is to what the declaring package may. A program whose entry reaches an extern of a package that may not is not linked, and is told which declaration to change.
+- Native code is held to nothing: its row and its purity are its author's word. Allowing it is trusting the package whole, whatever it is granted.
+- A grant is written beside what the [lock](releases.md#locks) pins, where a review sees it. A snapshot that takes more is not built until more is granted, so no update widens what a dependency reaches.
+- TODO: a grant says only that an ability may be taken. Granting one through a handler the dependent names, which narrows what is reached, is not designed.
+- TODO: what a person lets a workspace they did not write do on their machine is not designed: a member is trusted.
+- TODO: none of this is built. A package's manifest lists build abilities of its own choosing, which its comptime calls and tools take; no row is held, and native code is linked wherever it is reached.
+
 ## Package instances
 
 - A package instance is a workspace member or a [locked](releases.md#locks) snapshot; it is the package component of a [symbol](symbols.md).
@@ -38,18 +59,18 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A public module exposes its public definitions to dependents; nothing else leaves the package.
 - A public module is reached by the same path its own package uses, so moving one is a change of interface, made as an [edit](trees.md) across dependents.
 - A package has any number of [binaries](#binaries), each a function it offers to be run.
-- A package declares its version, its binaries, its dependencies, its [preludes](modules.md), its [build grants](comptime.md), its [build steps](tools.md#builds), its [lints](tools.md#commands), its native bundles, and the files beside its sources that are part of it.
+- A package declares its version, its binaries, its dependencies, its [preludes](modules.md), its [build steps](tools.md#builds), its [lints](tools.md#commands), its native bundles, and the files beside its sources that are part of it.
 - A package is distributed as source.
 
 ## Layout
 
 - A package is a directory: a manifest, and its modules as source files under one directory of sources.
 - A source file is the [module](modules.md) its path under the sources names, and the file named `lib` at their top is the library module.
-- The manifest says the package's name, its ID, and its version, and lists its [binaries](#binaries), its dependencies, its preludes, its [build grants](comptime.md), each the path of an ability, its [build steps](tools.md#builds), each the paths of a target and of a tool, its [native bundles](externs.md#distribution), each a platform and a digest, and its other files.
+- The manifest says the package's name, its ID, and its version, and lists its [binaries](#binaries), its dependencies, its preludes, its [build steps](tools.md#builds), each the paths of a target and of a tool, its [native bundles](externs.md#distribution), each a platform and a digest, and its other files.
 - The manifest may say a description of the package: text for whoever reads it, which means nothing to a build.
 - What the manifest says of the package itself is under `package`, and what it says as a [workspace's](#workspaces) under `workspace`. Its binaries, dependencies, build steps, and native bundles are each under a table of their kind.
 - The file named `main` at the top of the sources is the module the package's binaries are in.
-- A dependency is listed by its local name, with where the package is, a directory or a git repository, or else its ID and what [selects](releases.md#selection) it.
+- A dependency is listed by its local name, with where the package is, a directory or a git repository, or else its ID and what [selects](releases.md#selection) it. It may list what the package is [granted](#grants), and say that it may bring native code.
 - A dependency at a directory is on the package there. It states no ID and no version: the package there is a member, as it is.
 - A file of the package is one under its sources or one its manifest lists. Nothing else in its directory is part of it, and no [comptime](comptime.md) call reads anything else.
 - The manifest may list a file by the digest of its content and somewhere to fetch it from, in place of keeping it. A snapshot covers the digest, so such a file is as fixed as one that is kept.

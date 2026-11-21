@@ -43,7 +43,7 @@ A tool is a function a build runs to make something other than a program's defin
 - No step sees what another gave. The target's tool runs after them and is handed what they gave, so it is what ties the files together.
 - Two files given for one path are an error.
 - A step is run for the target it declares and for no other, so a package that supports several targets costs a build only the one it is for.
-- That a package declares a build step needs its workspace's [approval](releases.md#approvals), as its build grants do.
+- A build step is a tool, so it takes only what its package is [granted](packages.md#grants). Declaring one needs nothing more, and neither does a lint.
 
 ## Late names
 

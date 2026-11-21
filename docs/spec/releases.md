@@ -85,11 +85,8 @@ A release is a publisher's statement that a version of a [package](packages.md) 
 
 ## Approvals
 
-- A workspace approves each package's [build grants](comptime.md), [build steps](tools.md#builds), and [native code](externs.md), by package ID and publisher, those of packages it does not declare included.
-- An approval is written in the workspace, where a review sees it.
-- A snapshot that asks for more than was approved is not built until it is approved, so an update never widens what a dependency can reach.
+- What a package may take, and whether it may bring native code, is [granted](packages.md#grants) by each declaration that leads to it. Nothing is approved anywhere else.
 
 ## Unbuilt
 
 - TODO: git dependencies, the lock, fetching, and vendoring are built, and what [packages](packages.md) says of members. There are no releases, publishers, or registries, so nothing is selected, and no closure is recorded.
-- TODO: a build grant, a build step, and a native bundle are taken as soon as they are declared, by a fetched package as by a member.

@@ -71,8 +71,7 @@ A comptime call runs an ordinary function during compilation and splices what it
 - A comptime function's effects are abilities, so its row states everything it can touch.
 - The compiler runs comptime calls under a build [target](targets.md) whose abilities read from the developer's machine.
 - The build target binds the [build abilities](tools.md#build-abilities). A path is from the directory of the package the call is written in, and names only [files of that package](packages.md#layout).
-- A [package](packages.md) declares the build abilities it needs; granting them is its workspace's [approval](releases.md#approvals).
-- A comptime call runs under the grants of the package that contains the call site.
+- A comptime call takes only what the package it is written in is [granted](packages.md#grants), whoever depends on what it makes.
 - An ungranted ability is a compile error at the call, naming the ability.
 - A comptime call with an empty row needs no grant.
 
