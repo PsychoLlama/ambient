@@ -190,12 +190,18 @@ fn asked(url: &str, roots: &str, pin: &str) -> Outcome {
             match http.send_trusting(request, {{ roots: {roots}, pin: {pin}, address: "127.0.0.1" }}) {{
                 let response: http.Response => {{ return said(response.body); }}
                 let error: Error => {{
-                    return error.kind == http.untrusted ? "untrusted" : error.message;
+                    return error.kind == http.untrusted ? "untrusted: ${{error.message}}" : error.message;
                 }}
             }}
         }}
     "#
     ))
+}
+
+/// Whether [`asked`] was refused as untrusted, for a reason that says
+/// `why`.
+fn untrusted(outcome: &Outcome, why: &str) -> bool {
+    matches!(outcome, Ok(Value::String(said)) if said.starts_with("untrusted: ") && said.contains(why))
 }
 
 #[test]
@@ -206,8 +212,8 @@ fn a_server_is_trusted_by_the_roots_a_request_names_for_the_name_in_its_url() {
 
     assert_eq!(asked(&named, &by(&roots), "null"), Ok(text("secret")));
     // The world's authorities did not sign it, and it is not `other`.
-    assert_eq!(asked(&named, "null", "null"), Ok(text("untrusted")));
-    assert_eq!(asked(&other, &by(&roots), "null"), Ok(text("untrusted")));
+    assert!(untrusted(&asked(&named, "null", "null"), ""));
+    assert!(untrusted(&asked(&other, &by(&roots), "null"), ""));
 }
 
 #[test]
@@ -219,10 +225,9 @@ fn a_server_is_trusted_by_the_certificate_a_request_pins_whatever_its_name() {
 
     assert_eq!(asked(&other, "null", &pinned(&digest)), Ok(text("secret")));
     assert_eq!(asked(&at, "null", &pinned(&digest)), Ok(text("secret")));
-    assert_eq!(
-        asked(&other, "null", &pinned(&another)),
-        Ok(text("untrusted"))
-    );
+    // A person is told it was the pin that refused the server.
+    let refused = asked(&other, "null", &pinned(&another));
+    assert!(untrusted(&refused, "pinned"), "{refused:?}");
     // A pin asks no authority, so naming some beside it is a mistake.
     let both = asked(&other, &by(&roots), &pinned(&digest));
     assert!(

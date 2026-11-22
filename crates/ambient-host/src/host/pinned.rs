@@ -109,6 +109,25 @@ impl Pinning {
     }
 }
 
+/// Why a pinned connection was refused, said so a person knows what
+/// to look at.
+pub(super) const UNPINNED: &str = "the server showed a certificate other than the one pinned";
+
+/// Whether an error securing a connection is [`Shown`] refusing a
+/// certificate that is not the pinned one: no other verifier this host
+/// makes fails a certificate so.
+pub(super) fn unpinned(error: &std::io::Error) -> bool {
+    let refusal = error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<rustls::Error>());
+    matches!(
+        refusal,
+        Some(rustls::Error::InvalidCertificate(
+            CertificateError::ApplicationVerificationFailure
+        ))
+    )
+}
+
 /// What secures a connection with a server that shows what is wanted.
 fn secured_by(wanted: Wanted) -> Result<Arc<ClientConfig>, rustls::Error> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());

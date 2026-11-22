@@ -328,6 +328,11 @@ fn send(agent: &ureq::Agent, request: Request) -> Result<Response, Failure> {
 /// Why a request got no response.
 fn refused(error: &ureq::Error) -> Failure {
     use ureq::Error;
+    if let Error::Io(error) = error
+        && pinned::unpinned(error)
+    {
+        return failed(Kind::Untrusted, &pinned::UNPINNED);
+    }
     let kind = match error {
         Error::BadUri(_) | Error::Http(_) => Kind::Invalid,
         Error::Tls(_) | Error::Rustls(_) => Kind::Untrusted,
