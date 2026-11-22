@@ -105,3 +105,21 @@ fn a_package_runs_its_tests_its_own_way() {
     assert_eq!(code, 1);
     assert_eq!(lines, ["FAIL  app.faults", "1 passed, 1 failed"]);
 }
+
+#[test]
+fn a_runner_reaches_the_world_its_row_names() {
+    let source = "use ambient.test;
+        use system.console;
+        use system.test as running;
+        use system.test.{Cache, Cases, Tally};
+
+        pub fn loud(cases: Cases, cache: Cache): Tally with running.report, console.print {
+            console.print!(\"starting\");
+            return running.tests(cases, cache);
+        }
+
+        #[test.case] fn holds(): null => null;";
+    let (code, said) = Runs::default().tested("[test]\nrun = \"pkg.loud\"", source);
+
+    assert_eq!((code, said.lines().next()), (0, Some("starting")), "{said}");
+}

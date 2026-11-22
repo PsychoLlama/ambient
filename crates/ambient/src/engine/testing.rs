@@ -100,22 +100,6 @@ fn field(value: &Value, name: &str) -> Value {
     }
 }
 
-/// A function of no parameters that calls `test`, taking what
-/// `test.outcome` provides and capturing the rest of the world `test`
-/// reaches where the root writes it.
-fn captured(test: &Symbol) -> Expr<Reference> {
-    Expr::Lambda {
-        type_params: Vec::new(),
-        params: Vec::new(),
-        row: provided().into_iter().map(Reference::Definition).collect(),
-        returns: None,
-        body: Box::new(Expr::Call {
-            callee: Box::new(named(test)),
-            args: Vec::new(),
-        }),
-    }
-}
-
 fn named(symbol: &Symbol) -> Expr<Reference> {
     Expr::Name(Reference::Definition(symbol.clone()))
 }
@@ -266,7 +250,7 @@ impl Engine<'_> {
             ("group", group),
             ("said", Expr::List(said.collect())),
             ("key", key),
-            ("function", captured(&case.function)),
+            ("function", named(&case.function)),
         ]))
     }
 

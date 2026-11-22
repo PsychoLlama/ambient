@@ -146,15 +146,20 @@ impl Checker<'_> {
 
     /// What a value written out is held to, of what is expected: the
     /// type itself, or of a union the one member a list, a tuple of
-    /// that length, or a record could be. With none or several such
+    /// that length, or a record of every key it writes could be. With none or several such
     /// the union stands, and the value is inferred whole.
     fn written_as(&self, expr: &Expr<Reference>, expected: &Ty) -> Ty {
         let unfolded = self.env.unfold(expected);
         let Ty::Union(members) = &unfolded else {
             return unfolded;
         };
+        // A record is one of fewer keys, so it could be any member whose
+        // keys it writes, and no other.
         let could_be = |member: &Ty| match (expr, member) {
-            (Expr::List(_), Ty::List(_)) | (Expr::Record(_), Ty::Record(_)) => true,
+            (Expr::List(_), Ty::List(_)) => true,
+            (Expr::Record(written), Ty::Record(wanted)) => wanted
+                .iter()
+                .all(|(key, _)| written.iter().any(|(named, _)| named == key)),
             (Expr::Tuple(written), Ty::Tuple(wanted)) => written.len() == wanted.len(),
             _ => false,
         };

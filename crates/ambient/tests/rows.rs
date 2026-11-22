@@ -146,6 +146,22 @@ fn a_value_written_out_is_held_to_the_one_member_of_a_union_it_could_be() {
 }
 
 #[test]
+fn a_record_written_out_is_held_to_the_one_record_of_a_union_whose_keys_it_writes() {
+    let listed = "let held: List<{ run: fn(): int } | { count: int }> = [{ run: twice }];
+        return match held.get(0) {
+            let held: { run: fn(): int } => held.run,
+            _ => fn() => 0,
+        };";
+    let lambda = "let held: { run: fn(): int } | { run: fn(): int, count: int } =
+            { run: fn() => twice() };
+        return held.run;";
+
+    for held in [listed, lambda] {
+        assert_eq!(support::text::int(&holding(held)), 42, "{held}");
+    }
+}
+
+#[test]
 fn a_function_in_a_value_made_elsewhere_is_not_bound_in_place() {
     // The list is whole before anything is expected of it, and binding
     // its member would be making another list.
