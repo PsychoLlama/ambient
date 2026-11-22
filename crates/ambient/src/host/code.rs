@@ -51,10 +51,10 @@ pub fn link(
             |native: &crate::engine::Native| native.package == PACKAGE && native.path == name;
         parts.natives.iter().any(named)
     };
-    let trees = binds("code_pack")
+    let trees = binds("code.pack")
         .then(|| engine.pack(entry, &|_| false))
         .transpose()?;
-    let parts = if binds("code_load") {
+    let parts = if binds("code.load") {
         engine.link_open(root, backend)?
     } else {
         parts
@@ -67,7 +67,7 @@ pub fn link(
 #[must_use]
 pub fn compiles(parts: &Parts) -> bool {
     let needs = |native: &crate::engine::Native| {
-        native.package == PACKAGE && ["code_pack", "code_compile"].contains(&native.path.as_str())
+        native.package == PACKAGE && ["code.pack", "code.compile"].contains(&native.path.as_str())
     };
     parts.natives.iter().any(needs)
 }
@@ -136,11 +136,11 @@ pub fn offer(natives: Natives, trees: Option<Pack>) -> Natives {
     let answer =
         |done: Result<Value, Failure>| done.unwrap_or_else(|failure| error("code", &failure));
     natives
-        .with(PACKAGE, "code_pack", move |args| {
+        .with(PACKAGE, "code.pack", move |args| {
             let done = pack(trees.as_ref(), &packed, args.first());
             Ok(answer(done.map(Value::Bytes)))
         })
-        .reaching(PACKAGE, "code_compile", move |running, args| {
+        .reaching(PACKAGE, "code.compile", move |running, args| {
             let done = compile(running, bytes(args, 0)?);
             Ok(answer(done.map(Value::Bytes)))
         })

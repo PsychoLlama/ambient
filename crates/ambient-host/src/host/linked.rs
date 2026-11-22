@@ -177,7 +177,7 @@ macro_rules! groups {
 /// What begins the work of `fs.change`.
 const CHANGING: Offer = Offer {
     handlers: &files::WATCHING,
-    starters: &[("fs_change", |args| {
+    starters: &[("fs.change", |args| {
         Ok(super::Work::Change(files::watcher(args)?))
     })],
 };
@@ -201,33 +201,33 @@ const NET: Offer = Offer {
 // does: one whose externs begin as another's do is listed before it.
 groups! {
     /// Links `system.console`.
-    amb_system_console for &["console_"] => |linked| linked.offers.push(&plain::CONSOLE);
+    amb_system_console for &["console."] => |linked| linked.offers.push(&plain::CONSOLE);
     /// Links `system.env`.
-    amb_system_env for &["env_"] => |linked| linked.offers.push(&plain::ENV);
+    amb_system_env for &["env."] => |linked| linked.offers.push(&plain::ENV);
     /// Links `system.random`.
-    amb_system_random for &["random_"] => |linked| linked.offers.push(&plain::RANDOM);
+    amb_system_random for &["random."] => |linked| linked.offers.push(&plain::RANDOM);
     /// Links `system.clock`.
-    amb_system_clock for &["clock_"] => |linked| linked.offers.push(&plain::CLOCK);
+    amb_system_clock for &["clock."] => |linked| linked.offers.push(&plain::CLOCK);
     /// Links `system.process`.
-    amb_system_process for &["process_"] => |linked| linked.offers.push(&plain::PROCESS);
+    amb_system_process for &["process."] => |linked| linked.offers.push(&plain::PROCESS);
     /// Links the watching of files of `system.fs`.
-    amb_system_watching for &["fs_watch", "fs_unwatch", "fs_change"] => |linked| {
+    amb_system_watching for &["fs.watch", "fs.unwatch", "fs.change"] => |linked| {
         linked.watching = Some(|| Box::<watching::Watches>::default());
         linked.offers.push(&CHANGING);
     };
     /// Links the rest of `system.fs`.
-    amb_system_fs for &["fs_"] => |linked| linked.offers.push(&FILES);
+    amb_system_fs for &["fs."] => |linked| linked.offers.push(&FILES);
     /// Links `system.http`: a client, its TLS, and a server.
-    amb_system_http for &["http_"] => |linked| {
+    amb_system_http for &["http."] => |linked| {
         linked.http = Some(|sender| Box::new(network::Network::new(sender)));
         linked.offers.push(&HTTP);
     };
     /// Links `system.net` and `system.stream`.
-    amb_system_net for &["net_", "stream_"] => |linked| linked.offers.push(&NET);
+    amb_system_net for &["net.", "stream."] => |linked| linked.offers.push(&NET);
     /// Links `system.crypto`.
     amb_system_crypto for &["crypto."] => |linked| linked.natives.push(crypto::offer);
     /// Links the loading of `system.code`.
-    amb_system_code for &["code_"] => |linked| linked.natives.push(code::offer);
+    amb_system_code for &["code."] => |linked| linked.natives.push(code::offer);
     /// Links `system.exchange`.
     amb_system_exchange for &["exchange."] => |linked| linked.natives.push(exchange::offer);
 }
@@ -259,10 +259,10 @@ mod tests {
     fn an_extern_is_of_the_group_its_module_is() {
         let symbol = |path| group(path).map(|group| group.symbol);
 
-        assert_eq!(symbol("http_send"), Some("amb_system_http"));
-        assert_eq!(symbol("fs_change"), Some("amb_system_watching"));
-        assert_eq!(symbol("fs_write"), Some("amb_system_fs"));
-        assert_eq!(symbol("stream_read"), Some("amb_system_net"));
+        assert_eq!(symbol("http.send"), Some("amb_system_http"));
+        assert_eq!(symbol("fs.change"), Some("amb_system_watching"));
+        assert_eq!(symbol("fs.write"), Some("amb_system_fs"));
+        assert_eq!(symbol("stream.read"), Some("amb_system_net"));
         assert_eq!(symbol("crypto.hmac"), Some("amb_system_crypto"));
         assert_eq!(symbol("thrown"), None);
     }

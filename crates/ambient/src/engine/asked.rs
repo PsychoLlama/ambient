@@ -62,30 +62,28 @@ pub(super) fn natives() -> Natives {
         _ => Err("an error was thrown".to_owned()),
     };
     Natives::new()
-        .asking(FAULT_PACKAGE, "build.compiling", "compile")
-        .asking(FAULT_PACKAGE, "build.annotating", "annotations")
-        .asking(FAULT_PACKAGE, "build.signing", "signature")
-        .asking(FAULT_PACKAGE, "build.moduling", "modules")
-        .asking(FAULT_PACKAGE, "build.defining", "definitions")
-        .asking(FAULT_PACKAGE, "build.noting", "annotated")
-        .asking(FAULT_PACKAGE, "build.reaching", "reach")
-        .asking(FAULT_PACKAGE, "build.documenting", "doc")
-        .asking(FAULT_PACKAGE, "build.running", "run")
-        .asking(FAULT_PACKAGE, "build.fetching", "fetch")
-        .asking(FAULT_PACKAGE, "build.keeping", "keep")
-        .asking(FAULT_PACKAGE, "build.holding", "kept")
+        .asking(FAULT_PACKAGE, "build.compile", "compile")
+        .asking(FAULT_PACKAGE, "build.annotations", "annotations")
+        .asking(FAULT_PACKAGE, "build.signature", "signature")
+        .asking(FAULT_PACKAGE, "build.modules", "modules")
+        .asking(FAULT_PACKAGE, "build.definitions", "definitions")
+        .asking(FAULT_PACKAGE, "build.annotated", "annotated")
+        .asking(FAULT_PACKAGE, "build.reach", "reach")
+        .asking(FAULT_PACKAGE, "build.doc", "doc")
+        .asking(FAULT_PACKAGE, "build.run", "run")
+        .asking(FAULT_PACKAGE, "build.fetch", "fetch")
+        .asking(FAULT_PACKAGE, "build.keep", "keep")
+        .asking(FAULT_PACKAGE, "build.kept", "kept")
         // A digest is a function of the bytes alone.
-        .verifiable(
-            FAULT_PACKAGE,
-            "build.digesting",
-            |args: &[Value]| match args.first() {
+        .verifiable(FAULT_PACKAGE, "build.digest", |args: &[Value]| {
+            match args.first() {
                 Some(Value::Bytes(bytes)) => Ok(Value::String(super::reflect::digest(bytes))),
                 _ => Err("argument 0 is not bytes".to_owned()),
-            },
-        )
+            }
+        })
         // The time is never what it was, so a run that asks is made
         // again on every build.
-        .with(FAULT_PACKAGE, "build.timing", |_| {
+        .with(FAULT_PACKAGE, "build.now", |_| {
             let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
             let now = since.map_or(0, |since| since.as_millis());
             Ok(Value::Int(i64::try_from(now).unwrap_or(i64::MAX)))

@@ -228,17 +228,17 @@ pub(super) fn pairs(value: &Value) -> Result<Vec<(String, String)>, String> {
 pub(super) type Handler = fn(&mut dyn World, &[Value]) -> Result<Value, String>;
 
 pub(super) const HANDLERS: [(&str, Handler); 3] = [
-    ("http_listen", |world, args| {
+    ("http.listen", |world, args| {
         let listening = world.listen(text(args, 0)?, int(args, 1)?);
         Ok(listening.map_or_else(|failure| error("http", &failure), Listening::value))
     }),
-    ("http_respond", |world, args| {
+    ("http.respond", |world, args| {
         let incoming = held(args.first().unwrap_or(&Value::Null), "reply", REPLY)?;
         let response = Response::read(args.get(1).unwrap_or(&Value::Null))?;
         let answered = world.respond(incoming, response);
         Ok(answered.map_or_else(|failure| error("http", &failure), |()| Value::Null))
     }),
-    ("http_close", |world, args| {
+    ("http.close", |world, args| {
         world.close(held(
             args.first().unwrap_or(&Value::Null),
             "listener",
@@ -252,16 +252,16 @@ pub(super) const HANDLERS: [(&str, Handler); 3] = [
 pub(super) type Starter = fn(&[Value]) -> Result<Work, String>;
 
 pub(super) const STARTERS: [(&str, Starter); 3] = [
-    ("http_open", |args| {
+    ("http.open", |args| {
         let request = Request::read(args.first().unwrap_or(&Value::Null))?;
         let trust = Trust::read(args.get(1).unwrap_or(&Value::Null))?;
         Ok(Work::Open(request, trust))
     }),
-    ("http_send", |args| {
+    ("http.send", |args| {
         let request = Request::read(args.first().unwrap_or(&Value::Null))?;
         Ok(Work::Send(request))
     }),
-    ("http_accept", |args| {
+    ("http.accept", |args| {
         let server = held(args.first().unwrap_or(&Value::Null), "listener", LISTENER)?;
         Ok(Work::Accept(server))
     }),

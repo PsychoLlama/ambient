@@ -7,23 +7,23 @@ use super::{Command, Work, int, optional, strings, text};
 use crate::value::Value;
 
 const WRITING: [(&str, Handler); 3] = [
-    ("console_write", |world, args| {
+    ("console.write", |world, args| {
         world.write(text(args, 0)?);
         Ok(Value::Null)
     }),
-    ("console_print", |world, args| {
+    ("console.print", |world, args| {
         world.write(&format!("{}\n", text(args, 0)?));
         Ok(Value::Null)
     }),
-    ("console_warn", |world, args| {
+    ("console.warn", |world, args| {
         world.warn(&format!("{}\n", text(args, 0)?));
         Ok(Value::Null)
     }),
 ];
 
 const READING: [(&str, Starter); 2] = [
-    ("console_read_line", |_| Ok(Work::ReadLine)),
-    ("console_read", |args| Ok(Work::Read(int(args, 0)?))),
+    ("console.read_line", |_| Ok(Work::ReadLine)),
+    ("console.read", |args| Ok(Work::Read(int(args, 0)?))),
 ];
 
 pub(super) const CONSOLE: Offer = Offer {
@@ -32,17 +32,17 @@ pub(super) const CONSOLE: Offer = Offer {
 };
 
 const TOLD: [(&str, Handler); 4] = [
-    ("env_args", |world, _| Ok(strings(world.args()))),
-    ("env_variable", |world, args| {
+    ("env.args", |world, _| Ok(strings(world.args()))),
+    ("env.variable", |world, args| {
         Ok(optional(world.variable(text(args, 0)?)))
     }),
-    ("env_variables", |world, _| {
+    ("env.variables", |world, _| {
         let pair = |(name, value)| Value::Tuple(vec![Value::String(name), Value::String(value)]);
         Ok(Value::List(
             world.variables().into_iter().map(pair).collect(),
         ))
     }),
-    ("env_directory", |world, _| Ok(optional(world.directory()))),
+    ("env.directory", |world, _| Ok(optional(world.directory()))),
 ];
 
 pub(super) const ENV: Offer = Offer {
@@ -50,7 +50,7 @@ pub(super) const ENV: Offer = Offer {
     starters: &[],
 };
 
-const BITS: [(&str, Handler); 1] = [("random_bits", |world, _| {
+const BITS: [(&str, Handler); 1] = [("random.bits", |world, _| {
     let bits = world.random().map_err(|failure| failure.message)?;
     Ok(Value::Int(bits.cast_signed()))
 })];
@@ -61,14 +61,14 @@ pub(super) const RANDOM: Offer = Offer {
 };
 
 const TIMES: [(&str, Handler); 3] = [
-    ("clock_now", |world, _| Ok(Value::Int(world.now()))),
-    ("clock_elapsed", |world, _| Ok(Value::Int(world.elapsed()))),
-    ("clock_offset", |world, args| {
+    ("clock.now", |world, _| Ok(Value::Int(world.now()))),
+    ("clock.elapsed", |world, _| Ok(Value::Int(world.elapsed()))),
+    ("clock.offset", |world, args| {
         Ok(Value::Int(world.offset(int(args, 0)?)))
     }),
 ];
 
-const SLEEPING: [(&str, Starter); 1] = [("clock_sleep", |args| Ok(Work::Sleep(int(args, 0)?)))];
+const SLEEPING: [(&str, Starter); 1] = [("clock.sleep", |args| Ok(Work::Sleep(int(args, 0)?)))];
 
 pub(super) const CLOCK: Offer = Offer {
     handlers: &TIMES,
@@ -77,11 +77,11 @@ pub(super) const CLOCK: Offer = Offer {
 
 // What a root handler of an ability that does not return gives is
 // what the program gives.
-const EXITING: [(&str, Handler); 1] = [("process_exit", |_, args| Ok(Value::Int(int(args, 0)?)))];
+const EXITING: [(&str, Handler); 1] = [("process.exit", |_, args| Ok(Value::Int(int(args, 0)?)))];
 
 const RUNNING: [(&str, Starter); 2] = [
-    ("process_signal", |_| Ok(Work::Signal)),
-    ("process_run", |args| Ok(Work::Run(Command::read(args)?))),
+    ("process.signal", |_| Ok(Work::Signal)),
+    ("process.run", |args| Ok(Work::Run(Command::read(args)?))),
 ];
 
 pub(super) const PROCESS: Offer = Offer {

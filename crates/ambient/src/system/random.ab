@@ -1,3 +1,4 @@
+use pkg.os;
 use ambient.bytes.{of};
 
 /// Sixty-four bits nothing could have guessed, as an integer.
@@ -77,3 +78,6 @@ pub fn seeded<T>(seed: int, body: fn(): T with bits): T {
     let step = fn(): int => state.update(fn(last: int): int => last * 48271 % 2147483647);
     return provide { [bits]() => step() * 2147483648 + step() } => body();
 }
+
+// The native side, which answers each under `os` unless a target says otherwise.
+extern handler bits in os;

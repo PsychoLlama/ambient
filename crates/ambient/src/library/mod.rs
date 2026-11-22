@@ -41,7 +41,7 @@ const SOURCES: [(&str, &str); 21] = [
 /// "Build abilities" in `docs/spec/tools.md`.
 #[must_use]
 pub fn build() -> crate::symbol::Symbol {
-    ModuleId::new(FAULT_PACKAGE, "build").value("world")
+    ModuleId::new(FAULT_PACKAGE, "build").value("compiler")
 }
 
 /// The key a value holds what releases it under, which a using reads.

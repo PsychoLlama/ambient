@@ -1,3 +1,4 @@
+use pkg.os;
 use ambient.Error;
 use ambient.json.{Json, write};
 use ambient.iterator.{range};
@@ -178,3 +179,11 @@ fn answered(handle: fn(request: Request): Response with throw, request: Request)
         let response: Response => { return response; }
     }
 }
+
+// The native side, which answers each under `os` unless a target says otherwise.
+extern handler(suspending) send in os;
+extern handler(suspending) open in os;
+extern handler listen in os;
+extern handler(suspending) accept in os;
+extern handler respond in os;
+extern handler close in os;

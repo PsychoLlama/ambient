@@ -47,7 +47,7 @@ impl Session<'_> {
             project: &project,
             engine: &engine,
         };
-        let target = ModuleId::new(FAULT_PACKAGE, "test").value("tests");
+        let target = ModuleId::new(FAULT_PACKAGE, "test").value("runner");
         let (mut passed, mut failed, mut kept) = (0, 0, 0);
         let chosen = |test: &Symbol| only.is_none_or(|only| test.identity().contains(only));
         let tests = tests(&project, &engine)
@@ -133,7 +133,7 @@ fn tests(project: &Project, engine: &Engine) -> Result<Vec<Symbol>, Error> {
 /// `unmet`, and the test goes on.
 fn checks(unmet: &Rc<RefCell<Vec<String>>>) -> Natives {
     let unmet = Rc::clone(unmet);
-    crate::host::computing(Natives::new()).with(FAULT_PACKAGE, "test.told", move |args| {
+    crate::host::computing(Natives::new()).with(FAULT_PACKAGE, "test.unmet", move |args| {
         let [Value::Record(failure)] = args else {
             return Err("a test tells of a failure, which is a record".to_owned());
         };

@@ -65,52 +65,52 @@ fn read_text(world: &mut dyn World, path: &str) -> Result<String, Failure> {
 }
 
 pub(super) const HANDLERS: [(&str, Handler); 14] = [
-    ("fs_read", |world, args| {
+    ("fs.read", |world, args| {
         Ok(gave(read_text(world, text(args, 0)?), Value::String))
     }),
-    ("fs_read_bytes", |world, args| {
+    ("fs.read_bytes", |world, args| {
         Ok(gave(world.read(text(args, 0)?), Value::Bytes))
     }),
-    ("fs_write", |world, args| {
+    ("fs.write", |world, args| {
         Ok(nothing(
             world.store(text(args, 0)?, text(args, 1)?.as_bytes()),
         ))
     }),
-    ("fs_write_bytes", |world, args| {
+    ("fs.write_bytes", |world, args| {
         Ok(nothing(world.store(text(args, 0)?, bytes(args, 1)?)))
     }),
-    ("fs_write_private", |world, args| {
+    ("fs.write_private", |world, args| {
         Ok(nothing(
             world.store_private(text(args, 0)?, bytes(args, 1)?),
         ))
     }),
-    ("fs_append", |world, args| {
+    ("fs.append", |world, args| {
         Ok(nothing(
             world.append(text(args, 0)?, text(args, 1)?.as_bytes()),
         ))
     }),
-    ("fs_append_bytes", |world, args| {
+    ("fs.append_bytes", |world, args| {
         Ok(nothing(world.append(text(args, 0)?, bytes(args, 1)?)))
     }),
-    ("fs_list", |world, args| {
+    ("fs.list", |world, args| {
         Ok(gave(world.list(text(args, 0)?), strings))
     }),
-    ("fs_exists", |world, args| {
+    ("fs.exists", |world, args| {
         Ok(Value::Bool(world.exists(text(args, 0)?)))
     }),
-    ("fs_info", |world, args| {
+    ("fs.info", |world, args| {
         Ok(gave(world.info(text(args, 0)?), Info::value))
     }),
-    ("fs_remove", |world, args| {
+    ("fs.remove", |world, args| {
         Ok(nothing(world.remove(text(args, 0)?)))
     }),
-    ("fs_make_directory", |world, args| {
+    ("fs.make_directory", |world, args| {
         Ok(nothing(world.make_directory(text(args, 0)?)))
     }),
-    ("fs_rename", |world, args| {
+    ("fs.rename", |world, args| {
         Ok(nothing(world.rename(text(args, 0)?, text(args, 1)?)))
     }),
-    ("fs_copy", |world, args| {
+    ("fs.copy", |world, args| {
         Ok(nothing(world.copy(text(args, 0)?, text(args, 1)?)))
     }),
 ];
@@ -143,14 +143,14 @@ pub(super) fn change(change: super::Change) -> Value {
 
 /// What `watch` and `unwatch` do: neither waits.
 pub(super) const WATCHING: [(&str, super::http::Handler); 2] = [
-    ("fs_watch", |world, args| {
+    ("fs.watch", |world, args| {
         let opened = world.open(super::Open::Watch(text(args, 0)?.to_owned()));
         Ok(opened.map_or_else(
             |failure| error("fs", &failure),
             |opened| super::http::handle(WATCHER, opened.id),
         ))
     }),
-    ("fs_unwatch", |world, args| {
+    ("fs.unwatch", |world, args| {
         world.shut(super::Held::Watcher(watcher(args)?));
         Ok(Value::Null)
     }),

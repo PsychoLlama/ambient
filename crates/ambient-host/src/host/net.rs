@@ -184,11 +184,11 @@ fn opened(opened: Result<Opened, Failure>, name: &str, brand: &str) -> Value {
 }
 
 pub(super) const HANDLERS: [(&str, Handler); 5] = [
-    ("stream_close", |world, args| {
+    ("stream.close", |world, args| {
         world.shut(Held::Stream(one(args, 0, STREAM)?));
         Ok(Value::Null)
     }),
-    ("net_listen", |world, args| {
+    ("net.listen", |world, args| {
         let address = Address::Tcp(text(args, 0)?.to_owned(), int(args, 1)?);
         Ok(opened(
             world.open(Open::Listen(address)),
@@ -196,7 +196,7 @@ pub(super) const HANDLERS: [(&str, Handler); 5] = [
             LISTENER,
         ))
     }),
-    ("net_listen_unix", |world, args| {
+    ("net.listen_unix", |world, args| {
         let address = Address::Unix(text(args, 0)?.to_owned());
         let listening = world.open(Open::Listen(address));
         Ok(listening.map_or_else(
@@ -204,7 +204,7 @@ pub(super) const HANDLERS: [(&str, Handler); 5] = [
             |opened| handle(LISTENER, opened.id),
         ))
     }),
-    ("net_bind", |world, args| {
+    ("net.bind", |world, args| {
         let (host, port, shared) = (text(args, 0)?.to_owned(), int(args, 1)?, flag(args, 2)?);
         Ok(opened(
             world.open(Open::Bind { host, port, shared }),
@@ -212,7 +212,7 @@ pub(super) const HANDLERS: [(&str, Handler); 5] = [
             SOCKET,
         ))
     }),
-    ("net_close", |world, args| {
+    ("net.close", |world, args| {
         let (brand, id) = held(args, 0, &[LISTENER, SOCKET])?;
         world.shut(if brand == LISTENER {
             Held::Listener(id)
@@ -224,32 +224,32 @@ pub(super) const HANDLERS: [(&str, Handler); 5] = [
 ];
 
 pub(super) const STARTERS: [(&str, Starter); 8] = [
-    ("stream_read", |args| {
+    ("stream.read", |args| {
         Ok(Work::Reach(Reach::Read(
             one(args, 0, STREAM)?,
             int(args, 1)?,
         )))
     }),
-    ("stream_write", |args| {
+    ("stream.write", |args| {
         let data = bytes(args, 1)?.to_vec();
         Ok(Work::Reach(Reach::Write(one(args, 0, STREAM)?, data)))
     }),
-    ("net_connect", |args| {
+    ("net.connect", |args| {
         let address = Address::Tcp(text(args, 0)?.to_owned(), int(args, 1)?);
         Ok(Work::Reach(Reach::Connect(address)))
     }),
-    ("net_connect_unix", |args| {
+    ("net.connect_unix", |args| {
         let address = Address::Unix(text(args, 0)?.to_owned());
         Ok(Work::Reach(Reach::Connect(address)))
     }),
-    ("net_accept", |args| {
+    ("net.accept", |args| {
         Ok(Work::Reach(Reach::Take(one(args, 0, LISTENER)?)))
     }),
-    ("net_join", |args| {
+    ("net.join", |args| {
         let group = text(args, 1)?.to_owned();
         Ok(Work::Reach(Reach::Join(one(args, 0, SOCKET)?, group)))
     }),
-    ("net_send_to", |args| {
+    ("net.send_to", |args| {
         let socket = one(args, 0, SOCKET)?;
         let (data, host, port) = (
             bytes(args, 1)?.to_vec(),
@@ -263,7 +263,7 @@ pub(super) const STARTERS: [(&str, Starter); 8] = [
             port,
         }))
     }),
-    ("net_receive", |args| {
+    ("net.receive", |args| {
         Ok(Work::Reach(Reach::Receive(one(args, 0, SOCKET)?)))
     }),
 ];

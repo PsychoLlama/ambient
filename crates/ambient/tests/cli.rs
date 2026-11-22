@@ -92,10 +92,10 @@ fn checking_reports_every_definition_that_is_wrong() {
     assert_eq!(check(&app("fn fine(): int => 3;")).0, 0);
 }
 
-/// `cli` binds `throw` to a native handler, which takes the trace.
+/// `os` binds `throw` to a native handler, which takes the trace.
 #[test]
 fn a_target_that_extends_the_command_lines_is_checked() {
-    let (code, world) = check(&app("use system.{cli};\npub target world extends cli { }"));
+    let (code, world) = check(&app("use system.{os};\npub target world extends os { }"));
 
     assert_eq!((code, world.err.as_str()), (0, ""));
 }
@@ -111,7 +111,7 @@ fn wrong_at(source: &str) -> String {
 
 #[test]
 fn what_a_module_cannot_hold_is_reported_where_it_is_written() {
-    let import = "fn one(): int => 1;\nuse system.{cli, cli};";
+    let import = "fn one(): int => 1;\nuse system.{os, os};";
     let twice = "fn one(): int => 1;\n\nfn one(): int => 2;";
 
     assert_eq!(wrong_at(import), "2:1");
@@ -510,7 +510,7 @@ fn a_test_reaches_no_world_it_is_not_given() {
 
     assert_eq!(code, 1);
     let refused =
-        "takes `system:console.print`, which the target `ambient:test.tests` does not bind\n";
+        "takes `system:console.print`, which the target `ambient:test.runner` does not bind\n";
     let (failed, rest) = world.out.split_once(refused).unwrap_or_default();
     assert!(
         failed.starts_with("FAIL  app:main.test_reaches\n"),

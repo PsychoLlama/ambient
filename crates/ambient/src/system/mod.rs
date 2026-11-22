@@ -33,7 +33,7 @@ const SOURCES: [(&str, &str); 14] = [
 /// The target a program run from a command line runs under.
 #[must_use]
 pub fn target() -> Symbol {
-    ModuleId::new(PACKAGE, "").value("cli")
+    ModuleId::new(PACKAGE, "").value("os")
 }
 
 /// Adds the package to a workspace that has the standard library.

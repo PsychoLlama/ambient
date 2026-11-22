@@ -131,10 +131,10 @@ fn natives(files: &Rc<dyn Files>, contents: Option<&Contents>, hosts: &Rc<Hosts>
         }
     };
     Natives::new()
-        .verifiable(FAULT_PACKAGE, "build.hosting", hosting)
-        .verifiable(FAULT_PACKAGE, "build.reading", text)
-        .verifiable(FAULT_PACKAGE, "build.reading_bytes", bytes)
-        .verifiable(FAULT_PACKAGE, "build.listing", names)
+        .verifiable(FAULT_PACKAGE, "build.host_code", hosting)
+        .verifiable(FAULT_PACKAGE, "build.read", text)
+        .verifiable(FAULT_PACKAGE, "build.read_bytes", bytes)
+        .verifiable(FAULT_PACKAGE, "build.list", names)
 }
 
 /// Where `path` is, if it names a file of the package: a build reads

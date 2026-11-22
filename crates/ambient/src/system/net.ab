@@ -1,3 +1,4 @@
+use pkg.os;
 use ambient.Error;
 use pkg.stream.{Stream};
 
@@ -71,3 +72,15 @@ pub ability receive(socket: Socket): Datagram | null;
 /// Stops a listener or gives up a socket. Whatever waits on it is
 /// given null.
 pub ability close(held: Listener | Socket): null;
+
+// The native side, which answers each under `os` unless a target says otherwise.
+extern handler(suspending) connect in os;
+extern handler(suspending) connect_unix in os;
+extern handler listen in os;
+extern handler listen_unix in os;
+extern handler(suspending) accept in os;
+extern handler bind in os;
+extern handler(suspending) join in os;
+extern handler(suspending) send_to in os;
+extern handler(suspending) receive in os;
+extern handler close in os;

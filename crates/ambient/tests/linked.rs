@@ -28,7 +28,7 @@ const ID: &str = "0123456789abcdef0123456789abcdef";
 /// Nothing reaches `absent`, and the bundle has no function for it.
 /// Its target `world` binds an ability to a handler of the bundle,
 /// and another to one a thread of the bundle answers.
-const SOURCE: &str = "use system.{cli};
+const SOURCE: &str = "use system.{os};
 
 extern fn double(n: int): int;
 extern fn absent(n: int): int;
@@ -41,7 +41,7 @@ pub ability triple(n: int): int;
 extern handler tripled for triple;
 pub ability later(n: int): int;
 extern handler(suspending) answered for later;
-pub target world extends cli { triple: tripled, later: answered }
+pub target world extends os { triple: tripled, later: answered }
 pub target apart { triple: tripled }
 
 pub fn tripling(): int with triple => triple!(14);

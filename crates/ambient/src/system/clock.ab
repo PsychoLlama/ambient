@@ -1,3 +1,4 @@
+use pkg.os;
 use ambient.time.{Duration};
 
 /// Milliseconds since the start of 1970, by the system's clock.
@@ -16,3 +17,9 @@ pub ability elapsed(): int;
 
 /// Waits at least this long: `clock.sleep!(time.seconds(2))`.
 pub ability sleep(length: int & Duration): null;
+
+// The native side, which answers each under `os` unless a target says otherwise.
+extern handler now in os;
+extern handler elapsed in os;
+extern handler offset in os;
+extern handler(suspending) sleep in os;

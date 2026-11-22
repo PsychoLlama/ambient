@@ -1,3 +1,4 @@
+use pkg.os;
 use ambient.Error;
 
 /// Nothing is at the path.
@@ -101,3 +102,22 @@ pub ability change(watcher: Watcher): Change | null;
 
 /// Stops a watcher. Whatever waits on it is given null.
 pub ability unwatch(watcher: Watcher): null;
+
+// The native side, which answers each under `os` unless a target says otherwise.
+extern handler read in os;
+extern handler write in os;
+extern handler list in os;
+extern handler exists in os;
+extern handler remove in os;
+extern handler make_directory in os;
+extern handler info in os;
+extern handler append in os;
+extern handler rename in os;
+extern handler copy in os;
+extern handler read_bytes in os;
+extern handler write_bytes in os;
+extern handler write_private in os;
+extern handler append_bytes in os;
+extern handler watch in os;
+extern handler(suspending) change in os;
+extern handler unwatch in os;

@@ -24,12 +24,11 @@ pub fn equal<T>(found: T, expected: T, what: string): null with unmet {
     }
 }
 
-extern handler told for unmet;
+extern handler unmet in runner;
 extern handler thrown for errors.throw;
 
 /// The world of a test: nothing but a way to say what did not hold. A
 /// test that needs more provides it.
-pub target tests {
-    unmet: told,
+pub target runner {
     errors.throw: thrown,
 }

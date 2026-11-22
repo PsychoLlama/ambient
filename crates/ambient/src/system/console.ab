@@ -1,3 +1,5 @@
+use pkg.os;
+
 /// Writes text to standard output, as it is.
 pub ability write(text: string): null;
 
@@ -16,3 +18,10 @@ pub ability read_line(): string | null;
 /// `most`, or null at its end. It reads input that is not text, and
 /// whatever a line read before it left.
 pub ability read(most: int): bytes | null;
+
+// The native side, which answers each under `os` unless a target says otherwise.
+extern handler write in os;
+extern handler print in os;
+extern handler warn in os;
+extern handler(suspending) read_line in os;
+extern handler(suspending) read in os;

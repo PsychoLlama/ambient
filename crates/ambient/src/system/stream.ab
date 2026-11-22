@@ -1,3 +1,4 @@
+use pkg.os;
 use ambient.Error;
 
 /// The stream cannot be used so: one that is only read was written to.
@@ -41,3 +42,8 @@ fn rest(stream: Stream, before: bytes): bytes | Error with read {
 /// Sends text on a stream, as its UTF-8.
 pub fn write_text(stream: Stream, text: string): null | Error with write =>
     write!(stream, text.to_bytes());
+
+// The native side, which answers each under `os` unless a target says otherwise.
+extern handler(suspending) read in os;
+extern handler(suspending) write in os;
+extern handler close in os;

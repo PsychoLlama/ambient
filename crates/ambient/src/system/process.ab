@@ -1,3 +1,4 @@
+use pkg.os;
 use ambient.Error;
 
 /// No command of that name is to be found.
@@ -62,3 +63,8 @@ pub ability run(command: Command): Output | Error;
 /// `{ ...process.command("git", ["status"]), directory: "/repo" }`.
 pub fn command(program: string, args: List<string>): Command =>
     { program, args, directory: null, variables: [], input: "".to_bytes() };
+
+// The native side, which answers each under `os` unless a target says otherwise.
+extern handler exit in os;
+extern handler(suspending) run in os;
+extern handler(suspending) signal in os;

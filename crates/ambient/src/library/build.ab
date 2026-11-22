@@ -135,48 +135,30 @@ pub ability digest(of: bytes): string;
 /// a run that asks is made again on every build.
 pub ability now(): int;
 
-extern handler compiling for compile;
-extern handler moduling for modules;
-extern handler defining for definitions;
-extern handler noting for annotated;
-extern handler reaching for reach;
-extern handler documenting for doc;
-extern handler running for run;
-extern handler fetching for fetch;
-extern handler keeping for keep;
-extern handler holding for kept;
-extern handler digesting for digest;
-extern handler timing for now;
-extern handler signing for signature;
-extern handler annotating for annotations;
-extern handler hosting for host_code;
+extern handler compile in compiler;
+extern handler modules in compiler;
+extern handler definitions in compiler;
+extern handler annotated in compiler;
+extern handler reach in compiler;
+extern handler doc in compiler;
+extern handler run in compiler;
+extern handler fetch in compiler;
+extern handler keep in compiler;
+extern handler kept in compiler;
+extern handler digest in compiler;
+extern handler now in compiler;
+extern handler signature in compiler;
+extern handler annotations in compiler;
+extern handler host_code in compiler;
 extern handler thrown for errors.throw;
-extern handler reading for read;
-extern handler reading_bytes for read_bytes;
-extern handler listing for list;
+extern handler read in compiler;
+extern handler read_bytes in compiler;
+extern handler list in compiler;
 
 /// The world of a comptime call and of a tool: what a build may be
 /// granted. Each is a question a build can ask again, so a run is
 /// made again only when an answer has changed. An error that is
 /// thrown and not caught fails the build.
-pub target world {
-    compile: compiling,
-    annotations: annotating,
-    signature: signing,
-    modules: moduling,
-    definitions: defining,
-    annotated: noting,
-    reach: reaching,
-    doc: documenting,
-    run: running,
-    fetch: fetching,
-    keep: keeping,
-    kept: holding,
-    digest: digesting,
-    now: timing,
-    host_code: hosting,
+pub target compiler {
     errors.throw: thrown,
-    read: reading,
-    read_bytes: reading_bytes,
-    list: listing,
 }

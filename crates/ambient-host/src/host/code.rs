@@ -35,7 +35,7 @@ pub(super) fn offer(natives: Natives) -> Natives {
     let base = natives
         .waits()
         .map_or_else(Natives::new, |waits| Natives::new().answered_by(waits));
-    natives.reaching(PACKAGE, "code_load", move |running, args| {
+    natives.reaching(PACKAGE, "code.load", move |running, args| {
         let done = load(running, &base, bytes(args, 0)?);
         Ok(done.unwrap_or_else(|failure| error("code", &failure)))
     })
