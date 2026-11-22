@@ -124,6 +124,7 @@ fn meanings(operator: Operator) -> &'static [Primitive] {
         Operator::Multiply => &[P::IntMultiply, P::FloatMultiply],
         Operator::Divide => &[P::IntDivide, P::FloatDivide],
         Operator::Remainder => &[P::IntRemainder],
+        Operator::Power => &[P::IntPower, P::FloatPower],
         Operator::Less => &[P::IntLess, P::FloatLess, P::StringLess],
         Operator::Equal => &[P::Equal],
         Operator::Length => &[P::StringLength, P::BytesLength, P::ListLength],

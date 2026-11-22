@@ -178,6 +178,10 @@ pub enum Primitive {
     /// Runs them as [`Self::ListAll`] does, is what the first to be
     /// over gives, and cancels the rest.
     ListFirst,
+    /// An integer to the power of another.
+    IntPower,
+    /// A float to the power of another.
+    FloatPower,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

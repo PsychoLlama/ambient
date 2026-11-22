@@ -99,6 +99,39 @@ fn floats_divide_without_faulting() {
 }
 
 #[test]
+fn an_integer_to_a_negative_power_truncates_as_division_does() {
+    let power = |base, exponent| b::power(b::int(base), b::int(exponent));
+    let powers = [
+        power(2, 10),
+        power(-3, 3),
+        power(7, 0),
+        power(2, -1),
+        power(-1, -3),
+    ];
+
+    assert_eq!(each(powers), [1024, -27, 1, 0, -1].map(Value::Int));
+}
+
+#[test]
+fn an_integer_power_faults_where_division_or_its_range_would() {
+    let power = |base, exponent| outcome(b::power(b::int(base), b::int(exponent)));
+
+    assert_eq!(power(0, -1), Err(Fault::DivideByZero));
+    assert_eq!(power(2, 63), Err(Fault::Overflow));
+    assert_eq!(power(-2, 63), Ok(Value::Int(i64::MIN)));
+}
+
+#[test]
+fn a_float_power_is_what_c_says() {
+    let power = |base, exponent| b::power(b::float(base), b::float(exponent));
+    let powers = [power(2.0, 10.0), power(4.0, 0.5), power(2.0, -1.0)];
+    let none = b::to_text(power(-8.0, 0.5));
+
+    assert_eq!(each(powers), [1024.0, 2.0, 0.5].map(Value::Float));
+    assert_eq!(outcome(none), Ok(text("NaN")));
+}
+
+#[test]
 fn an_integer_and_a_float_do_not_divide() {
     let result = checks(ty::unknown(), b::divide(b::int(1), b::float(2.0)));
 

@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 description = "The part of Ambient that is not compiled from core trees"
 
+[dependencies]
+libm.workspace = true
+
 [dev-dependencies]
 proptest.workspace = true
 

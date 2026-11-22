@@ -74,6 +74,32 @@ pub unsafe extern "C" fn amb_int_remainder(context: *mut Context, left: Word, ri
     unsafe { divided(context, left, right, i64::checked_rem) }
 }
 
+/// `base` to the power `exponent`. A negative power is one divided by
+/// the positive power, truncated as division is, so zero has none.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_int_power(context: *mut Context, base: Word, exponent: Word) -> Word {
+    unsafe {
+        if int(base) == 0 && int(exponent) < 0 {
+            return fault(context, Fault::DivideByZero);
+        }
+        arithmetic(context, base, exponent, power)
+    }
+}
+
+/// `base` to the power `exponent`, or nothing if it leaves the range,
+/// for any base but zero to a negative power.
+fn power(base: i64, exponent: i64) -> Option<i64> {
+    let odd = exponent % 2 != 0;
+    match (base, exponent) {
+        (_, 0) | (1, _) => Some(1),
+        (-1, _) => Some(if odd { -1 } else { 1 }),
+        // What is between zero and one truncates to zero.
+        (_, ..0) | (0, _) => Some(0),
+        // A power past `u32` of any other base is out of range.
+        _ => base.checked_pow(u32::try_from(exponent).ok()?),
+    }
+}
+
 unsafe fn divided(
     context: *mut Context,
     left: Word,
@@ -111,6 +137,12 @@ pub unsafe extern "C" fn amb_float_multiply(left: Word, right: Word) -> Word {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn amb_float_divide(left: Word, right: Word) -> Word {
     unsafe { amb_float_new((float(left) / float(right)).to_bits()) }
+}
+
+/// `base` to the power `exponent`, as C's `pow` says.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn amb_float_power(base: Word, exponent: Word) -> Word {
+    unsafe { amb_float_new(libm::pow(float(base), float(exponent)).to_bits()) }
 }
 
 #[unsafe(no_mangle)]
@@ -179,4 +211,34 @@ pub(crate) unsafe fn equal(left: Word, right: Word) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::power;
+
+    #[test]
+    fn a_negative_power_truncates_as_division_does() {
+        assert_eq!(power(2, -1), Some(0));
+        assert_eq!(power(-1, -3), Some(-1));
+        assert_eq!(power(1, i64::MIN), Some(1));
+    }
+
+    #[test]
+    fn a_power_out_of_range_is_nothing() {
+        assert_eq!(power(2, 63), None);
+        assert_eq!(power(-2, 63), Some(i64::MIN));
+        assert_eq!(power(2, i64::MAX), None);
+        assert_eq!(power(0, i64::MAX), Some(0));
+    }
+
+    proptest! {
+        #[test]
+        fn a_power_is_repeated_multiplication(base in -50i64..50, exponent in 0i64..12) {
+            let multiplied = (0..exponent).try_fold(1i64, |product, _| product.checked_mul(base));
+            prop_assert_eq!(power(base, exponent), multiplied);
+        }
+    }
 }

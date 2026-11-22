@@ -61,6 +61,7 @@ impl Op {
                     | Primitive::IntMultiply
                     | Primitive::IntDivide
                     | Primitive::IntRemainder
+                    | Primitive::IntPower
                     | Primitive::CellWait
             ),
             _ => false,
@@ -85,6 +86,7 @@ impl Op {
                     | Primitive::IntMultiply
                     | Primitive::IntDivide
                     | Primitive::IntRemainder
+                    | Primitive::IntPower
             ),
             _ => false,
         }
@@ -355,6 +357,8 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::CellWait => Entry::CellWait,
         Primitive::IntDivide => Entry::IntDivide,
         Primitive::IntRemainder => Entry::IntRemainder,
+        Primitive::IntPower => Entry::IntPower,
+        Primitive::FloatPower => Entry::FloatPower,
         Primitive::FloatDivide => Entry::FloatDivide,
         Primitive::StringLess => Entry::StringLess,
         Primitive::StringLength => Entry::StringLength,

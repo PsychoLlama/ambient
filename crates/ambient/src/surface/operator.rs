@@ -10,6 +10,8 @@ pub enum Operator {
     Multiply,
     Divide,
     Remainder,
+    /// A number to the power of another.
+    Power,
     Less,
     Equal,
     /// How long a string, a list, or a bytes value is.
@@ -50,12 +52,13 @@ pub enum Operator {
 
 impl Operator {
     /// Every operator.
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 25] = [
         Self::Add,
         Self::Subtract,
         Self::Multiply,
         Self::Divide,
         Self::Remainder,
+        Self::Power,
         Self::Less,
         Self::Equal,
         Self::Length,
@@ -87,6 +90,7 @@ impl Operator {
             Self::Multiply => "multiply",
             Self::Divide => "divide",
             Self::Remainder => "remainder",
+            Self::Power => "power",
             Self::Less => "less",
             Self::Equal => "equal",
             Self::Length => "length",
@@ -127,6 +131,7 @@ impl Operator {
             Self::Multiply => Some("*"),
             Self::Divide => Some("/"),
             Self::Remainder => Some("%"),
+            Self::Power => Some("**"),
             Self::Less => Some("<"),
             Self::Equal => Some("=="),
             _ => None,

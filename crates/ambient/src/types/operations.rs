@@ -98,14 +98,18 @@ impl Env {
         Some(match (operation, operands) {
             (P::Equal, [_, _]) => Ty::Bool,
             (
-                P::IntAdd | P::IntSubtract | P::IntMultiply | P::IntDivide | P::IntRemainder,
+                P::IntAdd
+                | P::IntSubtract
+                | P::IntMultiply
+                | P::IntDivide
+                | P::IntRemainder
+                | P::IntPower,
                 [_, _],
             ) if all(&Ty::Int) => Ty::Int,
-            (P::FloatAdd | P::FloatSubtract | P::FloatMultiply | P::FloatDivide, [_, _])
-                if all(&Ty::Float) =>
-            {
-                Ty::Float
-            }
+            (
+                P::FloatAdd | P::FloatSubtract | P::FloatMultiply | P::FloatDivide | P::FloatPower,
+                [_, _],
+            ) if all(&Ty::Float) => Ty::Float,
             (P::IntLess, [_, _]) if all(&Ty::Int) => Ty::Bool,
             (P::FloatLess, [_, _]) if all(&Ty::Float) => Ty::Bool,
             (P::StringLess, [_, _]) if all(&Ty::String) => Ty::Bool,

@@ -97,7 +97,7 @@ impl Parser {
 
     fn binary(&mut self, level: usize) -> Parsed<Expr> {
         let Some(marks) = LEVELS.get(level) else {
-            return self.unary();
+            return self.power();
         };
         let mut left = self.binary(level + 1)?;
         while let Some(mark) = marks.iter().find(|mark| self.at(mark)) {
@@ -121,6 +121,7 @@ impl Parser {
             "*" => Some(Operator::Multiply),
             "/" => Some(Operator::Divide),
             "%" => Some(Operator::Remainder),
+            "**" => Some(Operator::Power),
             "==" => Some(Operator::Equal),
             "<" => Some(Operator::Less),
             _ => None,
@@ -145,6 +146,28 @@ impl Parser {
                 }
             }
         }
+    }
+
+    /// `base ** exponent`, which binds tighter than any other operator
+    /// and groups to the right. A `-` before the base is refused: it
+    /// could negate the base or the power.
+    fn power(&mut self) -> Parsed<Expr> {
+        let negated = self.at("-");
+        let base = self.unary()?;
+        if !self.at("**") {
+            return Ok(base);
+        }
+        if negated {
+            return self.fail(
+                "`-` before the base of `**` could negate the base or the power: \
+                 write `(-x) ** y` or `-(x ** y)`",
+            );
+        }
+        let at = self.index;
+        self.advance();
+        let exponent = self.power()?;
+        let applied = self.operate("**", base, exponent);
+        Ok(self.mark(at, applied))
     }
 
     fn unary(&mut self) -> Parsed<Expr> {

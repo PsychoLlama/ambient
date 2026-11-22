@@ -75,7 +75,7 @@ syn match ambientEscape '\\u{\x\+}' contained
 syn region ambientInterpolation matchgroup=ambientInterpolationDelim start='\${' end='}' contained contains=TOP,ambientComment,ambientDoc
 
 " Operators, before comments so that `//` is not two of them.
-syn match ambientOperator '\.\.\.\|=>\|==\|!=\|<=\|>=\|&&\|||\|??\|::\|[-+*/%|&?=<>!]'
+syn match ambientOperator '\.\.\.\|=>\|==\|!=\|<=\|>=\|&&\|||\|??\|::\|\*\*\|[-+*/%|&?=<>!]'
 
 " `///` is documentation; `//` and `////` are comments.
 syn match ambientComment '//.*$' contains=ambientTodo,@Spell

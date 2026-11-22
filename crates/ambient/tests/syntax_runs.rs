@@ -14,6 +14,14 @@ fn operators_bind_as_arithmetic_does() {
 }
 
 #[test]
+fn a_power_binds_tightest_and_groups_to_the_right() {
+    assert_eq!(int("fn main(): int => 2 * 3 ** 2;"), 18);
+    assert_eq!(int("fn main(): int => 2 ** 3 ** 2;"), 512);
+    assert_eq!(int("fn main(): int => (-2) ** 2 + 2 ** -1;"), 4);
+    assert_eq!(int("fn main(): int => -(2 ** 2);"), -4);
+}
+
+#[test]
 fn comparisons_and_logic_are_built_from_what_the_language_has() {
     let source = r"
         fn pick(a: int, b: int): int {

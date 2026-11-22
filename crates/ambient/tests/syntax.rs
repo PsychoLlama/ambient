@@ -306,6 +306,17 @@ fn a_type_without_its_names_is_refused() {
     assert_eq!(function, "a parameter in a type is named, as `count: int`");
 }
 
+#[test]
+fn a_negated_base_of_a_power_is_refused() {
+    let said = "`-` before the base of `**` could negate the base or the power: \
+                write `(-x) ** y` or `-(x ** y)`";
+
+    for written in ["-2 ** 2", "-x ** 2"] {
+        let (_, _, message) = refused(&format!("fn main(x: int): int => {written};"));
+        assert_eq!(message, said, "{written}");
+    }
+}
+
 // What is not text
 
 #[test]

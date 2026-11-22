@@ -41,6 +41,12 @@ pub fn remainder(left: Expr, right: Expr) -> Expr {
     binary(Operator::Remainder, left, right)
 }
 
+/// `base ** exponent`.
+#[must_use]
+pub fn power(base: Expr, exponent: Expr) -> Expr {
+    binary(Operator::Power, base, exponent)
+}
+
 /// How long a string or a list is.
 #[must_use]
 pub fn length(value: Expr) -> Expr {

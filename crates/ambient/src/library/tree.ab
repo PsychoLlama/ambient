@@ -92,7 +92,7 @@ pub type Entry = { name: string, value: Expr } | { ability: Reference, value: Ex
 /// An operation, by the word for it: `intrinsics.length(list)` is `length`, and
 /// `left + right` is `add`.
 pub type Operation =
-    "add" | "subtract" | "multiply" | "divide" | "remainder" | "less" | "equal"
+    "add" | "subtract" | "multiply" | "divide" | "remainder" | "power" | "less" | "equal"
     | "length" | "get" | "push" | "join" | "slice"
     | "to_int" | "to_float" | "to_text" | "to_bytes" | "code" | "character"
     | "iterator" | "iterate" | "range" | "step" | "gather" | "race";

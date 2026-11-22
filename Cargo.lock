@@ -99,6 +99,7 @@ version = "0.2.0"
 name = "ambient-runtime"
 version = "0.2.0"
 dependencies = [
+ "libm",
  "proptest",
 ]
 

@@ -124,6 +124,8 @@ entries! {
     ScopeSet = amb_scope_set, plain, 4, nothing;
     IntDivide = amb_int_divide, context, 2, word;
     IntRemainder = amb_int_remainder, context, 2, word;
+    IntPower = amb_int_power, context, 2, word;
+    FloatPower = amb_float_power, plain, 2, word;
     FloatDivide = amb_float_divide, plain, 2, word;
     StringLess = amb_string_less, plain, 2, word;
     StringLength = amb_string_length, plain, 1, word;

@@ -114,6 +114,7 @@ pub fn main(): string => first_word("tea for two") + area({ kind: circle, radius
 - Absence is `null` in a union (`string | null`), and there is no exception to catch: an operation that can fail gives a union with `Error`.
 - `value ?? 0` is the value, or `0` where it is null. `cast::<int>(value, 0)` is the value if it is an `int`, and `0` if not: a cast narrows by a type and says what to give otherwise. What it gives otherwise is evaluated either way, so one that should only happen on a failure goes after `??`: `cast::<int>(value, null) ?? fail(not_a_number, "…")`.
 - `??` binds looser than every operator, so parenthesise it inside a larger expression.
+- `**` raises to a power, tightest of all and from the right. Write `(-2) ** 2` or `-(2 ** 2)`: `-2 ** 2` is refused, since it could be either. An integer to a negative power truncates as division does, so `2 ** -1` is `0`.
 - Literals have their own types: `1` is of type `1`, which is why a condition that is always `true` is an error. This rarely shows; where it does, say the wider type.
 
 A tag is a named value with a type of its own, for the cases of a union:
