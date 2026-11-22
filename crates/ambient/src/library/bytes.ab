@@ -19,6 +19,54 @@ pub fn is_empty(self: bytes): bool => intrinsics.length(self) == 0;
 /// The string these bytes encode as UTF-8, or null if they encode none.
 pub fn to_text(self: bytes): string | null => intrinsics.to_text(self);
 
+/// The position `part` first begins at, or null if it is not there.
+pub fn find(self: bytes, part: bytes): int | null => find_from(self, part, 0);
+
+fn find_from(held: bytes, part: bytes, at: int): int | null {
+    let end = at + intrinsics.length(part);
+    if intrinsics.length(held) < end {
+        return null;
+    }
+    // A first byte that differs settles it without making a slice.
+    if intrinsics.get(held, at) == intrinsics.get(part, 0) && intrinsics.slice(held, at, end) == part {
+        return at;
+    }
+    return find_from(held, part, at + 1);
+}
+
+/// Whether `part` is anywhere in the bytes.
+pub fn contains(self: bytes, part: bytes): bool => find(self, part) != null;
+
+/// The pieces of the bytes between each `separator`. A separator that
+/// holds nothing separates nothing.
+///
+/// Text split on a byte below 128, such as a line's ending, splits
+/// whole characters: no other character's encoding holds one.
+pub fn split(self: bytes, separator: bytes): List<bytes> {
+    if intrinsics.length(separator) == 0 {
+        return [self];
+    }
+    return split_into(self, separator, []);
+}
+
+fn split_into(held: bytes, separator: bytes, pieces: List<bytes>): List<bytes> {
+    match find(held, separator) {
+        null => { return intrinsics.push(pieces, held); }
+        let at => {
+            let rest = from(held, at + intrinsics.length(separator));
+            return split_into(rest, separator, intrinsics.push(pieces, before(held, at)));
+        }
+    }
+}
+
+/// What is left of the bytes from a position on, or nothing if the
+/// position is not one.
+fn from(held: bytes, start: int): bytes => intrinsics.slice(held, start, intrinsics.length(held)) ?? 0x[];
+
+/// What is in the bytes before a position, or nothing if the position
+/// is not one.
+fn before(held: bytes, end: int): bytes => intrinsics.slice(held, 0, end) ?? 0x[];
+
 /// Each byte, in order.
 pub fn iter(self: bytes): Iterator<int> =>
     intrinsics.range(0, intrinsics.length(self)).map(fn(at: int): int => intrinsics.get(self, at) ?? 0);

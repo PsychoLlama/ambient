@@ -101,6 +101,68 @@ proptest! {
     }
 }
 
+#[test]
+fn bytes_are_searched_and_split_as_a_string_is() {
+    let source = r#"
+        fn main(): string {
+            let event = "data: é\n\nid: 2".to_bytes();
+            let at = (event.find(0x[0a 0a]) ?? -1).to_text();
+            let missing = (event.find(0x[ff]) ?? -1).to_text();
+            let lines = event.split(0x[0a]).map(fn(line: bytes): string => line.to_text() ?? "?");
+            let whole = event.split(0x[]).length().to_text();
+            return "${at} ${missing} ${event.contains(0x[69 64])} [${lines.join_with("|")}] ${whole}";
+        }
+    "#;
+    // `é` is two bytes, so the blank line begins at 8.
+    assert_eq!(text(source), "8 -1 true [data: é||id: 2] 1");
+}
+
+/// Bytes as `bytes.hex` gives them.
+fn hex(bytes: &[u8]) -> String {
+    let pairs: Vec<String> = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    pairs.concat()
+}
+
+/// Bytes as a program writes them.
+fn written(bytes: &[u8]) -> String {
+    format!("0x[{}]", hex(bytes))
+}
+
+/// Where `part` first begins in `held`, as `bytes.find` gives it.
+fn found(held: &[u8], part: &[u8]) -> String {
+    let at = (0..held.len()).find(|&at| held.get(at..at + part.len()) == Some(part));
+    at.map_or("-1".to_owned(), |at| at.to_string())
+}
+
+/// Searches of short bytes from few values, so a part is often found.
+fn searches() -> impl Strategy<Value = Vec<(Vec<u8>, Vec<u8>)>> {
+    let held = proptest::collection::vec(0..3u8, 0..12);
+    let part = proptest::collection::vec(0..3u8, 1..3);
+    proptest::collection::vec((held, part), 4)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(8))]
+
+    /// Each search gives where its part begins, and the bytes split on
+    /// the part and joined with it again, in hexadecimal.
+    #[test]
+    fn bytes_are_found_where_they_begin_and_split_back_whole(searched in searches()) {
+        let search = |(held, part): &(Vec<u8>, Vec<u8>)| {
+            let (held, part) = (written(held), written(part));
+            let pieces = format!("{held}.split({part}).map(fn(piece: bytes): string => piece.hex())");
+            format!(r#"({held}.find({part}) ?? -1).to_text() + " " + {pieces}.join_with({part}.hex())"#)
+        };
+        let searches: Vec<String> = searched.iter().map(search).collect();
+        let source = format!(r#"fn main(): string => [{}].join_with(",");"#, searches.join(", "));
+        let expected: Vec<String> = searched
+            .iter()
+            .map(|(held, part)| format!("{} {}", found(held, part), hex(held)))
+            .collect();
+        prop_assert_eq!(text(&source), expected.join(","));
+    }
+}
+
 // Written out
 
 #[test]
