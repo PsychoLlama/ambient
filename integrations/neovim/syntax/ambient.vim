@@ -54,9 +54,10 @@ syn match ambientKeyword '\%(^\s*\%(pub\s\+\)\=extern\s\+handler\>.*\s\)\@<=\%(f
 syn match ambientKeyword '\%(\<type(\)\@<=nominal\>\ze)'
 syn match ambientKeyword '\%(\<handler(\)\@<=suspending\>\ze)'
 
-" An annotation: `#[binding("document.title")]`.
-syn match ambientAnnotation '#\[\s*\h\w*' contains=ambientAnnotationMark
-syn match ambientAnnotationMark '#\[' contained
+" An annotation: `#[binding("document.title")]`, or `#[test.case]`. Its
+" key is a path, and one with no value closes where its key ends.
+syn match ambientAnnotation '#\[\s*\h\w*\%(\.\h\w*\)*\%(\s*\]\)\=' contains=ambientAnnotationMark
+syn match ambientAnnotationMark '#\[\|\]' contained
 
 " Numbers: `1_000`, `1.5`, `1e3`, `2.5E-4`. A dot is a fraction only
 " before a digit, so `1.to_text()` is a call on `1`.
