@@ -100,7 +100,7 @@ const BINDINGS: &str = r#"
     use js.{binding};
 
     pub fn all(): tree.Module => [
-        code.named_extern("larger", [tree.integer, tree.integer], tree.integer, [
+        code.said(code.named_extern("larger", [tree.integer, tree.integer], tree.integer), [
             { key: comptime tree.reference(binding), value: "Math.max" },
         ]),
     ];

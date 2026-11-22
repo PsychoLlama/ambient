@@ -80,21 +80,25 @@ fn a_package_finds_its_tests_its_own_way() {
 #[test]
 fn several_ways_find_a_test_once_where_it_was_first_found() {
     let (code, said) = tested(
-        "[test]\nfind = [\"ambient.test.named\", \"ambient.test.annotated\"]",
-        &[(
-            "main.ab",
-            "use ambient.test;
-            #[test.case] fn found(): int => 1;
-            #[test.case] fn test_found_twice(): int => 2;
-            fn test_named(): int => 3;",
-        )],
+        "[test]\nfind = [\"pkg.find.under\", \"ambient.test.annotated\"]",
+        &[
+            ("find.ab", UNDER),
+            (
+                "checks/sums.ab",
+                "use ambient.test; #[test.case] fn adds(): int => 1 + 1;",
+            ),
+            (
+                "main.ab",
+                "use ambient.test; #[test.case] fn elsewhere(): null => null;",
+            ),
+        ],
     );
 
     assert_eq!(
         (code, said.as_str()),
         (
             0,
-            "ok    app:main.test_found_twice\nok    app:main.test_named\nok    app:main.found\n3 passed, 0 failed\n"
+            "ok    checks.sums.adds\nok    app:main.elsewhere\n2 passed, 0 failed\n"
         )
     );
 }
@@ -114,17 +118,26 @@ fn a_way_to_find_tests_takes_a_selection_and_gives_tests() {
 }
 
 #[test]
-fn a_function_that_takes_something_is_no_test_by_its_name() {
+fn a_test_that_takes_something_fails_and_runs_no_other_the_worse() {
     let (code, said) = tested(
-        "[test]\nfind = [\"ambient.test.named\"]",
+        "",
         &[(
             "main.ab",
-            "fn test_takes(n: int): int => n;\nfn test_nothing(): null => null;",
+            "use ambient.test;
+            #[test.case] fn takes(n: int): int => n;
+            #[test.case] fn holds(): null => null;",
         )],
     );
 
     assert_eq!(
         (code, said.as_str()),
-        (0, "ok    app:main.test_nothing\n1 passed, 0 failed\n")
+        (
+            1,
+            "FAIL  app:main.takes
+      app/src/main.ab:2:26: app:main.takes: `ambient:test.outcome` runs a function that takes nothing
+ok    app:main.holds
+1 passed, 1 failed
+"
+        )
     );
 }

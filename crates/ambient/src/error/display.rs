@@ -71,7 +71,8 @@ impl fmt::Display for Error {
             | Self::NativeRow(_)
             | Self::TargetConflict { .. }
             | Self::ForeignDefault { .. }
-            | Self::GenericEntry(_) => self.fmt_world(f),
+            | Self::GenericEntry(_)
+            | Self::NotHanded { .. } => self.fmt_world(f),
             Self::ToolConflict(_)
             | Self::NotTool(_)
             | Self::NotLint(_)
@@ -314,6 +315,19 @@ impl Error {
             Self::GenericEntry(symbol) => {
                 write!(f, "{symbol}: an entry cannot have type parameters")
             }
+            Self::NotHanded {
+                symbol,
+                within,
+                takes: 0,
+            } => write!(f, "{symbol}: `{within}` runs a function that takes nothing"),
+            Self::NotHanded {
+                symbol,
+                within,
+                takes,
+            } => write!(
+                f,
+                "{symbol}: `{within}` runs a function of {takes} parameters"
+            ),
             _ => Ok(()),
         }
     }

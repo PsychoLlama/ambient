@@ -190,7 +190,7 @@ fn a_module_has_nothing_its_call_did_not_give() {
 
 #[test]
 fn what_is_not_public_stays_in_its_module() {
-    let all = "[{ name: \"double\", public: false, function: scaled(2) }]";
+    let all = "[{ name: \"double\", public: false, said: [], function: scaled(2) }]";
     let main = "use pkg.made; fn main(): int => made.double(4);";
 
     assert!(matches!(refused(all, main), Error::PrivateName { .. }));
@@ -300,10 +300,8 @@ fn a_generated_module_is_made_once_for_a_store() {
 /// the extern under a tag the making module declares.
 const NATIVE: &str = "[
     code.named_brand(\"Address\"),
-    code.named_extern(
-        \"address\",
-        [tree.text],
-        { named: code.beside(\"Address\", \"type\") },
+    code.said(
+        code.named_extern(\"address\", [tree.text], { named: code.beside(\"Address\", \"type\") }),
         [{ key: comptime tree.reference(note), value: { new: \"URL\" } }],
     ),
 ]";

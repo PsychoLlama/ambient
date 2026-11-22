@@ -28,4 +28,4 @@ An annotation is data a build reads and a program never does. It is how a defini
 
 ## Unbuilt
 
-- TODO: nothing written annotates an expression: only a tree a comptime call gives does. Of generated definitions only an extern carries its own.
+- TODO: nothing written annotates an expression: only a tree a comptime call gives does.

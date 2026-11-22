@@ -238,8 +238,8 @@ fn testing_a_workspace_tests_every_member() {
     );
 
     assert_eq!(code, 1);
-    assert_eq!(said.matches("ok    one:.test_one").count(), 1, "{said}");
-    assert!(said.contains("FAIL  other:.test_other"), "{said}");
+    assert_eq!(said.matches("ok    one.test_one").count(), 1, "{said}");
+    assert!(said.contains("FAIL  other.test_other"), "{said}");
 }
 
 /// Says the snapshot of those members, which is done for one.
@@ -366,7 +366,7 @@ fn a_member_named_twice_is_tested_once() {
         &test,
     );
 
-    assert_eq!(said.matches("ok    one:.test_one").count(), 1, "{said}");
+    assert_eq!(said.matches("ok    one.test_one").count(), 1, "{said}");
 }
 
 /// Runs `main` of those members, which is done for one.

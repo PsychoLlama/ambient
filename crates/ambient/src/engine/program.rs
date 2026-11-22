@@ -241,7 +241,10 @@ impl Engine<'_> {
         }
         let (row, callee, params) = match &root.within {
             None => (abilities(&header.row), &root.entry, header.params.clone()),
-            Some(within) => (self.within_row(within, &header.row)?, within, Vec::new()),
+            Some(within) => {
+                let row = self.within_row(&root.entry, header.params.len(), within, &header.row)?;
+                (row, within, Vec::new())
+            }
         };
         // What the entry reaches: its row, and the row of every handler
         // that takes part. A binding nothing reaches is left out, so it is
@@ -306,23 +309,37 @@ impl Engine<'_> {
         })
     }
 
-    /// What a program that hands an entry of `row` to `within` takes of
-    /// its target: `within`'s own row, and what of `row` the function
-    /// `within` takes does not take, which the entry captures where the
-    /// root hands it over.
-    fn within_row(&self, within: &Symbol, row: &[Reference]) -> Result<Vec<Symbol>, Error> {
+    /// What a program that hands `entry`, of `params` parameters and
+    /// `row`, to `within` takes of its target: `within`'s own row, and
+    /// what of `row` the function `within` takes does not take, which
+    /// the entry captures where the root hands it over.
+    fn within_row(
+        &self,
+        entry: &Symbol,
+        params: usize,
+        within: &Symbol,
+        row: &[Reference],
+    ) -> Result<Vec<Symbol>, Error> {
         let resolved = self.resolve(within)?;
         let header = self.function_of(within, &resolved.definition)?;
         let header = header.ok_or_else(|| Error::NotCompilable(within.clone()))?;
-        let provided = match header.params.as_slice() {
+        let (handed, provided) = match header.params.as_slice() {
             [
                 Param {
-                    ty: Type::Function { row, .. },
+                    ty: Type::Function { params, row, .. },
                     ..
                 },
-            ] => abilities(row),
+            ] => (params.len(), abilities(row)),
             _ => return Err(Error::NotCompilable(within.clone())),
         };
+        // Said here, of the entry, as a binding it lacks is.
+        if params != handed {
+            return Err(Error::NotHanded {
+                symbol: entry.clone(),
+                within: within.clone(),
+                takes: handed,
+            });
+        }
         let mut taken = abilities(&header.row);
         taken.extend(
             abilities(row)

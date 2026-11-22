@@ -497,11 +497,11 @@ A test is given no world: it provides what the code under test needs, as above, 
 
 A test is run again only when it changes or what it reaches does, whether it passed or failed. Moving or renaming one changes nothing about it.
 
-A package may find its tests its own way: a function that takes a `build.Selection` and gives `test.Tests`, listed in its manifest. `ambient.test.named` finds the functions whose names begin with `test_`, and a package may list several:
+A package may find its tests its own way: a function that takes a `build.Selection` and gives `test.Tests`, listed in its manifest. It may list several, and `ambient.test.annotated` is the standard one:
 
 ```toml
 [test]
-find = ["ambient.test.annotated", "ambient.test.named"]
+find = ["pkg.checks.found", "ambient.test.annotated"]
 ```
 
 ## The standard library

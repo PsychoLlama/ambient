@@ -179,20 +179,20 @@ pub fn generic(bounds: List<Type | null>, make: fn(parameters: List<Type>): Func
 }
 
 /// A public function of a generated module, by the name it has there.
-pub fn named(name: string, function: Function): Definition => { name, public: true, function };
+pub fn named(name: string, function: Function): Definition => { name, public: true, said: [], function };
 
 /// A public type of a generated module, by the name it has there.
-pub fn named_type(name: string, means: Type): Definition => { name, public: true, means, parameters: 0 };
+pub fn named_type(name: string, means: Type): Definition => { name, public: true, said: [], means, parameters: 0 };
 
 /// A public type of a generated module with `parameters` type
 /// parameters: what `means` gives, which is handed the type each is.
 pub fn named_generic(name: string, parameters: int, means: fn(parameters: List<Type>): Type): Definition =>
-    { name, public: true, means: means(intrinsics.range(0, parameters).map(parameter).to_list()), parameters };
+    { name, public: true, said: [], means: means(intrinsics.range(0, parameters).map(parameter).to_list()), parameters };
 
 /// A public ability of a generated module, by the name it has there
 /// and what it takes and gives.
 pub fn named_ability(name: string, takes: List<Type>, returns: Type): Definition =>
-    { name, public: true, ability: takes, returns, generic: [] };
+    { name, public: true, said: [], ability: takes, returns, generic: [] };
 
 /// A public ability of a generated module with a type parameter for
 /// each of `bounds`, which is its bound or null: `signature` is
@@ -200,18 +200,38 @@ pub fn named_ability(name: string, takes: List<Type>, returns: Type): Definition
 /// gives.
 pub fn named_generic_ability(name: string, bounds: List<Type | null>, signature: fn(parameters: List<Type>): (takes: List<Type>, gives: Type)): Definition {
     let (takes, returns) = signature(intrinsics.range(0, bounds.length()).map(parameter).to_list());
-    return { name, public: true, ability: takes, returns, generic: bounds };
+    return { name, public: true, said: [], ability: takes, returns, generic: bounds };
 }
 
 /// A public tag of a generated module, by the name it has there.
-pub fn named_tag(name: string): Definition => { name, public: true, tag: null };
+pub fn named_tag(name: string): Definition => { name, public: true, said: [], tag: null };
 
 /// A public brand of a generated module, by the name it has there.
-pub fn named_brand(name: string): Definition => { name, public: true, brand: null };
+pub fn named_brand(name: string): Definition => { name, public: true, said: [], brand: null };
 
 /// A public extern function of a generated module that performs
-/// nothing: its name there, what it takes and gives, and what is said
-/// of it to a build, which is how a target's tool comes to write its
-/// native side.
-pub fn named_extern(name: string, takes: List<Type>, returns: Type, said: List<Said>): Definition =>
-    { name, public: true, extern: takes, returns, takes: [], said };
+/// nothing: its name there, and what it takes and gives. What is said
+/// of it to a build, by `said`, is how a target's tool comes to write
+/// its native side.
+pub fn named_extern(name: string, takes: List<Type>, returns: Type): Definition =>
+    { name, public: true, said: [], extern: takes, returns, takes: [] };
+
+/// `definition`, with `said` said of it to a build besides what was:
+/// each an annotation, by a reference to the tag that is its key, as
+/// `comptime tree.reference(tag)` gives one, and plain data. It is how
+/// a generated test is annotated as one.
+pub fn said(definition: Definition, said: List<Said>): Definition {
+    let name = definition.name;
+    let public = definition.public;
+    let said = definition.said.join(said);
+    return match definition {
+        let it: { function: Function } => { name, public, said, function: it.function },
+        let it: { means: Type, parameters: int } => { name, public, said, means: it.means, parameters: it.parameters },
+        let it: { ability: List<Type>, returns: Type, generic: List<Type | null> } =>
+            { name, public, said, ability: it.ability, returns: it.returns, generic: it.generic },
+        { tag: null } => { name, public, said, tag: null },
+        { brand: null } => { name, public, said, brand: null },
+        let it: { extern: List<Type>, returns: Type, takes: List<Reference> } =>
+            { name, public, said, extern: it.extern, returns: it.returns, takes: it.takes },
+    };
+}

@@ -395,31 +395,25 @@ FAIL  app:main.test_faults
 }
 
 #[test]
-fn a_test_a_generated_module_was_given_is_found_by_a_way_the_manifest_lists() {
-    // A generated function carries no annotation of its own, so it is
-    // found by its name.
-    let manifest = "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"
-        [test]\nfind = [\"ambient.test.named\"]";
+fn a_test_a_generated_module_was_given_is_run() {
+    let manifest = "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"";
     let file = |(path, text): (&str, &str)| (PathBuf::from(path), text.to_owned());
     let files = [
         ("app/ambient.toml", manifest),
         (
             "app/src/make.ab",
-            "use ambient.code; use ambient.tree; use ambient.test.{unmet};
-            pub fn all(): tree.Module => [code.named(\"test_made\", code.define(
+            "use ambient.code; use ambient.tree; use ambient.test; use ambient.test.{unmet};
+            pub fn all(): tree.Module => [code.said(code.named(\"made\", code.define(
                 [], tree.nil, [comptime tree.reference(unmet)], fn(given: List<code.Code>): code.Code =>
-                    code.perform(comptime tree.reference(unmet), [code.record([(\"what\", code.literal(\"made\"))])])))];",
+                    code.perform(comptime tree.reference(unmet), [code.record([(\"what\", code.literal(\"made\"))])]))),
+                [{ key: comptime tree.reference(test.case), value: null }])];",
         ),
         ("app/src/made.ab", "use pkg.make; comptime make.all();"),
     ];
     let (code, world) = test(&files.into_iter().map(file).collect());
 
     assert_eq!(code, 1);
-    assert!(
-        world.out.contains("FAIL  app:made.test_made"),
-        "{}",
-        world.out
-    );
+    assert!(world.out.contains("FAIL  app:made.made"), "{}", world.out);
 }
 
 #[test]

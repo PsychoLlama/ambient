@@ -80,9 +80,11 @@ pub type Tests = List<Test>;
 pub tag case;
 
 /// The group a module's tests are in: the module, by its package and
-/// its path.
-pub fn module(of: Module): Group =>
-    { name: of.package.join(":").join(of.path.join_with(".")), group: null };
+/// its path, or by its package alone if it is the library module.
+pub fn module(of: Module): Group {
+    let path = of.path.join_with(".");
+    return { name: path == "" ? of.package : of.package.join(":").join(path), group: null };
+}
 
 /// A test of the module `at`: the definition `function`, by its name.
 fn found(at: Module, function: Reference): Test =>
@@ -100,24 +102,3 @@ pub fn annotated(of: Selection): Tests with build.annotated {
         return tests.join(said.map(fn(annotation: Annotation): Test => found(module, annotation.on)));
     });
 }
-
-/// The tests of a selection named as tests: each function that takes
-/// nothing and whose name begins with `test_`, in the order their
-/// modules and definitions are written.
-pub fn named(of: Selection): Tests with build.definitions, build.signature {
-    return of.modules.fold([], fn(tests: Tests, module: Module): Tests {
-        let defined = match build.definitions!(module) {
-            let defined: List<Reference> => defined,
-            _ => [],
-        };
-        let named = defined.filter(fn(of: Reference): bool => of.name.starts_with("test_") && takes_nothing(of));
-        return tests.join(named.map(fn(function: Reference): Test => found(module, function)));
-    });
-}
-
-/// Whether a definition is a function that takes nothing.
-fn takes_nothing(of: Reference): bool with build.signature =>
-    match build.signature!(of) {
-        let function: { function: List<unknown> } => function.function.length() == 0,
-        _ => false,
-    };
