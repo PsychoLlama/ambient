@@ -1,6 +1,6 @@
 # Memoization
 
-A memoized run caches a function's result together with everything the run observed. Comptime calls, [tools](tools.md), and tests are all memoized runs.
+A memoized run caches a function's result together with everything the run observed. Comptime calls and [tools](tools.md) are memoized runs; a [test](testing.md#keeping) is not.
 
 ## Traces
 
@@ -20,12 +20,6 @@ A memoized run caches a function's result together with everything the run obser
 - A verifiable ability can be repeated cheaply and without side effects, and its results compare by digest.
 - A trace that contains a volatile perform is never reused.
 - The classification belongs to the handler, not to the function that performs.
-
-## Tests
-
-- A [test](testing.md) is a memoized run, so whether it runs again follows from its trace, not its row.
-- A test answered wholly by handlers written in Ambient and by verifiable abilities is reused while its hash and those answers last, whatever its row names.
-- A test that performs a volatile ability runs again on every run, with no annotation.
 - A run with an empty trace is valid on any machine and can be shared between them.
 
 ## Dependents

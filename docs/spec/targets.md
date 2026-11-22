@@ -31,7 +31,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - Any other package binds an ability in a target of its own, as a host's package binds what of [`system`](#the-system-package) it can do.
 - What a target binds, itself or through a target it extends, is taken before a default.
 - Two defaults that differ under one target are a conflict, resolved as one between extended targets is.
-- A target takes no default that names neither it nor a target it extends. A test's target and an embedder's therefore bind what they list and nothing a dependency brought.
+- A target takes no default that names neither it nor a target it extends. An embedder's target therefore binds what it lists and nothing a dependency brought.
 - A default binds nothing a row does not ask for: it is reached as any root binding is, by the entry's row.
 - A package therefore offers an ability with native code by declaring both, and a program reaches it by its row. Neither defines a target.
 - Only a native handler is a default. An Ambient function is a root binding where a target lists it.
@@ -90,8 +90,8 @@ A target defines the world a program runs in: a root binding for every ability t
 - What takes time there suspends its [task](tasks.md) and blocks nothing: tasks sleep, run commands, and wait for input together, and a sleep beside other work in a first is a limit on it.
 - Work whose task was cancelled is stopped where it can be: a command is ended, and a line already being read is kept for whoever reads next.
 - The command-line target binds `throw`: an [error](errors.md) nothing caught ends the program, and is reported as a fault is. One a test throws ends the test, as its [outcome](testing.md#outcomes).
-- The standard library defines a target for a [test](testing.md), which binds nothing of the world, so it needs no `system`.
-- The build target and test targets are ordinary targets; see [comptime](comptime.md) and [memoization](memoization.md).
+- [Tests](testing.md#running) run under the command-line target, as one program.
+- The build target is an ordinary target; see [comptime](comptime.md).
 
 ## WebAssembly hosts
 
