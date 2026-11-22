@@ -64,4 +64,3 @@ A tool is a function a build runs to make something other than a program's defin
 
 - TODO: a tool is told no tree of a definition, and it runs a function only under the build target.
 - TODO: only checking hands a tool a selection, and the standard library holds no lints. A lint is over a selection alone, not over one definition.
-- TODO: finding [tests](testing.md) is not a tool: the command line finds them, so no package replaces it.

@@ -55,7 +55,8 @@ Testing is library code over one thing the compiler gives: running a test as a p
 
 ## Unbuilt
 
-- TODO: little of this is built. A test is a function that takes nothing and whose name begins with `test_`, found by the command line, which runs, keeps, and reports tests itself; no package replaces any of it.
-- TODO: a test runs only under the standard test target, and gives no file.
+- TODO: the command line runs and reports tests itself, so no package replaces either. It names a test by its groups and its name joined.
+- TODO: a test is handed no data, runs only under the standard test target, and gives no file.
+- TODO: a generated function carries no annotation, so the standard way finds no test a [comptime](comptime.md) call gives; one is found by its name.
 - TODO: a test reaches no [native bundle](externs.md#native-bundles), so a test of a package that brings native code cannot run what it brings.
 - TODO: a limit on a test's time cancels it, and a test that never suspends is never cancelled.

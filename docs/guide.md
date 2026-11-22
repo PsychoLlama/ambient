@@ -32,7 +32,7 @@ ambient run                  # runs the binary `main`: `main` of the module `mai
 ambient run -- one two       # what follows `--` is what env.args gives
 ambient run --bin fmt        # runs another binary of the package; `--bin` alone says which there are
 ambient check                # checks every definition, runs nothing
-ambient test                 # runs every function named test_*
+ambient test                 # runs every function annotated #[test.case]
 ambient build                # `build/hello`, one file that runs `main`: no package, no compiler
 ```
 
@@ -466,17 +466,19 @@ pub fn main(): string with clock.now {
 
 ## Testing
 
-A test is a function that takes nothing and whose name begins with `test_`. `ambient test` runs each one and reports everything in it that does not hold. `check` takes whether something holds, and `equal` two values, which it reports when they differ. Both are functions over one ability, `unmet`, which is what a test's row names.
+A test is a function that takes nothing, annotated `#[test.case]`. `ambient test` runs each one and reports everything in it that does not hold. `check` takes whether something holds, and `equal` two values, which it reports when they differ. Both are functions over one ability, `unmet`, which is what a test's row names.
 
 ```ab
 use system.console;
+use ambient.test;
 use ambient.test.{equal, unmet};
 
 fn greet(name: string): null with console.print {
     console.print!("hello, ${name}");
 }
 
-fn test_greets_by_name(): null with unmet {
+#[test.case]
+fn greets_by_name(): null with unmet {
     let said = cell::<string>("");
     provide { [console.print](text) { said.update(fn(_) => text); } } {
         greet("you");
@@ -489,9 +491,18 @@ pub fn main(): null with console.print {
 }
 ```
 
-`ambient test --only ledger` runs the tests whose module path and name hold `ledger`.
+`ambient test --only ledger` runs the tests whose name, after their module's, holds `ledger`.
 
 A test is given no world: it provides what the code under test needs, as above, so it says exactly what the world held.
+
+A test is run again only when it changes or what it reaches does, whether it passed or failed. Moving or renaming one changes nothing about it.
+
+A package may find its tests its own way: a function that takes a `build.Selection` and gives `test.Tests`, listed in its manifest. `ambient.test.named` finds the functions whose names begin with `test_`, and a package may list several:
+
+```toml
+[test]
+find = ["ambient.test.annotated", "ambient.test.named"]
+```
 
 ## The standard library
 

@@ -4,6 +4,7 @@
 
 use super::Engine;
 use super::asked::{definition, record};
+use super::built::built;
 use crate::error::Error;
 use crate::symbol::{PackageId, Symbol};
 use crate::value::Value;
@@ -41,6 +42,21 @@ impl Engine<'_> {
     /// Fails if what is listed is not a lint, or as [`Self::tool`]
     /// does.
     pub fn linted(&self, package: &PackageId, name: &str) -> Result<Vec<Error>, Error> {
+        let selection = self.selection(package, name);
+        let mut diagnostics = Vec::new();
+        for lint in self.sources.lints(package) {
+            if !self.typed(&lint, &built("Selection"), &built("Diagnostics"))? {
+                return Err(Error::NotLint(lint));
+            }
+            let given = self.tool(&lint, std::slice::from_ref(&selection))?;
+            diagnostics.extend(found(&lint, &given));
+        }
+        Ok(diagnostics)
+    }
+
+    /// A `build.Selection` of `package` and every module of it, and of
+    /// every name that holds `name`: what a command hands a tool.
+    pub(super) fn selection(&self, package: &PackageId, name: &str) -> Value {
         let text = |text: &String| Value::String(text.clone());
         let module = |module: crate::symbol::ModuleId| {
             record([
@@ -52,19 +68,10 @@ impl Engine<'_> {
             ])
         };
         let modules = self.sources.modules(package).into_iter().map(module);
-        let selection = record([
+        record([
             ("packages", Value::List(vec![text(&package.0)])),
             ("modules", Value::List(modules.collect())),
             ("name", Value::String(name.to_owned())),
-        ]);
-        let mut diagnostics = Vec::new();
-        for lint in self.sources.lints(package) {
-            if !self.typed(&lint, "Selection", "Diagnostics")? {
-                return Err(Error::NotLint(lint));
-            }
-            let given = self.tool(&lint, std::slice::from_ref(&selection))?;
-            diagnostics.extend(found(&lint, &given));
-        }
-        Ok(diagnostics)
+        ])
     }
 }

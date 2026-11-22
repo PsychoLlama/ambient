@@ -189,6 +189,9 @@ pub enum Error {
     /// What a manifest lists as a lint is not one: it does not take a
     /// `build.Selection` and give `build.Diagnostics`.
     NotLint(Symbol),
+    /// What a manifest lists as a way to find tests is not one: it does
+    /// not take a `build.Selection` and give `test.Tests`.
+    NotFinder(Symbol),
     /// What a lint found wrong with a definition.
     Lint {
         symbol: Symbol,
@@ -292,6 +295,7 @@ impl Error {
             | Self::ToolConflict(symbol)
             | Self::NotTool(symbol)
             | Self::NotLint(symbol)
+            | Self::NotFinder(symbol)
             | Self::Lint { symbol, .. }
             | Self::BuiltTwice { symbol, .. }
             | Self::NotAnnotation { symbol, .. }

@@ -1,4 +1,5 @@
 use ambient.json;
+use ambient.test;
 use ambient.test.{check, unmet};
 use ambient.url;
 use system.http.{self, Request, Response};
@@ -80,7 +81,8 @@ fn answers(kept: List<string>, requests: List<(method: string, url: string, body
     } => requests.map(asked);
 }
 
-fn test_notes_are_listed_added_and_forgotten(): null with unmet {
+#[test.case]
+fn notes_are_listed_added_and_forgotten(): null with unmet {
     let said = answers(["milk"], [
         ("POST", "/notes", "eggs\n"),
         ("GET", "/notes", ""),
@@ -96,7 +98,8 @@ fn test_notes_are_listed_added_and_forgotten(): null with unmet {
     check(said.get(4) == "200 [\"eggs\"]", "a forgotten note is gone");
 }
 
-fn test_what_cannot_be_answered_says_why(): null with unmet {
+#[test.case]
+fn what_cannot_be_answered_says_why(): null with unmet {
     let said = answers([], [
         ("GET", "/elsewhere", ""),
         ("GET", "/notes/7", ""),

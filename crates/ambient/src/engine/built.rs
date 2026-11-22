@@ -15,6 +15,11 @@ use crate::symbol::{ModuleId, Symbol};
 use crate::types::{Ty, abilities};
 use crate::value::Value;
 
+/// A type of the standard library's `build` module, by its name.
+pub(super) fn built(name: &str) -> Symbol {
+    ModuleId::new(FAULT_PACKAGE, MODULE).ty(name)
+}
+
 /// The files of a build: each a path and what the file holds.
 pub type Files = Vec<(String, Vec<u8>)>;
 
@@ -93,24 +98,26 @@ impl Engine<'_> {
         }
     }
 
-    /// Whether `tool` is typed as taking the type of the build library
-    /// `takes` names and giving the one `gives` names.
-    pub(super) fn typed(&self, tool: &Symbol, takes: &str, gives: &str) -> Result<bool, Error> {
-        let library = |name: &str| {
-            let named = ModuleId::new(FAULT_PACKAGE, MODULE).ty(name);
-            Ty::Named(Reference::Definition(named), Vec::new())
-        };
+    /// Whether `tool` is typed as taking the type `takes` and giving the
+    /// type `gives`, each a definition of a type with no parameters.
+    pub(super) fn typed(
+        &self,
+        tool: &Symbol,
+        takes: &Symbol,
+        gives: &Symbol,
+    ) -> Result<bool, Error> {
+        let named = |ty: &Symbol| Ty::Named(Reference::Definition(ty.clone()), Vec::new());
         Ok(self.signature(tool)?.is_some_and(|(signature, _)| {
             signature.type_params.is_empty()
-                && signature.params == [library(takes)]
-                && signature.ret == library(gives)
+                && signature.params == [named(takes)]
+                && signature.ret == named(gives)
         }))
     }
 
     /// Whether `tool` is typed as what a build runs: it takes a
     /// `build.Build` and gives `build.Files`.
     fn takes(&self, tool: &Symbol) -> Result<bool, Error> {
-        self.typed(tool, "Build", "Files")
+        self.typed(tool, &built("Build"), &built("Files"))
     }
 
     /// The build steps that run in a build of `entry` under `target`:

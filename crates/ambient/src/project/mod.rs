@@ -368,18 +368,29 @@ impl Opening<'_> {
             let module = self.prelude(&name, prelude)?;
             self.workspace.prelude(&name, module);
         }
-        for step in &manifest.steps {
-            let named = |path| self.value(&name, path, "build step", &step.tool);
-            let (target, tool) = (named(&step.target)?, named(&step.tool)?);
-            self.workspace.step(&name, target, tool);
-        }
-        for lint in &manifest.lints {
-            let tool = self.value(&name, lint, "lint", lint)?;
-            self.workspace.lint(&name, tool);
-        }
+        self.tools(&name, manifest)?;
         let bins = self.binaries(&name, &path, manifest)?;
         self.bins.insert(name.clone(), bins);
         Ok(name)
+    }
+
+    /// Declares the tools the manifest of the package `name` lists: its
+    /// build steps, its lints, and its ways to find tests.
+    fn tools(&mut self, name: &str, manifest: &Package) -> Result<(), ProjectError> {
+        for step in &manifest.steps {
+            let named = |path| self.value(name, path, "build step", &step.tool);
+            let (target, tool) = (named(&step.target)?, named(&step.tool)?);
+            self.workspace.step(name, target, tool);
+        }
+        for lint in &manifest.lints {
+            let tool = self.value(name, lint, "lint", lint)?;
+            self.workspace.lint(name, tool);
+        }
+        for finder in &manifest.test.find {
+            let tool = self.value(name, finder, "way to find tests", finder)?;
+            self.workspace.finder(name, tool);
+        }
+        Ok(())
     }
 
     /// Reads every source file of a package into the workspace.

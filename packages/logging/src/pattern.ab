@@ -1,3 +1,4 @@
+use ambient.test;
 use ambient.test.{check, unmet};
 use pkg.{Handler, Log, collect, context, info, keeping, log, within};
 
@@ -68,7 +69,8 @@ fn follows(pieces: List<string>, text: string): bool {
     }
 }
 
-fn test_a_wildcard_stands_for_any_text(): null with unmet {
+#[test.case]
+fn a_wildcard_stands_for_any_text(): null with unmet {
     let app = parse("app*");
     check(matches(app, "app"), "nothing is any text");
     check(matches(app, "app:http"), "what follows is any text");
@@ -77,7 +79,8 @@ fn test_a_wildcard_stands_for_any_text(): null with unmet {
     check(!matches(parse("a*b*a"), "aba:b"), "the last piece ends the text");
 }
 
-fn test_a_refused_name_is_never_taken(): null with unmet {
+#[test.case]
+fn a_refused_name_is_never_taken(): null with unmet {
     let patterns = parse("app*,  -app:db\t*:worker");
     check(matches(patterns, "app:http"), "an included name is taken");
     check(!matches(patterns, "app:db"), "a refused one is not, though it is included too");
@@ -85,7 +88,8 @@ fn test_a_refused_name_is_never_taken(): null with unmet {
     check(!matches(parse(""), "app"), "no pattern takes nothing");
 }
 
-fn test_a_handler_hands_on_the_logs_whose_origin_matches(): null with unmet {
+#[test.case]
+fn a_handler_hands_on_the_logs_whose_origin_matches(): null with unmet {
     let kept = cell::<List<Log>>([]);
     provide { [log]: matching("app*, -*:db", keeping(kept)) } => within("app", fn() {
         info("taken", context([]));

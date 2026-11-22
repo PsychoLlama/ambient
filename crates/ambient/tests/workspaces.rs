@@ -231,8 +231,8 @@ fn testing_a_workspace_tests_every_member() {
     };
     let (code, said) = at_the_top(
         &pair(
-            "fn test_one(): null => null;",
-            "fn test_other(): int => 1 / 0;",
+            "use ambient.test; #[test.case] fn test_one(): null => null;",
+            "use ambient.test; #[test.case] fn test_other(): int => 1 / 0;",
         ),
         &test,
     );
@@ -358,7 +358,13 @@ fn a_member_named_twice_is_tested_once() {
         at: Chosen::named(&["one", "one"]),
         only: None,
     };
-    let (_, said) = at_the_top(&pair("fn test_one(): null => null;", SEVEN), &test);
+    let (_, said) = at_the_top(
+        &pair(
+            "use ambient.test; #[test.case] fn test_one(): null => null;",
+            SEVEN,
+        ),
+        &test,
+    );
 
     assert_eq!(said.matches("ok    one:.test_one").count(), 1, "{said}");
 }

@@ -1,4 +1,5 @@
 use ambient.code;
+use ambient.test;
 use ambient.test.{check, unmet};
 use ambient.tree;
 
@@ -57,7 +58,8 @@ fn game(): int with roll, say {
     return total;
 }
 
-fn test_each_perform_is_told_by_name(): null with unmet {
+#[test.case]
+fn each_perform_is_told_by_name(): null with unmet {
     let lines = cell::<List<string>>([]);
     let tell = fn(line: string): null {
         lines.update(fn(told: List<string>): List<string> => told.push(line));

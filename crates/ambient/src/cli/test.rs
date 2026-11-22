@@ -1,5 +1,5 @@
-//! `ambient test`: the tests of a package, each run as a program of its
-//! own, through `ambient.test.outcome`. See `docs/spec/testing.md`.
+//! `ambient test`: the tests of a package, as `Engine::found` finds
+//! them, each run as a program of its own through `ambient.test.outcome`. See `docs/spec/testing.md`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
@@ -10,22 +10,16 @@ use ambient_runtime::FAULT_PACKAGE;
 
 use super::{Chosen, Launch, Session, trace};
 use crate::backend::native::Natives;
-use crate::engine::{Engine, Stage};
+use crate::engine::{Found, Stage};
 use crate::error::Error;
-use crate::project::Project;
-use crate::surface::DefinitionKind;
-use crate::symbol::{ModuleId, Symbol};
+use crate::symbol::ModuleId;
 use crate::value::Value;
-use crate::workspace::Sources;
-
-/// What begins the name of a test.
-const PREFIX: &str = "test_";
 
 impl Session<'_> {
     /// Runs the tests of the packages `chosen` is, says how each
     /// went, and gives the code to exit with: zero if none failed.
-    /// With `only`, the tests are those whose module path and name
-    /// hold it.
+    /// With `only`, the tests are those whose name, after those of
+    /// their groups, holds it.
     pub(super) fn test(&self, chosen: &Chosen, only: Option<&str>) -> Result<i32, Vec<String>> {
         let packages = self.each(chosen)?;
         let mut code = 0;
@@ -45,33 +39,37 @@ impl Session<'_> {
         };
         let module = ModuleId::new(FAULT_PACKAGE, "test");
         let (target, within) = (module.value("runner"), module.value("outcome"));
+        let reported = |error: Error| vec![super::report(&project, &engine, &error)];
+        let package = ModuleId::new(&project.root, "").package;
+        let found = engine.found(&package).map_err(reported)?;
+        let named = |test: &Found| test.name.join(".");
+        let chosen = |test: &&Found| only.is_none_or(|only| named(test).contains(only));
+        let tests: Vec<&Found> = found.iter().filter(chosen).collect();
         let (mut passed, mut failed) = (0, 0);
-        let chosen = |test: &Symbol| only.is_none_or(|only| test.identity().contains(only));
-        let tests = tests(&project, &engine)
-            .map_err(|error| vec![super::report(&project, &engine, &error)])?;
-        let tests: Vec<Symbol> = tests.into_iter().filter(chosen).collect();
         for test in &tests {
             // A test is a run kept as any other is, failed or not. Its
             // outcome names nothing, so it is named here, by what the
             // test is now.
+            let function = &test.function;
             let natives = crate::host::computing(Natives::new());
-            let problems = match engine.run_within(test, &within, &target, &natives) {
+            let problems = match engine.run_within(function, &within, &target, &natives) {
                 Ok(outcome) => problems(&outcome, |error| {
-                    let Ok(root) = engine.program_within(test, &within, &target) else {
+                    let Ok(root) = engine.program_within(function, &within, &target) else {
                         return Vec::new();
                     };
                     let error = inner(error, &trace::reach(&engine, &within));
                     launch.frames(&root).trace(&error)
                 }),
-                Err(error) => vec![super::report(&project, &engine, &error)],
+                Err(error) => reported(error),
             };
+            let name = named(test);
             let mut world = self.world.borrow_mut();
             if problems.is_empty() {
                 passed += 1;
-                world.write(&format!("ok    {test}\n"));
+                world.write(&format!("ok    {name}\n"));
             } else {
                 failed += 1;
-                world.write(&format!("FAIL  {test}\n"));
+                world.write(&format!("FAIL  {name}\n"));
                 for line in problems.iter().flat_map(|problem| problem.lines()) {
                     world.write(&format!("      {line}\n"));
                 }
@@ -80,7 +78,7 @@ impl Session<'_> {
         let reused = engine.reused(Stage::Run);
         let kept = tests
             .iter()
-            .filter(|test| reused.contains(&test.to_string()));
+            .filter(|test| reused.contains(&test.function.to_string()));
         let again = match kept.count() {
             0 => String::new(),
             kept => format!(" ({kept} not run again)"),
@@ -89,41 +87,6 @@ impl Session<'_> {
         self.world.borrow_mut().write(&summary);
         Ok(i32::from(failed > 0))
     }
-}
-
-/// Whether a definition of this name and kind is a test.
-fn test<N>(name: &str, kind: &DefinitionKind<N>) -> bool {
-    let takes_nothing =
-        matches!(kind, DefinitionKind::Function(function) if function.params.is_empty());
-    takes_nothing && name.starts_with(PREFIX)
-}
-
-/// The tests of the package a project was opened at, in the order of
-/// their modules and of their definitions there: each function that
-/// takes nothing and is named as a test. Those a generated module was
-/// given follow what the module was written with.
-fn tests(project: &Project, engine: &Engine) -> Result<Vec<Symbol>, Error> {
-    let root = ModuleId::new(&project.root, "").package;
-    let mut tests = Vec::new();
-    for read in project
-        .modules
-        .iter()
-        .filter(|read| read.module.package == root)
-    {
-        let Some(module) = project.workspace.module(&read.module) else {
-            continue;
-        };
-        let written = module.definitions().iter();
-        let written = written.filter(|definition| test(&definition.name, &definition.kind));
-        tests.extend(written.map(|definition| read.module.value(&definition.name)));
-        for made in engine.generated_in(&read.module)? {
-            let resolved = engine.resolve(&made)?;
-            if test(&made.name, &resolved.definition.kind) {
-                tests.push(made);
-            }
-        }
-    }
-    Ok(tests)
 }
 
 /// An error a test ended with, less the frames of what ran it: those at

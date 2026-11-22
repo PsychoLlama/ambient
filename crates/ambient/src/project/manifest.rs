@@ -19,6 +19,17 @@ pub struct Step {
     pub tool: String,
 }
 
+/// What a manifest says under `test`: the parts of testing the package
+/// replaces. See `docs/spec/testing.md`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Testing {
+    /// The functions that find the package's tests, each a path as a
+    /// prelude's is. None is the standard library's way.
+    #[serde(default)]
+    pub find: Vec<String>,
+}
+
 /// A native bundle: the machine code of a package's externs for one
 /// platform, as a file the manifest lists by its digest. See
 /// "Distribution" in `docs/spec/externs.md`.
@@ -80,6 +91,8 @@ pub struct Package {
     /// The lints checking the package runs, each a path as a
     /// prelude's is, to a function. See "Commands" in `docs/spec/tools.md`.
     pub lints: Vec<String>,
+    /// The parts of testing the package replaces.
+    pub test: Testing,
     /// The binaries the package declares, each by the name of its
     /// function. See "Binaries" in `docs/spec/packages.md`.
     pub bins: BTreeMap<String, Bin>,
@@ -129,6 +142,8 @@ struct Written {
     steps: Vec<Step>,
     #[serde(default)]
     native: BTreeMap<String, Bundle>,
+    #[serde(default)]
+    test: Testing,
 }
 
 impl Written {
@@ -139,6 +154,7 @@ impl Written {
             ("dependencies", self.dependencies.is_empty()),
             ("steps", self.steps.is_empty()),
             ("native", self.native.is_empty()),
+            ("test", self.test == Testing::default()),
         ];
         let said = tables.into_iter().find(|(_, empty)| !empty);
         said.map(|(table, _)| table)
@@ -236,6 +252,7 @@ impl Manifest {
             files: said.files,
             steps: written.steps,
             lints: said.lints,
+            test: written.test,
             bins: written.bin,
             native: written.native,
         };

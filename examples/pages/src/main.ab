@@ -1,3 +1,4 @@
+use ambient.test;
 use ambient.test.{check, unmet};
 use pkg.site;
 use system.console;
@@ -25,7 +26,8 @@ pub fn main(): int with console.print, console.warn, env.args {
     }
 }
 
-fn test_every_file_is_a_page(): null with unmet {
+#[test.case]
+fn every_file_is_a_page(): null with unmet {
     check(site.names() == ["about", "home"], "the pages are the files, in order");
     check(site.about().starts_with("# About"), "a page is a function that gives its text");
     check(site.page("home") == site.home(), "a page is found by its name");

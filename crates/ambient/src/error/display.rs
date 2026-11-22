@@ -75,6 +75,7 @@ impl fmt::Display for Error {
             Self::ToolConflict(_)
             | Self::NotTool(_)
             | Self::NotLint(_)
+            | Self::NotFinder(_)
             | Self::Lint { .. }
             | Self::BuiltTwice { .. }
             | Self::NotAnnotation { .. } => self.fmt_build(f),
@@ -335,6 +336,10 @@ impl Error {
             Self::NotLint(symbol) => write!(
                 f,
                 "{symbol}: a lint takes a `build.Selection` and gives `build.Diagnostics`"
+            ),
+            Self::NotFinder(symbol) => write!(
+                f,
+                "{symbol}: a way to find tests takes a `build.Selection` and gives `test.Tests`"
             ),
             Self::Lint {
                 symbol,

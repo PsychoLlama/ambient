@@ -13,6 +13,7 @@ pub mod pattern;
 
 use ambient.json.{Json};
 use ambient.map.{self, Map};
+use ambient.test;
 use ambient.test.{check, unmet};
 use pkg.level.{self, Level};
 
@@ -114,21 +115,24 @@ fn session(): int with log =>
 /// Where each of `logs` came from, as one text.
 fn origins(logs: List<Log>): List<string> => logs.map(fn(entry: Log): string => entry.origin.join_with(":"));
 
-fn test_a_log_is_marked_with_where_it_was_made(): null with unmet {
+#[test.case]
+fn a_log_is_marked_with_where_it_was_made(): null with unmet {
     let (status, logs) = collect(session);
     check(status == 503, "what the body gave is given");
     check(origins(logs) == ["app", "app:http", "app:http:db", "app:http", "app"], "outermost first");
     check(logs.map(fn(entry: Log): string => entry.message).first() == "listening", "oldest first");
 }
 
-fn test_a_handler_hands_on_only_what_is_severe_enough(): null with unmet {
+#[test.case]
+fn a_handler_hands_on_only_what_is_severe_enough(): null with unmet {
     let kept = cell::<List<Log>>([]);
     provide { [log]: at_least(level.warn, keeping(kept)) } => session();
     let levels = kept.read().map(fn(entry: Log): string => level.label(entry.level));
     check(levels == ["warn", "error"], "a warning and what is worse");
 }
 
-fn test_each_handler_of_several_is_handed_a_log(): null with unmet {
+#[test.case]
+fn each_handler_of_several_is_handed_a_log(): null with unmet {
     let (all, severe) = (cell::<List<Log>>([]), cell::<List<Log>>([]));
     provide { [log]: each([keeping(all), at_least(level.error, keeping(severe))]) } => session();
     check(all.read().length() == 5, "one takes every log");

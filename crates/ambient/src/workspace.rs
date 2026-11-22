@@ -49,6 +49,11 @@ pub trait Sources {
     /// The lints checking `package` runs, as its manifest lists them.
     /// See "Commands" in `docs/spec/tools.md`.
     fn lints(&self, package: &PackageId) -> Vec<Symbol>;
+
+    /// The functions that find the tests of `package`, as its manifest
+    /// lists them: none if it lists none. See "Finding" in
+    /// `docs/spec/testing.md`.
+    fn finders(&self, package: &PackageId) -> Vec<Symbol>;
 }
 
 /// What a package that is held is granted by its workspace itself,
@@ -146,6 +151,7 @@ pub struct Workspace {
     grants: Vec<Granting>,
     steps: BTreeMap<PackageId, Vec<(Symbol, Symbol)>>,
     lints: BTreeMap<PackageId, Vec<Symbol>>,
+    finders: BTreeMap<PackageId, Vec<Symbol>>,
     /// The preludes of a package that lists none.
     shared: Vec<ModuleId>,
     /// The standard library's preludes, for when `shared` is empty too.
@@ -236,6 +242,12 @@ impl Workspace {
         self.lints.entry(package).or_default().push(tool);
     }
 
+    /// Declares a way to find the tests of `package`: `tool`.
+    pub fn finder(&mut self, package: &str, tool: Symbol) {
+        let package = PackageId(package.to_owned());
+        self.finders.entry(package).or_default().push(tool);
+    }
+
     /// Declares a build step of `package`: `tool` adds files to a
     /// build under `target`, or under a target that extends it.
     pub fn step(&mut self, package: &str, target: Symbol, tool: Symbol) {
@@ -306,6 +318,10 @@ impl Sources for Workspace {
 
     fn lints(&self, package: &PackageId) -> Vec<Symbol> {
         self.lints.get(package).cloned().unwrap_or_default()
+    }
+
+    fn finders(&self, package: &PackageId) -> Vec<Symbol> {
+        self.finders.get(package).cloned().unwrap_or_default()
     }
 
     fn holds(&self, package: &PackageId) -> Option<Held> {

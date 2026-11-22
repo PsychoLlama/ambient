@@ -2,6 +2,7 @@ use system.console;
 use system.env;
 use system.fs;
 use ambient.Error;
+use ambient.test;
 use ambient.test.{check, unmet};
 use pkg.item.{self, Item};
 use pkg.store;
@@ -61,7 +62,8 @@ fn show(items: List<Item>): null with console.print {
     }
 }
 
-fn test_a_command_changes_the_items(): null with unmet {
+#[test.case]
+fn a_command_changes_the_items(): null with unmet {
     let items = store.parse("[ ] tea\n[x] milk\nnot an item\n");
     let lines = fn(changed: List<Item> | string): string =>
         match changed {

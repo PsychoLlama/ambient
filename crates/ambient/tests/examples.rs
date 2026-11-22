@@ -5,7 +5,7 @@
 mod support;
 
 use std::fmt::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use ambient::cli::{Chosen, Command};
 use ambient::host::{Request, Response};
@@ -37,30 +37,52 @@ fn every_example_checks() {
     assert!(checked > 0);
 }
 
-#[test]
-fn every_test_of_an_example_passes() {
-    for entry in std::fs::read_dir(example("")).unwrap() {
-        let path = entry.unwrap().path();
-        let test = Command::Test {
-            at: Chosen::default(),
-            only: None,
-        };
-        let (code, world) = Scripted::within(path).execute(&Disk, &test);
-
-        assert_eq!((code, world.err.as_str()), (0, ""), "{}", world.out);
-    }
-}
-
-#[test]
-fn the_logging_package_passes_its_tests() {
-    let path = example("../packages/logging");
+/// Tests the package at `path`, and gives how many tests passed, and
+/// how many its sources annotate as a test, so none goes unfound.
+fn passed(path: &Path) -> (usize, usize) {
     let test = Command::Test {
         at: Chosen::default(),
         only: None,
     };
     let (code, world) = Scripted::within(path).execute(&Disk, &test);
-
     assert_eq!((code, world.err.as_str()), (0, ""), "{}", world.out);
+
+    let summary = world.out.lines().last().unwrap_or_default();
+    let passed = summary.split(' ').next().unwrap().parse().unwrap();
+    let mut annotated = 0;
+    let mut pending = vec![path.join("src")];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "ab") {
+                annotated += std::fs::read_to_string(path)
+                    .unwrap()
+                    .matches("#[test.case]")
+                    .count();
+            }
+        }
+    }
+    (passed, annotated)
+}
+
+#[test]
+fn every_test_of_an_example_passes() {
+    for entry in std::fs::read_dir(example("")).unwrap() {
+        let path = entry.unwrap().path();
+        let (passed, annotated) = passed(&path);
+
+        assert_eq!(passed, annotated, "{}", path.display());
+    }
+}
+
+#[test]
+fn the_logging_package_passes_its_tests() {
+    let (passed, annotated) = passed(&example("../packages/logging"));
+
+    assert!(annotated > 0);
+    assert_eq!(passed, annotated);
 }
 
 #[test]

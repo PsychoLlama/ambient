@@ -1,4 +1,5 @@
 use ambient.json.{self, Json};
+use ambient.test;
 use ambient.test.{check, unmet};
 use ambient.time;
 use pkg.{Log, context};
@@ -22,7 +23,8 @@ pub fn line(entry: Log, at: int): string {
     return "{" + written.join_with(",") + "}\n";
 }
 
-fn test_a_log_is_a_line_of_json(): null with unmet {
+#[test.case]
+fn a_log_is_a_line_of_json(): null with unmet {
     let entry = { level: level.info, message: "said \"hi\"", origin: ["app", "http"], context: context([("user", 7)]) };
     let expected = "{\"level\":\"info\",\"timestamp\":\"2008-01-01T00:00:00.000Z\","
         + "\"message\":\"said \\\"hi\\\"\",\"origin\":[\"app\",\"http\"],\"context\":{\"user\":7}}\n";

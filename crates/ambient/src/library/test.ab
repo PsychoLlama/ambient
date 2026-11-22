@@ -1,5 +1,8 @@
+use pkg.build;
+use pkg.build.{Annotation, Module, Selection};
 use pkg.errors;
 use pkg.intrinsics;
+use pkg.tree.{Reference};
 use pkg.Error;
 
 /// What a test relied on that did not hold. One that says more holds
@@ -57,3 +60,64 @@ pub fn outcome(test: fn(): unknown with unmet, errors.throw): Outcome {
 /// The world of a test: nothing. What `outcome` provides is all a
 /// test is given, and a test that needs more provides it.
 pub target runner {}
+
+/// A group of tests: a module, or any grouping a library makes. It may
+/// be in a group of its own.
+pub type Group = { name: string, group: Group | null };
+
+/// A test, as finding gives one: its name, the group it is in, and the
+/// function that is the test, which takes nothing. Neither the name
+/// nor the group is part of what keeps its outcome.
+pub type Test = { name: string, group: Group | null, function: Reference };
+
+/// What finding tests gives: the tests of a selection, in order. A
+/// package's manifest lists the functions that find its tests, each
+/// one of `fn(build.Selection): Tests`.
+pub type Tests = List<Test>;
+
+/// What a function that takes nothing is annotated with to be a test:
+/// `#[test.case]`. What `annotated` finds.
+pub tag case;
+
+/// The group a module's tests are in: the module, by its package and
+/// its path.
+pub fn module(of: Module): Group =>
+    { name: of.package.join(":").join(of.path.join_with(".")), group: null };
+
+/// A test of the module `at`: the definition `function`, by its name.
+fn found(at: Module, function: Reference): Test =>
+    { name: function.name, group: module(at), function };
+
+/// The tests of a selection annotated as a `case`, in the order their
+/// modules and definitions are written. A package that lists no way to
+/// find its tests has this one.
+pub fn annotated(of: Selection): Tests with build.annotated {
+    return of.modules.fold([], fn(tests: Tests, module: Module): Tests {
+        let said = match build.annotated!(module, case) {
+            let said: List<Annotation> => said,
+            _ => [],
+        };
+        return tests.join(said.map(fn(annotation: Annotation): Test => found(module, annotation.on)));
+    });
+}
+
+/// The tests of a selection named as tests: each function that takes
+/// nothing and whose name begins with `test_`, in the order their
+/// modules and definitions are written.
+pub fn named(of: Selection): Tests with build.definitions, build.signature {
+    return of.modules.fold([], fn(tests: Tests, module: Module): Tests {
+        let defined = match build.definitions!(module) {
+            let defined: List<Reference> => defined,
+            _ => [],
+        };
+        let named = defined.filter(fn(of: Reference): bool => of.name.starts_with("test_") && takes_nothing(of));
+        return tests.join(named.map(fn(function: Reference): Test => found(module, function)));
+    });
+}
+
+/// Whether a definition is a function that takes nothing.
+fn takes_nothing(of: Reference): bool with build.signature =>
+    match build.signature!(of) {
+        let function: { function: List<unknown> } => function.function.length() == 0,
+        _ => false,
+    };

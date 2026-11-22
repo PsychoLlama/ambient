@@ -9,6 +9,7 @@ use crate::project::MANIFEST;
 
 /// The module a new package begins with.
 const MAIN: &str = r#"use system.console;
+use ambient.test;
 use ambient.test.{check, unmet};
 
 /// What the program says to someone.
@@ -18,18 +19,21 @@ pub fn main(): null with console.print {
     console.print!(greeting("world"));
 }
 
-fn test_a_greeting_names_who_it_greets(): null with unmet {
+#[test.case]
+fn a_greeting_names_who_it_greets(): null with unmet {
     check(greeting("you") == "hello, you", "it greets by name");
 }
 "#;
 
 /// The library module a new package that is a library begins with.
-const LIBRARY: &str = r#"use ambient.test.{check, unmet};
+const LIBRARY: &str = r#"use ambient.test;
+use ambient.test.{check, unmet};
 
 /// What is said to someone.
 pub fn greeting(name: string): string => "hello, ${name}";
 
-fn test_a_greeting_names_who_it_greets(): null with unmet {
+#[test.case]
+fn a_greeting_names_who_it_greets(): null with unmet {
     check(greeting("you") == "hello, you", "it greets by name");
 }
 "#;

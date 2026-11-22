@@ -357,17 +357,21 @@ fn testing(files: &Files, only: Option<&str>) -> (i32, Scripted) {
 #[test]
 fn a_test_is_a_function_that_takes_nothing_and_says_what_holds() {
     let source = r#"
+        use ambient.test;
         use ambient.test.{check, equal, unmet};
 
         fn double(n: int): int => n * 2;
 
+        #[test.case]
         fn test_doubles(): null with unmet {
             check(double(2) == 4, "two doubles to four");
         }
+        #[test.case]
         fn test_is_wrong(): null with unmet {
             check(double(2) == 5, "two doubles to five");
             equal(double(0), 1, "nothing doubles to one");
         }
+        #[test.case]
         fn test_faults(): int => 1 / (double(0));
         fn test_takes(n: int): int => n;
     "#;
@@ -384,17 +388,21 @@ FAIL  app:main.test_is_wrong
         expected: 1
 FAIL  app:main.test_faults
       divide_by_zero: an integer was divided by zero
-        in app:main.test_faults at app/src/main.ab:13:36
+        in app:main.test_faults at app/src/main.ab:17:36
 1 passed, 2 failed
 "
     );
 }
 
 #[test]
-fn a_test_a_generated_module_was_given_is_run() {
+fn a_test_a_generated_module_was_given_is_found_by_a_way_the_manifest_lists() {
+    // A generated function carries no annotation of its own, so it is
+    // found by its name.
+    let manifest = "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"
+        [test]\nfind = [\"ambient.test.named\"]";
     let file = |(path, text): (&str, &str)| (PathBuf::from(path), text.to_owned());
     let files = [
-        ("app/ambient.toml", "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\""),
+        ("app/ambient.toml", manifest),
         (
             "app/src/make.ab",
             "use ambient.code; use ambient.tree; use ambient.test.{unmet};
@@ -417,8 +425,9 @@ fn a_test_a_generated_module_was_given_is_run() {
 #[test]
 fn a_test_that_throws_fails_with_what_it_threw() {
     let source = r#"
-        use ambient.{fail, throw};
+        use ambient.{fail, throw, test};
         tag unready;
+        #[test.case]
         fn test_throws(): null with throw { fail(unready, "not yet"); }
     "#;
     let (code, world) = test(&app(source));
@@ -429,7 +438,7 @@ fn a_test_that_throws_fails_with_what_it_threw() {
         "FAIL  app:main.test_throws
       main.unready: not yet
         in ambient:errors.fail
-        in app:main.test_throws at app/src/main.ab:4:45
+        in app:main.test_throws at app/src/main.ab:5:45
 0 passed, 1 failed
 "
     );
@@ -438,8 +447,11 @@ fn a_test_that_throws_fails_with_what_it_threw() {
 #[test]
 fn a_test_is_not_run_again_until_it_changes_whether_it_passed_or_not() {
     let source = "
+        use ambient.test;
         fn two(): int => 2;
+        #[test.case]
         fn test_holds(): int => two();
+        #[test.case]
         fn test_faults(): int => 1 / 0;
     ";
     let store = ambient::store::MemoryStore::new();
@@ -465,7 +477,7 @@ fn a_test_is_not_run_again_until_it_changes_whether_it_passed_or_not() {
 fn a_test_moved_unchanged_is_not_run_again_and_is_named_where_it_is() {
     let manifest = "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"";
     let package = |module: &str| -> Files {
-        let test = "fn split(n: int): int => n / 0;\nfn test_faults(): int => split(1) + 1;";
+        let test = "use ambient.test;\nfn split(n: int): int => n / 0;\n#[test.case]\nfn test_faults(): int => split(1) + 1;";
         [("app/ambient.toml", manifest), (module, test)]
             .into_iter()
             .map(|(path, text)| (PathBuf::from(path), text.to_owned()))
@@ -489,8 +501,8 @@ fn a_test_moved_unchanged_is_not_run_again_and_is_named_where_it_is() {
         moved,
         "FAIL  app:sensing.test_faults
       divide_by_zero: an integer was divided by zero
-        in app:sensing.split at app/src/sensing.ab:1:28
-        in app:sensing.test_faults at app/src/sensing.ab:2:26
+        in app:sensing.split at app/src/sensing.ab:2:28
+        in app:sensing.test_faults at app/src/sensing.ab:4:26
 0 passed (1 not run again), 1 failed
 "
     );
@@ -499,7 +511,10 @@ fn a_test_moved_unchanged_is_not_run_again_and_is_named_where_it_is() {
 #[test]
 fn only_the_tests_asked_for_are_run() {
     let source = "
+        use ambient.test;
+        #[test.case]
         fn test_one(): null => null;
+        #[test.case]
         fn test_two(): int => 1 / 0;
     ";
 
@@ -514,8 +529,10 @@ fn only_the_tests_asked_for_are_run() {
 fn a_test_reaches_what_the_system_package_only_computes() {
     let source = r#"
         use system.exchange;
+        use ambient.test;
         use ambient.test.{check, unmet};
 
+        #[test.case]
         fn test_reads_back(): null with unmet {
             let sent = cast::<bytes>(exchange.encode([1, 2]), "".to_bytes());
             let read = cast::<List<int>>(exchange.decode(sent), []);
@@ -531,11 +548,14 @@ fn a_test_reaches_what_the_system_package_only_computes() {
 fn a_test_reaches_no_world_it_is_not_given() {
     let source = r#"
         use system.console;
+        use ambient.test;
         use ambient.test.{check, unmet};
 
         fn greet(): null with console.print { console.print!("hello"); }
 
+        #[test.case]
         fn test_reaches(): null with console.print { greet(); }
+        #[test.case]
         fn test_provides(): null with unmet {
             let said = cell::<string>("");
             provide { [console.print](text) { said.update(fn(_) => text); } } { greet(); }
