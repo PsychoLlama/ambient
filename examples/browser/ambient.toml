@@ -6,7 +6,7 @@ files = ["js"]
 
 [bin.main]
 name = "browser"
-target = "pkg.main.page"
+target = "js.host"
 
 [dependencies]
 js = { path = "../../packages/js" }

@@ -56,7 +56,7 @@ async function page(natives = {}) {
   const said = [];
   const offered = {
     "main.said": (line) => void said.push(line),
-    "main.slept": clock(),
+    "main.sleep": clock(),
     "main.applied": (work, to) => work(to),
     "main.echoed": (line, call) => call.perform(PACKAGE, "main.say", line),
     ...natives,
@@ -178,7 +178,7 @@ test("a call back that unwinds ends the native code that made it", async () => {
 
 test("a wait that fails is a fault", async () => {
   const { program } = await page({
-    "main.slept": () => Promise.reject(new Error("awake")),
+    "main.sleep": () => Promise.reject(new Error("awake")),
   });
 
   await assert.rejects(program.run(PATIENT), { kind: "native" });

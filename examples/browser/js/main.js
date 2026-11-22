@@ -3,6 +3,6 @@
 // takes the ones its program reaches.
 
 /** Answers after a number of milliseconds: its extern is `suspending`. */
-export function slept(milliseconds) {
+export function sleep(milliseconds) {
   return new Promise((wake) => setTimeout(wake, milliseconds, null));
 }

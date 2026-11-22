@@ -42,7 +42,7 @@ const PROGRAM: &str = r#"
     ability sleep(milliseconds: int): null;
 
     extern handler said for say;
-    extern handler(suspending) slept for sleep;
+    extern handler(suspending) sleep in host;
 
     extern fn applied(work: fn(number: int): int, to: int): int;
     extern fn echoed(text: string): null with say;
@@ -58,7 +58,7 @@ const PROGRAM: &str = r#"
     #[binding({ method: "toString" })]
     extern fn written(address: Address): string;
 
-    target page extends host { say: said, sleep: slept }
+    target page extends host { say: said }
 
     /// Counts what is left once every wait is over.
     fn main(patience: int): int with say, sleep {
@@ -110,7 +110,7 @@ const BINDINGS: &str = r#"
 /// a page that says nothing and waits as long as it is asked to.
 const HOSTED: &str = r#"
     export const said = () => null;
-    export const slept = (ms) => new Promise((wake) => setTimeout(wake, ms, null));
+    export const sleep = (ms) => new Promise((wake) => setTimeout(wake, ms, null));
     export const applied = (work, to) => work(to);
     export const echoed = (line, call) => call.perform("app", "main.say", line);
 "#;

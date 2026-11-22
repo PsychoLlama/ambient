@@ -12,13 +12,12 @@ type(nominal) Stream;
 extern fn open(address: string): Stream;
 
 pub ability line(of: Stream): string;
-extern handler(suspending) reads for line;
-
-pub target world extends cli { line: reads }
+extern handler(suspending) line in os;
 ```
 
 - An `extern fn` is called like any function.
-- An `extern handler` answers an ability. Only a target binds one, so a program that performs the ability is run under that target, which its binary names in the manifest: `target = "pkg.main.world"` under `[bin.main]`.
+- An `extern handler` answers an ability, and takes its name unless it is given one (`extern handler reads for line`). `in os` makes it the ability's binding under `system.os`, where `ambient run` runs a program, so a program reaches it by having `line` in its row.
+- Only the package that declares an ability says so of it. Any other binds it in a target of its own (`pub target world extends os { line: reads }`), which a binary names in the manifest: `target = "pkg.main.world"` under `[bin.main]`.
 - `(suspending)` says the handler may answer later, while other tasks run.
 - A `type(nominal)` is a brand: the type of a handle the bundle mints.
 

@@ -20,12 +20,9 @@ extern fn element(id: string): Element;
 extern fn append(to: Element, text: string): null;
 
 /// Waiting is JavaScript of this package's (`js/main.js`), since it
-/// answers later.
-extern handler(suspending) slept for sleep;
-
-/// What a page offers this program, and `host` says how a program
-/// under it is built: the module, and the JavaScript that loads it.
-pub target page extends host { sleep: slept }
+/// answers later. It answers under `host`, which says how a program is
+/// built: the module, and the JavaScript that loads it.
+extern handler(suspending) sleep in host;
 
 /// Counts aloud, slowly, beside a task that says it is waiting. What
 /// is said goes to the element of the page that shows it.

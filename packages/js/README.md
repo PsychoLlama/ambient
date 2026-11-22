@@ -1,23 +1,21 @@
 # The JavaScript target
 
-An Ambient package that builds a program for a JavaScript host. A target that extends `host` is built by this package's tool:
+An Ambient package that builds a program for a JavaScript host. A program under `host`, or a target that extends it, is built by this package's tool. A native handler says it answers there:
 
 ```
 use js.{host};
 
 pub ability say(text: string): null;
-extern handler said for say;
-
-pub target page extends host { say: said }
+extern handler say in host;
 ```
 
 The package that declares an extern keeps its JavaScript in a directory `js`, which its manifest lists (`files = ["js"]`): a file for each module, which exports a function for each extern by its name.
 
 ```js
 // js/main.js, beside src/main.ab
-export const said = (line) => console.log(line);
+export const say = (line) => console.log(line);
 // One that gives a promise answers later: its extern is declared `handler(suspending)`.
-export const slept = (ms) => new Promise((wake) => setTimeout(wake, ms, null));
+export const sleep = (ms) => new Promise((wake) => setTimeout(wake, ms, null));
 // A function it is handed is one it calls, while it runs.
 export const applied = (work, to) => work(to);
 // After its arguments comes the call, which performs the abilities of its row.
@@ -44,7 +42,7 @@ extern fn written(address: Address): string;
 
 A path is a call of a global function; `get` reads one; `new` makes an object; `method`, `property`, and `set` are of the first thing the extern takes; `{ build: "digest" }` is the digest of the program's own module. An extern that gives a handle, as `address` does, gives the JavaScript object, which the host holds until the program lets the handle go.
 
-`ambient build`, of a binary whose manifest names the target (`target = "pkg.main.page"` under `[bin.main]`), writes a directory, `build/<name>` for the binary's name:
+`ambient build`, of a binary whose manifest names the target (`target = "js.host"` under `[bin.main]`), writes a directory, `build/<name>` for the binary's name:
 
 - `program.wasm`: the program.
 - `program.js`: what loads it, with a function for each extern the program reaches and no other.
