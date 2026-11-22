@@ -8,8 +8,6 @@ mod trace;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use ambient_runtime::FAULT_PACKAGE;
-
 pub use built::{Built, carried, start, start_linked, start_with};
 pub use own::{own, own_given};
 pub use trace::{Frames, Function, describe};
@@ -62,19 +60,14 @@ pub fn started(
     // An error nothing dealt with reaches the root, which keeps it:
     // the program ends there, and is reported as one that faulted.
     let thrown = Rc::new(RefCell::new(None));
-    // Each standard target binds `throw` to an extern of its own.
-    let externs = [
-        (crate::host::PACKAGE, "thrown"),
-        (FAULT_PACKAGE, "test.thrown"),
-    ];
-    let natives = externs
-        .into_iter()
-        .fold(natives.clone(), |natives, (package, path)| {
-            let kept = Rc::clone(&thrown);
-            natives.with(package, path, move |args| {
-                *kept.borrow_mut() = args.first().map(|error| traced(error, args.get(1)));
-                Ok(Value::Null)
-            })
+    // The command-line target binds `throw` to an extern of its own. A
+    // test's target binds none: what runs a test catches what it throws.
+    let kept = Rc::clone(&thrown);
+    let natives = natives
+        .clone()
+        .with(crate::host::PACKAGE, "thrown", move |args| {
+            *kept.borrow_mut() = args.first().map(|error| traced(error, args.get(1)));
+            Ok(Value::Null)
         });
     let program = Program::load(parts, &natives).map_err(failed)?;
     let traced = |said: String, error: Option<&Value>| {

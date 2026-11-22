@@ -10,7 +10,7 @@ use super::{Engine, Query};
 use crate::core::Open;
 use crate::error::Error;
 use crate::hash::{Hasher, digest};
-use crate::surface::{DefinitionKind, Expr, Function, Key, Reference, Type};
+use crate::surface::{DefinitionKind, Expr, Function, Key, Param, Reference, Type};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::{abilities, layers};
 
@@ -19,6 +19,9 @@ use crate::types::{abilities, layers};
 pub(super) struct Root {
     entry: Symbol,
     target: Symbol,
+    /// A function the entry is handed to, which the root calls in its
+    /// place: what runs a test, and gives what it came to.
+    within: Option<Symbol>,
 }
 
 impl Engine<'_> {
@@ -29,15 +32,49 @@ impl Engine<'_> {
     ///
     /// Fails if `entry` is not a function without type parameters.
     pub fn program(&self, entry: &Symbol, target: &Symbol) -> Result<Symbol, Error> {
-        // No builder accepts this name, so it cannot be a definition's.
-        let name = format!("{}@{entry}", target.name);
-        let symbol = target.module.symbol(Namespace::Value, &name);
-        let root = Root {
+        Ok(self.rooted(Root {
             entry: entry.clone(),
             target: target.clone(),
+            within: None,
+        }))
+    }
+
+    /// The root of the program that hands `entry` to `within` under
+    /// `target`, and gives what `within` gives. What `within` expects
+    /// of the function it is handed it provides itself, so the target
+    /// need bind only the rest of the entry's row, and `within`'s own.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::program`] does.
+    pub fn program_within(
+        &self,
+        entry: &Symbol,
+        within: &Symbol,
+        target: &Symbol,
+    ) -> Result<Symbol, Error> {
+        Ok(self.rooted(Root {
+            entry: entry.clone(),
+            target: target.clone(),
+            within: Some(within.clone()),
+        }))
+    }
+
+    /// A symbol for `root`, by which it is checked, linked, and run.
+    fn rooted(&self, root: Root) -> Symbol {
+        let Root {
+            entry,
+            target,
+            within,
+        } = &root;
+        // No builder accepts this name, so it cannot be a definition's.
+        let name = match within {
+            None => format!("{}@{entry}", target.name),
+            Some(within) => format!("{}@{within}@{entry}", target.name),
         };
+        let symbol = target.module.symbol(Namespace::Value, &name);
         self.roots.borrow_mut().insert(symbol.clone(), root);
-        Ok(symbol)
+        symbol
     }
 
     pub(super) fn root_of(&self, symbol: &Symbol) -> Option<Root> {
@@ -202,17 +239,18 @@ impl Engine<'_> {
         if !header.type_params.is_empty() {
             return Err(Error::GenericEntry(root.entry.clone()));
         }
+        let (row, callee, params) = match &root.within {
+            None => (abilities(&header.row), &root.entry, header.params.clone()),
+            Some(within) => (self.within_row(within, &header.row)?, within, Vec::new()),
+        };
         // What the entry reaches: its row, and the row of every handler
         // that takes part. A binding nothing reaches is left out, so it is
         // neither compiled nor linked.
-        let bound = self.bound(&root.target, abilities(&header.row))?;
+        let bound = self.bound(&root.target, row.clone())?;
 
         // Said here, of the entry: checking the root would say only
         // that a function nobody wrote lacks a binding.
-        if let Some(ability) = abilities(&header.row)
-            .into_iter()
-            .find(|ability| !bound.contains_key(ability))
-        {
+        if let Some(ability) = row.into_iter().find(|ability| !bound.contains_key(ability)) {
             return Err(Error::Unoffered {
                 symbol: root.entry.clone(),
                 target: root.target.clone(),
@@ -230,11 +268,14 @@ impl Engine<'_> {
         let layers = layers(&rows).ok_or_else(|| Error::TargetCycle(root.target.clone()))?;
         let depth = layers.values().max().map_or(0, |deepest| deepest + 1);
 
-        let args = (0..header.params.len())
-            .map(|number| Expr::Name(Reference::Local(number)))
-            .collect();
+        let args = match &root.within {
+            None => (0..params.len())
+                .map(|number| Expr::Name(Reference::Local(number)))
+                .collect(),
+            Some(_) => vec![Expr::Name(Reference::Definition(root.entry.clone()))],
+        };
         let mut body = Expr::Call {
-            callee: Box::new(Expr::Name(Reference::Definition(root.entry.clone()))),
+            callee: Box::new(Expr::Name(Reference::Definition(callee.clone()))),
             args,
         };
         for layer in (0..depth).rev() {
@@ -256,12 +297,38 @@ impl Engine<'_> {
         }
         Ok(Function {
             type_params: Vec::new(),
-            params: header.params.clone(),
+            params,
             // A handler that aborts to the root may end the program with
             // anything, and the host reads whatever comes back.
             ret: Type::Unknown,
             row: Vec::new(),
             body,
         })
+    }
+
+    /// What a program that hands an entry of `row` to `within` takes of
+    /// its target: `within`'s own row, and what of `row` the function
+    /// `within` takes does not take, which the entry captures where the
+    /// root hands it over.
+    fn within_row(&self, within: &Symbol, row: &[Reference]) -> Result<Vec<Symbol>, Error> {
+        let resolved = self.resolve(within)?;
+        let header = self.function_of(within, &resolved.definition)?;
+        let header = header.ok_or_else(|| Error::NotCompilable(within.clone()))?;
+        let provided = match header.params.as_slice() {
+            [
+                Param {
+                    ty: Type::Function { row, .. },
+                    ..
+                },
+            ] => abilities(row),
+            _ => return Err(Error::NotCompilable(within.clone())),
+        };
+        let mut taken = abilities(&header.row);
+        taken.extend(
+            abilities(row)
+                .into_iter()
+                .filter(|ability| !provided.contains(ability)),
+        );
+        Ok(taken)
     }
 }

@@ -1,17 +1,16 @@
 //! `ambient test`: the tests of a package, each run as a program of its
-//! own. See "Testing" in `docs/spec/packages.md`.
+//! own, through `ambient.test.outcome`. See `docs/spec/testing.md`.
 
-use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 use std::path::Path;
-use std::rc::Rc;
 
+use ambient_host::launch::describe;
 use ambient_runtime::FAULT_PACKAGE;
 
-use super::{Chosen, Launch, Session};
+use super::{Chosen, Launch, Session, trace};
 use crate::backend::native::Natives;
-use crate::engine::Engine;
+use crate::engine::{Engine, Stage};
 use crate::error::Error;
 use crate::project::Project;
 use crate::surface::DefinitionKind;
@@ -21,9 +20,6 @@ use crate::workspace::Sources;
 
 /// What begins the name of a test.
 const PREFIX: &str = "test_";
-
-/// What a test that passed is known by: see [`Engine::known`].
-const PASSED: &str = "test passed";
 
 impl Session<'_> {
     /// Runs the tests of the packages `chosen` is, says how each
@@ -47,34 +43,32 @@ impl Session<'_> {
             project: &project,
             engine: &engine,
         };
-        let target = ModuleId::new(FAULT_PACKAGE, "test").value("runner");
-        let (mut passed, mut failed, mut kept) = (0, 0, 0);
+        let module = ModuleId::new(FAULT_PACKAGE, "test");
+        let (target, within) = (module.value("runner"), module.value("outcome"));
+        let (mut passed, mut failed) = (0, 0);
         let chosen = |test: &Symbol| only.is_none_or(|only| test.identity().contains(only));
         let tests = tests(&project, &engine)
             .map_err(|error| vec![super::report(&project, &engine, &error)])?;
-        for test in tests.into_iter().filter(chosen) {
-            // A test reaches no world, so one that passed passes for as
-            // long as its program is the same, and is not run again. One
-            // that failed is: what it says names places, which no hash
-            // covers.
-            let program = engine.program(&test, &target);
-            let key = program.and_then(|root| engine.known(PASSED, &root)).ok();
-            if key.is_some_and(|key| self.store.get(&key).is_some()) {
-                (passed, kept) = (passed + 1, kept + 1);
-                self.world.borrow_mut().write(&format!("ok    {test}\n"));
-                continue;
-            }
-            let unmet = Rc::new(RefCell::new(Vec::new()));
-            let ended = launch.run(&test, &target, &checks(&unmet));
-            let mut problems = unmet.take();
-            problems.extend(ended.err().into_iter().flatten());
+        let tests: Vec<Symbol> = tests.into_iter().filter(chosen).collect();
+        for test in &tests {
+            // A test is a run kept as any other is, failed or not. Its
+            // outcome names nothing, so it is named here, by what the
+            // test is now.
+            let natives = crate::host::computing(Natives::new());
+            let problems = match engine.run_within(test, &within, &target, &natives) {
+                Ok(outcome) => problems(&outcome, |error| {
+                    let Ok(root) = engine.program_within(test, &within, &target) else {
+                        return Vec::new();
+                    };
+                    let error = inner(error, &trace::reach(&engine, &within));
+                    launch.frames(&root).trace(&error)
+                }),
+                Err(error) => vec![super::report(&project, &engine, &error)],
+            };
             let mut world = self.world.borrow_mut();
             if problems.is_empty() {
                 passed += 1;
                 world.write(&format!("ok    {test}\n"));
-                if let Some(key) = key {
-                    self.store.put(key, Vec::new());
-                }
             } else {
                 failed += 1;
                 world.write(&format!("FAIL  {test}\n"));
@@ -83,7 +77,11 @@ impl Session<'_> {
                 }
             }
         }
-        let again = match kept {
+        let reused = engine.reused(Stage::Run);
+        let kept = tests
+            .iter()
+            .filter(|test| reused.contains(&test.to_string()));
+        let again = match kept.count() {
             0 => String::new(),
             kept => format!(" ({kept} not run again)"),
         };
@@ -128,18 +126,54 @@ fn tests(project: &Project, engine: &Engine) -> Result<Vec<Symbol>, Error> {
     Ok(tests)
 }
 
-/// The native code a test has: what its target binds, and what
-/// `system` only computes. A failure a test tells of is added to
-/// `unmet`, and the test goes on.
-fn checks(unmet: &Rc<RefCell<Vec<String>>>) -> Natives {
-    let unmet = Rc::clone(unmet);
-    crate::host::computing(Natives::new()).with(FAULT_PACKAGE, "test.unmet", move |args| {
-        let [Value::Record(failure)] = args else {
-            return Err("a test tells of a failure, which is a record".to_owned());
+/// An error a test ended with, less the frames of what ran it: those at
+/// the outer end of its trace whose definitions are in `harness`. A
+/// frame of the test's own stops the cut, so what the test itself
+/// calls of the harness is kept.
+fn inner(error: &Value, harness: &BTreeSet<String>) -> Value {
+    let Value::Record(fields) = error else {
+        return error.clone();
+    };
+    let mut fields = fields.clone();
+    if let Some(Value::List(frames)) = fields.get_mut("trace") {
+        let ran = |frame: &Value| match frame {
+            Value::Record(frame) => matches!(
+                frame.get("definition"),
+                Some(Value::String(hash)) if harness.contains(hash)
+            ),
+            _ => false,
         };
-        unmet.borrow_mut().push(told(failure));
-        Ok(Value::Null)
-    })
+        while frames.last().is_some_and(ran) {
+            frames.pop();
+        }
+    }
+    Value::Record(fields)
+}
+
+/// What is said of a test's outcome (`ambient.test.Outcome`): each
+/// check that did not hold, then the error that ended it, if one did,
+/// with a line for each frame of its trace, which `trace` gives.
+fn problems(outcome: &Value, trace: impl FnOnce(&Value) -> Vec<String>) -> Vec<String> {
+    let Value::Record(outcome) = outcome else {
+        return vec!["a test came to what is no outcome".to_owned()];
+    };
+    let unmet = match outcome.get("unmet") {
+        Some(Value::List(unmet)) => unmet.as_slice(),
+        _ => &[],
+    };
+    let mut problems: Vec<String> = unmet
+        .iter()
+        .map(|failure| match failure {
+            Value::Record(failure) => told(failure),
+            _ => "does not hold: a check".to_owned(),
+        })
+        .collect();
+    if let Some(error) = outcome.get("error").filter(|error| **error != Value::Null) {
+        let mut lines = vec![describe(error)];
+        lines.extend(trace(error));
+        problems.push(lines.join("\n"));
+    }
+    problems
 }
 
 /// What is said of a failure: what did not hold, and under it what
@@ -192,7 +226,13 @@ fn written(value: &Value) -> String {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{Value, told, written};
+    use super::{BTreeSet, Value, inner, problems, told, written};
+
+    fn record<const N: usize>(fields: [(&str, Value); N]) -> Value {
+        Value::Record(BTreeMap::from(
+            fields.map(|(name, value)| (name.to_owned(), value)),
+        ))
+    }
 
     #[test]
     fn a_value_is_written_as_source_writes_it() {
@@ -221,6 +261,38 @@ mod tests {
         assert_eq!(
             told(&differs),
             "does not hold: both lights\n  found: 1\n  expected: 2"
+        );
+    }
+
+    #[test]
+    fn an_outcome_says_each_unmet_check_then_the_error_that_ended_it() {
+        let unmet = record([("what", Value::String("it holds".to_owned()))]);
+        let error = record([
+            ("message", Value::String("not yet".to_owned())),
+            ("trace", Value::List(Vec::new())),
+        ]);
+        let outcome = record([("unmet", Value::List(vec![unmet])), ("error", error)]);
+        let passed = record([("unmet", Value::List(Vec::new())), ("error", Value::Null)]);
+
+        assert_eq!(
+            problems(&outcome, |_| vec!["  in a test".to_owned()]),
+            ["does not hold: it holds", "fault: not yet\n  in a test"]
+        );
+        assert!(problems(&passed, |_| panic!("nothing to name")).is_empty());
+    }
+
+    #[test]
+    fn what_ran_a_test_is_cut_from_the_outer_end_of_its_trace() {
+        let frame = |hash: &str| record([("definition", Value::String(hash.to_owned()))]);
+        let trace = |hashes: &[&str]| {
+            let frames = hashes.iter().map(|hash| frame(hash)).collect();
+            record([("trace", Value::List(frames))])
+        };
+        let harness = BTreeSet::from(["catch".to_owned(), "outcome".to_owned()]);
+
+        assert_eq!(
+            inner(&trace(&["catch", "test", "catch", "outcome"]), &harness),
+            trace(&["catch", "test"])
         );
     }
 }

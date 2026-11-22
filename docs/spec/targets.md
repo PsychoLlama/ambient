@@ -89,7 +89,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - A command that could not be started is an error whose kind is a tag of that module, never one of the files'.
 - What takes time there suspends its [task](tasks.md) and blocks nothing: tasks sleep, run commands, and wait for input together, and a sleep beside other work in a first is a limit on it.
 - Work whose task was cancelled is stopped where it can be: a command is ended, and a line already being read is kept for whoever reads next.
-- Both standard targets bind `throw`: an [error](errors.md) nothing caught ends the program, or fails the test, and is reported as a fault is.
+- The command-line target binds `throw`: an [error](errors.md) nothing caught ends the program, and is reported as a fault is. One a test throws ends the test, as its [outcome](testing.md#outcomes).
 - The standard library defines a target for a [test](testing.md), which binds nothing of the world, so it needs no `system`.
 - The build target and test targets are ordinary targets; see [comptime](comptime.md) and [memoization](memoization.md).
 

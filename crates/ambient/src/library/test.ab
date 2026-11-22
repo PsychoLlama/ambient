@@ -1,4 +1,6 @@
 use pkg.errors;
+use pkg.intrinsics;
+use pkg.Error;
 
 /// What a test relied on that did not hold. One that says more holds
 /// more: what was `found` and what was `expected` are reported beside
@@ -24,11 +26,34 @@ pub fn equal<T>(found: T, expected: T, what: string): null with unmet {
     }
 }
 
-extern handler unmet in runner;
-extern handler thrown for errors.throw;
+/// What a test came to: each check that did not hold, in the order
+/// they were made, and the error that ended it, if one did. A fault
+/// ends it as an error does. It is plain data, and names nothing: the
+/// error's trace is of hashes, which whoever reports it names.
+pub type Outcome = { unmet: List<Failure>, error: Error | null };
 
-/// The world of a test: nothing but a way to say what did not hold. A
-/// test that needs more provides it.
-pub target runner {
-    errors.throw: thrown,
+/// Runs `test`, and gives what it came to. It is what a test is run
+/// through, so what `test` takes of `unmet` and `throw` is answered
+/// here, and nothing else is.
+pub fn outcome(test: fn(): unknown with unmet, errors.throw): Outcome {
+    let failures = intrinsics.cell::<List<Failure>>([]);
+    let ran = fn(): null with errors.throw {
+        provide {
+            [unmet](failure) {
+                failures.update(fn(told: List<Failure>): List<Failure> => told.push(failure));
+            }
+        } {
+            test();
+        }
+        return null;
+    };
+    let ended = match intrinsics.contain(fn() => errors.catch(ran)) {
+        let error: Error => error,
+        _ => null,
+    };
+    return { unmet: failures.read(), error: ended };
 }
+
+/// The world of a test: nothing. What `outcome` provides is all a
+/// test is given, and a test that needs more provides it.
+pub target runner {}

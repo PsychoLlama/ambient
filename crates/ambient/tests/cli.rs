@@ -436,7 +436,7 @@ fn a_test_that_throws_fails_with_what_it_threw() {
 }
 
 #[test]
-fn a_test_that_passed_is_not_run_again_until_it_changes() {
+fn a_test_is_not_run_again_until_it_changes_whether_it_passed_or_not() {
     let source = "
         fn two(): int => 2;
         fn test_holds(): int => two();
@@ -455,9 +455,45 @@ fn a_test_that_passed_is_not_run_again_until_it_changes() {
     assert_eq!(summary(source), "1 passed, 1 failed");
     // Renaming changes no hash; what a test calls changing does.
     let renamed = source.replace("two", "pair");
-    assert_eq!(summary(&renamed), "1 passed (1 not run again), 1 failed");
+    assert_eq!(summary(&renamed), "1 passed (2 not run again), 1 failed");
+    // Only the test that reaches what changed runs again.
     let changed = source.replace("=> 2", "=> 3");
-    assert_eq!(summary(&changed), "1 passed, 1 failed");
+    assert_eq!(summary(&changed), "1 passed (1 not run again), 1 failed");
+}
+
+#[test]
+fn a_test_moved_unchanged_is_not_run_again_and_is_named_where_it_is() {
+    let manifest = "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"";
+    let package = |module: &str| -> Files {
+        let test = "fn split(n: int): int => n / 0;\nfn test_faults(): int => split(1) + 1;";
+        [("app/ambient.toml", manifest), (module, test)]
+            .into_iter()
+            .map(|(path, text)| (PathBuf::from(path), text.to_owned()))
+            .collect()
+    };
+    let store = ambient::store::MemoryStore::new();
+    let command = ambient::cli::Command::Test {
+        at: ambient::cli::Chosen::default(),
+        only: None,
+    };
+    let tested = |files: &Files| {
+        Scripted::within("app")
+            .execute_over(files, &store, &command)
+            .1
+    };
+
+    tested(&package("app/src/spec.ab"));
+    let moved = tested(&package("app/src/sensing.ab")).out;
+
+    assert_eq!(
+        moved,
+        "FAIL  app:sensing.test_faults
+      divide_by_zero: an integer was divided by zero
+        in app:sensing.split at app/src/sensing.ab:1:28
+        in app:sensing.test_faults at app/src/sensing.ab:2:26
+0 passed (1 not run again), 1 failed
+"
+    );
 }
 
 #[test]

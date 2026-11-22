@@ -40,20 +40,36 @@ fn written(project: &Project, engine: &Engine, symbol: &Symbol) -> Function {
 /// Every definition the program of `root` reaches.
 pub(super) fn reached(project: &Project, engine: &Engine, root: &Symbol) -> Frames {
     let mut frames = Frames::default();
+    walk(engine, root, |symbol, hash| {
+        // The root is a function nobody wrote.
+        let written = (symbol != root).then(|| written(project, engine, symbol));
+        frames.name(hash, written);
+    });
+    frames
+}
+
+/// The hash of each definition `symbol` reaches, itself included.
+pub(super) fn reach(engine: &Engine, symbol: &Symbol) -> BTreeSet<String> {
+    let mut hashes = BTreeSet::new();
+    walk(engine, symbol, |_, hash| {
+        hashes.insert(hash);
+    });
+    hashes
+}
+
+/// Calls `each` with every definition `from` reaches, and its hash.
+fn walk(engine: &Engine, from: &Symbol, mut each: impl FnMut(&Symbol, String)) {
     let mut seen = BTreeSet::new();
-    let mut pending = vec![root.clone()];
+    let mut pending = vec![from.clone()];
     while let Some(symbol) = pending.pop() {
         if !seen.insert(symbol.clone()) {
             continue;
         }
         if let Ok(hash) = engine.hash(&symbol) {
-            // The root is a function nobody wrote.
-            let written = (symbol != *root).then(|| written(project, engine, &symbol));
-            frames.name(hash.to_string(), written);
+            each(&symbol, hash.to_string());
         }
         if let Ok(open) = engine.check(&symbol) {
             pending.extend(open.slots.iter().cloned());
         }
     }
-    frames
 }

@@ -127,6 +127,27 @@ impl Engine<'_> {
         self.memoized(function, &root, args, natives, "")
     }
 
+    /// Hands `entry` to `within` under `target`, with the native code
+    /// in `natives`, and gives what `within` gave: see
+    /// [`Self::program_within`]. The run is kept as [`Self::run_under`]
+    /// keeps one, so what `within` gives is reused while what the run
+    /// observed holds; `entry`'s name is no part of its key.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the program does not compile for this machine, or faults
+    /// past what `within` contains.
+    pub fn run_within(
+        &self,
+        entry: &Symbol,
+        within: &Symbol,
+        target: &Symbol,
+        natives: &Natives,
+    ) -> Result<Value, Error> {
+        let root = self.program_within(entry, within, target)?;
+        self.memoized(entry, &root, &[], natives, "")
+    }
+
     fn takes_abilities(&self, function: &Symbol) -> Result<bool, Error> {
         let signature = self.signature(function)?;
         Ok(signature.is_some_and(|(signature, _)| !signature.row.is_empty()))

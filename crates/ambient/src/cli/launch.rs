@@ -1,17 +1,16 @@
-//! Running a program: a package's function, linked and loaded, and the
+//! Linking a program: a package's function, compiled for this machine, and the
 //! report of one that did not finish. See "Running" in
 //! `docs/spec/packages.md`.
 
-use ambient_host::launch::{Frames, started};
+use ambient_host::launch::Frames;
 
 use super::trace;
-use crate::backend::native::{Native, Natives};
+use crate::backend::native::Native;
 use crate::engine::{Engine, Parts};
 use crate::host;
 use crate::pack::Pack;
 use crate::project::Project;
 use crate::symbol::Symbol;
-use crate::value::Value;
 
 /// A package, opened, and the engine that builds it.
 pub(super) struct Launch<'a> {
@@ -50,19 +49,5 @@ impl Launch<'_> {
     /// The names and places a report of the program of `root` takes.
     pub(super) fn frames(&self, root: &Symbol) -> Frames {
         trace::reached(self.project, self.engine, root)
-    }
-
-    /// Runs `entry` as a program under `target`, with `natives` for
-    /// what the target binds. Gives what it gave, or says why it did
-    /// not get that far: what is wrong with it, or the fault that
-    /// ended it and the functions the fault left.
-    pub(super) fn run(
-        &self,
-        entry: &Symbol,
-        target: &Symbol,
-        natives: &Natives,
-    ) -> Result<Value, Vec<String>> {
-        let linked = self.link(entry, target)?;
-        started(&linked.parts, natives, || self.frames(&linked.root))
     }
 }
