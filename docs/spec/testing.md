@@ -35,11 +35,13 @@ Testing is library code over one thing the compiler gives: running a test as a p
 
 ## Running
 
-- Running tests is a program under a target of its own, which binds running one test, asking the [store](build.md) for the outcome a run of it left, and keeping one.
+- Running tests is a program under a target of its own, which binds running one test and keeping its outcome in place of what was, asking the [store](build.md) for the outcome a run of it left, and what a build may ask.
+- A package's manifest may name the function that runs its tests in place of the standard library's.
 - Whether to reuse an outcome, keep a failure, try again, run several at once, or stop one that takes too long is the runner's to decide.
 - What the store gives is an outcome whose [trace](memoization.md) still holds, so a runner chooses only whether to reuse: none can make one stale.
 - A runner reads what a test's annotations say of how it is run, as a time limit or a number of tries. What changes what a test sees, as [replay](handlers.md#recording) does, is a function the test is run through.
-- A runner reports by an ability it performs for each event: a test begun, its outcome, and the end of a run. A reporter is a handler of it, and several are a bundle merged of theirs.
+- A runner reports by an ability it performs for each event: a test begun, its outcome and whether it was reused, and the end of a run with how many passed, failed, and were reused. A reporter is a handler of it, and several are a bundle merged of theirs.
+- The standard runner runs one test at a time, in order, and reuses a kept outcome but a failure of a test whose annotation says it may be tried again; a test that fails is run as many times as that says.
 
 ## Recordings
 
@@ -55,7 +57,8 @@ Testing is library code over one thing the compiler gives: running a test as a p
 
 ## Unbuilt
 
-- TODO: the command line runs and reports tests itself, so no package replaces either. It names a test by its groups and its name joined.
+- TODO: the command writes what a run reports, naming a test by its groups and its name joined; a reporter changes what is written only by the events it passes on.
+- TODO: tests run one at a time, since the build that answers a runner runs one program at a time.
 - TODO: a test is handed no data, runs only under the standard test target, and gives no file.
 - TODO: a test reaches no [native bundle](externs.md#native-bundles), so a test of a package that brings native code cannot run what it brings.
-- TODO: a limit on a test's time cancels it, and a test that never suspends is never cancelled.
+- TODO: nothing limits a test's time, so a test that never ends never lets its run end.
