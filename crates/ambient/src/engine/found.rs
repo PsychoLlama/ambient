@@ -12,12 +12,14 @@ use crate::symbol::{ModuleId, PackageId, Symbol};
 use crate::value::Value;
 
 /// A test, as a way to find tests gave it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Found {
     /// The names of the groups it is in, outermost first, then its own.
     pub name: Vec<String>,
     /// The function that is the test.
     pub function: Symbol,
+    /// The test as it was given: a `test.Test`.
+    pub test: Value,
 }
 
 /// The standard library's `test` module.
@@ -44,7 +46,11 @@ fn tests_of(given: &Value) -> Vec<Found> {
             at = fields.get("group");
         }
         name.reverse();
-        Some(Found { name, function })
+        Some(Found {
+            name,
+            function,
+            test: given.clone(),
+        })
     };
     match given {
         Value::List(given) => given.iter().filter_map(test).collect(),
@@ -53,6 +59,14 @@ fn tests_of(given: &Value) -> Vec<Found> {
 }
 
 impl Engine<'_> {
+    /// What runs the tests of `package`: what its manifest names, or
+    /// `test.tests`.
+    #[must_use]
+    pub fn runner(&self, package: &PackageId) -> Symbol {
+        let runner = self.sources.runner(package);
+        runner.unwrap_or_else(|| testing().value("tests"))
+    }
+
     /// The tests of `package`: what each way to find them its manifest
     /// lists gives, in order, or what `test.annotated` does if it lists
     /// none. A function two of them give is a test once, where it was

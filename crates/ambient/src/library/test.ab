@@ -102,3 +102,88 @@ pub fn annotated(of: Selection): Tests with build.annotated {
         return tests.join(said.map(fn(annotation: Annotation): Test => found(module, annotation.on)));
     });
 }
+
+/// Whether a test that came to `outcome` passed: no check failed, and
+/// nothing ended it.
+pub fn passed(outcome: Outcome): bool => outcome.unmet.length() == 0 && outcome.error == null;
+
+/// Runs a test as a program of its own, handed to `outcome`, and keeps
+/// what it came to in place of what was kept.
+pub ability run(test: Reference): Outcome;
+
+/// What a test came to when it last ran, if that is kept and what the
+/// run observed still holds. Nothing runs.
+pub ability kept(test: Reference): Outcome | null;
+
+/// How many tests of a run passed, failed, and were not run again.
+pub type Tally = { passed: int, failed: int, kept: int };
+
+/// What running tests says as it goes: a test begun, what one came to
+/// and whether that was kept from before, and the end of the run, with
+/// what it came to.
+pub type Event = { begun: Test } | { ended: Test, outcome: Outcome, kept: bool } | { done: Tally };
+
+/// Says what running tests came to. A reporter is a handler of it.
+pub ability report(event: Event): null;
+
+/// How many times a test that fails is run before it is said to have,
+/// annotated as `#[test.tries(3)]`. A failure of one that may be tried
+/// again is never reused.
+pub tag tries;
+
+extern handler run in running;
+extern handler kept in running;
+extern handler report in running;
+
+/// The world of what runs tests: running one, what is kept of one, and
+/// reporting, beside what a build may ask.
+pub target running extends build.compiler {}
+
+/// How many times `test` is run before it is said to fail: what its
+/// own `tries` annotation says, or once.
+fn tried(test: Reference): int with build.annotations {
+    let said = match build.annotations!(test, tries) {
+        let said: List<Annotation> => said.find(fn(annotation: Annotation): bool => annotation.on == test),
+        _ => null,
+    };
+    return match said {
+        let annotation: Annotation => match annotation.value {
+            let tries: int => tries,
+            _ => 1,
+        },
+        _ => 1,
+    };
+}
+
+/// Runs `test` until it passes, at most `tries` times, and gives what
+/// it last came to.
+fn attempt(test: Reference, tries: int): Outcome with run {
+    let outcome = run!(test);
+    return passed(outcome) || tries <= 1 ? outcome : attempt(test, tries - 1);
+}
+
+/// The standard way to run tests: one at a time, in order. What is kept
+/// of a test is reused, but a failure of one that may be tried again.
+pub fn tests(tests: Tests): null with run, kept, report, build.annotations {
+    let tally = tests.fold({ passed: 0, failed: 0, kept: 0 }, fn(tally: Tally, test: Test): Tally {
+        report!({ begun: test });
+        let tries = tried(test.function);
+        let reused = match kept!(test.function) {
+            let outcome: Outcome => passed(outcome) || tries == 1 ? outcome : null,
+            _ => null,
+        };
+        let kept = reused != null;
+        let outcome = match reused {
+            let outcome: Outcome => outcome,
+            _ => attempt(test.function, tries),
+        };
+        report!({ ended: test, outcome, kept });
+        let held = passed(outcome);
+        return {
+            passed: held ? tally.passed + 1 : tally.passed,
+            failed: held ? tally.failed : tally.failed + 1,
+            kept: kept ? tally.kept + 1 : tally.kept,
+        };
+    });
+    return report!({ done: tally });
+}

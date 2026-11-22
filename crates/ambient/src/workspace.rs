@@ -54,6 +54,10 @@ pub trait Sources {
     /// lists them: none if it lists none. See "Finding" in
     /// `docs/spec/testing.md`.
     fn finders(&self, package: &PackageId) -> Vec<Symbol>;
+
+    /// The function that runs the tests of `package`, if its manifest
+    /// names one. See "Running" in `docs/spec/testing.md`.
+    fn runner(&self, package: &PackageId) -> Option<Symbol>;
 }
 
 /// What a package that is held is granted by its workspace itself,
@@ -152,6 +156,7 @@ pub struct Workspace {
     steps: BTreeMap<PackageId, Vec<(Symbol, Symbol)>>,
     lints: BTreeMap<PackageId, Vec<Symbol>>,
     finders: BTreeMap<PackageId, Vec<Symbol>>,
+    runners: BTreeMap<PackageId, Symbol>,
     /// The preludes of a package that lists none.
     shared: Vec<ModuleId>,
     /// The standard library's preludes, for when `shared` is empty too.
@@ -248,6 +253,11 @@ impl Workspace {
         self.finders.entry(package).or_default().push(tool);
     }
 
+    /// Declares what runs the tests of `package`: `runner`.
+    pub fn run_by(&mut self, package: &str, runner: Symbol) {
+        self.runners.insert(PackageId(package.to_owned()), runner);
+    }
+
     /// Declares a build step of `package`: `tool` adds files to a
     /// build under `target`, or under a target that extends it.
     pub fn step(&mut self, package: &str, target: Symbol, tool: Symbol) {
@@ -322,6 +332,10 @@ impl Sources for Workspace {
 
     fn finders(&self, package: &PackageId) -> Vec<Symbol> {
         self.finders.get(package).cloned().unwrap_or_default()
+    }
+
+    fn runner(&self, package: &PackageId) -> Option<Symbol> {
+        self.runners.get(package).cloned()
     }
 
     fn holds(&self, package: &PackageId) -> Option<Held> {

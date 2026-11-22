@@ -28,6 +28,9 @@ pub struct Testing {
     /// prelude's is. None is the standard library's way.
     #[serde(default)]
     pub find: Vec<String>,
+    /// The function that runs the package's tests, a path as a
+    /// prelude's is. None is the standard library's.
+    pub run: Option<String>,
 }
 
 /// A native bundle: the machine code of a package's externs for one

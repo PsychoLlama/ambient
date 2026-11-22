@@ -504,6 +504,10 @@ A package may find its tests its own way: a function that takes a `build.Selecti
 find = ["pkg.checks.found", "ambient.test.annotated"]
 ```
 
+A test that fails may be tried again before it is said to: `#[test.tries(3)]`. A failure of one is never reused.
+
+Running tests is a function too, which a manifest may name: `run = "pkg.checks.run"`. It is handed the tests and runs each through `test.run` and `test.kept`, reporting by `test.report`. One that only changes what is reported provides a handler of `test.report` around `test.tests`, the standard way.
+
 ## The standard library
 
 Import a module by path; its public definitions are reached through its name, or taken by name in braces. Two packages come with the compiler: `ambient` is what runs anywhere, and `system` is what a program on a machine can reach.

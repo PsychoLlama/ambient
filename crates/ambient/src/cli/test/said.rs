@@ -1,99 +1,18 @@
-//! `ambient test`: the tests of a package, as `Engine::found` finds
-//! them, each run as a program of its own through `ambient.test.outcome`. See `docs/spec/testing.md`.
+//! What is said of a test's outcome, as a person reads it: pure
+//! functions of the values the program that runs tests reports.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
-use std::path::Path;
 
 use ambient_host::launch::describe;
-use ambient_runtime::FAULT_PACKAGE;
 
-use super::{Chosen, Launch, Session, trace};
-use crate::backend::native::Natives;
-use crate::engine::{Found, Stage};
-use crate::error::Error;
-use crate::symbol::ModuleId;
 use crate::value::Value;
-
-impl Session<'_> {
-    /// Runs the tests of the packages `chosen` is, says how each
-    /// went, and gives the code to exit with: zero if none failed.
-    /// With `only`, the tests are those whose name, after those of
-    /// their groups, holds it.
-    pub(super) fn test(&self, chosen: &Chosen, only: Option<&str>) -> Result<i32, Vec<String>> {
-        let packages = self.each(chosen)?;
-        let mut code = 0;
-        for package in &packages {
-            code = code.max(self.tested(package, only)?);
-        }
-        Ok(code)
-    }
-
-    /// Runs the tests of the one package at `path`.
-    fn tested(&self, path: &Path, only: Option<&str>) -> Result<i32, Vec<String>> {
-        let project = self.open(path)?;
-        let engine = self.engine(&project);
-        let launch = Launch {
-            project: &project,
-            engine: &engine,
-        };
-        let module = ModuleId::new(FAULT_PACKAGE, "test");
-        let (target, within) = (module.value("runner"), module.value("outcome"));
-        let reported = |error: Error| vec![super::report(&project, &engine, &error)];
-        let package = ModuleId::new(&project.root, "").package;
-        let found = engine.found(&package).map_err(reported)?;
-        let named = |test: &Found| test.name.join(".");
-        let chosen = |test: &&Found| only.is_none_or(|only| named(test).contains(only));
-        let tests: Vec<&Found> = found.iter().filter(chosen).collect();
-        let (mut passed, mut failed) = (0, 0);
-        for test in &tests {
-            // A test is a run kept as any other is, failed or not. Its
-            // outcome names nothing, so it is named here, by what the
-            // test is now.
-            let function = &test.function;
-            let natives = crate::host::computing(Natives::new());
-            let problems = match engine.run_within(function, &within, &target, &natives) {
-                Ok(outcome) => problems(&outcome, |error| {
-                    let Ok(root) = engine.program_within(function, &within, &target) else {
-                        return Vec::new();
-                    };
-                    let error = inner(error, &trace::reach(&engine, &within));
-                    launch.frames(&root).trace(&error)
-                }),
-                Err(error) => reported(error),
-            };
-            let name = named(test);
-            let mut world = self.world.borrow_mut();
-            if problems.is_empty() {
-                passed += 1;
-                world.write(&format!("ok    {name}\n"));
-            } else {
-                failed += 1;
-                world.write(&format!("FAIL  {name}\n"));
-                for line in problems.iter().flat_map(|problem| problem.lines()) {
-                    world.write(&format!("      {line}\n"));
-                }
-            }
-        }
-        let reused = engine.reused(Stage::Run);
-        let kept = tests
-            .iter()
-            .filter(|test| reused.contains(&test.function.to_string()));
-        let again = match kept.count() {
-            0 => String::new(),
-            kept => format!(" ({kept} not run again)"),
-        };
-        let summary = format!("{passed} passed{again}, {failed} failed\n");
-        self.world.borrow_mut().write(&summary);
-        Ok(i32::from(failed > 0))
-    }
-}
 
 /// An error a test ended with, less the frames of what ran it: those at
 /// the outer end of its trace whose definitions are in `harness`. A
 /// frame of the test's own stops the cut, so what the test itself
 /// calls of the harness is kept.
-fn inner(error: &Value, harness: &BTreeSet<String>) -> Value {
+pub(super) fn inner(error: &Value, harness: &BTreeSet<String>) -> Value {
     let Value::Record(fields) = error else {
         return error.clone();
     };
@@ -116,7 +35,7 @@ fn inner(error: &Value, harness: &BTreeSet<String>) -> Value {
 /// What is said of a test's outcome (`ambient.test.Outcome`): each
 /// check that did not hold, then the error that ended it, if one did,
 /// with a line for each frame of its trace, which `trace` gives.
-fn problems(outcome: &Value, trace: impl FnOnce(&Value) -> Vec<String>) -> Vec<String> {
+pub(super) fn problems(outcome: &Value, trace: impl FnOnce(&Value) -> Vec<String>) -> Vec<String> {
     let Value::Record(outcome) = outcome else {
         return vec!["a test came to what is no outcome".to_owned()];
     };

@@ -7,8 +7,8 @@ use std::cell::OnceCell;
 use serde::{Deserialize, Serialize};
 
 use super::asked::{self, Again};
-use super::{Engine, Stage};
-use crate::backend::native::{Native, Natives, Observation, Program, Running};
+use super::{Engine, Stage, Taking};
+use crate::backend::native::{Native, Natives, Observation, Program, Questions, Running};
 use crate::checker::Evaluate;
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, digest, encode as bytes};
@@ -129,15 +129,15 @@ impl Engine<'_> {
 
     /// Hands `entry` to `within` under `target`, with the native code
     /// in `natives`, and gives what `within` gave: see
-    /// [`Self::program_within`]. The run is kept as [`Self::run_under`]
-    /// keeps one, so what `within` gives is reused while what the run
-    /// observed holds; `entry`'s name is no part of its key.
+    /// [`Self::program_within`]. It always runs, and is kept as
+    /// [`Self::run_under`] keeps a run, in place of what was; `entry`'s
+    /// name is no part of its key.
     ///
     /// # Errors
     ///
     /// Fails if the program does not compile for this machine, or faults
     /// past what `within` contains.
-    pub fn run_within(
+    pub fn ran_within(
         &self,
         entry: &Symbol,
         within: &Symbol,
@@ -145,7 +145,65 @@ impl Engine<'_> {
         natives: &Natives,
     ) -> Result<Value, Error> {
         let root = self.program_within(entry, within, target)?;
-        self.memoized(entry, &root, &[], natives, "")
+        let run = self.memoized_taking(entry, &root, &[], natives, "", Taking::Made)?;
+        run.unwrap_or_else(|| unreachable!("a run that is made is made"))
+    }
+
+    /// Calls `function` with `args` under `target`, with the native code
+    /// in `natives`, and gives what it gave. It is kept nowhere, and
+    /// what it asks is answered by `questions`: it is what runs tests,
+    /// which asks to run each.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the program does not compile for this machine, or faults.
+    pub fn run_once(
+        &self,
+        function: &Symbol,
+        args: &[Value],
+        target: &Symbol,
+        natives: &Natives,
+        questions: &dyn Questions,
+    ) -> Result<Value, Error> {
+        let root = self.program(function, target)?;
+        let failed = |message: String| Error::Backend {
+            symbol: function.clone(),
+            message,
+        };
+        let native = match self.runner.0.get_or_init(Native::new) {
+            Ok(native) => native,
+            Err(message) => return Err(failed(message.clone())),
+        };
+        let parts = self.link(&root, native)?;
+        let program = Program::load(&parts, natives).map_err(failed)?;
+        program
+            .run_asking(args, questions)
+            .map_err(|fault| Error::ComptimeFault {
+                function: function.clone(),
+                fault: match program.failure() {
+                    Some(message) => format!("{fault:?}: {message}"),
+                    None => format!("{fault:?}"),
+                },
+            })
+    }
+
+    /// What [`Self::ran_within`] gave when it last ran, if it is kept
+    /// and what it observed still holds: nothing runs. What it gave is
+    /// given whether it passed or not.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the program does not compile, or as what is kept does.
+    pub fn kept_within(
+        &self,
+        entry: &Symbol,
+        within: &Symbol,
+        target: &Symbol,
+        natives: &Natives,
+    ) -> Result<Option<Value>, Error> {
+        let root = self.program_within(entry, within, target)?;
+        let run = self.memoized_taking(entry, &root, &[], natives, "", Taking::Stored)?;
+        run.transpose()
     }
 
     fn takes_abilities(&self, function: &Symbol) -> Result<bool, Error> {
@@ -164,6 +222,22 @@ impl Engine<'_> {
         natives: &Natives,
         from: &str,
     ) -> Result<Value, Error> {
+        let run = self.memoized_taking(function, entry, args, natives, from, Taking::Either)?;
+        run.unwrap_or_else(|| unreachable!("a run that may be made is made"))
+    }
+
+    /// Runs `entry` as [`Self::memoized`] does, taking what `taking`
+    /// says: nothing is what [`Taking::Stored`] gives where no stored
+    /// run holds.
+    fn memoized_taking(
+        &self,
+        function: &Symbol,
+        entry: &Symbol,
+        args: &[Value],
+        natives: &Natives,
+        from: &str,
+        taking: Taking,
+    ) -> Result<Option<Result<Value, Error>>, Error> {
         let mut key = Hasher::new("run");
         key.hash(&self.hash(entry)?);
         key.bytes(&bytes(&args)).bytes(from.as_bytes());
@@ -179,7 +253,7 @@ impl Engine<'_> {
             let held = |run: &Run| holds(&run.trace, natives, &mut Again(self));
             stored.as_ref().is_ok_and(held)
         };
-        let run = self.stage_if(Stage::Run, function, key.finish(), still, || {
+        let run = self.staged(Stage::Run, function, key.finish(), taking, still, || {
             // Everything the program is made of is covered by the
             // entry's hash, so linking here reads nothing the key does
             // not cover. A run that is reused links nothing.
@@ -198,8 +272,11 @@ impl Engine<'_> {
                 outcome,
                 trace: program.observations(),
             })
-        })?;
-        run.outcome.clone()
+        });
+        match run {
+            Some(run) => Ok(Some(run?.outcome.clone())),
+            None => Ok(None),
+        }
     }
 
     /// Whether each run a definition's content came from still gives what

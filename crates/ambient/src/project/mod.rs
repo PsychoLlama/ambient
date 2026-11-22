@@ -390,6 +390,10 @@ impl Opening<'_> {
             let tool = self.value(name, finder, "way to find tests", finder)?;
             self.workspace.finder(name, tool);
         }
+        if let Some(runner) = &manifest.test.run {
+            let runner = self.value(name, runner, "way to run tests", runner)?;
+            self.workspace.run_by(name, runner);
+        }
         Ok(())
     }
 
