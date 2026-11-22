@@ -37,6 +37,7 @@ Testing is library code over one program the build writes: the tests of a run, h
 - The build writes the program's entry. It hands each package's runner that package's tests: each with its name, its group, the function that runs it to its outcome, and the key its outcome may be kept under; and each that was refused, with why.
 - Changing a test compiles it and the entry again, and nothing else. Which tests a run chooses is told to the program as it starts, so choosing compiles nothing.
 - A runner is library code. A package's manifest may name the function that runs its tests in place of the standard library's.
+- A runner takes the tests and the cache and gives the run's totals, reporting as it goes; the rest of what its row names is the world, which the command-line target must bind. One that is not so is refused, where it is written, before anything is run.
 - Whether to reuse an outcome, keep a failure, try again, run several at once, or stop one that takes too long is the runner's to decide.
 - A runner reads what a test's annotations say of how it is run, as a number of tries. What changes what a test sees, as [replay](handlers.md#recording) does, is a function the test is run through.
 - A runner reports by an ability it performs for each event: a test begun, its outcome and whether it was reused, and the end of a run with how many passed, failed, and were reused. A reporter is a handler of it, and several are a bundle merged of theirs.

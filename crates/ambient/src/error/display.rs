@@ -77,6 +77,7 @@ impl fmt::Display for Error {
             | Self::NotTool(_)
             | Self::NotLint(_)
             | Self::NotFinder(_)
+            | Self::NotRunner(_)
             | Self::Lint { .. }
             | Self::BuiltTwice { .. }
             | Self::NotAnnotation { .. } => self.fmt_build(f),
@@ -345,6 +346,10 @@ impl Error {
             Self::NotLint(symbol) => write!(
                 f,
                 "{symbol}: a lint takes a `build.Selection` and gives `build.Diagnostics`"
+            ),
+            Self::NotRunner(symbol) => write!(
+                f,
+                "{symbol}: what runs tests takes `system.test.Cases` and `system.test.Cache`, and gives `system.test.Tally`"
             ),
             Self::NotFinder(symbol) => write!(
                 f,

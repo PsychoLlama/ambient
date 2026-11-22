@@ -156,6 +156,40 @@ impl Engine<'_> {
         Ok(row.filter(|ability| !provided.contains(ability)).collect())
     }
 
+    /// What of the world `runner` reaches, if it runs a package's tests
+    /// under `target`: it takes `system.test.Cases` and a `Cache` and
+    /// gives a `Tally`, `target` binds what its row names besides
+    /// `report`, and it checks. Asked before the root is written, so
+    /// what is wrong is said of the runner and not of the root.
+    fn runnable(&self, runner: &Symbol, target: &Symbol) -> Result<Vec<Symbol>, Error> {
+        let named = |name: &str| {
+            crate::types::Ty::Named(Reference::Definition(running().ty(name)), Vec::new())
+        };
+        let signature = self.signature(runner)?.map(|(signature, _)| signature);
+        let fits = signature.filter(|signature| {
+            signature.type_params.is_empty()
+                && signature.params == [named("Cases"), named("Cache")]
+                && signature.ret == named("Tally")
+        });
+        let signature = fits.ok_or_else(|| Error::NotRunner(runner.clone()))?;
+        let report = running().ability("report");
+        let world: Vec<Symbol> = signature
+            .row
+            .into_iter()
+            .filter(|ability| *ability != report)
+            .collect();
+        let bound = self.bound(target, world.clone())?;
+        if let Some(ability) = world.iter().find(|ability| !bound.contains_key(*ability)) {
+            return Err(Error::Unoffered {
+                symbol: runner.clone(),
+                target: target.clone(),
+                ability: ability.clone(),
+            });
+        }
+        self.check(runner)?;
+        Ok(world)
+    }
+
     /// The root of the program that runs `testing` under `target`:
     /// `system.test.main`, handed what the tests are as an expression
     /// the engine writes. What a test or a runner reaches of the world
@@ -164,20 +198,13 @@ impl Engine<'_> {
     ///
     /// # Errors
     ///
-    /// Fails if a test or a runner is not a function.
+    /// Fails if a test is not a function, or as [`Self::runnable`] does
+    /// of a runner.
     pub fn testing(&self, testing: &Testing, target: &Symbol) -> Result<Symbol, Error> {
-        let report = running().ability("report");
         let mut world = BTreeSet::new();
         let mut packages = Vec::new();
         for tested in &testing.packages {
-            let runner = self.resolve(&tested.runner)?;
-            let header = self.function_of(&tested.runner, &runner.definition)?;
-            let header = header.ok_or_else(|| Error::NotCompilable(tested.runner.clone()))?;
-            world.extend(
-                abilities(&header.row)
-                    .into_iter()
-                    .filter(|ability| *ability != report),
-            );
+            world.extend(self.runnable(&tested.runner, target)?);
             let mut cases = Vec::new();
             for case in &tested.cases {
                 cases.push(self.case(case, &tested.runner, &testing.bundles, &mut world)?);

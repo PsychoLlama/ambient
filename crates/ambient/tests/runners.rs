@@ -123,3 +123,39 @@ fn a_runner_reaches_the_world_its_row_names() {
 
     assert_eq!((code, said.lines().next()), (0, Some("starting")), "{said}");
 }
+
+/// What testing says of a package whose manifest names `runner`, which
+/// `source` defines, as a runner.
+fn refused(runner: &str, source: &str) -> String {
+    let tests = format!("{source}\n#[test.case] fn holds(): null => null;");
+    let (code, said) = Runs::default().tested(&format!("[test]\nrun = \"pkg.{runner}\""), &tests);
+    assert_eq!(code, 1, "{said}");
+    said.lines().next().unwrap_or_default().to_owned()
+}
+
+#[test]
+fn a_runner_not_typed_as_one_is_refused_where_it_is() {
+    let source = "use ambient.test; pub fn wrong(): int => 1;";
+
+    assert_eq!(
+        refused("wrong", source),
+        "error: app/src/lib.ab:1:23: app:.wrong: what runs tests takes \
+         `system.test.Cases` and `system.test.Cache`, and gives `system.test.Tally`"
+    );
+}
+
+#[test]
+fn a_runner_that_takes_what_the_target_does_not_bind_is_refused_where_it_is() {
+    let source = "use ambient.test;
+        use system.test as running;
+        use system.test.{Cache, Cases, Tally};
+        pub ability asked(): int;
+        pub fn asking(cases: Cases, cache: Cache): Tally with running.report, asked {
+            asked!();
+            return running.tests(cases, cache);
+        }";
+
+    let said = refused("asking", source);
+    assert!(said.starts_with("error: app/src/lib.ab:5:"), "{said}");
+    assert!(said.contains("app:.asking"), "{said}");
+}

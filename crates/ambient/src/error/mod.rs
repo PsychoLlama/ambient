@@ -194,6 +194,8 @@ pub enum Error {
     /// What a manifest lists as a way to find tests is not one: it does
     /// not take a `build.Selection` and give `test.Tests`.
     NotFinder(Symbol),
+    /// What a manifest's `[test] run` names is not typed as a runner.
+    NotRunner(Symbol),
     /// What a lint found wrong with a definition.
     Lint {
         symbol: Symbol,
@@ -301,6 +303,7 @@ impl Error {
             | Self::NotTool(symbol)
             | Self::NotLint(symbol)
             | Self::NotFinder(symbol)
+            | Self::NotRunner(symbol)
             | Self::TestTakes(symbol)
             | Self::Lint { symbol, .. }
             | Self::BuiltTwice { symbol, .. }
