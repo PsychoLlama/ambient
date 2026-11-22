@@ -96,7 +96,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 ## Running
 
 - The command line runs a [binary](#binaries) of a package as a program under the `system` package's command-line [target](targets.md), and exits with what it gives if that is an integer.
-- It is instead run under the target the binary names, which extends that one. That is how a program binds a package's [native handler](externs.md), which only a target can.
+- It is instead run under the target the binary names, which extends that one.
 - The binary is the one the command names. Told none, it is the only binary of the packages the command [is for](#commands), or else `main` of the one package it is for; where neither says which, the command says what there is to choose from.
 - A [fault](values.md) that ends the program is reported as its error: the kind, the message, and the definitions its trace names.
 - Checking a package checks every definition of it, and of the packages it depends on what those reach, and reports each that is wrong. Each is reported by file, line, and column.

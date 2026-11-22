@@ -5,9 +5,10 @@ A target defines the world a program runs in: a root binding for every ability t
 ## Root bindings
 
 - A target is a definition that maps abilities to handlers; each handler is a [native handler](externs.md) or an Ambient function.
+- A target is no value and no type: it is read as a program is built, and a [tool](tools.md) is handed one as a reference.
 - A program is an entry function and a target.
 - A program runs as its entry under a restricted [provide](handlers.md) of its target.
-- The entry's row must be covered by the target.
+- The entry's row must be covered by the target: by what it binds, and by its [defaults](#default-bindings).
 - A root handler's own row is satisfied by the target's other bindings; a cycle among them is an error.
 - Root handlers are therefore provided in layers, each over the handlers its rows need, and only the outermost is restricted.
 - A root handler for an ability that does not return ends the program, and its result is the program's.
@@ -19,8 +20,21 @@ A target defines the world a program runs in: a root binding for every ability t
 
 - A target may extend other targets, adding and replacing bindings; a conflict between extended targets is resolved explicitly.
 - Libraries export abilities and handlers for them; targets select among them.
+- A target is named for where its programs run, and a platform is no target: what differs between machines is which [native bundle](externs.md#native-bundles) is linked.
 - A program runs unchanged on any target that covers its row.
 - Portability is a property of rows, not of conditional compilation.
+
+## Default bindings
+
+- A native handler may say the targets it answers under. It is then the default binding of its ability under each, and under every target that extends one.
+- Only the package that declares an ability gives it a default, so no two packages compete for one, and a default is found by looking in that package alone.
+- Any other package binds an ability in a target of its own, as a host's package binds what of [`system`](#the-system-package) it can do.
+- What a target binds, itself or through a target it extends, is taken before a default.
+- Two defaults that differ under one target are a conflict, resolved as one between extended targets is.
+- A target takes no default that names neither it nor a target it extends. A test's target and an embedder's therefore bind what they list and nothing a dependency brought.
+- A default binds nothing a row does not ask for: it is reached as any root binding is, by the entry's row.
+- A package therefore offers an ability with native code by declaring both, and a program reaches it by its row. Neither defines a target.
+- Only a native handler is a default. An Ambient function is a root binding where a target lists it.
 
 ## Pruning
 

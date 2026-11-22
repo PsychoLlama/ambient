@@ -6,17 +6,19 @@ An extern is a definition implemented in native code. Ambient declares the inter
 
 - An extern function is a native function, pure but for the abilities of its row; callers cannot tell it from an Ambient function.
 - A native handler is a native implementation of an [ability](abilities.md).
-- A native handler cannot be called; it can only be a root binding in a [target](targets.md).
+- A native handler cannot be called; it can only be a root binding of a [target](targets.md), listed there or by [default](targets.md#default-bindings).
 - Effectful native code is therefore reachable only by performing an ability, never by knowing a hash.
 - An extern function's purity is its author's contract and is not verified.
 
 ## Declaration
 
 - An extern is declared in Ambient with a full signature, and is checked like any other header.
+- A native handler is known by its ability's name unless it is given another: the two are one action, and an ability is no value, so the names do not meet.
 - A native handler names the ability it implements and takes that ability's signature. One for an ability that does not return is handed the [trace](errors.md) of the abort after it.
 - An extern may declare a row of abilities it performs, and whatever calls or binds it must cover that row as it does any function's.
 - Native code is handed bindings for its declared row alone. One whose row says too little finds nothing bound for the rest, so a wrong row fails and grants nothing.
-- A native handler that may suspend is declared `suspending`; one that is not never does.
+- A native handler that may suspend is declared `suspending`; one that is not never does. It is said once for every platform, so one that answers at once on some platform is still declared so.
+- Native code for an extern comes only from the package that declares it. Another package answers the same ability with a native handler of its own.
 - An extern with no native counterpart for the selected target is a link error only if the entry reaches it.
 
 ## Native side

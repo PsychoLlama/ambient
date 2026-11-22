@@ -31,6 +31,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - A definition is written with the keyword of its [kind](definitions.md): `fn`, `type`, `ability`, `contract`, `tag`, `extern`, `target`, `const`.
 - Only `pub` comes before the keyword. Anything else said of a definition's kind is a word in parentheses after the keyword, as `type(nominal)` is.
 - A native handler that may suspend is written `extern handler(suspending)`.
+- A native handler is written with its ability alone, or with a name, `for`, and its ability. `in` and targets, after its row, says where it is a [default](targets.md#default-bindings).
 - An extern says what it performs as a function does: `with` and a row, after what it gives or the ability it handles.
 - A word that only begins a definition is not reserved: `contract`, `tag`, `ability`, `target`, `extern`, `const`, `use`, and `mod` may name anything, since nothing else begins where a definition does.
 - `pub` before one makes it public, and a `///` comment before one is its doc comment.
