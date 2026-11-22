@@ -345,8 +345,9 @@ impl Parser {
     }
 
     /// `extern fn name(params): Type with row;` or
-    /// `extern handler name for ability with row;`, which may be
-    /// `extern handler(suspending)`.
+    /// `extern handler name for ability with row in target, ...;`,
+    /// which may be `extern handler(suspending)`. A handler written
+    /// with its ability alone takes the ability's name.
     fn native(&mut self) -> Parsed<(String, DefinitionKind)> {
         let mut suspends = false;
         let (name, kind) = if self.eat_word("fn") {
@@ -362,14 +363,39 @@ impl Parser {
                 self.expect(")")?;
                 suspends = true;
             }
-            let name = self.name()?;
-            self.expect_word("for")?;
-            let ability = self.path()?;
+            let (name, ability) = self.handled()?;
             let row = self.row()?;
-            (name, ExternKind::Handler { ability, row })
+            let mut targets = Vec::new();
+            if self.eat_word("in") {
+                targets.push(self.path()?);
+                while self.eat(",") {
+                    targets.push(self.path()?);
+                }
+            }
+            let kind = ExternKind::Handler {
+                ability,
+                row,
+                targets,
+            };
+            (name, kind)
         };
         self.expect(";")?;
         Ok((name, DefinitionKind::Extern(Extern { kind, suspends })))
+    }
+
+    /// What a native handler is named and the ability it answers:
+    /// `name for ability`, or the ability alone, whose name it takes.
+    fn handled(&mut self) -> Parsed<(String, Path)> {
+        let first = self.path()?;
+        if !self.at_word("for") {
+            let name = first.0.last().cloned().unwrap_or_default();
+            return Ok((name, first));
+        }
+        let [name] = first.0.as_slice() else {
+            return self.fail("a native handler's name is one word");
+        };
+        self.advance();
+        Ok((name.clone(), self.path()?))
     }
 
     /// `target name extends a, b built by tool { ability: handler, ... }`

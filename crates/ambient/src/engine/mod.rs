@@ -26,6 +26,7 @@ mod blame;
 mod built;
 mod check;
 mod compile;
+mod defaults;
 mod environment;
 mod function;
 mod generate;
@@ -144,6 +145,8 @@ pub struct Engine<'a> {
     compile: Memo<(Symbol, String, bool), Artifact>,
     /// Whether each function asked about is handed its type arguments.
     handed: RefCell<HashMap<Symbol, bool>>,
+    /// The default bindings each package gives.
+    defaults: Memo<crate::symbol::PackageId, Vec<defaults::Defaulted>>,
     /// What each held package holds, once it is asked.
     holdings: RefCell<Option<Query<grants::Holdings>>>,
     /// The definitions being checked, outermost first. A comptime call
@@ -188,6 +191,7 @@ impl<'a> Engine<'a> {
             hash: RefCell::default(),
             compile: RefCell::default(),
             handed: RefCell::default(),
+            defaults: RefCell::default(),
             holdings: RefCell::default(),
             checking: RefCell::default(),
             roots: RefCell::default(),

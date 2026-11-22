@@ -454,9 +454,14 @@ impl<N> Definition<N> {
                     ret.names(visit);
                     row.iter().for_each(visit);
                 }
-                ExternKind::Handler { ability, row } => {
+                ExternKind::Handler {
+                    ability,
+                    row,
+                    targets,
+                } => {
                     visit(ability);
-                    row.iter().for_each(visit);
+                    row.iter().for_each(&mut *visit);
+                    targets.iter().for_each(visit);
                 }
             },
             DefinitionKind::Target(target) => {

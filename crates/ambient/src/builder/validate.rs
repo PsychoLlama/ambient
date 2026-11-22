@@ -82,9 +82,14 @@ pub(super) fn check_extern(name: &str, native: &Extern) -> Result<(), BuildError
             check_type(ret)?;
             row.iter().try_for_each(check_path)
         }
-        ExternKind::Handler { ability, row } => {
+        ExternKind::Handler {
+            ability,
+            row,
+            targets,
+        } => {
             check_path(ability)?;
-            row.iter().try_for_each(check_path)
+            row.iter().try_for_each(check_path)?;
+            targets.iter().try_for_each(check_path)
         }
     }
 }

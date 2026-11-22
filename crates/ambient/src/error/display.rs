@@ -47,15 +47,9 @@ impl fmt::Display for Error {
             | Self::NoMethod { .. }
             | Self::Method { .. }
             | Self::Receiver { .. } => self.fmt_method(f),
-            Self::TypeArguments {
-                symbol,
-                expected,
-                found,
-            } => write!(
-                f,
-                "{symbol}: expected {expected} type arguments, found {found}"
-            ),
-            Self::GenericAbort(_) | Self::CannotInfer { .. } => self.fmt_generic(f),
+            Self::TypeArguments { .. } | Self::GenericAbort(_) | Self::CannotInfer { .. } => {
+                self.fmt_generic(f)
+            }
             Self::NotComptime { .. }
             | Self::NoTree { .. }
             | Self::NotSpliceable { .. }
@@ -76,6 +70,7 @@ impl fmt::Display for Error {
             | Self::TargetCycle(_)
             | Self::NativeRow(_)
             | Self::TargetConflict { .. }
+            | Self::ForeignDefault { .. }
             | Self::GenericEntry(_) => self.fmt_world(f),
             Self::ToolConflict(_)
             | Self::NotTool(_)
@@ -308,7 +303,12 @@ impl Error {
             }
             Self::TargetConflict { symbol, ability } => write!(
                 f,
-                "{symbol}: the targets it extends bind `{ability}` differently"
+                "{symbol}: `{ability}` is bound differently by the targets it extends or by default"
+            ),
+            Self::ForeignDefault { symbol, ability } => write!(
+                f,
+                "{symbol}: only the package that declares `{ability}` gives it a default; bind it \
+                 in a target instead"
             ),
             Self::GenericEntry(symbol) => {
                 write!(f, "{symbol}: an entry cannot have type parameters")
@@ -357,6 +357,14 @@ impl Error {
     /// The errors about type parameters and type arguments.
     fn fmt_generic(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::TypeArguments {
+                symbol,
+                expected,
+                found,
+            } => write!(
+                f,
+                "{symbol}: expected {expected} type arguments, found {found}"
+            ),
             Self::GenericAbort(symbol) => write!(
                 f,
                 "{symbol}: an ability that does not return takes no type parameters"

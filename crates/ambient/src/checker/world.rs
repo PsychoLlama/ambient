@@ -34,7 +34,7 @@ pub fn check_extern(
         }
         // A native handler takes what its ability takes, and the trace
         // of the abort if its ability does not return.
-        ExternKind::Handler { ability, row } => {
+        ExternKind::Handler { ability, row, .. } => {
             let ability = abilities(std::slice::from_ref(ability)).pop();
             let info = ability
                 .as_ref()

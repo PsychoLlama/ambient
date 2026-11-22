@@ -256,6 +256,17 @@ fn a_native_handler_says_whether_it_suspends() {
 }
 
 #[test]
+fn a_native_handler_takes_its_abilitys_name_and_says_where_it_is_a_default() {
+    let source = "extern handler log.read with log.flush in os, web.page;";
+    let read = b::native_handler("read", "log.read")
+        .performs(["log.flush"])
+        .under("os")
+        .under("web.page");
+
+    assert_eq!(parse(source).unwrap(), built([read.into()]));
+}
+
+#[test]
 fn what_is_said_of_a_kind_follows_its_keyword_in_brackets() {
     let source = "pub type(nominal) Meters;";
 

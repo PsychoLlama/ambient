@@ -202,13 +202,16 @@ impl Engine<'_> {
         if !header.type_params.is_empty() {
             return Err(Error::GenericEntry(root.entry.clone()));
         }
-        let bindings: BTreeMap<Symbol, Symbol> = self.bindings(&root.target)?.into_iter().collect();
+        // What the entry reaches: its row, and the row of every handler
+        // that takes part. A binding nothing reaches is left out, so it is
+        // neither compiled nor linked.
+        let bound = self.bound(&root.target, abilities(&header.row))?;
 
         // Said here, of the entry: checking the root would say only
         // that a function nobody wrote lacks a binding.
         if let Some(ability) = abilities(&header.row)
             .into_iter()
-            .find(|ability| !bindings.contains_key(ability))
+            .find(|ability| !bound.contains_key(ability))
         {
             return Err(Error::Unoffered {
                 symbol: root.entry.clone(),
@@ -217,29 +220,12 @@ impl Engine<'_> {
             });
         }
 
-        // What the entry reaches: its row, and the row of every handler
-        // that takes part. A binding nothing reaches is left out, so it is
-        // neither compiled nor linked.
-        let mut rows: BTreeMap<Symbol, Vec<Symbol>> = BTreeMap::new();
-        let mut pending = abilities(&header.row);
-        while let Some(ability) = pending.pop() {
-            // What a handler takes that the target lacks is reported
-            // by checking.
-            let Some(handler) = bindings.get(&ability) else {
-                continue;
-            };
-            if rows.contains_key(&ability) {
-                continue;
-            }
-            let Some((signature, _)) = self.signature(handler)? else {
-                return Err(Error::NotHandler {
-                    symbol: root.target.clone(),
-                    handler: handler.clone(),
-                });
-            };
-            pending.extend(signature.row.iter().cloned());
-            rows.insert(ability, signature.row);
-        }
+        // What a handler takes that the target lacks is reported by
+        // checking.
+        let rows: BTreeMap<Symbol, Vec<Symbol>> = bound
+            .iter()
+            .map(|(ability, (_, row))| (ability.clone(), row.clone()))
+            .collect();
         // A handler is provided over the handlers its own row needs.
         let layers = layers(&rows).ok_or_else(|| Error::TargetCycle(root.target.clone()))?;
         let depth = layers.values().max().map_or(0, |deepest| deepest + 1);
@@ -257,7 +243,7 @@ impl Engine<'_> {
                 .filter(|(_, at)| **at == layer)
                 .map(|(ability, _)| {
                     let key = Key::Ability(Reference::Definition(ability.clone()));
-                    let handler = Reference::Definition(bindings[ability].clone());
+                    let handler = Reference::Definition(bound[ability].0.clone());
                     (key, Expr::Name(handler))
                 })
                 .collect();

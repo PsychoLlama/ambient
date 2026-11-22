@@ -177,6 +177,9 @@ pub enum Error {
     /// Two targets a target extends bind one ability differently, and it
     /// does not say which it wants.
     TargetConflict { symbol: Symbol, ability: Symbol },
+    /// A native handler says it is the default of an ability another
+    /// package declares.
+    ForeignDefault { symbol: Symbol, ability: Symbol },
     /// A definition is annotated under a key that is no tag, or with
     /// a value that is not plain data: `key` says which.
     NotAnnotation { symbol: Symbol, key: bool },
@@ -329,6 +332,7 @@ impl Error {
             | Self::Intersection { symbol }
             | Self::NotHandler { symbol, .. }
             | Self::TargetConflict { symbol, .. }
+            | Self::ForeignDefault { symbol, .. }
             | Self::Unbound { symbol, .. }
             | Self::Unoffered { symbol, .. }
             | Self::SpawnBinding { symbol, .. }

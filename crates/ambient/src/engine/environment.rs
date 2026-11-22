@@ -177,6 +177,7 @@ impl Engine<'_> {
                 ExternKind::Handler {
                     ability,
                     row: takes,
+                    ..
                 } => {
                     let Reference::Definition(ability) = ability else {
                         return Ok(None);

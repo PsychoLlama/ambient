@@ -23,6 +23,7 @@ pub fn native_handler(name: &str, ability: &str) -> ExternBuilder {
     let kind = ExternKind::Handler {
         ability: Path::parse(ability),
         row: Vec::new(),
+        targets: Vec::new(),
     };
     ExternBuilder::new(name, kind)
 }
@@ -79,6 +80,16 @@ impl ExternBuilder {
     #[must_use]
     pub fn suspending(mut self) -> Self {
         self.native.suspends = true;
+        self
+    }
+
+    /// Makes a native handler its ability's default under the target
+    /// at a dotted path, and under whatever extends it.
+    #[must_use]
+    pub fn under(mut self, target: &str) -> Self {
+        if let ExternKind::Handler { targets, .. } = &mut self.native.kind {
+            targets.push(Path::parse(target));
+        }
         self
     }
 

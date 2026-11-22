@@ -289,10 +289,21 @@ impl<'a> Resolver<'a> {
                         ret: self.ty(ret)?,
                         row: self.row(row)?,
                     },
-                    ExternKind::Handler { ability, row } => ExternKind::Handler {
-                        ability: self.ability(ability)?,
-                        row: self.row(row)?,
-                    },
+                    ExternKind::Handler {
+                        ability,
+                        row,
+                        targets,
+                    } => {
+                        let target = |path| {
+                            self.lookup(Namespace::Value, path)
+                                .map(Reference::Definition)
+                        };
+                        ExternKind::Handler {
+                            ability: self.ability(ability)?,
+                            row: self.row(row)?,
+                            targets: targets.iter().map(target).collect::<Result<_, _>>()?,
+                        }
+                    }
                 },
             }),
             DefinitionKind::Target(target) => {

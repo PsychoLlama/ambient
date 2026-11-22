@@ -173,8 +173,15 @@ pub enum ExternKind<N = Path> {
         row: Vec<N>,
     },
     /// An implementation of `ability`, which may perform the abilities in
-    /// `row`. It can only be bound by a target.
-    Handler { ability: N, row: Vec<N> },
+    /// `row`. It can only be bound by a target: one that lists it, or
+    /// one of `targets` and whatever extends them, where it is the
+    /// ability's default. See "Default bindings" in
+    /// `docs/spec/targets.md`.
+    Handler {
+        ability: N,
+        row: Vec<N>,
+        targets: Vec<N>,
+    },
 }
 
 /// The world a program runs in: a handler for each ability it offers.

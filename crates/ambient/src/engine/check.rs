@@ -403,6 +403,7 @@ impl Engine<'_> {
                 if let ExternKind::Function { row, .. } = &native.kind {
                     self.held_to(symbol, row)?;
                 }
+                self.defaulting(symbol, &native.kind)?;
                 let env = self.environment(used, &[], &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
                     checker::check_extern(symbol, native, &package, &env)
@@ -416,7 +417,7 @@ impl Engine<'_> {
             | DefinitionKind::Intrinsic
             | DefinitionKind::Module(_) => Err(Error::UnknownSymbol(symbol.clone())),
             DefinitionKind::Target(_) => {
-                let bindings = self.bindings(symbol)?;
+                let bindings = self.offered(symbol)?;
                 key.bytes(&encode(&bindings));
                 let used = bindings
                     .iter()
