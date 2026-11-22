@@ -1,18 +1,27 @@
-//! What is said of a test's outcome, as a person reads it: pure
-//! functions of the values the program that runs tests reports.
+//! What is said of a test's outcome (`ambient.test.Outcome`), as a
+//! person reads it: what `system.test.said` gives a reporter. Values and
+//! traces are read here, where a record's fields and the names of what
+//! ran are known. See "Running" in `docs/spec/testing.md`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
-use ambient_host::launch::describe;
-
+use super::trace::{Frames, describe};
 use crate::value::Value;
+
+/// What is said of `outcome`: each check that did not hold, then the
+/// error that ended it with its trace, less the frames at its outer end
+/// whose definitions are in `harness`, named by `frames`.
+#[must_use]
+pub fn said(outcome: &Value, harness: &BTreeSet<String>, frames: &Frames) -> Vec<String> {
+    problems(outcome, |error| frames.trace(&inner(error, harness)))
+}
 
 /// An error a test ended with, less the frames of what ran it: those at
 /// the outer end of its trace whose definitions are in `harness`. A
 /// frame of the test's own stops the cut, so what the test itself
 /// calls of the harness is kept.
-pub(super) fn inner(error: &Value, harness: &BTreeSet<String>) -> Value {
+fn inner(error: &Value, harness: &BTreeSet<String>) -> Value {
     let Value::Record(fields) = error else {
         return error.clone();
     };
@@ -35,7 +44,7 @@ pub(super) fn inner(error: &Value, harness: &BTreeSet<String>) -> Value {
 /// What is said of a test's outcome (`ambient.test.Outcome`): each
 /// check that did not hold, then the error that ended it, if one did,
 /// with a line for each frame of its trace, which `trace` gives.
-pub(super) fn problems(outcome: &Value, trace: impl FnOnce(&Value) -> Vec<String>) -> Vec<String> {
+fn problems(outcome: &Value, trace: impl FnOnce(&Value) -> Vec<String>) -> Vec<String> {
     let Value::Record(outcome) = outcome else {
         return vec!["a test came to what is no outcome".to_owned()];
     };

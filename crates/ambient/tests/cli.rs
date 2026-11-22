@@ -449,13 +449,20 @@ fn a_test_is_not_run_again_until_it_changes_whether_it_passed_or_not() {
         fn test_faults(): int => 1 / 0;
     ";
     let store = ambient::store::MemoryStore::new();
+    // What a run keeps it keeps in its world, which the next finds.
+    let world = std::cell::RefCell::new(Scripted::within("app"));
     let summary = |source: &str| {
         let command = ambient::cli::Command::Test {
             at: ambient::cli::Chosen::default(),
             only: None,
         };
-        let (_, world) = Scripted::within("app").execute_over(&app(source), &store, &command);
-        world.out.lines().last().unwrap().to_owned()
+        let (_, after) = world
+            .take()
+            .again()
+            .execute_over(&app(source), &store, &command);
+        let said = after.out.lines().last().unwrap().to_owned();
+        world.replace(after);
+        said
     };
 
     assert_eq!(summary(source), "1 passed, 1 failed");
@@ -482,14 +489,16 @@ fn a_test_moved_unchanged_is_not_run_again_and_is_named_where_it_is() {
         at: ambient::cli::Chosen::default(),
         only: None,
     };
+    let world = std::cell::RefCell::new(Scripted::within("app"));
     let tested = |files: &Files| {
-        Scripted::within("app")
-            .execute_over(files, &store, &command)
-            .1
+        let (_, after) = world.take().again().execute_over(files, &store, &command);
+        let said = after.out.clone();
+        world.replace(after);
+        said
     };
 
     tested(&package("app/src/spec.ab"));
-    let moved = tested(&package("app/src/sensing.ab")).out;
+    let moved = tested(&package("app/src/sensing.ab"));
 
     assert_eq!(
         moved,
@@ -539,7 +548,7 @@ fn a_test_reaches_what_the_system_package_only_computes() {
 }
 
 #[test]
-fn a_test_reaches_no_world_it_is_not_given() {
+fn a_test_reaches_the_world_its_row_names_and_runs_every_time() {
     let source = r#"
         use system.console;
         use ambient.test;
@@ -556,17 +565,28 @@ fn a_test_reaches_no_world_it_is_not_given() {
             check(said.read() == "hello", "it greets");
         }
     "#;
-    let (code, world) = test(&app(source));
+    let store = ambient::store::MemoryStore::new();
+    let world = std::cell::RefCell::new(Scripted::within("app"));
+    let tested = || {
+        let command = ambient::cli::Command::Test {
+            at: ambient::cli::Chosen::default(),
+            only: None,
+        };
+        let (code, after) = world
+            .take()
+            .again()
+            .execute_over(&app(source), &store, &command);
+        let out = after.out.clone() + &after.err;
+        world.replace(after);
+        (code, out)
+    };
 
-    assert_eq!(code, 1);
-    let refused =
-        "takes `system:console.print`, which the target `ambient:test.runner` does not bind\n";
-    let (failed, rest) = world.out.split_once(refused).unwrap_or_default();
-    assert!(
-        failed.starts_with("FAIL  app:main.test_reaches\n"),
-        "{failed}"
-    );
-    assert_eq!(rest, "ok    app:main.test_provides\n1 passed, 1 failed\n");
+    let first =
+        "hello\nok    app:main.test_reaches\nok    app:main.test_provides\n2 passed, 0 failed\n";
+    assert_eq!(tested(), (0, first.to_owned()));
+    // What reaches the world is never kept; what provides it is.
+    let again = first.replace("2 passed,", "2 passed (1 not run again),");
+    assert_eq!(tested(), (0, again));
 }
 
 /// Makes a package at `path` in `world`.

@@ -1,10 +1,11 @@
 //! Running tests: the standard runner's choices, and a package's own.
-//! See "Running" in `docs/spec/testing.md`.
+//! See "Running" and "Keeping" in `docs/spec/testing.md`.
 
 #![allow(clippy::unwrap_used)]
 
 mod support;
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -12,21 +13,40 @@ use ambient::cli::{Chosen, Command};
 use ambient::store::MemoryStore;
 use support::scripted::Scripted;
 
-/// Tests a package whose manifest ends with `rest` and whose library
-/// module is `source`, over `store`, and gives the code it exits with
-/// and what it says.
-fn tested(store: &MemoryStore, rest: &str, source: &str) -> (i32, String) {
-    let manifest = format!("[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n{rest}");
-    let files = BTreeMap::from([
-        (PathBuf::from("app/ambient.toml"), manifest),
-        (PathBuf::from("app/src/lib.ab"), source.to_owned()),
-    ]);
-    let test = Command::Test {
-        at: Chosen::default(),
-        only: None,
-    };
-    let (code, world) = Scripted::within("app").execute_over(&files, store, &test);
-    (code, world.out + &world.err)
+/// Runs the tests of packages in one world, which keeps what each run
+/// leaves for the next, over one store.
+#[derive(Default)]
+struct Runs {
+    store: MemoryStore,
+    world: RefCell<Scripted>,
+}
+
+impl Runs {
+    /// Tests a package whose manifest ends with `rest` and whose library
+    /// module is `source`, and gives the code it exits with and what it
+    /// says.
+    fn tested(&self, rest: &str, source: &str) -> (i32, String) {
+        let manifest =
+            format!("[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"\n{rest}");
+        let files = BTreeMap::from([
+            (PathBuf::from("app/ambient.toml"), manifest),
+            (PathBuf::from("app/src/lib.ab"), source.to_owned()),
+        ]);
+        let test = Command::Test {
+            at: Chosen::default(),
+            only: None,
+        };
+        let world = self.world.take().again().inside("app");
+        let (code, after) = world.execute_over(&files, &self.store, &test);
+        let said = after.out.clone() + &after.err;
+        self.world.replace(after);
+        (code, said)
+    }
+
+    /// The last line of what testing `source` says.
+    fn summary(&self, source: &str) -> String {
+        self.tested("", source).1.lines().last().unwrap().to_owned()
+    }
 }
 
 #[test]
@@ -34,39 +54,44 @@ fn a_failure_of_a_test_that_may_be_tried_again_is_never_reused() {
     let source = "use ambient.test;
         #[test.case] fn once(): int => 1 / 0;
         #[test.case] #[test.tries(2)] fn twice(): int => 2 / 0;";
-    let store = MemoryStore::new();
-    let summary = || {
-        tested(&store, "", source)
-            .1
-            .lines()
-            .last()
-            .unwrap()
-            .to_owned()
-    };
+    let runs = Runs::default();
 
-    assert_eq!(summary(), "0 passed, 2 failed");
-    assert_eq!(summary(), "0 passed (1 not run again), 2 failed");
+    assert_eq!(runs.summary(source), "0 passed, 2 failed");
+    assert_eq!(runs.summary(source), "0 passed (1 not run again), 2 failed");
+}
+
+#[test]
+fn what_is_kept_is_kept_under_the_build_directory_by_package() {
+    let runs = Runs::default();
+    runs.tested(
+        "",
+        "use ambient.test; #[test.case] fn holds(): null => null;",
+    );
+
+    let world = runs.world.take();
+    let kept: Vec<&String> = world.files.keys().collect();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert!(kept[0].starts_with("app/build/tests/app/"), "{kept:?}");
 }
 
 /// A runner that reports only what failed, over the standard one.
-const QUIET: &str = "use ambient.build;
-    use ambient.test;
-    use ambient.test.{Event, Outcome, Tests};
+const QUIET: &str = "use ambient.test;
+    use ambient.test.{Outcome};
+    use system.test as running;
+    use system.test.{Cache, Cases, Tally};
 
-    pub fn quiet(tests: Tests): null with test.run, test.kept, test.report, build.annotations {
-        provide {
-            [test.report](event) {
-                let said = match event {
-                    let ended: { outcome: Outcome } => test.passed(ended.outcome) ? null : event,
-                    _ => event,
+    pub fn quiet(cases: Cases, cache: Cache): Tally with running.report {
+        return provide {
+            [running.report](event) {
+                let hidden = match event {
+                    let ended: { outcome: Outcome } => test.passed(ended.outcome),
+                    _ => false,
                 };
-                if said != null {
-                    test.report!(event);
+                if !hidden {
+                    running.report!(event);
                 }
             }
-        } {
-            test.tests(tests);
-        }
+        } => running.tests(cases, cache);
     }
 
     #[test.case] fn holds(): null => null;
@@ -74,7 +99,7 @@ const QUIET: &str = "use ambient.build;
 
 #[test]
 fn a_package_runs_its_tests_its_own_way() {
-    let (code, said) = tested(&MemoryStore::new(), "[test]\nrun = \"pkg.quiet\"", QUIET);
+    let (code, said) = Runs::default().tested("[test]\nrun = \"pkg.quiet\"", QUIET);
     let lines: Vec<&str> = said.lines().filter(|line| !line.starts_with(' ')).collect();
 
     assert_eq!(code, 1);

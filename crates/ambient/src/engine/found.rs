@@ -60,11 +60,12 @@ fn tests_of(given: &Value) -> Vec<Found> {
 
 impl Engine<'_> {
     /// What runs the tests of `package`: what its manifest names, or
-    /// `test.tests`.
+    /// `system.test.tests`.
     #[must_use]
     pub fn runner(&self, package: &PackageId) -> Symbol {
         let runner = self.sources.runner(package);
-        runner.unwrap_or_else(|| testing().value("tests"))
+        let standard = || ModuleId::new(crate::system::PACKAGE, "test").value("tests");
+        runner.unwrap_or_else(standard)
     }
 
     /// The tests of `package`: what each way to find them its manifest

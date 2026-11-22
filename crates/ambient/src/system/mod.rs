@@ -13,7 +13,7 @@ use crate::workspace::{Workspace, WorkspaceError};
 pub use ambient_host::host::PACKAGE;
 
 /// Each module's path and text; the library module's path is empty.
-const SOURCES: [(&str, &str); 14] = [
+const SOURCES: [(&str, &str); 15] = [
     ("", include_str!("lib.ab")),
     ("clock", include_str!("clock.ab")),
     ("code", include_str!("code.ab")),
@@ -28,6 +28,7 @@ const SOURCES: [(&str, &str); 14] = [
     ("process", include_str!("process.ab")),
     ("random", include_str!("random.ab")),
     ("stream", include_str!("stream.ab")),
+    ("test", include_str!("test.ab")),
 ];
 
 /// The target a program run from a command line runs under.

@@ -35,6 +35,14 @@ impl Launch<'_> {
         let Self { project, engine } = self;
         let refused = |error: crate::error::Error| vec![super::report(project, engine, &error)];
         let root = engine.program(entry, target).map_err(refused)?;
+        self.link_root(entry, root)
+    }
+
+    /// Compiles the program of `root`, whose entry is `entry`, or says
+    /// what is wrong with it.
+    pub(super) fn link_root(&self, entry: &Symbol, root: Symbol) -> Result<Linked, Vec<String>> {
+        let Self { project, engine } = self;
+        let refused = |error: crate::error::Error| vec![super::report(project, engine, &error)];
         let backend = Native::new().map_err(|message| vec![message])?;
         let host::Linked { parts, trees } =
             host::link(engine, entry, &root, &backend).map_err(refused)?;

@@ -493,9 +493,9 @@ pub fn main(): null with console.print {
 
 `ambient test --only ledger` runs the tests whose name, after their module's, holds `ledger`.
 
-A test is given no world: it provides what the code under test needs, as above, so it says exactly what the world held.
+A test that provides what the code under test needs, as above, says exactly what the world held, and is run again only when it changes or what it reaches does, whether it passed or failed. Moving or renaming one changes nothing about it. A test whose row names the world, as `console.print`, reaches it, and runs every time.
 
-A test is run again only when it changes or what it reaches does, whether it passed or failed. Moving or renaming one changes nothing about it.
+What is kept of a run is kept under `build/tests/`, by package. The tests of a package are compiled into one program, so choosing some with `--only` compiles nothing, and a test of a package's native code runs as `ambient run` would run it.
 
 A package may find its tests its own way: a function that takes a `build.Selection` and gives `test.Tests`, listed in its manifest. It may list several, and `ambient.test.annotated` is the standard one:
 
@@ -506,7 +506,7 @@ find = ["pkg.checks.found", "ambient.test.annotated"]
 
 A test that fails may be tried again before it is said to: `#[test.tries(3)]`. A failure of one is never reused.
 
-Running tests is a function too, which a manifest may name: `run = "pkg.checks.run"`. It is handed the tests and runs each through `test.run` and `test.kept`, reporting by `test.report`. One that only changes what is reported provides a handler of `test.report` around `test.tests`, the standard way.
+Running tests is a function too, which a manifest may name: `run = "pkg.checks.run"`. It takes `system.test.Cases` and a `Cache`, runs each test through `test.outcome`, keeps what it chooses, reports by `system.test.report`, and gives a `Tally`. One that only changes what is reported provides a handler of `report` around `system.test.tests`, the standard way.
 
 ## The standard library
 

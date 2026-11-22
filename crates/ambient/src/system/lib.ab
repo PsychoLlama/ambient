@@ -11,6 +11,7 @@ pub mod path;
 pub mod process;
 pub mod random;
 pub mod stream;
+pub mod test;
 
 use ambient.errors;
 

@@ -50,10 +50,8 @@ pub fn refused(kind: &str, message: String) -> Value {
     ])
 }
 
-/// The native code that passes each question on to the engine, or to
-/// whatever answers in its place and asks the engine the rest.
-#[must_use]
-pub fn natives() -> Natives {
+/// The native code that passes each question on to the engine.
+pub(super) fn natives() -> Natives {
     // An error nothing caught fails the run, as a fault does, with
     // what the error says.
     let thrown = |args: &[Value]| match args.first() {
@@ -154,11 +152,7 @@ impl Questions for Engine<'_> {
 }
 
 /// The definition a `tree.Reference` among `args` refers to.
-///
-/// # Errors
-///
-/// Fails if what is at `position` is no reference to a definition.
-pub fn definition(args: &[Value], position: usize) -> Result<Symbol, String> {
+pub(super) fn definition(args: &[Value], position: usize) -> Result<Symbol, String> {
     let wrong = || format!("argument {position} is not a reference to a definition");
     let Some(Value::Record(fields)) = args.get(position) else {
         return Err(wrong());

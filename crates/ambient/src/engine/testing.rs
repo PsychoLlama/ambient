@@ -1,0 +1,318 @@
+//! The program that runs tests: an entry the engine writes, which hands
+//! `system.test.main` each package's runner and its tests. See "Running"
+//! and "Keeping" in `docs/spec/testing.md`.
+//!
+//! What a test is handed as is plain data, but for the function that is
+//! the test and the runner, which are named where the entry is written.
+//! A test's key is worked out here, where its hash is known.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use ambient_runtime::FAULT_PACKAGE;
+
+use super::Engine;
+use crate::error::Error;
+use crate::exchange;
+use crate::hash::{Hasher, digest};
+use crate::literal::Literal;
+use crate::surface::{DefinitionKind, Expr, Key, Reference};
+use crate::symbol::{ModuleId, Symbol};
+use crate::types::abilities;
+use crate::value::Value;
+
+/// The tests of a run, as the command chose them.
+pub struct Testing {
+    /// The directory each package's cache is in, by its ID.
+    pub directory: String,
+    /// The hashes of what runs a test, which a trace leaves out.
+    pub harness: Vec<String>,
+    pub packages: Vec<Tested>,
+    /// The digest of each package's native bundle for this machine, by
+    /// the package's ID.
+    pub bundles: BTreeMap<String, String>,
+}
+
+/// A package's tests, and what runs them.
+pub struct Tested {
+    pub id: String,
+    pub runner: Symbol,
+    pub cases: Vec<Case>,
+}
+
+/// A test that was found: a `test.Test`, the function that is the test,
+/// and why it cannot be run, if it cannot.
+pub struct Case {
+    pub test: Value,
+    pub function: Symbol,
+    pub refused: Option<String>,
+}
+
+/// The module of `system` that runs tests.
+fn running() -> ModuleId {
+    ModuleId::new(crate::system::PACKAGE, "test")
+}
+
+/// What `test.outcome` provides a test: what of its row is no world.
+fn provided() -> [Symbol; 2] {
+    [
+        ModuleId::new(FAULT_PACKAGE, "test").ability("unmet"),
+        ModuleId::new(FAULT_PACKAGE, "errors").ability("throw"),
+    ]
+}
+
+/// Plain data as an expression that makes it.
+fn written(value: &Value) -> Option<Expr<Reference>> {
+    let all = |values: &[Value]| values.iter().map(written).collect::<Option<Vec<_>>>();
+    Some(match value {
+        Value::Null => Expr::Null,
+        Value::Bool(value) => Expr::Literal(Literal::Bool(*value)),
+        Value::Int(value) => Expr::Literal(Literal::Int(*value)),
+        Value::Float(value) => Expr::Literal(Literal::Float(value.to_bits())),
+        Value::String(text) => Expr::Literal(Literal::String(text.clone())),
+        Value::Bytes(bytes) => Expr::Literal(Literal::Bytes(bytes.clone())),
+        Value::Tag { package, tag } => Expr::Literal(Literal::Tag {
+            package: package.clone(),
+            tag: tag.clone(),
+        }),
+        Value::List(members) => Expr::List(all(members)?),
+        Value::Tuple(members) => Expr::Tuple(all(members)?),
+        Value::Record(fields) => record(
+            fields
+                .iter()
+                .map(|(name, value)| Some((name.as_str(), written(value)?)))
+                .collect::<Option<Vec<_>>>()?,
+        ),
+        _ => return None,
+    })
+}
+
+/// A record of `fields`.
+fn record(fields: Vec<(&str, Expr<Reference>)>) -> Expr<Reference> {
+    let field = |(name, value): (&str, _)| (Key::Field(name.to_owned()), value);
+    Expr::Record(fields.into_iter().map(field).collect())
+}
+
+/// A field of a record, or null.
+fn field(value: &Value, name: &str) -> Value {
+    match value {
+        Value::Record(fields) => fields.get(name).cloned().unwrap_or(Value::Null),
+        _ => Value::Null,
+    }
+}
+
+/// A function of no parameters that calls `test`, taking what
+/// `test.outcome` provides and capturing the rest of the world `test`
+/// reaches where the root writes it.
+fn captured(test: &Symbol) -> Expr<Reference> {
+    Expr::Lambda {
+        type_params: Vec::new(),
+        params: Vec::new(),
+        row: provided().into_iter().map(Reference::Definition).collect(),
+        returns: None,
+        body: Box::new(Expr::Call {
+            callee: Box::new(named(test)),
+            args: Vec::new(),
+        }),
+    }
+}
+
+fn named(symbol: &Symbol) -> Expr<Reference> {
+    Expr::Name(Reference::Definition(symbol.clone()))
+}
+
+impl Engine<'_> {
+    /// Whether `function` can be run as a test under `target`: a
+    /// function that takes nothing, has no type parameters, and whose
+    /// world `target` binds, and everything it reaches checks.
+    ///
+    /// # Errors
+    ///
+    /// Fails with what is wrong with it.
+    pub fn testable(&self, function: &Symbol, target: &Symbol) -> Result<(), Error> {
+        let resolved = self.resolve(function)?;
+        let header = self.function_of(function, &resolved.definition)?;
+        let header = header.ok_or_else(|| Error::NotCompilable(function.clone()))?;
+        if !header.type_params.is_empty() {
+            return Err(Error::GenericEntry(function.clone()));
+        }
+        if !header.params.is_empty() {
+            return Err(Error::TestTakes(function.clone()));
+        }
+        let world = self.world_of(function)?;
+        let bound = self.bound(target, world.clone())?;
+        if let Some(ability) = world
+            .into_iter()
+            .find(|ability| !bound.contains_key(ability))
+        {
+            return Err(Error::Unoffered {
+                symbol: function.clone(),
+                target: target.clone(),
+                ability,
+            });
+        }
+        // What the test reaches is compiled with it, so a part that
+        // does not check would keep every other test from running.
+        let mut checked = Ok(());
+        self.walk(function, &mut |symbol, said| {
+            if said.is_none() && checked.is_ok() && self.root_of(symbol).is_none() {
+                checked = self.check(symbol).map(|_| ());
+            }
+        })?;
+        checked
+    }
+
+    /// What of the world `function` reaches: its row, less what
+    /// `test.outcome` provides.
+    fn world_of(&self, function: &Symbol) -> Result<Vec<Symbol>, Error> {
+        let resolved = self.resolve(function)?;
+        let header = self.function_of(function, &resolved.definition)?;
+        let header = header.ok_or_else(|| Error::NotCompilable(function.clone()))?;
+        let provided = provided();
+        let row = abilities(&header.row).into_iter();
+        Ok(row.filter(|ability| !provided.contains(ability)).collect())
+    }
+
+    /// The root of the program that runs `testing` under `target`:
+    /// `system.test.main`, handed what the tests are as an expression
+    /// the engine writes. What a test or a runner reaches of the world
+    /// it captures where the root names it, so the target binds that
+    /// too.
+    ///
+    /// # Errors
+    ///
+    /// Fails if a test or a runner is not a function.
+    pub fn testing(&self, testing: &Testing, target: &Symbol) -> Result<Symbol, Error> {
+        let report = running().ability("report");
+        let mut world = BTreeSet::new();
+        let mut packages = Vec::new();
+        for tested in &testing.packages {
+            let runner = self.resolve(&tested.runner)?;
+            let header = self.function_of(&tested.runner, &runner.definition)?;
+            let header = header.ok_or_else(|| Error::NotCompilable(tested.runner.clone()))?;
+            world.extend(
+                abilities(&header.row)
+                    .into_iter()
+                    .filter(|ability| *ability != report),
+            );
+            let mut cases = Vec::new();
+            for case in &tested.cases {
+                cases.push(self.case(case, &tested.runner, &testing.bundles, &mut world)?);
+            }
+            packages.push(record(vec![
+                ("id", Expr::Literal(Literal::String(tested.id.clone()))),
+                ("runner", named(&tested.runner)),
+                ("cases", Expr::List(cases)),
+            ]));
+        }
+        let hashes = testing.harness.iter().cloned().map(Value::String).collect();
+        let handed = record(vec![
+            (
+                "directory",
+                Expr::Literal(Literal::String(testing.directory.clone())),
+            ),
+            (
+                "harness",
+                written(&Value::List(hashes)).unwrap_or(Expr::Null),
+            ),
+            ("packages", Expr::List(packages)),
+        ]);
+        let main = running().value("main");
+        Ok(self.handing(&main, target, handed, world.into_iter().collect()))
+    }
+
+    /// One test as `system.test` takes it: a `Case`, or a `Refused`.
+    fn case(
+        &self,
+        case: &Case,
+        runner: &Symbol,
+        bundles: &BTreeMap<String, String>,
+        world: &mut BTreeSet<Symbol>,
+    ) -> Result<Expr<Reference>, Error> {
+        let name = written(&field(&case.test, "name")).unwrap_or(Expr::Null);
+        let group = written(&field(&case.test, "group")).unwrap_or(Expr::Null);
+        if let Some(refused) = &case.refused {
+            let refused = Expr::Literal(Literal::String(refused.clone()));
+            return Ok(record(vec![
+                ("name", name),
+                ("group", group),
+                ("refused", refused),
+            ]));
+        }
+        let reaches = self.world_of(&case.function)?;
+        let key = if reaches.is_empty() {
+            Expr::Literal(Literal::String(self.key(
+                &case.function,
+                runner,
+                bundles,
+            )?))
+        } else {
+            Expr::Null
+        };
+        world.extend(reaches);
+        // What is said of the test is plain data, which a runner reads.
+        let said = self
+            .annotations_of(&case.function)?
+            .into_iter()
+            .filter_map(|said| {
+                let value = written(&exchange::decode(&said.value).ok()?)?;
+                let key = Expr::Literal(Literal::Tag {
+                    package: said.package,
+                    tag: said.tag,
+                });
+                Some(record(vec![("key", key), ("value", value)]))
+            });
+        Ok(record(vec![
+            ("name", name),
+            ("group", group),
+            ("said", Expr::List(said.collect())),
+            ("key", key),
+            ("function", captured(&case.function)),
+        ]))
+    }
+
+    /// The key a pure test's outcome is kept under: its hash, what runs
+    /// it, the build, and the native bundles it reaches. Its name is no
+    /// part of it.
+    fn key(
+        &self,
+        test: &Symbol,
+        runner: &Symbol,
+        bundles: &BTreeMap<String, String>,
+    ) -> Result<String, Error> {
+        let mut key = Hasher::new("test");
+        key.hash(&self.hash(test)?).hash(&self.hash(runner)?);
+        key.bytes(super::BUILD.as_bytes());
+        let mut reached = BTreeSet::new();
+        self.walk(test, &mut |symbol, said| {
+            if said.is_none() && self.is_extern(symbol) {
+                reached.insert(symbol.module.package.0.clone());
+            }
+        })?;
+        for package in reached {
+            if let Some(bundle) = bundles.get(&package) {
+                key.bytes(package.as_bytes()).bytes(bundle.as_bytes());
+            }
+        }
+        Ok(key.finish().to_string())
+    }
+
+    /// Whether `symbol` is an extern: native code, which a bundle may
+    /// bring.
+    fn is_extern(&self, symbol: &Symbol) -> bool {
+        let resolved = self.resolve(symbol);
+        resolved.is_ok_and(|resolved| matches!(resolved.definition.kind, DefinitionKind::Extern(_)))
+    }
+
+    /// The root that hands `entry` what `handed` makes under `target`,
+    /// where the target also binds `world`.
+    fn handing(
+        &self,
+        entry: &Symbol,
+        target: &Symbol,
+        handed: Expr<Reference>,
+        world: Vec<Symbol>,
+    ) -> Symbol {
+        let written = digest("handed", &handed).to_string();
+        self.rooted_handing(entry, target, handed, world, &written)
+    }
+}

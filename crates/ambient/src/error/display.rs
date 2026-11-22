@@ -72,7 +72,7 @@ impl fmt::Display for Error {
             | Self::TargetConflict { .. }
             | Self::ForeignDefault { .. }
             | Self::GenericEntry(_)
-            | Self::NotHanded { .. } => self.fmt_world(f),
+            | Self::TestTakes(_) => self.fmt_world(f),
             Self::ToolConflict(_)
             | Self::NotTool(_)
             | Self::NotLint(_)
@@ -315,19 +315,9 @@ impl Error {
             Self::GenericEntry(symbol) => {
                 write!(f, "{symbol}: an entry cannot have type parameters")
             }
-            Self::NotHanded {
-                symbol,
-                within,
-                takes: 0,
-            } => write!(f, "{symbol}: `{within}` runs a function that takes nothing"),
-            Self::NotHanded {
-                symbol,
-                within,
-                takes,
-            } => write!(
-                f,
-                "{symbol}: `{within}` runs a function of {takes} parameters"
-            ),
+            Self::TestTakes(symbol) => {
+                write!(f, "{symbol}: a test is a function that takes nothing")
+            }
             _ => Ok(()),
         }
     }

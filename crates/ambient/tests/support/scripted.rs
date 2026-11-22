@@ -113,6 +113,17 @@ impl Scripted {
         }
     }
 
+    /// This world as a command run after the last finds it: its files
+    /// and its clock, and nothing yet said.
+    #[must_use]
+    pub fn again(self) -> Self {
+        Self {
+            out: String::new(),
+            err: String::new(),
+            ..self
+        }
+    }
+
     /// This world, with its commands run in the directory `within`.
     pub fn inside(self, within: impl Into<PathBuf>) -> Self {
         Self {

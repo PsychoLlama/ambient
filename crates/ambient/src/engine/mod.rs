@@ -43,6 +43,7 @@ mod reflect;
 mod resolve;
 mod run;
 mod scope;
+mod testing;
 mod verify;
 
 use std::cell::RefCell;
@@ -61,7 +62,7 @@ use crate::symbol::{ModuleId, Symbol};
 use crate::workspace::Sources;
 
 pub use ambient_host::parts::{Artifact, Body, Native, Part, Parts, Unloadable};
-pub use asked::{definition, natives as asking, refused};
+pub use asked::refused;
 pub use built::Files;
 pub use check::Interface;
 pub use compile::Backend;
@@ -69,6 +70,7 @@ pub use found::Found;
 pub use read::{Entry, Read, Table};
 pub use resolve::Resolved;
 pub use scope::{Member, Members, Scope};
+pub use testing::{Case, Tested, Testing};
 
 /// The answer to a question: shared, or the problem that prevented it.
 pub type Query<T> = Result<Arc<T>, Error>;
@@ -264,60 +266,30 @@ impl<'a> Engine<'a> {
     where
         T: Serialize + DeserializeOwned,
     {
-        let taken = self.staged(stage, subject, key, Taking::Either, holds, compute);
-        taken.unwrap_or_else(|| unreachable!("a stage that may make its result makes one"))
-    }
-
-    /// A stage as [`Self::stage_if`] is, taking what `taking` says: a
-    /// stored result that holds or else a new one, only a stored one,
-    /// which is nothing if none holds, or only a new one, which is kept
-    /// in place of what was.
-    fn staged<T>(
-        &self,
-        stage: Stage,
-        subject: &dyn Display,
-        key: Hash,
-        taking: Taking,
-        holds: impl FnOnce(&Result<T, Error>) -> bool,
-        compute: impl FnOnce() -> Result<T, Error>,
-    ) -> Option<Query<T>>
-    where
-        T: Serialize + DeserializeOwned,
-    {
         // The compiler is an input to every stage, and no key covers it:
         // a result is stored under its key and the build that made it.
         let key = kept(&key, BUILD);
         // An entry that does not decode is treated as missing: the store is
         // only ever a cache.
-        let stored = (taking != Taking::Made)
-            .then(|| self.store.get(&key))
-            .flatten()
+        let stored = self
+            .store
+            .get(&key)
             .and_then(|bytes| postcard::from_bytes::<Result<T, Error>>(&bytes).ok())
             .filter(holds);
-        let (result, outcome) = match (stored, taking) {
-            (Some(result), _) => (result, Outcome::Reused),
-            (None, Taking::Stored) => return None,
-            (None, Taking::Either | Taking::Made) => {
-                let result = compute();
-                self.store.put(key, encode(&result));
-                (result, Outcome::Ran)
-            }
+        let (result, outcome) = if let Some(result) = stored {
+            (result, Outcome::Reused)
+        } else {
+            let result = compute();
+            self.store.put(key, encode(&result));
+            (result, Outcome::Ran)
         };
         self.events.borrow_mut().push(Event {
             stage,
             subject: subject.to_string(),
             outcome,
         });
-        Some(result.map(Arc::new))
+        result.map(Arc::new)
     }
-}
-
-/// What a stage takes: see [`Engine::staged`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Taking {
-    Either,
-    Stored,
-    Made,
 }
 
 /// Where the result under `key` is kept by one build of the compiler.

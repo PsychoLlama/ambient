@@ -189,13 +189,8 @@ pub enum Error {
     /// What a manifest lists as a lint is not one: it does not take a
     /// `build.Selection` and give `build.Diagnostics`.
     NotLint(Symbol),
-    /// An entry is handed to a function that takes a function of
-    /// another number of parameters: a test that takes something.
-    NotHanded {
-        symbol: Symbol,
-        within: Symbol,
-        takes: usize,
-    },
+    /// A test that takes something.
+    TestTakes(Symbol),
     /// What a manifest lists as a way to find tests is not one: it does
     /// not take a `build.Selection` and give `test.Tests`.
     NotFinder(Symbol),
@@ -303,7 +298,7 @@ impl Error {
             | Self::NotTool(symbol)
             | Self::NotLint(symbol)
             | Self::NotFinder(symbol)
-            | Self::NotHanded { symbol, .. }
+            | Self::TestTakes(symbol)
             | Self::Lint { symbol, .. }
             | Self::BuiltTwice { symbol, .. }
             | Self::NotAnnotation { symbol, .. }

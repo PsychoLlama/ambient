@@ -10,7 +10,7 @@ use super::{Engine, Query};
 use crate::core::Open;
 use crate::error::Error;
 use crate::hash::{Hasher, digest};
-use crate::surface::{DefinitionKind, Expr, Function, Key, Param, Reference, Type};
+use crate::surface::{DefinitionKind, Expr, Function, Key, Reference, Type};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::{abilities, layers};
 
@@ -19,9 +19,19 @@ use crate::types::{abilities, layers};
 pub(super) struct Root {
     entry: Symbol,
     target: Symbol,
-    /// A function the entry is handed to, which the root calls in its
-    /// place: what runs a test, and gives what it came to.
-    within: Option<Symbol>,
+    /// What the root hands the entry in place of taking its
+    /// parameters, and what of the world that reaches past the entry's
+    /// row: what runs tests is handed the tests (`engine/testing.rs`).
+    handed: Option<Handed>,
+}
+
+/// An argument the engine writes for a root to hand its entry.
+#[derive(Clone)]
+struct Handed {
+    expr: Expr<Reference>,
+    /// What the target binds besides the entry's row: the world of the
+    /// functions `expr` names, which they capture there.
+    world: Vec<Symbol>,
 }
 
 impl Engine<'_> {
@@ -32,47 +42,41 @@ impl Engine<'_> {
     ///
     /// Fails if `entry` is not a function without type parameters.
     pub fn program(&self, entry: &Symbol, target: &Symbol) -> Result<Symbol, Error> {
-        Ok(self.rooted(Root {
+        let root = Root {
             entry: entry.clone(),
             target: target.clone(),
-            within: None,
-        }))
+            handed: None,
+        };
+        // No builder accepts this name, so it cannot be a definition's.
+        Ok(self.rooted(root, &format!("{}@{entry}", target.name)))
     }
 
-    /// The root of the program that hands `entry` to `within` under
-    /// `target`, and gives what `within` gives. What `within` expects
-    /// of the function it is handed it provides itself, so the target
-    /// need bind only the rest of the entry's row, and `within`'s own.
-    ///
-    /// # Errors
-    ///
-    /// Fails as [`Self::program`] does.
-    pub fn program_within(
+    /// The root that hands `entry` what `handed` makes under `target`,
+    /// which binds `world` beside the entry's row. `written` tells it
+    /// apart from another handed to the same entry.
+    pub(super) fn rooted_handing(
         &self,
         entry: &Symbol,
-        within: &Symbol,
         target: &Symbol,
-    ) -> Result<Symbol, Error> {
-        Ok(self.rooted(Root {
+        handed: Expr<Reference>,
+        world: Vec<Symbol>,
+        written: &str,
+    ) -> Symbol {
+        let root = Root {
             entry: entry.clone(),
             target: target.clone(),
-            within: Some(within.clone()),
-        }))
+            handed: Some(Handed {
+                expr: handed,
+                world,
+            }),
+        };
+        self.rooted(root, &format!("{}@{entry}@{written}", target.name))
     }
 
-    /// A symbol for `root`, by which it is checked, linked, and run.
-    fn rooted(&self, root: Root) -> Symbol {
-        let Root {
-            entry,
-            target,
-            within,
-        } = &root;
-        // No builder accepts this name, so it cannot be a definition's.
-        let name = match within {
-            None => format!("{}@{entry}", target.name),
-            Some(within) => format!("{}@{within}@{entry}", target.name),
-        };
-        let symbol = target.module.symbol(Namespace::Value, &name);
+    /// The symbol `name` for `root`, by which it is checked, linked, and
+    /// run.
+    fn rooted(&self, root: Root, name: &str) -> Symbol {
+        let symbol = root.target.module.symbol(Namespace::Value, name);
         self.roots.borrow_mut().insert(symbol.clone(), root);
         symbol
     }
@@ -239,11 +243,12 @@ impl Engine<'_> {
         if !header.type_params.is_empty() {
             return Err(Error::GenericEntry(root.entry.clone()));
         }
-        let (row, callee, params) = match &root.within {
-            None => (abilities(&header.row), &root.entry, header.params.clone()),
-            Some(within) => {
-                let row = self.within_row(&root.entry, header.params.len(), within, &header.row)?;
-                (row, within, Vec::new())
+        let mut row = abilities(&header.row);
+        let params = match &root.handed {
+            None => header.params.clone(),
+            Some(handed) => {
+                row.extend(handed.world.iter().cloned());
+                Vec::new()
             }
         };
         // What the entry reaches: its row, and the row of every handler
@@ -271,14 +276,14 @@ impl Engine<'_> {
         let layers = layers(&rows).ok_or_else(|| Error::TargetCycle(root.target.clone()))?;
         let depth = layers.values().max().map_or(0, |deepest| deepest + 1);
 
-        let args = match &root.within {
+        let args = match &root.handed {
             None => (0..params.len())
                 .map(|number| Expr::Name(Reference::Local(number)))
                 .collect(),
-            Some(_) => vec![Expr::Name(Reference::Definition(root.entry.clone()))],
+            Some(handed) => vec![handed.expr.clone()],
         };
         let mut body = Expr::Call {
-            callee: Box::new(Expr::Name(Reference::Definition(callee.clone()))),
+            callee: Box::new(Expr::Name(Reference::Definition(root.entry.clone()))),
             args,
         };
         for layer in (0..depth).rev() {
@@ -307,45 +312,5 @@ impl Engine<'_> {
             row: Vec::new(),
             body,
         })
-    }
-
-    /// What a program that hands `entry`, of `params` parameters and
-    /// `row`, to `within` takes of its target: `within`'s own row, and
-    /// what of `row` the function `within` takes does not take, which
-    /// the entry captures where the root hands it over.
-    fn within_row(
-        &self,
-        entry: &Symbol,
-        params: usize,
-        within: &Symbol,
-        row: &[Reference],
-    ) -> Result<Vec<Symbol>, Error> {
-        let resolved = self.resolve(within)?;
-        let header = self.function_of(within, &resolved.definition)?;
-        let header = header.ok_or_else(|| Error::NotCompilable(within.clone()))?;
-        let (handed, provided) = match header.params.as_slice() {
-            [
-                Param {
-                    ty: Type::Function { params, row, .. },
-                    ..
-                },
-            ] => (params.len(), abilities(row)),
-            _ => return Err(Error::NotCompilable(within.clone())),
-        };
-        // Said here, of the entry, as a binding it lacks is.
-        if params != handed {
-            return Err(Error::NotHanded {
-                symbol: entry.clone(),
-                within: within.clone(),
-                takes: handed,
-            });
-        }
-        let mut taken = abilities(&header.row);
-        taken.extend(
-            abilities(row)
-                .into_iter()
-                .filter(|ability| !provided.contains(ability)),
-        );
-        Ok(taken)
     }
 }

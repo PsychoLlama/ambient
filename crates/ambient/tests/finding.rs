@@ -134,7 +134,7 @@ fn a_test_that_takes_something_fails_and_runs_no_other_the_worse() {
         (
             1,
             "FAIL  app:main.takes
-      app/src/main.ab:2:26: app:main.takes: `ambient:test.outcome` runs a function that takes nothing
+      app/src/main.ab:2:26: app:main.takes: a test is a function that takes nothing
 ok    app:main.holds
 1 passed, 1 failed
 "

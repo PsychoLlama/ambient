@@ -1,0 +1,228 @@
+use ambient.errors;
+use ambient.test;
+use ambient.test.{Group, Outcome};
+use pkg.console;
+use pkg.env;
+use pkg.exchange;
+use pkg.fs;
+use pkg.path;
+
+/// What is said of a test: the key and value of an annotation on it.
+pub type Said = { key: Tag, value: unknown };
+
+/// A test as a run is handed it: its name and group, what is said of
+/// it, the key its outcome may be kept under, and the function that is
+/// the test. A test that reaches the world has no key, so it runs every
+/// time.
+pub type Case = {
+    name: string,
+    group: Group | null,
+    said: List<Said>,
+    key: string | null,
+    function: fn(): unknown with test.unmet, errors.throw,
+};
+
+/// A test that was found and cannot be run, and why, as the command
+/// says it.
+pub type Refused = { name: string, group: Group | null, refused: string };
+
+/// The tests of a package, in the order they were found.
+pub type Cases = List<Case | Refused>;
+
+/// Where what testing keeps is kept: bytes by key. A runner keeps
+/// outcomes in it, and a test utility what it chooses.
+pub type Cache = {
+    read: fn(key: string): bytes | null,
+    keep: fn(key: string, content: bytes): null,
+};
+
+/// How many tests of a run passed, failed, and were not run again.
+pub type Tally = { passed: int, failed: int, kept: int };
+
+/// What running tests says as it goes: a test begun, what one came to
+/// and whether that was kept from before, one that could not be run,
+/// and the end of a package's run, with what it came to.
+pub type Event = { begun: Case } | { ended: Case, outcome: Outcome, kept: bool } | { refused: Refused } | { done: Tally };
+
+/// Says what running tests came to. A reporter is a handler of it.
+pub ability report(event: Event): null;
+
+/// What runs the tests of a package, handed where to keep what it
+/// keeps. A package's manifest may name one; `tests` is the standard
+/// one.
+pub type Runner = fn(cases: Cases, cache: Cache): Tally with report;
+
+/// A package's tests and what runs them.
+pub type Package = { id: string, runner: Runner, cases: Cases };
+
+/// What the program that runs tests is handed, which the build writes:
+/// the directory each package's cache is in, the hashes of what runs a
+/// test, which a trace leaves out, and each package's tests.
+pub type Run = { directory: string, harness: List<string>, packages: List<Package> };
+
+/// What is said of an outcome: each check that did not hold, then the
+/// error that ended it with its trace named, less the frames of
+/// `harness` at its outer end.
+pub extern fn said(outcome: Outcome, harness: List<string>): List<string>;
+
+/// The name of a test, after those of its groups, outermost first.
+pub fn named(name: string, group: Group | null): string => match group {
+    let group: Group => named(group.name, group.group).join(".").join(name),
+    _ => name,
+};
+
+/// The cache in `directory`: a file for each key.
+pub fn cache(directory: string): Cache with fs.read_bytes, fs.write_bytes, fs.make_directory {
+    let at = fn(key: string): string => path.join([directory, key]);
+    return {
+        read: fn(key: string): bytes | null => match fs.read_bytes!(at(key)) {
+            let content: bytes => content,
+            _ => null,
+        },
+        keep: fn(key: string, content: bytes): null {
+            fs.make_directory!(directory);
+            fs.write_bytes!(at(key), content);
+            return null;
+        },
+    };
+}
+
+/// What is kept of `case`'s outcome, if it may be kept and is.
+fn stored(case: Case, cache: Cache): Outcome | null => match case.key {
+    let key: string => match cache.read(key) {
+        let content: bytes => match exchange.decode(content) {
+            let outcome: Outcome => outcome,
+            _ => null,
+        },
+        _ => null,
+    },
+    _ => null,
+};
+
+/// Keeps `outcome` for `case`, if it may be kept and is plain data.
+fn store(case: Case, cache: Cache, outcome: Outcome): null => match case.key {
+    let key: string => match exchange.encode(outcome) {
+        let content: bytes => cache.keep(key, content),
+        _ => null,
+    },
+    _ => null,
+};
+
+/// How many times `case` is run before it is said to fail: what its
+/// `test.tries` annotation says, or once.
+fn tried(case: Case): int {
+    let said = case.said.find(fn(said: Said): bool => said.key == test.tries);
+    return match said {
+        let said: Said => match said.value {
+            let tries: int => tries,
+            _ => 1,
+        },
+        _ => 1,
+    };
+}
+
+/// Runs `case` until it passes, at most `tries` times, and gives what
+/// it last came to.
+fn attempt(case: Case, tries: int): Outcome {
+    let outcome = test.outcome(case.function);
+    return test.passed(outcome) || tries <= 1 ? outcome : attempt(case, tries - 1);
+}
+
+/// Reports a test that could not be run, which fails.
+fn refuse(refused: Refused, tally: Tally): Tally with report {
+    report!({ refused });
+    return { passed: tally.passed, failed: tally.failed + 1, kept: tally.kept };
+}
+
+/// Runs `case`, or reuses what is kept of it, and reports what it came
+/// to.
+fn ran(case: Case, cache: Cache, tally: Tally): Tally with report {
+    report!({ begun: case });
+    let tries = tried(case);
+    let reused = match stored(case, cache) {
+        let outcome: Outcome => test.passed(outcome) || tries == 1 ? outcome : null,
+        _ => null,
+    };
+    let kept = reused != null;
+    let outcome = match reused {
+        let outcome: Outcome => outcome,
+        _ => attempt(case, tries),
+    };
+    if !kept {
+        store(case, cache, outcome);
+    }
+    report!({ ended: case, outcome, kept });
+    let held = test.passed(outcome);
+    return {
+        passed: held ? tally.passed + 1 : tally.passed,
+        failed: held ? tally.failed : tally.failed + 1,
+        kept: kept ? tally.kept + 1 : tally.kept,
+    };
+}
+
+/// The standard way to run tests: one at a time, in order. What is kept
+/// of a test is reused, but a failure of one that may be tried again.
+pub fn tests(cases: Cases, cache: Cache): Tally with report {
+    let tally = cases.fold({ passed: 0, failed: 0, kept: 0 }, fn(tally: Tally, case: Case | Refused): Tally => match case {
+        let refused: Refused => refuse(refused, tally),
+        let case: Case => ran(case, cache, tally),
+    });
+    report!({ done: tally });
+    return tally;
+}
+
+/// The tests of `cases` whose name, after those of their groups, holds
+/// `only`, or all of them.
+fn chosen(cases: Cases, only: string | null): Cases => match only {
+    let only: string => cases.filter(fn(case: Case | Refused): bool => match case {
+        let refused: Refused => named(refused.name, refused.group).contains(only),
+        let case: Case => named(case.name, case.group).contains(only),
+    }),
+    _ => cases,
+};
+
+/// What is written of a test named `name` that came to `problems`.
+fn verdict(name: string, problems: List<string>): string {
+    if problems.length() == 0 {
+        return "ok    ${name}\n";
+    }
+    let lines = problems.fold([], fn(lines: List<string>, problem: string): List<string> => lines.join(problem.lines()));
+    return lines.fold("FAIL  ${name}\n", fn(text: string, line: string): string => "${text}      ${line}\n");
+}
+
+/// What is written of the end of a package's run.
+fn summary(tally: Tally): string {
+    let again = tally.kept == 0 ? "" : " (${tally.kept.to_text()} not run again)";
+    return "${tally.passed.to_text()} passed${again}, ${tally.failed.to_text()} failed\n";
+}
+
+/// The standard reporter: each test as it ends, then how many passed
+/// and failed.
+fn reported(event: Event, harness: List<string>): null with console.write {
+    // A case is asked for no more than its name: a function cannot be
+    // asked for its type.
+    let text = match event {
+        let ended: { ended: { name: string, group: Group | null }, outcome: Outcome } =>
+            verdict(named(ended.ended.name, ended.ended.group), said(ended.outcome, harness)),
+        let refused: { refused: Refused } =>
+            verdict(named(refused.refused.name, refused.refused.group), [refused.refused.refused]),
+        let done: { done: Tally } => summary(done.done),
+        _ => "",
+    };
+    console.write!(text);
+}
+
+/// Runs the tests the build wrote into `run`: those of each package
+/// whose name holds the program's first argument, if it has one, by
+/// the package's runner, reporting each event as text. Gives what to
+/// exit with: zero if none failed.
+pub fn main(run: Run): int with env.args, console.write, fs.read_bytes, fs.write_bytes, fs.make_directory {
+    let only = env.args!().first();
+    let failed = run.packages.fold(0, fn(failed: int, package: Package): int {
+        let cases = chosen(package.cases, only);
+        let kept = cache(path.join([run.directory, package.id]));
+        let tally = provide { [report](event) => reported(event, run.harness) } => package.runner(cases, kept);
+        return failed + tally.failed;
+    });
+    return failed > 0 ? 1 : 0;
+}

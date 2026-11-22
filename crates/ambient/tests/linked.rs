@@ -24,11 +24,13 @@ use support::scripted::Scripted;
 
 const ID: &str = "0123456789abcdef0123456789abcdef";
 
-/// A package whose `main` gives what a function of its bundle gives.
+/// A package whose `main` gives what a function of its bundle gives,
+/// with a test of it that passes and one that fails.
 /// Nothing reaches `absent`, and the bundle has no function for it.
 /// Its target `world` binds an ability to a handler of the bundle,
 /// and another to one a thread of the bundle answers.
-const SOURCE: &str = "use system.{os};
+const SOURCE: &str = "use ambient.test;
+use system.{os};
 
 extern fn double(n: int): int;
 extern fn absent(n: int): int;
@@ -49,6 +51,12 @@ pub fn tripling(): int with triple => triple!(14);
 pub fn waiting(): int with later => later!(40) + later!(1) + 1;
 
 pub fn stranded(): int with triple => tripling();
+
+#[test.case]
+fn doubles(): null with test.unmet => test.equal(double(21), 42, \"it doubles\");
+
+#[test.case]
+fn halves(): null with test.unmet => test.equal(double(2), 1, \"it halves\");
 ";
 
 /// The binaries of the package that are run under a target of its
@@ -323,4 +331,19 @@ fn a_bundle_built_for_another_layout_is_not_linked() {
     let other = |header: String| header.replace(&built(ID), "amb_built_for_another");
 
     assert_eq!(executed_told(&scratch, &build, other), 1);
+}
+
+#[test]
+fn a_test_of_a_bundle_is_run_by_what_was_linked_with_it_and_kept() {
+    let scratch = Scratch::new();
+    let test = |only: Option<&str>| Command::Test {
+        at: Chosen::default(),
+        only: only.map(str::to_owned),
+    };
+
+    assert_eq!(executed(&scratch, &test(None)), 1);
+    assert_eq!(executed(&scratch, &test(Some("doubles"))), 0);
+    // A test that reaches a bundle is pure, so what it came to is kept.
+    let kept = std::fs::read_dir(scratch.0.join(format!("app/build/tests/{ID}"))).unwrap();
+    assert_eq!(kept.count(), 2);
 }

@@ -31,7 +31,7 @@ impl Offered {
 }
 
 /// The directory of a workspace that what is built is put in.
-const BUILT: &str = "build";
+pub(super) const BUILT: &str = "build";
 
 /// What is said where no package a command is for has a binary.
 const NONE: &str = "there is no binary here: a package has one where its `src/main.ab` \
