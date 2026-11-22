@@ -134,7 +134,7 @@ impl Engine<'_> {
             if found.is_empty() {
                 return Err(Error::UnknownImport { module, path });
             }
-            if found.iter().any(|member| !member.public) {
+            if found.iter().all(|member| !member.public) {
                 return Err(Error::PrivateImport { module, path });
             }
         }
@@ -330,25 +330,30 @@ impl Engine<'_> {
             return Ok(());
         }
         let members = self.members(&parent)?;
-        let mut found = false;
-        for namespace in Namespace::ALL {
-            let Some(member) = members.0.get(&(namespace, name.clone())) else {
-                continue;
-            };
-            if !member.public {
-                return Err(Error::PrivateImport {
-                    module: id.clone(),
-                    path: import.path.clone(),
-                });
-            }
-            if taken {
-                return Err(duplicate());
-            }
-            found = true;
+        // What is public of the name is what the import brings in. A
+        // private definition of the same name is not seen, so a native
+        // handler named for its ability is no part of importing it.
+        let named = |namespace| Some((namespace, members.0.get(&(namespace, name.clone()))?));
+        let named: Vec<(Namespace, &Member)> =
+            Namespace::ALL.into_iter().filter_map(named).collect();
+        if named.is_empty() {
+            return Err(unknown());
+        }
+        let mut public = named.iter().filter(|(_, member)| member.public).peekable();
+        if public.peek().is_none() {
+            return Err(Error::PrivateImport {
+                module: id.clone(),
+                path: import.path.clone(),
+            });
+        }
+        if taken {
+            return Err(duplicate());
+        }
+        for (namespace, member) in public {
             scope
                 .definitions
-                .insert((namespace, import.alias.clone()), member.symbol.clone());
+                .insert((*namespace, import.alias.clone()), member.symbol.clone());
         }
-        if found { Ok(()) } else { Err(unknown()) }
+        Ok(())
     }
 }

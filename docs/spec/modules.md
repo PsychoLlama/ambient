@@ -7,6 +7,7 @@ A module is a file of definitions. Every name a module uses comes from its own d
 - A file is a module; a directory is a namespace and holds no definitions of its own.
 - A definition is private to its module unless marked public, which makes it visible throughout its package.
 - An import names each definition or module it brings in; no import brings in everything a module exports.
+- An import of a name brings in every public definition of that name, whatever its kind. A private one of the same name is not seen, and a name with none public is not imported.
 - An import of a package alone names its [library module](packages.md), which then qualifies paths as any imported module does.
 - A module is not a value: it cannot be passed, stored, returned, or inspected.
 - A module's name appears only in an import, in the library module's [list of public modules](packages.md), as the qualifier of a path to one of its definitions, and as an argument of a [comptime](comptime.md) call, which is handed which module it is and nothing of it.

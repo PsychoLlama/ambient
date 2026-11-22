@@ -193,6 +193,22 @@ fn an_undeclared_package_is_out_of_reach() {
 }
 
 #[test]
+fn an_import_brings_in_what_is_public_of_a_name_and_sees_nothing_private() {
+    // A public ability, and a private function of the same name.
+    let shared = b::module()
+        .define(b::ability("one").public().returns(ty::int()))
+        .define(b::function("one").returns(ty::int()).body(b::int(1)));
+    let main = b::function("main")
+        .performs(["one"])
+        .returns(ty::int())
+        .body(b::perform("one", []));
+    let main = b::module().import("pkg.shared.one").define(main);
+    let workspace = workspace([("app", "shared", shared), ("app", "main", main)]);
+
+    assert_eq!(references(&workspace).unwrap(), ["app:shared.one"]);
+}
+
+#[test]
 fn a_private_definition_cannot_be_imported() {
     let main = calling(b::module().import("pkg.math.secret"), "secret");
     let workspace = workspace([("app", "math", math()), ("app", "main", main)]);
