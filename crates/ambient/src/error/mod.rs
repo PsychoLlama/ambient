@@ -253,6 +253,9 @@ pub enum Error {
     /// A cast or a pattern tests for a function type that mentions a
     /// type parameter, which no function says it is of.
     Untestable { symbol: Symbol, found: String },
+    /// An arm of a match could tell a field of a record only by asking
+    /// a function for its type, which may turn away a value it names.
+    AsksAFunction { symbol: Symbol, found: String },
     /// A definition nests more deeply than any tree may.
     Nesting(Symbol),
     /// Only functions compile to an artifact.
@@ -347,6 +350,7 @@ impl Error {
             | Self::Takes { symbol, .. }
             | Self::UntypedParameter { symbol, .. }
             | Self::Untestable { symbol, .. }
+            | Self::AsksAFunction { symbol, .. }
             | Self::Backend { symbol, .. }
             | Self::Invalid { symbol, .. } => Some(symbol),
         }

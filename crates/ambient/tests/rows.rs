@@ -147,11 +147,9 @@ fn a_value_written_out_is_held_to_the_one_member_of_a_union_it_could_be() {
 
 #[test]
 fn a_record_written_out_is_held_to_the_one_record_of_a_union_whose_keys_it_writes() {
-    let listed = "let held: List<{ run: fn(): int } | { count: int }> = [{ run: twice }];
-        return match held.get(0) {
-            let held: { run: fn(): int } => held.run,
-            _ => fn() => 0,
-        };";
+    let listed = "let held: List<{ run: fn(): int } | { run: fn(): int, count: int }> =
+            [{ run: twice }];
+        return (held.get(0) ?? { run: fn() => 0 }).run;";
     let lambda = "let held: { run: fn(): int } | { run: fn(): int, count: int } =
             { run: fn() => twice() };
         return held.run;";

@@ -93,6 +93,7 @@ impl fmt::Display for Error {
             | Self::EntryAbilities(_) => self.fmt_ability(f),
             Self::UntypedParameter { .. }
             | Self::Untestable { .. }
+            | Self::AsksAFunction { .. }
             | Self::Uncontractive(_)
             | Self::NotExhaustive { .. }
             | Self::UnreachableArm { .. }
@@ -142,6 +143,10 @@ impl Error {
             Self::Untestable { symbol, found } => write!(
                 f,
                 "{symbol}: no value can be tested for `{found}`: a function type in it mentions a type parameter"
+            ),
+            Self::AsksAFunction { symbol, found } => write!(
+                f,
+                "{symbol}: a match cannot tell a field of `{found}` from the rest without asking a function for its type, which it may not say: match on what else the record holds"
             ),
             Self::Uncontractive(symbol) => {
                 write!(

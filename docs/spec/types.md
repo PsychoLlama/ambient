@@ -92,6 +92,8 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - A [cast](#unknown-and-casts) to such a type is tested the same way, and gives what the test lets through.
 - A test asks no more than tells its values from the rest of the subject's type: where a shape alone does, the shape is all that is tested, and a function is then tested only for being one.
 - A function is tested for its type only where that leaves more to tell, and such a test never takes all of a type: a function says the one type it was written as, which may be within the type asked for.
+- An arm is refused where it would take all of a member of the subject's type, but could tell that member's values only by asking a function in a record for its type: the arm could turn them away with nothing said. A record of other keys may hold the same ones, so `{ run: fn(): int }` is not told from `{ done: int }` by its shape.
+  - TODO: allow such an arm. Nothing but the time to design it stands in the way, and it is wanted: a value that says its record's keys, or a function that says each type it is within, would decide it.
 - Each arm sees the subject's type less what earlier arms always match.
 - A match is exhaustive over the static type of its subject: after the last arm nothing is left.
 - An arm that can match nothing is an error.

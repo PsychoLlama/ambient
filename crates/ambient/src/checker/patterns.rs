@@ -28,6 +28,7 @@ impl Checker<'_> {
         for (index, arm) in arms.iter().enumerate() {
             // An arm sees only what earlier arms let through.
             let asked = self.asked(&remaining, &arm.pattern)?;
+            self.decidable(&remaining, &asked)?;
             let Some(matched) = self.env.narrow(&remaining, &asked) else {
                 let symbol = self.symbol.clone();
                 // A fallback was written with no arm: the first is
@@ -94,6 +95,61 @@ impl Checker<'_> {
     /// one that can be. That stands only where it tells as much: what
     /// the nearer test lets through of `subject` is all of the type
     /// that was written.
+    /// Refuses an arm that asks a field of a record for the type of a
+    /// function in it.
+    ///
+    /// A function says only the type it was written as, so such a test
+    /// may turn away a value of the type the arm names, and the arm is
+    /// skipped with nothing said. It is reached where a record holding
+    /// a function sits beside another record in the subject's type:
+    /// with width subtyping a value of the other may hold the same keys,
+    /// so no shape tells them apart (`{ run: fn(): int } | { done: int }`).
+    /// Only an arm that takes the whole of some member of the subject's
+    /// type is refused, since that member could be turned away. One that
+    /// asks a function itself (`let f: fn(): int`), or asks what nothing
+    /// promised (a record out of `unknown`), is left alone: asking that
+    /// is what it says, and it covers nothing.
+    ///
+    /// TODO: this is refused only for want of time to design it, not
+    /// for any reason it should be, and allowing it is wanted. Values
+    /// that say their record's keys, or functions that say each type
+    /// they are within, would let such an arm be decided.
+    fn decidable(&self, subject: &Ty, asked: &Pat) -> Result<(), Error> {
+        let members = match self.env.unfold(subject) {
+            Ty::Union(members) => members,
+            other => vec![other],
+        };
+        let promised = |member: &Ty| {
+            let taken = self.env.narrow(member, asked);
+            let whole = taken.is_some_and(|taken| self.env.subtype(member, &taken));
+            whole && !self.env.covers(member, asked)
+        };
+        if !members.iter().any(promised) {
+            return Ok(());
+        }
+        let mut tested = Vec::new();
+        fields_tested(asked, false, &mut tested);
+        let asks = |(within, ty): &(bool, &Ty)| {
+            self.env.asks_a_name(ty) && (*within || self.holds_a_record(ty))
+        };
+        match tested.into_iter().find(asks).map(|(_, ty)| ty) {
+            Some(ty) => Err(Error::AsksAFunction {
+                symbol: self.symbol.clone(),
+                found: self.env.show(ty),
+            }),
+            None => Ok(()),
+        }
+    }
+
+    /// Whether `ty` is a record, or a union with one.
+    fn holds_a_record(&self, ty: &Ty) -> bool {
+        match self.env.unfold(ty) {
+            Ty::Record(_) => true,
+            Ty::Union(members) => members.iter().any(|member| self.holds_a_record(member)),
+            _ => false,
+        }
+    }
+
     pub(super) fn asked(&self, subject: &Ty, pattern: &Pat) -> Result<Pat, Error> {
         Ok(match pattern {
             Pattern::Wildcard | Pattern::Literal(_) => pattern.clone(),
@@ -192,6 +248,26 @@ impl Checker<'_> {
                     })
                     .collect(),
             ),
+        }
+    }
+}
+
+/// The types `pattern` tests for, at any depth, each with whether it
+/// is of a field of a record; `within` says whether it is inside one.
+fn fields_tested<'a>(pattern: &'a Pat, within: bool, into: &mut Vec<(bool, &'a Ty)>) {
+    match pattern {
+        Pattern::Wildcard | Pattern::Literal(_) => {}
+        Pattern::Bind(_, inner) => fields_tested(inner, within, into),
+        Pattern::Is(ty) => into.push((within, ty)),
+        Pattern::Tuple(members) => {
+            for member in members {
+                fields_tested(member, within, into);
+            }
+        }
+        Pattern::Record(fields) => {
+            for (_, field) in fields {
+                fields_tested(field, true, into);
+            }
         }
     }
 }

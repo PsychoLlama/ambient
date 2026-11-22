@@ -336,6 +336,26 @@ fn a_test_for_a_function_type_takes_none_of_a_type_whole() {
 }
 
 #[test]
+fn a_match_that_would_ask_a_field_for_its_functions_type_is_refused() {
+    // A value of `{ done: int }` may hold `run` too, so only the type of
+    // the function in it could tell the arm's values from the rest.
+    let giving = || ty::function([], ty::int());
+    let held = ty::record([("run", giving())]);
+    let either = ty::union([held.clone(), ty::record([("done", ty::int())])]);
+    let whole = pat::is(held);
+    let fields = pat::record([("run", pat::is(giving()))]);
+
+    for pattern in [whole, fields] {
+        let told = b::match_(x(), [(pattern, b::int(1)), (pat::any(), b::int(2))]);
+        let result = check([taking(either.clone(), ty::int(), told)]);
+        assert!(
+            matches!(result, Err(Error::AsksAFunction { .. })),
+            "{result:?}"
+        );
+    }
+}
+
+#[test]
 fn a_match_is_exhaustive() {
     let on_bool = |arms| taking(ty::bool(), ty::int(), b::match_(x(), arms));
 
