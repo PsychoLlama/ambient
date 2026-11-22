@@ -58,13 +58,13 @@ A target defines the world a program runs in: a root binding for every ability t
 
 ## The system package
 
-- The standard library, `ambient`, holds what every target provides, and nothing in it needs a world: the shapes' methods, maps, JSON, errors, cells, cleanup, and what a test checks with.
+- The standard library, `ambient`, holds what every target provides, and nothing in it needs a world: the shapes' methods, maps, JSON, errors, cells, cleanup, and what a [test](testing.md) checks with.
 - The `system` package holds the abilities of a program on a machine: its streams, environment, files, clocks, commands, and in time the network, randomness, and cryptography.
 - It says what each ability means and promises no target binds it: a target binds whichever it can.
 - A browser's target binds fetching and not serving; an embedder's binds its host's own abilities beside whichever of these the host can do.
 - Its ID is fixed, so every target means the same ability by `system.fs.read`, and a library written against one runs under any target that binds it.
 - It comes with the compiler, as its native code does, and a package reaches it under the name `system` without declaring it.
-- Its [extern](externs.md) functions that are no abilities are bound by no target, so a program reaches them under any: a [test](packages.md#testing) and a [comptime](comptime.md) call as well.
+- Its [extern](externs.md) functions that are no abilities are bound by no target, so a program reaches them under any: a test and a [comptime](comptime.md) call as well.
 - A host may be built without it; a program is then limited as any [embedder's](#embedding) is.
 
 ## Standard targets
@@ -90,7 +90,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - What takes time there suspends its [task](tasks.md) and blocks nothing: tasks sleep, run commands, and wait for input together, and a sleep beside other work in a first is a limit on it.
 - Work whose task was cancelled is stopped where it can be: a command is ended, and a line already being read is kept for whoever reads next.
 - Both standard targets bind `throw`: an [error](errors.md) nothing caught ends the program, or fails the test, and is reported as a fault is.
-- The standard library defines a target for a [test](packages.md), which binds a check and nothing of the world, so it needs no `system`.
+- The standard library defines a target for a [test](testing.md), which binds nothing of the world, so it needs no `system`.
 - The build target and test targets are ordinary targets; see [comptime](comptime.md) and [memoization](memoization.md).
 
 ## WebAssembly hosts

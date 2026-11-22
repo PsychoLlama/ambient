@@ -60,7 +60,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - A public module exposes its public definitions to dependents; nothing else leaves the package.
 - A public module is reached by the same path its own package uses, so moving one is a change of interface, made as an [edit](trees.md) across dependents.
 - A package has any number of [binaries](#binaries), each a function it offers to be run.
-- A package declares its version, its binaries, its dependencies, its [preludes](modules.md), its [build steps](tools.md#builds), its [lints](tools.md#commands), its native bundles, and the files beside its sources that are part of it.
+- A package declares its version, its binaries, its dependencies, its [preludes](modules.md), its [build steps](tools.md#builds), its [lints](tools.md#commands), the parts of [testing](testing.md) it replaces, its native bundles, and the files beside its sources that are part of it.
 - A package is distributed as source.
 
 ## Layout
@@ -144,28 +144,7 @@ A package is a tree of modules whose identity does not depend on any name. Names
 
 ## Beginning
 
-- A new package is made in a directory and named for it: a manifest with a newly generated ID, and one module that runs and has a [test](#testing), so the first change is made to something that works. Its manifest declares the binary `main`, with the package's name for its executable, and what it builds is kept out of its repository.
+- A new package is made in a directory and named for it: a manifest with a newly generated ID, and one module that runs and has a [test](testing.md), so the first change is made to something that works. Its manifest declares the binary `main`, with the package's name for its executable, and what it builds is kept out of its repository.
 - A package may instead be begun as a library: its one module is the [library module](#layout), with a public function and a test.
 - A source file that is there already is left as it is.
 - A package is not made over one that is there.
-
-## Testing
-
-- Tests are built in: the standard library has what a test is written with, and the command line has a harness that runs them.
-- A module offers its tests through one function the harness knows by name, whose [row](abilities.md) is the library's spec ability. Importing a module offers nothing.
-- A spec is a description and a function that takes nothing; naming one and grouping several are library functions that perform the ability.
-- A group may [provide](handlers.md) around the specs inside it, which is how they share what they are set up with.
-- The harness gathers a module's specs by running that function under a handler that collects them. Gathering is pure, so it is a [memoized run](memoization.md).
-- Each spec is run as a program of its own under the standard library's test [target](targets.md), as a memoized run.
-- Running every test therefore runs only those a change reaches: a spec's hash covers all it refers to, and one whose hash and observations are as before is not run again.
-- A harness is a handler of the spec ability, so another may list, choose among, or time the same tests.
-- The harness finds the modules that offer tests in the package's definition tables; no file is named in a special way.
-- The test target binds one ability, which is given a failure as a value: what did not hold, and whatever more it holds, as what was found and what was expected. Every assertion is a library function over it, and nothing written is one.
-- A check that does not hold fails its test and the test goes on, so one run reports every check that does not hold; a [fault](values.md) fails it and ends it.
-- A test reaches no world: one whose function needs an ability provides it, which is how a test says what the world holds.
-- A test of real effects is made repeatable by library code over [recording](handlers.md): its first run records what the world answered, and later runs are answered from that.
-- A recording is source, kept beside its test and read as any file is; the [store](build.md) holds only results, and whoever points a build at a store trusts it.
-- A run may be of only the specs whose module path and description hold a given text.
-- TODO: little of this is built. A test is a function that takes nothing and whose name begins with `test_`. A test that passed is not run again while its hash is the same; one that failed always is.
-- TODO: a spec's function has the row the library gives it, so a test that needs more provides it inside; whether a spec may be written over any row is undecided.
-- TODO: a test that never ends is never stopped.

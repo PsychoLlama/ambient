@@ -23,9 +23,9 @@ A memoized run caches a function's result together with everything the run obser
 
 ## Tests
 
-- A test is a function run under a test target; it passes if it returns.
-- A test with an empty row reruns only when its hash changes.
-- A test that needs real effects performs volatile abilities and always reruns, with no annotation.
+- A [test](testing.md) is a memoized run, so whether it runs again follows from its trace, not its row.
+- A test answered wholly by handlers written in Ambient and by verifiable abilities is reused while its hash and those answers last, whatever its row names.
+- A test that performs a volatile ability runs again on every run, with no annotation.
 - A run with an empty trace is valid on any machine and can be shared between them.
 
 ## Dependents
