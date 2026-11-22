@@ -232,8 +232,18 @@ impl Session<'_> {
     }
 
     fn open_with(&self, path: &Path, update: &Update) -> Result<Project, Vec<String>> {
-        let project = project::open_with(self.files, self.snapshots, path, update);
-        let project = project.map_err(|error| vec![error.to_string()])?;
+        Ok(self.open_members(&[path.to_owned()], update)?.0)
+    }
+
+    /// The members at `paths` opened into one project, and the name of
+    /// each: see [`project::open_members`].
+    fn open_members(
+        &self,
+        paths: &[PathBuf],
+        update: &Update,
+    ) -> Result<(Project, Vec<String>), Vec<String>> {
+        let opened = project::open_members(self.files, self.snapshots, paths, update);
+        let (project, names) = opened.map_err(|error| vec![error.to_string()])?;
         // What opening locked is what every later build is held to.
         if let Some((lock, text)) = &project.locked {
             let stored = self
@@ -242,7 +252,7 @@ impl Session<'_> {
                 .store(&lock.to_string_lossy(), text.as_bytes());
             stored.map_err(|failure| vec![format!("{}: {}", lock.display(), failure.message)])?;
         }
-        Ok(project)
+        Ok((project, names))
     }
 
     /// The target `binary` is run or built under on a command line:

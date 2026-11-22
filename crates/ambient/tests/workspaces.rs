@@ -242,6 +242,27 @@ fn testing_a_workspace_tests_every_member() {
     assert!(said.contains("FAIL  other.test_other"), "{said}");
 }
 
+#[test]
+fn a_workspace_keeps_what_its_tests_came_to_by_package_under_its_build() {
+    let test = Command::Test {
+        at: Chosen::default(),
+        only: None,
+    };
+    let files = pair(
+        "use ambient.test; #[test.case] fn test_one(): null => null;",
+        "use ambient.test; #[test.case] fn test_other(): int => 1 / 0;",
+    );
+    let (_, world) = Scripted::default().execute(&files, &test);
+
+    let kept: Vec<&str> = world
+        .files
+        .keys()
+        .filter_map(|path| path.strip_prefix("build/tests/"))
+        .filter_map(|path| path.split_once('/').map(|(package, _)| package))
+        .collect();
+    assert_eq!(kept, ["one", "other"]);
+}
+
 /// Says the snapshot of those members, which is done for one.
 fn snapshot_of(names: &[&str]) -> Command {
     Command::Snapshot {
