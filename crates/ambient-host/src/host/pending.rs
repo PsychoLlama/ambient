@@ -42,6 +42,8 @@ pub(super) enum Sent {
     Response(u64, Result<Response, Failure>),
     /// The head of a response, and what its body is read from.
     Opened(u64, Result<Opening, Failure>),
+    /// The certificate a server showed.
+    Shown(u64, Result<Vec<u8>, Failure>),
     /// A server was sent a request, which its group holds.
     Arrived,
     /// Something of a stream or a socket.
@@ -137,6 +139,10 @@ impl Pending {
                     self.ready.push_back((ticket, Done::Opened(Err(failure))));
                 }
             }
+            Work::Certificate(url, address) => match self.http() {
+                Ok(http) => http.certificate(ticket, url, address),
+                Err(failure) => self.ready.push_back((ticket, Done::Shown(Err(failure)))),
+            },
             Work::Accept(server) => {
                 let none = Some(Done::Accepted(None));
                 let done = self.http().map_or(none, |http| http.accept(ticket, server));
@@ -327,6 +333,11 @@ impl Pending {
                 if self.http().is_ok_and(|http| http.sent(ticket)) {
                     let opened = opened.map(|opening| self.reaches.streamed(opening));
                     self.ready.push_back((ticket, Done::Opened(opened)));
+                }
+            }
+            Sent::Shown(ticket, shown) => {
+                if self.http().is_ok_and(|http| http.sent(ticket)) {
+                    self.ready.push_back((ticket, Done::Shown(shown)));
                 }
             }
             Sent::Arrived => {

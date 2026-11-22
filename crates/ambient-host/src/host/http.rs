@@ -248,14 +248,23 @@ pub(super) const HANDLERS: [(&str, Handler); 3] = [
     }),
 ];
 
-/// What `send` and `accept` begin.
+/// What `open`, `certificate`, `send`, and `accept` begin.
 pub(super) type Starter = fn(&[Value]) -> Result<Work, String>;
 
-pub(super) const STARTERS: [(&str, Starter); 3] = [
+pub(super) const STARTERS: [(&str, Starter); 4] = [
     ("http.open", |args| {
         let request = Request::read(args.first().unwrap_or(&Value::Null))?;
         let trust = Trust::read(args.get(1).unwrap_or(&Value::Null))?;
         Ok(Work::Open(request, trust))
+    }),
+    ("http.certificate", |args| {
+        let url = text(args, 0)?.to_owned();
+        let address = match args.get(1).unwrap_or(&Value::Null) {
+            Value::Null => None,
+            Value::String(address) => Some(address.clone()),
+            _ => return Err("an address is not a string".to_owned()),
+        };
+        Ok(Work::Certificate(url, address))
     }),
     ("http.send", |args| {
         let request = Request::read(args.first().unwrap_or(&Value::Null))?;

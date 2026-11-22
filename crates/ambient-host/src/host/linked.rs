@@ -71,6 +71,8 @@ pub(super) trait Http {
         request: Request,
         trusted: Option<Trust>,
     ) -> Result<(), Failure>;
+    /// Learns the certificate the server at a URL shows.
+    fn certificate(&mut self, ticket: u64, url: String, address: Option<String>);
     /// Whether a response is still waited for, which it then is not.
     fn sent(&mut self, ticket: u64) -> bool;
     fn listen(&mut self, host: &str, port: i64) -> Result<Listening, Failure>;

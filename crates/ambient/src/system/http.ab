@@ -48,6 +48,8 @@ pub type Streamed = { status: int, headers: List<Header>, body: Stream };
 ///   the URL's host leads to, or null to look the host up. Who the
 ///   server must show it is stays the host in the URL, unless a pin
 ///   says.
+///
+/// A pin is learned from a server by `certificate`.
 pub type Trust = { roots: string | null, pin: bytes | null, address: string | null };
 
 /// A listener the world holds. It stops listening when it is closed,
@@ -72,6 +74,16 @@ pub ability send(request: Request): Response | Error;
 /// headers are in, with its body still arriving. `trust` is whom to
 /// trust, or null for whom the world does.
 pub ability open(request: Request, trust: Trust | null): Streamed | Error;
+
+/// The certificate a server at `url` shows, as DER, trusting it or
+/// not. `address` is where the server is, as in a `Trust`, or null to
+/// look the host up.
+///
+/// The server proves it holds the certificate's key, and nothing
+/// says who it is: a program decides whether to trust what it was
+/// shown, such as once while pairing with a device, and pins it with
+/// `crypto.hash(crypto.sha256, certificate)` from then on.
+pub ability certificate(url: string, address: string | null): bytes | Error;
 
 /// Starts listening on a port of an address of this machine, such as
 /// `127.0.0.1`. Port zero is any free port; the server says which.
@@ -183,6 +195,7 @@ fn answered(handle: fn(request: Request): Response with throw, request: Request)
 // The native side, which answers each under `os` unless a target says otherwise.
 extern handler(suspending) send in os;
 extern handler(suspending) open in os;
+extern handler(suspending) certificate in os;
 extern handler listen in os;
 extern handler(suspending) accept in os;
 extern handler respond in os;

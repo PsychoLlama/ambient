@@ -16,6 +16,7 @@ use ureq::http;
 
 use super::linked::Http;
 use super::pending::Sent;
+use super::pinned;
 use super::trust::{self, Trust};
 use super::waits::Done;
 use super::{Failure, Incoming, Kind, Listening, Request, Response};
@@ -131,6 +132,15 @@ impl Http for Network {
             let _ = sender.send(Sent::Opened(ticket, opened));
         });
         Ok(())
+    }
+
+    fn certificate(&mut self, ticket: u64, url: String, address: Option<String>) {
+        self.sending.insert(ticket);
+        let sender = self.sender.clone();
+        thread::spawn(move || {
+            let shown = pinned::certificate(&url, address.as_deref());
+            let _ = sender.send(Sent::Shown(ticket, shown));
+        });
     }
 
     fn sent(&mut self, ticket: u64) -> bool {

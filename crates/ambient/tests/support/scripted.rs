@@ -81,6 +81,9 @@ pub struct Scripted {
     /// The changes a watcher sees. It is closed once it has given
     /// them all.
     pub changes: VecDeque<Change>,
+    /// The certificate each URL's server shows; any other is
+    /// unreachable.
+    pub certificates: BTreeMap<String, Vec<u8>>,
     /// Whom each request whose body was streamed trusted, in order.
     pub trusted: Vec<Option<Trust>>,
     /// What was let go of, in order.
@@ -473,6 +476,14 @@ impl World for Scripted {
             Work::Open(request, trust) => {
                 self.trusted.push(trust);
                 (0, Done::Opened(self.opened(request)))
+            }
+            Work::Certificate(url, _) => {
+                let shown = self.certificates.get(&url).cloned();
+                let shown = shown.ok_or_else(|| Failure {
+                    kind: Kind::Unreachable,
+                    message: format!("nothing answers {url}"),
+                });
+                (0, Done::Shown(shown))
             }
             Work::Accept(_) => {
                 let request = self.requests.pop_front();

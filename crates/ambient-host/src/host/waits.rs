@@ -36,6 +36,9 @@ pub enum Work {
     /// Send a request, and receive the head of the response to it,
     /// with its body still to arrive.
     Open(Request, Option<Trust>),
+    /// Learn the certificate the server at a URL shows, found at an
+    /// address or where its host leads.
+    Certificate(String, Option<String>),
     /// Take the next request a server was sent.
     Accept(i64),
     /// Something of a stream or a socket.
@@ -68,6 +71,8 @@ pub enum Done {
     /// The head of the response and its body, a stream, or why there
     /// was none.
     Opened(Result<Streamed, Failure>),
+    /// The certificate a server showed, as DER, or why none was seen.
+    Shown(Result<Vec<u8>, Failure>),
     /// The request, or nothing once the server is closed.
     Accepted(Option<Incoming>),
     /// What came of something of a stream or a socket.
@@ -92,6 +97,9 @@ impl Done {
             Self::Sent(sent) => http::sent(sent),
             Self::Opened(opened) => {
                 opened.map_or_else(|failure| error("http", &failure), Streamed::value)
+            }
+            Self::Shown(shown) => {
+                shown.map_or_else(|failure| error("http", &failure), Value::Bytes)
             }
             Self::Accepted(incoming) => incoming.map_or(Value::Null, Incoming::value),
             Self::Reached(reached) => reached.value(),

@@ -264,3 +264,62 @@ fn whom_a_request_trusts_is_what_the_world_is_told() {
     assert_eq!(outcome, Ok(text("secret")));
     assert_eq!(after.trusted, [Some(trusted)]);
 }
+
+/// What a program gives that pairs with the server at `url`, found at
+/// this machine: it learns the certificate the server shows, pins it,
+/// and asks the server again under that pin.
+fn paired(url: &str) -> Outcome {
+    real(&format!(
+        r#"{SAID}
+        use system.crypto;
+
+        fn main(): string with http.certificate, http.open, stream {{
+            match http.certificate!("{url}", "127.0.0.1") {{
+                let error: Error => {{
+                    return error.kind == http.invalid ? "invalid" : error.message;
+                }}
+                let shown: bytes => {{
+                    let pin = crypto.hash(crypto.sha256, shown);
+                    let request = {{ method: "GET", url: "{url}", headers: [], body: "".to_bytes() }};
+                    match http.send_trusting(request, {{ roots: null, pin, address: "127.0.0.1" }}) {{
+                        let response: http.Response => {{ return said(response.body); }}
+                        let error: Error => {{ return error.message; }}
+                    }}
+                }}
+            }}
+        }}
+    "#
+    ))
+}
+
+#[test]
+fn the_certificate_a_server_shows_is_learned_to_pin_it() {
+    let (port, _, _) = bridge();
+
+    // No authority vouches for it, and it is not for `other.test`.
+    let other = format!("https://other.test:{port}/");
+    assert_eq!(paired(&other), Ok(text("secret")));
+    // Only a secured connection shows a certificate.
+    let plain = format!("http://bridge.test:{port}/");
+    assert_eq!(paired(&plain), Ok(text("invalid")));
+}
+
+#[test]
+fn the_certificate_a_server_shows_is_what_the_world_says() {
+    let source = r#"
+        use system.http;
+
+        fn main(): bytes | string with http.certificate {
+            match http.certificate!("https://bridge.test/", null) {
+                let error: Error => { return error.message; }
+                let shown: bytes => { return shown; }
+            }
+        }
+    "#;
+    let world = Scripted {
+        certificates: [("https://bridge.test/".to_owned(), vec![1, 2])].into(),
+        ..Scripted::default()
+    };
+
+    assert_eq!(world.program(source).0, Ok(Value::Bytes(vec![1, 2])));
+}

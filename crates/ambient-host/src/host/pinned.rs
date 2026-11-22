@@ -1,5 +1,6 @@
 //! A connection secured with a server that is held to one certificate,
-//! whatever name the certificate is for and whoever signed it. See
+//! whatever name the certificate is for and whoever signed it, and
+//! the certificate a server shows, to learn which to hold it to. See
 //! "Network" in `docs/spec/targets.md`.
 //!
 //! The client this host sends with asks an authority or asks no one,
@@ -8,7 +9,8 @@
 //! certificate's key: only who vouches for the certificate changes.
 
 use std::io::{Read, Write};
-use std::sync::Arc;
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
@@ -17,18 +19,31 @@ use rustls::{CertificateError, ClientConfig, ClientConnection, DigitallySignedSt
 use rustls::{SignatureScheme, StreamOwned};
 use sha2::{Digest, Sha256};
 use ureq::Error;
+use ureq::http::Uri;
 use ureq::unversioned::transport::{Buffers, ConnectionDetails, Connector, Either, LazyBuffers};
 use ureq::unversioned::transport::{NextTimeout, Transport, TransportAdapter};
+
+use super::{Failure, Kind};
 
 /// The SHA-256 of a certificate: what a pin is.
 pub(super) type Digest256 = [u8; 32];
 
-/// Trusts the one certificate of this digest, for any name and at any
-/// time: the program said which certificate, so no authority and no
-/// date is asked.
+/// Which certificate a server may show.
+#[derive(Debug)]
+enum Wanted {
+    /// The one of this digest.
+    Pinned(Digest256),
+    /// Any, which is kept to be read once the server proves it holds
+    /// its key.
+    Any(Arc<Mutex<Option<Vec<u8>>>>),
+}
+
+/// Trusts the certificate it wants, for any name and at any time: the
+/// program said which certificate, or asked only what it is, so no
+/// authority and no date is asked.
 #[derive(Debug)]
 struct Shown {
-    digest: Digest256,
+    wanted: Wanted,
     provider: Arc<CryptoProvider>,
 }
 
@@ -41,10 +56,16 @@ impl ServerCertVerifier for Shown {
         _ocsp: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        if Sha256::digest(shown.as_ref()).as_slice() == self.digest {
-            Ok(ServerCertVerified::assertion())
-        } else {
-            Err(CertificateError::ApplicationVerificationFailure.into())
+        match &self.wanted {
+            Wanted::Pinned(digest) if Sha256::digest(shown.as_ref()).as_slice() == digest => {
+                Ok(ServerCertVerified::assertion())
+            }
+            Wanted::Pinned(_) => Err(CertificateError::ApplicationVerificationFailure.into()),
+            Wanted::Any(kept) => {
+                let mut kept = kept.lock().unwrap_or_else(PoisonError::into_inner);
+                *kept = Some(shown.as_ref().to_vec());
+                Ok(ServerCertVerified::assertion())
+            }
         }
     }
 
@@ -84,18 +105,83 @@ impl Pinning {
     /// What secures connections with the server whose certificate has
     /// `digest`, or why nothing can.
     pub(super) fn new(digest: Digest256) -> Result<Self, rustls::Error> {
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let shown = Arc::new(Shown {
-            digest,
-            provider: Arc::clone(&provider),
-        });
-        let config = ClientConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()?
-            .dangerous()
-            .with_custom_certificate_verifier(shown)
-            .with_no_client_auth();
-        Ok(Self(Arc::new(config)))
+        Ok(Self(secured_by(Wanted::Pinned(digest))?))
     }
+}
+
+/// What secures a connection with a server that shows what is wanted.
+fn secured_by(wanted: Wanted) -> Result<Arc<ClientConfig>, rustls::Error> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let shown = Arc::new(Shown {
+        wanted,
+        provider: Arc::clone(&provider),
+    });
+    let config = ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()?
+        .dangerous()
+        .with_custom_certificate_verifier(shown)
+        .with_no_client_auth();
+    Ok(Arc::new(config))
+}
+
+fn failed(kind: Kind, message: &dyn ToString) -> Failure {
+    Failure {
+        kind,
+        message: message.to_string(),
+    }
+}
+
+/// The certificate the server at `url` shows, as DER, once it proves
+/// it holds the certificate's key: trusted or not, for whatever name.
+/// `address` is where the server is, or nothing to look the host up.
+///
+/// It blocks until the connection is secured or fails, so it is called
+/// on a thread of its own.
+pub(super) fn certificate(url: &str, address: Option<&str>) -> Result<Vec<u8>, Failure> {
+    let uri: Uri = url.parse().map_err(|error| failed(Kind::Invalid, &error))?;
+    if uri.scheme_str() != Some("https") {
+        return Err(failed(
+            Kind::Invalid,
+            &"only an `https` URL shows a certificate",
+        ));
+    }
+    let host = uri.host().unwrap_or_default();
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let port = uri.port_u16().unwrap_or(443);
+    let found: Vec<SocketAddr> = match address {
+        Some(address) => {
+            let address = address.parse();
+            vec![SocketAddr::new(
+                address.map_err(|_| failed(Kind::Invalid, &"the address is none"))?,
+                port,
+            )]
+        }
+        None => (host, port)
+            .to_socket_addrs()
+            .map_err(|error| failed(Kind::Unreachable, &error))?
+            .collect(),
+    };
+    let mut socket =
+        TcpStream::connect(&found[..]).map_err(|error| failed(Kind::Unreachable, &error))?;
+    let name = ServerName::try_from(host.to_owned()).map_err(|_| {
+        failed(
+            Kind::Invalid,
+            &"the URL's host is no name to ask a server for",
+        )
+    })?;
+    let untrusted = |error: &dyn ToString| failed(Kind::Untrusted, error);
+    let kept = Arc::new(Mutex::new(None));
+    let config = secured_by(Wanted::Any(Arc::clone(&kept))).map_err(|error| untrusted(&error))?;
+    let mut connection = ClientConnection::new(config, name).map_err(|error| untrusted(&error))?;
+    while connection.is_handshaking() {
+        connection
+            .complete_io(&mut socket)
+            .map_err(|error| untrusted(&error))?;
+    }
+    connection.send_close_notify();
+    let _ = connection.complete_io(&mut socket);
+    let kept = kept.lock().unwrap_or_else(PoisonError::into_inner).take();
+    kept.ok_or_else(|| untrusted(&"the server showed no certificate"))
 }
 
 impl<In: Transport> Connector<In> for Pinning {

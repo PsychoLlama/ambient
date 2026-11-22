@@ -138,6 +138,7 @@ A target defines the world a program runs in: a root binding for every ability t
 - A request trusts whom the world does to say who a server is, or says whom instead: the only authorities to trust, as certificates, and the address the server is at whatever its name leads to. Who the server must show it is stays the name in the URL, so a device with a certificate from its maker, for a name that is not its address, is reached and still checked.
 - A request may instead say the one certificate the server must show, by its SHA-256. The server is then whoever holds that certificate's key: no authority is asked, and neither the name nor the dates the certificate holds are.
 - That is for a device whose certificate names nothing a request could ask for. Saying a certificate and authorities both is an error, since the first asks none.
+- Which certificate to pin is learned by asking a server for the one it shows, trusting it or not: the server proves it holds that certificate's key, and nothing says who it is. Pairing with a device is that once, on a network the program trusts, and a pin of what it showed ever after.
 - A connection that could not be secured is an error of a kind of its own.
 - TODO: a request's body, and what a server is sent and answers with, are held whole.
 - A server holds a bounded number of requests nothing has accepted; one sent past that is refused as unavailable, and the program never sees it.
