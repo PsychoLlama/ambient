@@ -12,8 +12,10 @@ An operation is something the language itself does with values: arithmetic, comp
 
 ## Numbers
 
-- Integers add, subtract, multiply, divide, and take remainders; floats add, subtract, multiply, and divide.
+- Integers add, subtract, multiply, divide, take remainders, and raise to a power; floats add, subtract, multiply, divide, and raise to a power.
 - Integer division truncates toward zero, and a remainder has the sign of what was divided.
+- A negative power of an integer is one divided by the positive power, so it truncates as division does: only `1` and `-1` have one other than zero, and zero has none.
+- Anything to the power zero is one. A float's power is the C library's `pow`: a negative number to a fraction is not a number.
 - Dividing an integer by zero is a [fault](values.md), as leaving the range of `int` is.
 - Less-than orders two integers, two floats, or two strings; a string is ordered by its bytes.
 

@@ -76,6 +76,8 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - Bytes are written `0x[` and `]` around pairs of hexadecimal digits, a byte each, with any space between pairs: `0x[89 50 4E 47]`, and `0x[]` for none.
 - `+` between two strings, two lists, or two bytes values joins them, as between two numbers it adds; nothing else is joined, and nothing converts.
 - `-` before a value is a call of its `negate` [method](methods.md), which the standard library gives the numbers; before a number written out it is part of the literal.
+- `**` raises to a power. It binds tighter than `*`, `/`, and `%`, and groups to the right: `2 ** 3 ** 2` is `2 ** 9`.
+- A `-` before the left operand of `**` is refused, number or not: `-2 ** 2` could be `(-2) ** 2` or `-(2 ** 2)`, so either is written with its parentheses.
 - `if` is a statement, and a match is the conditional that has a value.
 - A condition is matched like any other subject, so one whose type is a single literal has a branch that can never be taken, which is an error.
 
