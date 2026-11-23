@@ -33,7 +33,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-pub use code::invalid;
+pub use code::{invalid, names_native};
 pub use commands::Command;
 pub use files::{Entry, Info};
 pub use http::{Incoming, Listening, Request, Response, Streamed};

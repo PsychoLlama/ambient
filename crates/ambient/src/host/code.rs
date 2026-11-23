@@ -113,7 +113,8 @@ fn pack(
 }
 
 /// Takes in a pack and compiles what it holds for the program that
-/// asked: the bytes of [`Parts::encode`].
+/// asked: the bytes of [`Parts::encode`]. A pack that names an extern
+/// is refused: native code is the receiver's to bind.
 fn compile(running: &mut dyn Running, packed: &[u8]) -> Result<Vec<u8>, Failure> {
     let pack = Pack::decode(packed).map_err(|error| invalid(&error))?;
     let (workspace, store) = (Workspace::default(), MemoryStore::new());
@@ -124,8 +125,13 @@ fn compile(running: &mut dyn Running, packed: &[u8]) -> Result<Vec<u8>, Failure>
     // The program says which backend it was compiled by.
     let name = running.backend().map_err(|error| invalid(&error))?;
     let backend = crate::backend::named(name).map_err(|error| invalid(&error))?;
-    let parts = engine.link_to_load(&entry, &*backend);
-    Ok(parts.map_err(|error| invalid(&error))?.encode(name))
+    let parts = engine
+        .link_to_load(&entry, &*backend)
+        .map_err(|error| invalid(&error))?;
+    if let Some(refused) = ambient_host::host::names_native(&parts) {
+        return Err(invalid(&refused));
+    }
+    Ok(parts.encode(name))
 }
 
 /// `natives`, with what `system.code` binds that needs the compiler,

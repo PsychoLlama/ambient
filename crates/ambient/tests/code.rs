@@ -5,6 +5,8 @@
 
 mod support;
 
+use ambient::engine::Engine;
+use ambient::store::MemoryStore;
 use ambient::value::Value;
 use support::scripted::Scripted;
 
@@ -117,6 +119,40 @@ fn only_a_function_that_captured_nothing_is_packed() {
     let expected = "a function that captured something is not packed; \
         what was given is not a function";
     assert_eq!(gave, text(expected));
+}
+
+/// A pack whose entry is a native handler. No program packs one, since
+/// none can name a handler as a value, so the engine packs it here.
+fn native_pack() -> String {
+    let workspace = support::text::workspace(
+        "pub ability double(n: int): int;\nextern handler doubling for double;",
+    );
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+    let pack = engine.pack(&support::value("main", "doubling"), &|_| false);
+    let bytes: Vec<String> = pack
+        .unwrap()
+        .encode()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    format!("0x[{}]", bytes.join(" "))
+}
+
+#[test]
+fn a_pack_that_names_native_code_is_not_compiled() {
+    let source = format!(
+        "fn main(): string with code {{
+            match code.compile!({}) {{
+                let error: Error => {{ return error.message; }}
+                _ => {{ return \"compiled\"; }}
+            }}
+        }}",
+        native_pack()
+    );
+    let refused =
+        "code to load names native code (`app:main.doubling`); it may only perform abilities";
+    assert_eq!(run(&source, &Scripted::default()).0, text(refused));
 }
 
 #[test]
