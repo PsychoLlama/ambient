@@ -217,20 +217,7 @@ pub trait Snapshots {
     }
 }
 
-/// The SHA-256 of `bytes`, as a digest is written: in hexadecimal.
-#[must_use]
-pub fn digest(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-
-    use sha2::{Digest, Sha256};
-    Sha256::digest(bytes)
-        .iter()
-        .fold(String::new(), |mut hex, byte| {
-            // Writing to a string does not fail.
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        })
-}
+pub use crate::engine::digest;
 
 /// Where the file of `digest` is on this machine, fetched from `url`
 /// if the machine does not keep it. What is fetched is held to the

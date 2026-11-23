@@ -1,7 +1,7 @@
 //! Builds the runtime for WebAssembly as one relocatable object, so the
 //! compiler can link into each module the parts of it the module
 //! reaches. See `docs/spec/linking.md`. Also names the build, for the
-//! store.
+//! store, and builds the launcher the command links programs with.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -75,6 +75,13 @@ fn launching(cargo: &std::ffi::OsStr, verb: &str, target: &Path) -> Command {
         .arg(target)
         // Flags meant for this build's own scripts do not apply.
         .env_remove("CARGO_ENCODED_RUSTFLAGS");
+    // Nor do this build's features: the compiler the launcher builds
+    // would otherwise read them as its own, and build a launcher again.
+    for (name, _) in env::vars_os() {
+        if name.to_string_lossy().starts_with("CARGO_FEATURE_") {
+            build.env_remove(name);
+        }
+    }
     // The command holds what this makes, twice over, so what says
     // where its lines came from is left out of even a build to debug.
     build.args(["--config", "profile.dev.debug=false"]);
@@ -96,6 +103,7 @@ fn launching(cargo: &std::ffi::OsStr, verb: &str, target: &Path) -> Command {
 /// link needs: see "Native code" in `docs/spec/linking.md`.
 fn launcher(cargo: &std::ffi::OsStr, out: &Path) {
     println!("cargo::rerun-if-changed=../ambient-launcher");
+    println!("cargo::rerun-if-changed=Cargo.toml");
     println!("cargo::rerun-if-changed=../ambient-host/platform.rs");
     let target = out.join("launching");
     let machine = platform(&env::var("TARGET").unwrap_or_default());
@@ -160,7 +168,11 @@ fn main() {
 
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap_or_default());
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    launcher(&cargo, &out);
+    // The launcher holds the compiler, built without the command, so
+    // only the command's build makes one.
+    if env::var_os("CARGO_FEATURE_COMMAND").is_some() {
+        launcher(&cargo, &out);
+    }
     // A target directory of its own: the one this build is running in is
     // locked by the cargo that is running this script.
     let target = out.join("runtime");

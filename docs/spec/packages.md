@@ -116,8 +116,8 @@ A package is a tree of modules whose identity does not depend on any name. Names
 - An executable never reads a [store](build.md) and never writes one.
 - A binary whose target does not extend the command-line target is built into what that target's [tool](tools.md#builds) gives: a WebAssembly module and whatever its [host](targets.md#webassembly-hosts) loads it with.
 - A target that extends the command-line target is built as that one is: an executable.
-- What loads the program holds no compiler: an executable carries only what running needs, and can [load](exchange.md) compiled code as a program run from its package can.
-- A program that packs or compiles code needs the compiler as it runs, so what loads that one is the compiler's own executable.
+- What loads the program holds no compiler unless the program compiles code: an executable carries only what running needs, and can [load](exchange.md) compiled code as a program run from its package can.
+- A program that packs or compiles code needs the compiler as it runs, so its executable is linked with the compiler, as it is with any other native code its row reaches.
 - An executable whose program [packs](targets.md#code) code carries the trees of what it could pack; one that does not carries none.
 - What loads the program is [linked](linking.md#native-code) with the [native bundles](externs.md#native-bundles) the program reaches, so an executable is one file whatever native code its packages bring.
 - TODO: an executable is only for the machine and system that built it; building for another needs what loads the program built for that one.

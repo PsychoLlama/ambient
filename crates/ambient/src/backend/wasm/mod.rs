@@ -15,7 +15,9 @@
 mod again;
 mod code;
 mod emit;
+#[cfg(feature = "wasmtime")]
 mod guest;
+#[cfg(feature = "wasmtime")]
 mod host;
 mod layout;
 mod link;
@@ -24,10 +26,13 @@ mod module;
 mod resume;
 mod runtime;
 mod stream;
+#[cfg(feature = "wasmtime")]
 mod units;
 
 pub use emit::{NAME, Wasm};
+#[cfg(feature = "wasmtime")]
 pub use guest::{Guest, State};
+#[cfg(feature = "wasmtime")]
 pub use host::Program;
 pub use link::Carried;
 pub use module::{HOST, HOST_MODULE, KNOWN_MODULE, module, module_for, open_module, pieces, unit};

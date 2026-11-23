@@ -2,10 +2,11 @@
 name = "ambient-launcher"
 version.workspace = true
 edition.workspace = true
-description = "What a built Ambient program starts with: a host, and no compiler"
+description = "What a built Ambient program starts with: a host, and the compiler for one that compiles"
 
 [dependencies]
 ambient-host.workspace = true
+ambient = { path = "../ambient", default-features = false }
 
 [lints]
 workspace = true

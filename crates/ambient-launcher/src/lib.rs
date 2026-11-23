@@ -6,14 +6,17 @@
 //! the native bundles a program reaches into the file `ambient build`
 //! puts the program after. That file is started by a `main` the build
 //! writes, which names what it linked: the functions of bundles, and
-//! the groups of the standard target's native side. Nothing here names
-//! a group, so an executable holds only those its `main` does.
+//! the groups of the standard target's native side, one of which is
+//! the compiler's (`ambient::host::GROUP`). Nothing here names a group,
+//! so an executable holds only those its `main` does.
 
 use std::ffi::{CStr, OsString, c_char, c_int};
 
 use ambient_host::host::{Linked, System, World};
 use ambient_host::launch;
 use ambient_host::native::{Bundled, Natives};
+// The compiler, whose group a program that compiles names.
+use ambient as _;
 
 /// A function of a native bundle, as the `main` a build writes lists
 /// it: the extern it is for, by the package that declares it and its
@@ -43,7 +46,9 @@ pub fn launched(
     bundled: impl FnOnce() -> Natives,
 ) -> Option<i32> {
     let start = |program: &[u8], world: &_| {
-        launch::start_linked(program, world, linked, |natives, _| natives.and(bundled()))
+        launch::start_linked(program, world, linked, |natives, trees| {
+            linked.compiling(natives.and(bundled()), trees)
+        })
     };
     launch::own_given(args, linked, start).or_else(|| {
         System::linked(Vec::new(), linked).warn("error: this file carries no program\n");

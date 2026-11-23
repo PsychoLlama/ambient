@@ -18,7 +18,20 @@ use crate::value::Value;
 /// What gives the bytes at a URL, or says why it cannot.
 pub(super) type Fetch<'a> = Box<dyn Fn(&str) -> Result<Vec<u8>, String> + 'a>;
 
-pub(super) use crate::project::digest;
+/// The SHA-256 of `bytes`, as a digest is written: in hexadecimal.
+#[must_use]
+pub fn digest(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .fold(String::new(), |mut hex, byte| {
+            // Writing to a string does not fail.
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
+}
 
 /// Where the store keeps the bytes of a digest, fetched or kept.
 fn held(digest: &str) -> Hash {

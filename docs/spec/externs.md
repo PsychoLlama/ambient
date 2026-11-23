@@ -83,4 +83,3 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - Definition hashes do not cover native code; a package's snapshot does.
 - TODO: a [comptime](comptime.md) call reaches no native bundle, since what runs it was linked before the package was known.
 - The compiler is native code like any other: a program whose row reaches compiling links it, and no other carries it. So a program that compiles code reaches native bundles as any program does.
-- TODO: a program that packs or compiles code reaches no native bundle, since what loads it is the compiler's own executable.

@@ -229,10 +229,14 @@ impl Session<'_> {
             .natives
             .iter()
             .filter(|native| native.package == PACKAGE);
-        let groups: BTreeSet<&str> = system
+        let mut groups: BTreeSet<&str> = system
             .filter_map(|native| group(&native.path))
             .map(|group| group.symbol)
             .collect();
+        // The compiler is a group too, of the crate that holds it.
+        if crate::host::compiles(parts) {
+            groups.insert(crate::host::GROUP);
+        }
         let mut roots = BTreeSet::new();
         let mut bundles = BTreeSet::new();
         let mut libraries = Vec::new();

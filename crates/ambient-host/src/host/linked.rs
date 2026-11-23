@@ -22,6 +22,7 @@ use super::watching::Change;
 use super::{Failure, Kind, Listening, PACKAGE, Request, Response, World};
 use super::{code, crypto, exchange, files, http, net, network, plain, watching};
 use crate::native::Natives;
+use crate::pack::Pack;
 use crate::value::Value;
 
 /// The handlers of a group that ask a world: those that do not wait,
@@ -110,6 +111,11 @@ pub(super) trait Watching {
 /// What makes HTTP for a process, given what its threads send through.
 type MakeHttp = fn(Sender<Sent>) -> Box<dyn Http>;
 
+/// What adds the handlers of `system.code` that need the compiler, for
+/// a program whose trees are the pack given: the compiler's own group
+/// (`ambient::host::compiling`), which this crate cannot name.
+pub type Compiling = fn(Natives, Option<Pack>) -> Natives;
+
 /// The groups a link named: what makes each, which is all that refers
 /// to its code.
 #[derive(Default)]
@@ -120,6 +126,7 @@ pub struct Linked {
     pub(super) natives: Vec<fn(Natives) -> Natives>,
     /// The handlers of the groups that ask one.
     pub(super) offers: Vec<&'static Offer>,
+    compiling: Option<Compiling>,
 }
 
 impl Linked {
@@ -132,6 +139,22 @@ impl Linked {
             (group.link)(&mut linked);
         }
         linked
+    }
+
+    /// Links the compiler: what the group of a crate that holds one
+    /// calls.
+    pub fn compile_with(&mut self, compiling: Compiling) {
+        self.compiling = Some(compiling);
+    }
+
+    /// `natives`, with the handlers that need the compiler if it was
+    /// linked, for a program whose trees are `trees`.
+    #[must_use]
+    pub fn compiling(&self, natives: Natives, trees: Option<Pack>) -> Natives {
+        match self.compiling {
+            Some(compiling) => compiling(natives, trees),
+            None => natives,
+        }
     }
 }
 

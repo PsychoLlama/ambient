@@ -23,21 +23,13 @@ use crate::host::{self, World};
 use crate::pack::Pack;
 use crate::project::Binary;
 
-/// What building says of a program that both compiles code as it
-/// runs and reaches a native bundle: see the TODO under
-/// "Distribution" in `docs/spec/externs.md`.
-const COMPILES: &str = "a program that packs or compiles code cannot yet reach a native bundle: \
-     what loads it is the command, which is linked with none";
-
 /// What building says where it is told one place for several binaries.
 const SEVERAL: &str = "`--output` is where one binary is put: say which with `--bin`";
 
-/// Runs the program an executable carried in `world`, and gives the
-/// code to exit with. What went wrong is written to the world's
-/// standard error.
-///
-/// The command is a launcher that has the compiler, so a program it
-/// starts can pack and compile code as well as load it.
+/// Runs the program an executable carried in `world`, as a launcher
+/// linked with every group and the compiler does, and gives the code
+/// to exit with. What went wrong is written to the world's standard
+/// error.
 #[must_use]
 pub fn start(program: &[u8], world: &Rc<RefCell<dyn World>>) -> i32 {
     ambient_host::launch::start_with(program, world, host::compiling)
@@ -92,25 +84,11 @@ impl Session<'_> {
 
         let output = output.map_or_else(|| package.built().join(&binary.name), Path::to_owned);
         let output = output.display().to_string();
-        let program = Self::carried(&launch, &linked);
         self.room(&output)?;
-        // A program that packs or compiles code is started by the
-        // command itself, which is the launcher that has the compiler.
-        let written = if host::compiles(&linked.parts) {
-            if !link.bundles.is_empty() {
-                return Err(vec![COMPILES.to_owned()]);
-            }
-            let Some(command) = &self.launcher else {
-                return Err(vec!["the command cannot find its own file".to_owned()]);
-            };
-            let mut world = self.world.borrow_mut();
-            world
-                .copy(&command.to_string_lossy(), &output)
-                .and_then(|()| world.append(&output, &program))
-        } else {
-            let executable = self.executable(&launch, &linked, &link)?;
-            self.world.borrow_mut().install(&output, &executable)
-        };
+        // A program that packs or compiles code names the compiler's
+        // group, so it is linked as any other is.
+        let executable = self.executable(&launch, &linked, &link)?;
+        let written = self.world.borrow_mut().install(&output, &executable);
         written.map_err(|failure| vec![format!("{output}: {}", failure.message)])?;
         self.world.borrow_mut().write(&format!("built {output}\n"));
         Ok(())

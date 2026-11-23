@@ -12,16 +12,13 @@ use std::process::Command as Process;
 use std::rc::Rc;
 
 use ambient::cli::{Chosen, Command, carried, start};
-use ambient::host::{GROUPS, Groups, World, group, natives_linked};
-use support::scripted::{LAUNCHER, Scripted, app, declaring};
+use ambient::host::{GROUP, GROUPS, Groups, World, group, natives_linked};
+use support::scripted::{Scripted, app, declaring};
 
-/// Builds `main` of a package whose one module is `source`, where the
-/// command's own file holds `launcher`, and gives the file it made.
-fn build(source: &str, launcher: &[u8]) -> Vec<u8> {
-    let world = Scripted {
-        files: [(LAUNCHER.to_owned(), launcher.to_vec())].into(),
-        ..Scripted::within("app")
-    };
+/// Builds `main` of a package whose one module is `source`, and gives
+/// the file it made.
+fn build(source: &str) -> Vec<u8> {
+    let world = Scripted::within("app");
     let command = Command::Build {
         at: Chosen::default(),
         bin: None,
@@ -37,8 +34,8 @@ fn build(source: &str, launcher: &[u8]) -> Vec<u8> {
     after.files["app/build/main"].clone()
 }
 
-/// Starts what an executable carries in `world`, as the command does
-/// when its own file is one. Gives the code and the world it left.
+/// Starts what an executable carries in `world`, as a launcher linked
+/// with everything does. Gives the code and the world it left.
 fn started(executable: &[u8], world: Scripted) -> (i32, Scripted) {
     let program = carried(&mut Cursor::new(executable)).unwrap().unwrap();
     let scripted = Rc::new(RefCell::new(world));
@@ -63,7 +60,7 @@ const LINKED: &[u8] = b"#include <stdint.h>";
 
 #[test]
 fn an_executable_is_what_was_linked_and_then_the_program() {
-    let executable = build(GREETS, b"the command");
+    let executable = build(GREETS);
     assert!(executable.starts_with(LINKED));
 
     let world = Scripted {
@@ -87,15 +84,19 @@ fn an_executable_is_linked_with_the_native_side_its_program_reaches() {
         }
     "#;
     let groups = |source| {
-        let executable = build(source, b"");
+        let executable = build(source);
         let linked = String::from_utf8_lossy(&executable).into_owned();
         let named = |group: &&str| linked.contains(&format!("  {group},\n"));
-        let all = GROUPS.iter().map(|group| group.symbol);
+        let all = GROUPS.iter().map(|group| group.symbol).chain([GROUP]);
         all.filter(named).collect::<Vec<_>>()
     };
 
     assert_eq!(groups(GREETS), ["amb_system_console", "amb_system_env"]);
     assert_eq!(groups(fetches), ["amb_system_http"]);
+    assert_eq!(
+        groups(PACKS),
+        ["amb_system_console", "amb_system_code", GROUP]
+    );
 }
 
 #[test]
@@ -135,7 +136,7 @@ fn a_fault_in_an_executable_is_reported_where_it_was_written() {
         }
     ";
 
-    let (code, after) = started(&build(source, b""), Scripted::within("app"));
+    let (code, after) = started(&build(source), Scripted::within("app"));
     assert_eq!(code, 1);
     assert_eq!(
         after.err,
@@ -162,16 +163,8 @@ const PACKS: &str = r#"
     "#;
 
 #[test]
-fn a_program_that_packs_code_is_launched_by_the_command() {
-    let executable = build(PACKS, b"the command");
-
-    assert!(executable.starts_with(b"the command"));
-    assert!(!executable.starts_with(LINKED));
-}
-
-#[test]
 fn an_executable_packs_its_own_code_and_loads_it() {
-    let (code, after) = started(&build(PACKS, b""), Scripted::within("app"));
+    let (code, after) = started(&build(PACKS), Scripted::within("app"));
     assert_eq!(
         (code, after.out.as_str()),
         (0, "hello, ada\n"),
@@ -182,10 +175,7 @@ fn an_executable_packs_its_own_code_and_loads_it() {
 
 #[test]
 fn a_program_that_is_wrong_builds_nothing() {
-    let world = Scripted {
-        files: [(LAUNCHER.to_owned(), Vec::new())].into(),
-        ..Scripted::within("app")
-    };
+    let world = Scripted::within("app");
     let command = Command::Build {
         at: Chosen::default(),
         bin: None,

@@ -30,7 +30,7 @@ const ID: &str = "0123456789abcdef0123456789abcdef";
 /// Its target `world` binds an ability to a handler of the bundle,
 /// and another to one a thread of the bundle answers.
 const SOURCE: &str = "use ambient.test;
-use system.{os};
+use system.{code, os};
 
 pub ability double(n: int): int;
 extern handler double in os;
@@ -54,6 +54,14 @@ pub fn waiting(): int with later => later!(40) + later!(1) + 1;
 
 pub fn stranded(): int with triple => tripling();
 
+fn next(n: int): int => n + 1;
+fn none(n: int): int => 0;
+
+pub fn unpacking(): int with double, code {
+    let loaded = code.unpack(cast::<bytes>(code.pack!(next), 0x[]));
+    return double!(cast::<fn(n: int): int>(loaded, none)(20));
+}
+
 #[test.case]
 fn doubles(): null with test.unmet, double => test.equal(double!(21), 42, \"it doubles\");
 
@@ -63,8 +71,9 @@ fn halves(): null with test.unmet, double => test.equal(double!(2), 1, \"it halv
 
 /// The binaries of the package that are run under a target of its
 /// own: two under one that extends the command line's, and one under
-/// one that does not.
-const BINS: &str = "[bin.tripling]\ntarget = \"pkg.main.world\"\n\
+/// one that does not. And one that compiles code.
+const BINS: &str = "[bin.unpacking]\n\
+                    [bin.tripling]\ntarget = \"pkg.main.world\"\n\
                     [bin.waiting]\ntarget = \"pkg.main.world\"\n\
                     [bin.stranded]\ntarget = \"pkg.main.apart\"\n";
 
@@ -102,7 +111,6 @@ fn header(scratch: &Scratch) -> String {
         store: &MemoryStore::new(),
         snapshots: &Nowhere,
         world: world.clone(),
-        launcher: None,
         linker: &Unlinked,
     };
     let at = Chosen::default();
@@ -225,7 +233,6 @@ fn executed_of(scratch: &Scratch, command: &Command) -> i32 {
         store: &MemoryStore::new(),
         snapshots: &Nowhere,
         world: Rc::new(RefCell::new(System::new(Vec::new()))),
-        launcher: None,
         linker: &Machine::under(scratch.0.join("linked")),
     };
     session.execute(command)
@@ -291,6 +298,19 @@ fn a_program_is_not_run_under_a_target_that_is_no_command_lines() {
     };
 
     assert_eq!(executed(&scratch, &run), 1);
+}
+
+/// The compiler is linked as native code is, beside the bundle.
+#[test]
+fn a_program_that_compiles_code_reaches_a_bundle() {
+    let scratch = Scratch::new();
+    let run = Command::Run {
+        at: Chosen::default(),
+        bin: Some("unpacking".to_owned()),
+        args: Vec::new(),
+    };
+
+    assert_eq!(executed(&scratch, &run), 42);
 }
 
 /// The launcher holds the same library, and each keeps its own.

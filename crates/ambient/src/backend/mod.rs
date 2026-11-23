@@ -15,7 +15,6 @@ pub mod wasm;
 use crate::engine::Backend;
 
 pub(crate) use ambient_host::parts::CLOSED;
-pub(crate) use ambient_host::stack;
 pub use ambient_host::statics;
 
 /// The most parameters a function may take.

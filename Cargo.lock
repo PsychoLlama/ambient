@@ -88,6 +88,7 @@ dependencies = [
 name = "ambient-launcher"
 version = "0.2.0"
 dependencies = [
+ "ambient",
  "ambient-host",
 ]
 

@@ -37,7 +37,7 @@ pub use code::{invalid, names_native};
 pub use commands::Command;
 pub use files::{Entry, Info};
 pub use http::{Incoming, Listening, Request, Response, Streamed};
-pub use linked::{GROUPS, Group, Linked, group};
+pub use linked::{Compiling, GROUPS, Group, Linked, group};
 pub use net::{Address, Datagram, Held, Open, Opened, Reach, Reached};
 pub use signals::Signal;
 pub use system::System;

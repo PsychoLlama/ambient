@@ -90,9 +90,6 @@ pub struct Scripted {
     pub shut: Vec<Held>,
 }
 
-/// Where a scripted session says the command's own file is.
-pub const LAUNCHER: &str = "bin/ambient";
-
 /// A linker that joins nothing: what it gives for an executable is
 /// the `main` it was asked to link, which says what a build reached.
 pub struct Named;
@@ -187,7 +184,6 @@ impl Scripted {
             store,
             snapshots,
             world,
-            launcher: Some(PathBuf::from(LAUNCHER)),
             linker,
         };
         let code = session.execute(command);

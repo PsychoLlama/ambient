@@ -68,6 +68,7 @@ pub use check::Interface;
 pub use compile::Backend;
 pub use found::Found;
 pub use read::{Entry, Read, Table};
+pub use reflect::digest;
 pub use resolve::Resolved;
 pub use scope::{Member, Members, Scope};
 pub use testing::{Case, Tested, Testing};

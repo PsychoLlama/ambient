@@ -16,6 +16,7 @@ pub use ambient_host::{core, exchange, hash, literal, pack, symbol, value};
 pub mod backend;
 pub mod builder;
 pub mod checker;
+#[cfg(feature = "command")]
 pub mod cli;
 pub mod engine;
 pub mod error;
@@ -23,6 +24,7 @@ pub mod host;
 pub mod library;
 pub mod lir;
 pub mod lower;
+#[cfg(feature = "command")]
 pub mod project;
 pub mod store;
 pub mod surface;

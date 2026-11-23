@@ -21,12 +21,6 @@ fn cache() -> Option<PathBuf> {
 
 fn main() -> ExitCode {
     let exit = |code: i32| ExitCode::from(u8::try_from(code).unwrap_or(1));
-    // The command is the launcher of a program that compiles: one
-    // such is this file with the program after it.
-    if let Some(code) = ambient_host::launch::own(ambient::cli::start) {
-        return code;
-    }
-    let launcher = std::env::current_exe().ok();
     let cli = Cli::parse();
     let args = match &cli.command {
         Command::Run { args, .. } => args.clone(),
@@ -61,7 +55,6 @@ fn main() -> ExitCode {
         store: store.as_ref(),
         snapshots,
         world,
-        launcher,
         linker: linker.as_ref(),
     };
     exit(session.execute(&cli.command))

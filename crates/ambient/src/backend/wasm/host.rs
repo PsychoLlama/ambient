@@ -14,9 +14,9 @@ use super::RUNTIME_MODULE;
 use super::guest::{Guest, State, native, word};
 use super::units::externs;
 use crate::backend::native::Natives;
-use crate::backend::stack;
 use crate::hash::Hash;
 use crate::value::{self, Value};
+use ambient_host::stack;
 
 /// A program instantiated in wasmtime, ready to call. More can be
 /// loaded into one made by [`super::open_module`]: see [`Program::add`].

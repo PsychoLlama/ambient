@@ -28,3 +28,14 @@ use crate::pack::Pack;
 pub fn natives(world: &Rc<RefCell<dyn World>>, trees: Option<Pack>) -> Natives {
     compiling(ambient_host::host::natives(world), trees)
 }
+
+/// The name of the compiler's group, as the `main` of a link names it:
+/// a program whose parts pack or compile code ([`compiles`]) is linked
+/// with the compiler, and no other is.
+pub const GROUP: &str = "amb_system_compiling";
+
+/// Links the compiler: the handlers of `system.code` that need it.
+#[unsafe(no_mangle)]
+pub extern "C" fn amb_system_compiling(linked: &mut Groups) {
+    linked.compile_with(compiling);
+}

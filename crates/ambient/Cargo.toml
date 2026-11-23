@@ -4,6 +4,19 @@ version.workspace = true
 edition.workspace = true
 description = "The Ambient programming language"
 
+[features]
+default = ["command", "wasmtime"]
+# The command line, and the projects and fetching it works over. A
+# launcher that compiles links the compiler without it.
+command = ["dep:clap", "dep:semver", "dep:toml", "dep:toml_edit", "dep:ureq"]
+# Running WebAssembly in this process, as tests do.
+wasmtime = ["dep:wasmtime"]
+
+[[bin]]
+name = "ambient"
+path = "src/main.rs"
+required-features = ["command"]
+
 [dependencies]
 ambient-host.workspace = true
 ambient-native.workspace = true
@@ -15,15 +28,15 @@ cranelift-frontend.workspace = true
 cranelift-native.workspace = true
 wasm-encoder.workspace = true
 wasmparser.workspace = true
-clap.workspace = true
+clap = { workspace = true, optional = true }
 postcard.workspace = true
-semver.workspace = true
+semver = { workspace = true, optional = true }
 serde.workspace = true
 sha2.workspace = true
-toml.workspace = true
-toml_edit.workspace = true
-ureq.workspace = true
-wasmtime.workspace = true
+toml = { workspace = true, optional = true }
+toml_edit = { workspace = true, optional = true }
+ureq = { workspace = true, optional = true }
+wasmtime = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest.workspace = true

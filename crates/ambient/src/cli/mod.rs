@@ -183,9 +183,6 @@ pub struct Session<'a> {
     /// The snapshots this machine keeps, and what fetches one.
     pub snapshots: &'a dyn Snapshots,
     pub world: Rc<RefCell<dyn World>>,
-    /// The file of the command itself, which loads what it builds; a
-    /// session that has none builds nothing.
-    pub launcher: Option<PathBuf>,
     /// What joins the native bundles a program reaches with what
     /// loads it.
     pub linker: &'a dyn Linker,
