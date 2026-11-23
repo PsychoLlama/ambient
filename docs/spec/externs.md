@@ -4,11 +4,11 @@ An extern is a definition implemented in native code. Ambient declares the inter
 
 ## Kinds
 
-- An extern function is a native function, pure but for the abilities of its row; callers cannot tell it from an Ambient function.
-- A native handler is a native implementation of an [ability](abilities.md).
+- An extern is a native handler: a native implementation of an [ability](abilities.md). There is no other kind.
 - A native handler cannot be called; it can only be a root binding of a [target](targets.md), listed there or by [default](targets.md#default-bindings).
-- Effectful native code is therefore reachable only by performing an ability, never by knowing a hash.
-- An extern function's purity is its author's contract and is not verified.
+- Native code is therefore reachable only by performing an ability, never by knowing a hash.
+- That holds for native code that touches no world, as hashing does: it is an ability too, so everything a function reaches of native code is in its row.
+- A program that runs code it [received](exchange.md) hands it each piece of native code it may reach, as a handler, and the received code reaches no other.
 
 ## Declaration
 
@@ -26,7 +26,7 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - Native code can construct any [value shape](values.md), mint handles, and call function values it is given.
 - Native code performs the abilities in its declared row with the same bindings Ambient code would get.
 - Native code reaches its program only when called. It has no initialisation, and what it leaves working can do one thing to the program: answer a wait.
-- Native code is handed its arguments and the bindings of its caller, and gives back a value or raises a [fault](values.md).
+- Native code is handed its arguments and the bindings of its performer, and gives back a value or raises a [fault](values.md).
 - Native code is also handed the program that called it, and can [load](backends.md) a function into it; what it gets back is that function as a value.
 - A suspending native handler may suspend the [task](tasks.md) that performed it while it waits on the host.
 - It suspends by saying it will answer later. Other tasks run, and the perform ends when the host gives the answer: a value, or a fault.
@@ -59,6 +59,7 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - Compiled code names an extern by its position in that list, never by address, so an [artifact](build.md) is the same whatever native code it is loaded with.
 - A program that reaches an extern nobody supplied is not loaded.
 - A program's native code is fixed when it is built. Nothing native is [loaded](linking.md#loading) into a running program, and none is [sent](exchange.md).
+- Code loaded into a program names no extern: it reaches native code only through the handlers it is handed. Loading code that names one is an error.
 - A program therefore comes by a new extern only by being built again, while its Ambient code is replaced as it runs.
 
 ## Native bundles
@@ -81,4 +82,5 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - A package brings native code only where what declares it [says it may](packages.md#grants).
 - Definition hashes do not cover native code; a package's snapshot does.
 - TODO: a [comptime](comptime.md) call reaches no native bundle, since what runs it was linked before the package was known.
+- The compiler is native code like any other: a program whose row reaches compiling links it, and no other carries it. So a program that compiles code reaches native bundles as any program does.
 - TODO: a program that packs or compiles code reaches no native bundle, since what loads it is the compiler's own executable.

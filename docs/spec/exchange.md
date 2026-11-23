@@ -1,21 +1,23 @@
 # Exchange
 
-Definitions and values move between running programs by hash. A receiver trusts the code it is given, unless it embeds the compiler and rechecks it.
+Definitions and values move between running programs by hash. Code moves as a pack, which its receiver checks and compiles itself, so received code can do what its type says and no more.
 
 ## Trust
 
-- Code that reaches a program is trusted: that it is the definition its hash names, of the type it is said to have, compiled faithfully.
+- A pack is not trusted. Its receiver checks every definition in it as its own checker would have made it, and compiles it itself.
+- What received code can do is then what its type says: perform the abilities of its row, answered by the handlers its receiver hands it. It names no [extern](externs.md), so it reaches native code only through those.
+- Compiled code is trusted: that it is the definition its hash names, of the type it is said to have, compiled faithfully. A program loads only compiled code it made or kept itself, and is never sent any.
 - A hash commits to a definition's type, so a definition known by hash when a program was built needs no check when it is loaded.
 - A definition whose hash is learned as the program runs arrives as `unknown`, and a [cast](types.md) to the type the receiver expects is the check.
 - A mismatch is therefore the cast's other branch where the definition arrives, never a fault where it is later used.
 - What a function value handed to a program captured is trusted to be what its definition takes.
 - Keeping what is delivered authentic is the program's concern.
-- Running code from a sender that is not trusted takes the compiler: a host embeds it, rechecks what arrives, and vouches for the result itself.
-- The language does no more for that case; such a host is assembled from the compiler as a library.
+- Receiving code takes the compiler, which a program links as native code only if its row reaches compiling.
+- Nothing bounds how long received code runs or how much it holds. A receiver [contains](values.md) its faults, and runs only code it trusts to end.
 
 ## Packs
 
-- A pack is for a receiver that has the compiler; one that does not is given code compiled for its backend.
+- A pack is for a receiver that compiles; compiled code is never sent.
 - Compiled code says which backend and which compiler it was made by, and a host loads no other.
 - A pack is the core trees of a definition and of the dependencies its receiver lacks.
 - A pack names a definition it carries by position and one its receiver has by hash; it carries no hash of what it holds.
@@ -24,10 +26,8 @@ Definitions and values move between running programs by hash. A receiver trusts 
 - A received definition is checked against its signature before it is linked; the sender's compiler is not trusted.
 - The check reads only core trees: a tree determines the type of each of its nodes, so nothing is inferred and no source is needed.
 - A receiver accepts exactly the trees its own checker could have produced; a type written in any but its one form is refused.
-- A received definition never names a native handler; only a program's root does.
+- A received definition never names an extern; only a program's root binds native code. A pack that names one is rejected before any of it runs.
 - A received tree is held to the [depth limit](core.md) as it is decoded, before anything walks it.
-- An extern function in a pack resolves against the receiver's own native code by identity.
-- A pack that needs an extern the receiver lacks is rejected before any of it runs.
 
 ## Receiving
 
@@ -46,7 +46,7 @@ Definitions and values move between running programs by hash. A receiver trusts 
 ## Running received code
 
 - A receiver runs a received function under a restricted [provide](handlers.md); the function reaches that bundle and nothing else.
-- A receiver that runs the function inside a [boundary](values.md) also contains its faults. Nothing bounds how long it runs, so a receiver runs only code it trusts to end.
+- A receiver that runs the function inside a [boundary](values.md) also contains its faults.
 - Abilities match across programs by identity: two programs mean the same ability exactly when its identity and signature agree.
 - Brands are not trusted across exchange, since received code may contain branding operations.
 - Authority therefore rests on handlers and handles, never on brands.

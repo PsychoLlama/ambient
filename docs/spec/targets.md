@@ -64,7 +64,6 @@ A target defines the world a program runs in: a root binding for every ability t
 - A browser's target binds fetching and not serving; an embedder's binds its host's own abilities beside whichever of these the host can do.
 - Its ID is fixed, so every target means the same ability by `system.fs.read`, and a library written against one runs under any target that binds it.
 - It comes with the compiler, as its native code does, and a package reaches it under the name `system` without declaring it.
-- Its [extern](externs.md) functions that are no abilities are bound by no target, so a program reaches them under any: a test and a [comptime](comptime.md) call as well.
 - A host may be built without it; a program is then limited as any [embedder's](#embedding) is.
 
 ## Standard targets
@@ -160,10 +159,11 @@ A target defines the world a program runs in: a root binding for every ability t
 
 - `system.code` packs a function, compiles a pack, and loads what was compiled: the halves of [exchange](exchange.md), each an ability.
 - Packing gives a [pack](exchange.md) of a function and everything it reaches, as bytes. It leaves nothing out, so whatever has the compiler can compile it.
-- Compiling rechecks a pack and gives code for the program that asked, as bytes. Bytes that are not a pack, and a pack checking could not have made, are each an [error](errors.md).
+- Compiling rechecks a pack and gives code for the program that asked, as bytes. Bytes that are not a pack, a pack checking could not have made, and a pack that names an [extern](externs.md) are each an [error](errors.md).
+- The compiler is native code: a program whose row reaches compiling links it, and no other carries it.
 - Loading adds compiled code to the program and gives the function as `unknown`; a [cast](types.md) to the type expected is the check that it fits.
 - Compiled code is trusted as the program is: nothing checks it, so a program loads only what it compiled or kept itself. Holding the ability to load is holding that trust.
-- Compiled code says which build of the compiler made it and what for, and any other is an error, as is code that needs native code the program lacks.
+- Compiled code says which build of the compiler made it and what for, and any other is an error, as is code that names an extern.
 - Compiling and loading are apart so that what was compiled can be kept: a program that keeps it compiles a function once, however often it is loaded and let go.
 - Only a function that captured nothing is packed.
 - A program whose row reaches loading is compiled as one code can be [loaded](linking.md) into; no other program pays for it.
@@ -174,14 +174,14 @@ A target defines the world a program runs in: a root binding for every ability t
 ## Values as bytes
 
 - `system.exchange` gives a value as its [bytes](exchange.md) and the value of such bytes, for a program that keeps a value or sends one.
-- They are [extern](externs.md) functions and no abilities, as hashing is: the bytes are a function of the value.
+- They are abilities, as all native code is, though the bytes are a function of the value.
 - Only plain data has bytes here: a value that holds a function, a cell, a handle, or an iterator is an error, since each is tied to the program that holds it.
 - What is read back is of no known type; a program casts it to the type it expects.
 
 ## Cryptography
 
 - `system.crypto` hashes bytes, and signs them with a key as an HMAC, by an algorithm a tag names: SHA-256, SHA-512, or SHA-1.
-- They are [extern](externs.md) functions and no abilities: a hash is a function of what is hashed, so there is nothing to grant, bind, or record.
+- They are abilities, as all native code is, though a hash is a function of what is hashed: a program that receives code grants hashing to it as it grants anything.
 - Comparing two digests takes as long whatever they hold, so how long it took says nothing of where they differ.
 - Random bytes are drawn through `system.random`, the one ability randomness has.
 - SHA-1 is there for the protocols that still name it, and for nothing new.

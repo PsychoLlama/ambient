@@ -39,6 +39,7 @@ A program upgrades while running by swapping the handlers its late-bound abiliti
 ## Delivery
 
 - A new generation arrives as a [pack](exchange.md) and is produced by one designated function, found by [symbol](symbols.md) in each build.
+- The program checks and compiles it where it arrives, so a generation does only what its type says, with the handlers the program hands it.
 - That symbol is the only name that must agree between builds.
 - A development loop, a remote deploy, and an interactive session deliver generations the same way.
 - Whoever can deliver a generation controls the program; guarding that is the program's concern.

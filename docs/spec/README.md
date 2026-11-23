@@ -57,7 +57,7 @@ Ambient is a content-addressed language with structural types and abilities, bui
 - [tools](tools.md): functions a build runs, build abilities, build steps, commands.
 - [memoization](memoization.md): trace-validated caching for comptime, tools, and tests.
 - [testing](testing.md): tests as memoized runs, and finding, running, and reporting them as replaceable library code.
-- [externs](externs.md): native functions and native handlers.
+- [externs](externs.md): native handlers, the one way to native code.
 - [targets](targets.md): root bindings, platforms, embedding.
 - [build](build.md): demand-driven stages, the store, backends.
 - [backends](backends.md): the lowered form, value representation, the runtime, unwinding.
