@@ -333,6 +333,26 @@ fn a_module_is_given_a_native_handler_that_is_its_abilitys_default() {
 }
 
 #[test]
+fn a_generated_handler_keeps_what_is_said_of_it() {
+    use ambient::core::Tree;
+
+    let maker = format!("pub tag note;\npub target base {{}}\n{}", make(HANDLED));
+    let made = "use pkg.make; comptime make.all();";
+    let workspace = modules(&[("make", &maker), ("made", made)]);
+    let store = MemoryStore::new();
+    let engine = Engine::new(&workspace, &store);
+
+    let native = engine.check(&value("made", "larger")).unwrap();
+    assert!(matches!(&native.tree, Tree::Extern { path, .. } if path == "made.larger"));
+    let said: Vec<&str> = native
+        .annotations
+        .iter()
+        .map(|said| said.tag.as_str())
+        .collect();
+    assert_eq!(said, ["make.note"]);
+}
+
+#[test]
 fn a_generated_handler_is_no_default_for_an_ability_of_another_module() {
     let maker = format!(
         "pub tag note;\npub target base {{}}\npub ability elsewhere(): int;\n{}",
@@ -350,36 +370,4 @@ fn a_generated_handler_is_no_default_for_an_ability_of_another_module() {
         matches!(checked, Err(Error::ForeignDefault { .. })),
         "{checked:?}"
     );
-}
-
-/// A brand, and an extern that mints under it, with something said of
-/// the extern under a tag the making module declares.
-const NATIVE: &str = "[
-    code.named_brand(\"Address\"),
-    code.said(
-        code.named_extern(\"address\", [tree.text], { named: code.beside(\"Address\", \"type\") }),
-        [{ key: comptime tree.reference(note), value: { new: \"URL\" } }],
-    ),
-]";
-
-#[test]
-fn a_module_is_given_an_extern_and_the_brand_it_mints_under() {
-    use ambient::core::Tree;
-
-    let maker = format!("pub tag note;\n{}", make(NATIVE));
-    let made = "use pkg.make; comptime make.all();";
-    let main = "use pkg.made; fn main(text: string): made.Address => made.address(text);";
-    let workspace = modules(&[("make", &maker), ("made", made), ("main", main)]);
-    let store = MemoryStore::new();
-    let engine = Engine::new(&workspace, &store);
-
-    engine.check(&value("main", "main")).unwrap();
-    let native = engine.check(&value("made", "address")).unwrap();
-    assert!(matches!(&native.tree, Tree::Extern { path, .. } if path == "made.address"));
-    let said: Vec<&str> = native
-        .annotations
-        .iter()
-        .map(|said| said.tag.as_str())
-        .collect();
-    assert_eq!(said, ["make.note"]);
 }

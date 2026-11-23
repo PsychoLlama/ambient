@@ -26,7 +26,7 @@ An extern is a definition implemented in native code. Ambient declares the inter
 - Native code can construct any [value shape](values.md), mint handles, and call function values it is given.
 - Native code performs the abilities in its declared row with the same bindings Ambient code would get.
 - Native code reaches its program only when called. It has no initialisation, and what it leaves working can do one thing to the program: answer a wait.
-- Native code is handed its arguments and the bindings of its performer, and gives back a value or raises a [fault](values.md).
+- Native code is handed its arguments and the bindings of its declared row, and gives back a value or raises a [fault](values.md).
 - Native code is also handed the program that called it, and can [load](backends.md) a function into it; what it gets back is that function as a value.
 - A suspending native handler may suspend the [task](tasks.md) that performed it while it waits on the host.
 - It suspends by saying it will answer later. Other tasks run, and the perform ends when the host gives the answer: a value, or a fault.

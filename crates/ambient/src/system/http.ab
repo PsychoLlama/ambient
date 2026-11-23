@@ -82,7 +82,7 @@ pub ability open(request: Request, trust: Trust | null): Streamed | Error;
 /// The server proves it holds the certificate's key, and nothing
 /// says who it is: a program decides whether to trust what it was
 /// shown, such as once while pairing with a device, and pins it with
-/// `crypto.hash(crypto.sha256, certificate)` from then on.
+/// `crypto.hash!(crypto.sha256, certificate)` from then on.
 pub ability certificate(url: string, address: string | null): bytes | Error;
 
 /// Starts listening on a port of an address of this machine, such as

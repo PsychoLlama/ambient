@@ -32,12 +32,14 @@ const ID: &str = "0123456789abcdef0123456789abcdef";
 const SOURCE: &str = "use ambient.test;
 use system.{os};
 
-extern fn double(n: int): int;
-extern fn absent(n: int): int;
+pub ability double(n: int): int;
+extern handler double in os;
+pub ability absent(n: int): int;
+extern handler absent in os;
 
-fn unused(): int => absent(1);
+fn unused(): int with absent => absent!(1);
 
-pub fn main(): int => double(21);
+pub fn main(): int with double => double!(21);
 
 pub ability triple(n: int): int;
 extern handler tripled for triple;
@@ -53,10 +55,10 @@ pub fn waiting(): int with later => later!(40) + later!(1) + 1;
 pub fn stranded(): int with triple => tripling();
 
 #[test.case]
-fn doubles(): null with test.unmet => test.equal(double(21), 42, \"it doubles\");
+fn doubles(): null with test.unmet, double => test.equal(double!(21), 42, \"it doubles\");
 
 #[test.case]
-fn halves(): null with test.unmet => test.equal(double(2), 1, \"it halves\");
+fn halves(): null with test.unmet, double => test.equal(double!(2), 1, \"it halves\");
 ";
 
 /// The binaries of the package that are run under a target of its
@@ -334,7 +336,7 @@ fn a_bundle_built_for_another_layout_is_not_linked() {
 }
 
 #[test]
-fn a_test_of_a_bundle_is_run_by_what_was_linked_with_it_and_kept() {
+fn a_test_of_a_bundle_is_run_by_what_was_linked_with_it() {
     let scratch = Scratch::new();
     let test = |only: Option<&str>| Command::Test {
         at: Chosen::default(),
@@ -343,7 +345,8 @@ fn a_test_of_a_bundle_is_run_by_what_was_linked_with_it_and_kept() {
 
     assert_eq!(executed(&scratch, &test(None)), 1);
     assert_eq!(executed(&scratch, &test(Some("doubles"))), 0);
-    // A test that reaches a bundle is pure, so what it came to is kept.
-    let kept = std::fs::read_dir(scratch.0.join(format!("app/build/tests/{ID}"))).unwrap();
-    assert_eq!(kept.count(), 2);
+    // A test reaches a bundle by performing an ability, so it is not
+    // pure, and nothing it came to is kept.
+    let kept = std::fs::read_dir(scratch.0.join(format!("app/build/tests/{ID}")));
+    assert_eq!(kept.map_or(0, Iterator::count), 0);
 }

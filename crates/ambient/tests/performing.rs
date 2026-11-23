@@ -15,36 +15,40 @@ use ambient::value::Value;
 use ambient_runtime::Fault;
 use support::run_with;
 
-/// The ability `ask`, and the extern `relay`, which performs it with
-/// what it is given and gives what it is answered.
-fn world() -> [Definition; 2] {
+/// The abilities `ask` and `relay`, and a native handler of `relay`
+/// that performs `ask` with what it is given and gives what it is
+/// answered. `answer`, of `n`, answers `ask` under the target `world`,
+/// which binds both.
+fn world(answer: Expr) -> [Definition; 5] {
     let ask = b::ability("ask").param("n", ty::int()).returns(ty::int());
-    let relay = b::extern_function("relay")
+    let relay = b::ability("relay").param("n", ty::int()).returns(ty::int());
+    let relays = b::native_handler("relay", "relay").performs(["ask"]);
+    let answers = b::function("answer")
         .param("n", ty::int())
         .returns(ty::int())
-        .performs(["ask"]);
-    [ask.into(), relay.into()]
+        .body(answer);
+    let world = b::target("world")
+        .bind("ask", "answer")
+        .bind("relay", "relay");
+    [
+        ask.into(),
+        relay.into(),
+        relays.into(),
+        answers,
+        world.into(),
+    ]
 }
 
-fn relay(n: i64) -> Expr {
-    b::call(b::name("relay"), [b::int(n)])
-}
-
-/// `body` with `ask` answered by `answer`, a function of `n`.
-fn answering(answer: Expr, body: Expr) -> Expr {
-    b::provide([("ask", b::lambda([("n", None)], answer))], body)
-}
-
-fn doubling(body: Expr) -> Expr {
-    answering(b::multiply(b::name("n"), b::int(2)), body)
-}
-
-/// What `main` gives as `body`, where `relay` performs the ability of
-/// module `main` named `performs`.
-fn outcome_of(performs: &'static str, body: Expr) -> Result<Value, Fault> {
-    let main = b::function("main").returns(ty::unknown()).body(body);
-    let [ask, relay] = world();
-    run_with(None, [ask, relay, main], || {
+/// What `main` gives, which relays `n`, where `relay` performs the
+/// ability of module `main` named `performs` and `ask` is answered by
+/// `answer`.
+fn outcome_of(performs: &'static str, answer: Expr, n: i64) -> Result<Value, Fault> {
+    let main = b::function("main")
+        .returns(ty::unknown())
+        .performs(["relay"])
+        .body(b::perform("relay", [b::int(n)]));
+    let definitions = world(answer).into_iter().chain([main]);
+    run_with(Some("world"), definitions, || {
         Natives::new().reaching("app", "main.relay", move |running, args| {
             match running.perform("app", performs, args) {
                 Err(refused) if refused == UNDECLARED_ABILITY => Ok(Value::Null),
@@ -54,44 +58,48 @@ fn outcome_of(performs: &'static str, body: Expr) -> Result<Value, Fault> {
     })
 }
 
-fn outcome(body: Expr) -> Result<Value, Fault> {
-    outcome_of("main.ask", body)
+fn doubled() -> Expr {
+    b::multiply(b::name("n"), b::int(2))
 }
 
 #[test]
 fn native_code_performs_an_ability_of_its_row() {
-    assert_eq!(outcome(doubling(relay(21))), Ok(Value::Int(42)));
-}
-
-#[test]
-fn what_native_code_performs_is_answered_by_the_nearest_handler() {
-    let nearest = answering(b::add(b::name("n"), b::int(1)), relay(21));
-
-    assert_eq!(outcome(doubling(nearest)), Ok(Value::Int(22)));
+    assert_eq!(outcome_of("main.ask", doubled(), 21), Ok(Value::Int(42)));
 }
 
 #[test]
 fn native_code_performs_nothing_its_row_lacks() {
-    assert_eq!(
-        outcome_of("main.other", doubling(relay(21))),
-        Ok(Value::Null)
-    );
+    assert_eq!(outcome_of("main.other", doubled(), 21), Ok(Value::Null));
 }
 
 #[test]
 fn a_fault_in_what_answers_native_code_goes_on_through_it() {
-    let body = answering(b::divide(b::name("n"), b::int(0)), relay(1));
+    let dividing = b::divide(b::name("n"), b::int(0));
 
-    assert_eq!(outcome(body), Err(Fault::DivideByZero));
+    assert_eq!(
+        outcome_of("main.ask", dividing, 1),
+        Err(Fault::DivideByZero)
+    );
 }
 
 #[test]
-fn what_calls_an_extern_covers_its_row() {
-    let main = b::function("main").returns(ty::int()).body(relay(1));
-    let [ask, relay] = world();
-    let workspace = support::program([ask, relay, main]);
+fn what_binds_a_native_handler_covers_its_row() {
+    let ask = b::ability("ask").param("n", ty::int()).returns(ty::int());
+    let relay = b::ability("relay").param("n", ty::int()).returns(ty::int());
+    let relays = b::native_handler("relay", "relay").performs(["ask"]);
+    let world = b::target("world").bind("relay", "relay");
+    let main = b::function("main")
+        .returns(ty::int())
+        .performs(["relay"])
+        .body(b::perform("relay", [b::int(1)]));
+    let workspace = support::program([ask.into(), relay.into(), relays.into(), world.into(), main]);
     let store = MemoryStore::new();
-    let checked = Engine::new(&workspace, &store).check(&support::value("main", "main"));
+    let engine = Engine::new(&workspace, &store);
+    let program = engine.program(
+        &support::value("main", "main"),
+        &support::value("main", "world"),
+    );
+    let checked = engine.check(&program.unwrap());
 
     assert!(matches!(checked, Err(Error::Unbound { .. })), "{checked:?}");
 }

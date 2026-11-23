@@ -45,8 +45,11 @@ fn run(body: &str) -> (Value, Vec<Vec<u64>>) {
     let source = format!(
         "type(nominal) File;
         type(nominal) Other;
-        extern fn open(number: int): File;
-        extern fn number(file: File): int;
+        ability open(number: int): File;
+        ability number(file: File): int;
+        extern handler open;
+        extern handler number;
+        target world {{ open: open, number: number }}
         {body}"
     );
     let hosts = RefCell::new(Vec::new());
@@ -64,7 +67,7 @@ fn run(body: &str) -> (Value, Vec<Vec<u64>>) {
                 _ => Err("not a file".to_owned()),
             })
     };
-    let gave = execute_in(&workspace(&source), &[], None, natives).unwrap();
+    let gave = execute_in(&workspace(&source), &[], Some("world"), natives).unwrap();
     let hosts = hosts.into_inner();
     let dropped = |host: &Rc<RefCell<Files>>| host.borrow().dropped.clone();
     (gave, hosts.iter().map(dropped).collect())
@@ -72,20 +75,20 @@ fn run(body: &str) -> (Value, Vec<Vec<u64>>) {
 
 #[test]
 fn a_handle_is_handed_back_to_the_code_that_minted_it() {
-    let (gave, _) = run("fn main(): int {
-        let held = [open(7), open(8)];
-        return held.map(fn(file: File): int => number(file)).sum();
+    let (gave, _) = run("fn main(): int with open, number {
+        let held = [open!(7), open!(8)];
+        return held.map(fn(file: File): int => number!(file)).sum();
     }");
     assert_eq!(gave, Value::Int(15));
 }
 
 #[test]
 fn a_host_hears_when_the_last_of_a_handle_goes() {
-    let (gave, dropped) = run("fn main(): int {
-        let kept = open(1);
+    let (gave, dropped) = run("fn main(): int with open, number {
+        let kept = open!(1);
         let copies = [kept, kept];
-        let _ = number(open(2));
-        return number(open(3)) + copies.length();
+        let _ = number!(open!(2));
+        return number!(open!(3)) + copies.length();
     }");
     assert_eq!(gave, Value::Int(5));
     // Each is heard of once, when nothing holds it: the two that were
@@ -98,9 +101,9 @@ fn a_host_hears_when_the_last_of_a_handle_goes() {
 
 #[test]
 fn handles_are_the_same_by_brand_and_number() {
-    let (gave, _) = run("fn main(): List<bool> {
-        let file = open(1);
-        return [file == file, file == open(1), file == open(2)];
+    let (gave, _) = run("fn main(): List<bool> with open {
+        let file = open!(1);
+        return [file == file, file == open!(1), file == open!(2)];
     }");
     let same = [true, true, false].map(Value::Bool).to_vec();
     assert_eq!(gave, Value::List(same));
@@ -115,7 +118,7 @@ fn a_handle_is_tested_for_by_its_brand() {
             _ => { return \"neither\"; }
         }
     }
-    fn main(): string => kind(open(1)) + \" \" + kind(1);");
+    fn main(): string with open => kind(open!(1)) + \" \" + kind(1);");
     assert_eq!(gave, Value::String("file neither".to_owned()));
 }
 

@@ -450,7 +450,7 @@ Compiled code can be kept, in a file or anywhere bytes go, and loaded later with
 
 `bytes` is a run of bytes that need not be text, written out as `0x[89 50 4E 47]`: a value, a pattern in a match, or a type. A string gives its encoding with `to_bytes()`, and bytes give the string they encode, or null, with `to_text()`. Files and HTTP bodies carry them, and `ambient.base64` and `hex()` write them as text.
 
-Hashing is a function, not an ability: it does nothing to the world. The time is an ability, and what is made of it is not.
+Hashing is an ability, though it does nothing to the world: every call of native code is one. The time is an ability too, and what is made of it is not.
 
 ```ab
 use ambient.base64;
@@ -458,8 +458,8 @@ use ambient.time;
 use system.clock;
 use system.crypto;
 
-pub fn main(): string with clock.now {
-    let signed = crypto.hmac(crypto.sha256, "key".to_bytes(), "message".to_bytes());
+pub fn main(): string with clock.now, crypto.hmac {
+    let signed = crypto.hmac!(crypto.sha256, "key".to_bytes(), "message".to_bytes());
     let day = time.date(clock.now!());
     return "${base64.encode(signed)} in ${day.year}, written ${time.write(time.days(1))}";
 }

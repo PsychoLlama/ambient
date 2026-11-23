@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use super::BuildError;
 use crate::core::DEPTH;
-use crate::surface::{Expr, Extern, ExternKind, Function, Key, Param, Path, Pattern, Target};
+use crate::surface::{Expr, Extern, Function, Key, Param, Path, Pattern, Target};
 
 pub(super) fn check_name(name: &str) -> Result<(), BuildError> {
     let mut chars = name.chars();
@@ -75,23 +75,10 @@ pub(super) fn check_function(name: &str, function: &Function) -> Result<(), Buil
     check_expr(&function.body)
 }
 
-pub(super) fn check_extern(name: &str, native: &Extern) -> Result<(), BuildError> {
-    match &native.kind {
-        ExternKind::Function { params, ret, row } => {
-            check_params(name, params)?;
-            check_type(ret)?;
-            row.iter().try_for_each(check_path)
-        }
-        ExternKind::Handler {
-            ability,
-            row,
-            targets,
-        } => {
-            check_path(ability)?;
-            row.iter().try_for_each(check_path)?;
-            targets.iter().try_for_each(check_path)
-        }
-    }
+pub(super) fn check_extern(native: &Extern) -> Result<(), BuildError> {
+    check_path(&native.ability)?;
+    native.row.iter().try_for_each(check_path)?;
+    native.targets.iter().try_for_each(check_path)
 }
 
 pub(super) fn check_target(target: &Target) -> Result<(), BuildError> {

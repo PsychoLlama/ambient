@@ -12,8 +12,8 @@ use super::reify::{
 use crate::core;
 use crate::literal::Literal;
 use crate::surface::{
-    Ability, Annotation, Definition, DefinitionKind, Extern, ExternKind, Function, Param,
-    Reference, TypeDefinition, TypeParam,
+    Ability, Annotation, Definition, DefinitionKind, Extern, Function, Param, Reference,
+    TypeDefinition, TypeParam,
 };
 use crate::symbol::ModuleId;
 use crate::types::Ty;
@@ -170,18 +170,6 @@ fn kind(home: Home, fields: &[(core::Key, core::Expr)]) -> Read<DefinitionKind<R
             params,
             ret: within(home, count, need(fields, "returns")?)?,
         })
-    } else if let Some(takes) = has("extern") {
-        let row = each(need(fields, "takes")?, |taken| {
-            definition(home, taken, &["ability"])
-        })?;
-        DefinitionKind::Extern(Extern {
-            suspends: false,
-            kind: ExternKind::Function {
-                params: params(home, takes)?,
-                ret: within(home, 0, need(fields, "returns")?)?,
-                row,
-            },
-        })
     } else if let Some(ability) = has("handles") {
         let row = each(need(fields, "takes")?, |taken| {
             definition(home, taken, &["ability"])
@@ -190,12 +178,10 @@ fn kind(home: Home, fields: &[(core::Key, core::Expr)]) -> Read<DefinitionKind<R
             definition(home, target, &["value"])
         })?;
         DefinitionKind::Extern(Extern {
+            ability: definition(home, ability, &["ability"])?,
+            row,
+            targets,
             suspends: false,
-            kind: ExternKind::Handler {
-                ability: definition(home, ability, &["ability"])?,
-                row,
-                targets,
-            },
         })
     } else if has("tag").is_some() {
         DefinitionKind::Tag

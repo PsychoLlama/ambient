@@ -48,7 +48,7 @@ Testing is library code over one program the build writes: the tests of a run, h
 
 - What testing keeps is kept apart from the [build](build.md): in a cache of bytes by key, under the build directory of the workspace, or of the package where there is none, by each package's ID. The build's store holds nothing of a test.
 - The library's functions are the only way to the cache, so where it is is decided once. A runner keeps outcomes in it, and a test utility keeps what it chooses.
-- Only a pure test's outcome is kept by its key: the hash of the test, the hash of what runs it, the build of the host, and the digest of each native bundle it reaches. A native handler reaches no world its row does not name, so its bundle's digest stands for what it gives.
+- Only a pure test's outcome is kept by its key: the hash of the test, the hash of what runs it, and the build of the host. Native code is reached only by performing an ability, so a pure test reaches none.
 - A test that is not pure runs every time.
 - Neither a test's name nor its group is in its key, and no outcome holds a name: a test moved or renamed unchanged is not run again, and is reported under the name it has now.
 - A test that failed is kept as one that passed is, so a failure is reported again without running again, for as long as what caused it lasts.

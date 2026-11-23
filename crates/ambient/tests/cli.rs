@@ -529,16 +529,16 @@ fn only_the_tests_asked_for_are_run() {
 }
 
 #[test]
-fn a_test_reaches_what_the_system_package_only_computes() {
+fn a_test_reaches_what_the_system_package_binds() {
     let source = r#"
         use system.exchange;
         use ambient.test;
         use ambient.test.{check, unmet};
 
         #[test.case]
-        fn test_reads_back(): null with unmet {
-            let sent = cast::<bytes>(exchange.encode([1, 2]), "".to_bytes());
-            let read = cast::<List<int>>(exchange.decode(sent), []);
+        fn test_reads_back(): null with unmet, exchange {
+            let sent = cast::<bytes>(exchange.encode!([1, 2]), "".to_bytes());
+            let read = cast::<List<int>>(exchange.decode!(sent), []);
             check(read == [1, 2], "a value is read back");
         }
     "#;

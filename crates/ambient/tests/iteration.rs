@@ -283,21 +283,21 @@ fn a_step_gives_an_item_and_the_rest() {
 /// What a program gives when it steps the iterator its host hands it:
 /// the item, and the iterator of the rest, as its host reads that.
 fn stepped_once(source: Source, held: &[Value; 2]) -> Value {
-    let given = b::extern_function("given").returns(ty::unknown());
+    let given = b::ability("given").returns(ty::unknown());
+    let handler = b::native_handler("given", "given");
+    let world = b::target("world").bind("given", "given");
     let nothing = b::range(b::int(0), b::int(0));
-    let iterator = b::cast(
-        b::call(b::name("given"), []),
-        iterator_of(ty::unknown()),
-        nothing,
-    );
+    let iterator = b::cast(b::perform("given", []), iterator_of(ty::unknown()), nothing);
     let main = b::function("main")
         .returns(ty::unknown())
+        .performs(["given"])
         .body(b::step(iterator));
     let natives = || {
         let handed = Value::Iterator(source, held.to_vec());
         Natives::new().reaching("app", "main.given", move |_, _| Ok(handed.clone()))
     };
-    run_with(None, [given.into(), main], natives).unwrap()
+    let definitions = [given.into(), handler.into(), world.into(), main];
+    run_with(Some("world"), definitions, natives).unwrap()
 }
 
 #[test]

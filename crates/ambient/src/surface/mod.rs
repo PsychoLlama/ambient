@@ -155,33 +155,19 @@ impl<N> DefinitionKind<N> {
     }
 }
 
+/// A native handler: an implementation of `ability` in native code,
+/// which may perform the abilities in `row`. It can only be bound by a
+/// target: one that lists it, or one of `targets` and whatever extends
+/// them, where it is the ability's default. See "Default bindings" in
+/// `docs/spec/targets.md`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Extern<N = Path> {
-    pub kind: ExternKind<N>,
-    /// Whether it may suspend the task that performs it: only a
-    /// handler may. See `docs/spec/externs.md`.
+    pub ability: N,
+    pub row: Vec<N>,
+    pub targets: Vec<N>,
+    /// Whether it may suspend the task that performs it. See
+    /// `docs/spec/externs.md`.
     pub suspends: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ExternKind<N = Path> {
-    /// A function, called like any other, which may perform the
-    /// abilities in `row` and is pure but for them.
-    Function {
-        params: Vec<Param<N>>,
-        ret: Type<N>,
-        row: Vec<N>,
-    },
-    /// An implementation of `ability`, which may perform the abilities in
-    /// `row`. It can only be bound by a target: one that lists it, or
-    /// one of `targets` and whatever extends them, where it is the
-    /// ability's default. See "Default bindings" in
-    /// `docs/spec/targets.md`.
-    Handler {
-        ability: N,
-        row: Vec<N>,
-        targets: Vec<N>,
-    },
 }
 
 /// The world a program runs in: a handler for each ability it offers.

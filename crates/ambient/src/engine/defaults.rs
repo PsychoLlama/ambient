@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use super::{Engine, Query, memo};
 use crate::error::Error;
-use crate::surface::{DefinitionKind, Extern, ExternKind, Reference};
+use crate::surface::{DefinitionKind, Extern, Reference};
 use crate::symbol::{ModuleId, Namespace, PackageId, Symbol};
 use crate::types::abilities;
 
@@ -37,11 +37,7 @@ impl Engine<'_> {
                 let read = self.read(&module)?;
                 // Only what says a target is resolved: a package's
                 // other definitions are not read to bind one.
-                let says = |kind: &DefinitionKind| {
-                    matches!(kind, DefinitionKind::Extern(Extern {
-                        kind: ExternKind::Handler { targets, .. }, ..
-                    }) if !targets.is_empty())
-                };
+                let says = |kind: &DefinitionKind| matches!(kind, DefinitionKind::Extern(native) if !native.targets.is_empty());
                 for definition in read.definitions.iter().filter(|one| says(&one.kind)) {
                     let handler = module.symbol(Namespace::Value, &definition.name);
                     let resolved = self.resolve(&handler)?;
@@ -151,14 +147,11 @@ impl Engine<'_> {
     pub(super) fn defaulting(
         &self,
         symbol: &Symbol,
-        native: &ExternKind<crate::surface::Reference>,
+        native: &Extern<Reference>,
     ) -> Result<(), Error> {
-        let ExternKind::Handler {
+        let Extern {
             ability, targets, ..
-        } = native
-        else {
-            return Ok(());
-        };
+        } = native;
         for target in abilities(targets) {
             if !matches!(
                 self.resolve(&target)?.definition.kind,
@@ -190,10 +183,7 @@ impl Engine<'_> {
 /// names targets.
 fn defaulted(handler: Symbol, kind: &DefinitionKind<Reference>) -> Option<Defaulted> {
     let DefinitionKind::Extern(Extern {
-        kind: ExternKind::Handler {
-            ability, targets, ..
-        },
-        ..
+        ability, targets, ..
     }) = kind
     else {
         return None;

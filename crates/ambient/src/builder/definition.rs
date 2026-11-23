@@ -507,7 +507,7 @@ fn define<'a>(
                 Namespace::Type
             }
             DefinitionKind::Extern(native) => {
-                check_extern(&definition.name, native)?;
+                check_extern(native)?;
                 Namespace::Value
             }
             DefinitionKind::Intrinsic => Namespace::Value,

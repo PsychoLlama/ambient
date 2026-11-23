@@ -15,10 +15,10 @@ use ambient_runtime::Fault;
 use support::delays::waiting;
 use support::run_with;
 
-/// `apply(<function>, <argument>)`: native code that calls the first
+/// `apply!(<function>, <argument>)`: native code that calls the first
 /// with the second and gives what it gave.
 fn apply(function: Expr, argument: Expr) -> Expr {
-    b::call(b::name("apply"), [function, argument])
+    b::perform("apply", [function, argument])
 }
 
 /// A function of `n`, written in place.
@@ -30,15 +30,15 @@ fn applied(running: &mut dyn Running, args: &[Value]) -> Result<Value, String> {
     running.call(&args[0], &args[1..])
 }
 
-/// The extern `apply`, which takes a function of an integer and an
-/// integer to call it with.
-fn applies() -> Definition {
+/// The ability `apply`, which takes a function of an integer and an
+/// integer to call it with, and its native handler.
+fn applies() -> [Definition; 2] {
     let takes = ty::function([ty::int()], ty::int());
-    let apply = b::extern_function("apply")
+    let apply = b::ability("apply")
         .param("function", takes)
         .param("argument", ty::int())
         .returns(ty::int());
-    apply.into()
+    [apply.into(), b::native_handler("apply", "apply").into()]
 }
 
 /// What `main` gives as `body`, beside `apply` and a `wait` that
@@ -48,12 +48,22 @@ fn outcome_with(body: Expr, natives: impl Fn(Natives) -> Natives) -> Result<Valu
         .param("ticks", ty::int())
         .returns(ty::int());
     let waits = b::native_handler("wait", "wait").suspending();
-    let target = b::target("target").bind("wait", "wait");
+    let target = b::target("target")
+        .bind("wait", "wait")
+        .bind("apply", "apply");
     let main = b::function("main")
-        .performs(["wait"])
+        .performs(["wait", "apply"])
         .returns(ty::int())
         .body(body);
-    let definitions = [applies(), wait.into(), waits.into(), target.into(), main];
+    let [apply, applies] = applies();
+    let definitions = [
+        apply,
+        applies,
+        wait.into(),
+        waits.into(),
+        target.into(),
+        main,
+    ];
     run_with(Some("target"), definitions, || {
         natives(waiting(&Rc::default()).reaching("app", "main.apply", applied))
     })
@@ -62,10 +72,17 @@ fn outcome_with(body: Expr, natives: impl Fn(Natives) -> Natives) -> Result<Valu
 /// What `main` gives as `body` in a program in which nothing suspends,
 /// which is linked without what gives tasks their turns.
 fn still(body: Expr) -> Result<Value, Fault> {
-    let main = b::function("main").returns(ty::int()).body(body);
-    run_with(None, [applies(), main], || {
-        Natives::new().reaching("app", "main.apply", applied)
-    })
+    let target = b::target("target").bind("apply", "apply");
+    let main = b::function("main")
+        .performs(["apply"])
+        .returns(ty::int())
+        .body(body);
+    let [apply, applies] = applies();
+    run_with(
+        Some("target"),
+        [apply, applies, target.into(), main],
+        || Natives::new().reaching("app", "main.apply", applied),
+    )
 }
 
 fn outcome(body: Expr) -> Result<Value, Fault> {
@@ -194,7 +211,7 @@ fn native_code_is_told_of_a_value_it_cannot_call() {
 }
 
 #[test]
-fn an_extern_takes_no_function_whose_type_has_a_row() {
+fn a_native_handler_takes_no_function_whose_type_has_a_row() {
     use ambient::engine::Engine;
     use ambient::error::Error;
     use ambient::store::MemoryStore;
@@ -203,8 +220,9 @@ fn an_extern_takes_no_function_whose_type_has_a_row() {
         .param("ticks", ty::int())
         .returns(ty::int());
     let takes = ty::function_row([ty::int()], ["wait"], ty::int());
-    let apply = b::extern_function("apply").param("function", takes);
-    let workspace = support::program([wait.into(), apply.into()]);
+    let apply = b::ability("apply").param("function", takes);
+    let applies = b::native_handler("apply", "apply");
+    let workspace = support::program([wait.into(), apply.into(), applies.into()]);
     let store = MemoryStore::new();
     let checked = Engine::new(&workspace, &store).check(&support::value("main", "apply"));
 

@@ -6,15 +6,17 @@ use super::Checker;
 use super::generics::generic_type;
 use crate::core::{Open, Tree};
 use crate::error::Error;
-use crate::surface::{Extern, ExternKind, Reference};
+use crate::surface::{Extern, Reference};
 use crate::symbol::Symbol;
 use crate::types::{AbilityInfo, Env, Ty, abilities, layers, trace};
 
-/// Checks an extern: a tag and a signature.
+/// Checks a native handler: it takes what its ability takes, and the
+/// trace of the abort if its ability does not return.
 ///
 /// # Errors
 ///
-/// Fails if a type in the signature is ill-formed.
+/// Fails if what it handles is no ability, or it takes a function that
+/// performs anything.
 pub fn check_extern(
     symbol: &Symbol,
     native: &Extern<Reference>,
@@ -22,43 +24,28 @@ pub fn check_extern(
     env: &Env,
 ) -> Result<Open, Error> {
     let mut checker = Checker::new(symbol, env);
-    let (params, ret, handles, row) = match &native.kind {
-        ExternKind::Function { params, ret, row } => {
-            let mut types = Vec::new();
-            for param in params {
-                checker.well_formed(&param.ty)?;
-                types.push(env.normalize(&param.ty));
-            }
-            checker.well_formed(ret)?;
-            (types, env.normalize(ret), None, abilities(row))
-        }
-        // A native handler takes what its ability takes, and the trace
-        // of the abort if its ability does not return.
-        ExternKind::Handler { ability, row, .. } => {
-            let ability = abilities(std::slice::from_ref(ability)).pop();
-            let info = ability
-                .as_ref()
-                .and_then(|ability| env.abilities.get(ability));
-            let (Some(ability), Some(info)) = (ability.clone(), info) else {
-                return Err(Error::UnknownSymbol(symbol.clone()));
-            };
-            let mut params = info.params.clone();
-            // One that does not return is where an abort ends, and is
-            // handed its trace.
-            if info.ret == Ty::Never {
-                params.push(env.normalize(&trace()));
-            }
-            (params, info.ret.clone(), Some(ability), abilities(row))
-        }
+    let ability = abilities(std::slice::from_ref(&native.ability)).pop();
+    let info = ability
+        .as_ref()
+        .and_then(|ability| env.abilities.get(ability));
+    let (Some(ability), Some(info)) = (ability.clone(), info) else {
+        return Err(Error::UnknownSymbol(symbol.clone()));
     };
+    let mut params = info.params.clone();
+    // One that does not return is where an abort ends, and is handed
+    // its trace.
+    if info.ret == Ty::Never {
+        params.push(env.normalize(&trace()));
+    }
+    let (ret, row) = (info.ret.clone(), abilities(&native.row));
     if params.iter().any(takes_bindings) {
         return Err(Error::NativeRow(symbol.clone()));
     }
     let params = params.iter().map(|ty| checker.lower(ty)).collect();
     let ret = checker.lower(&ret);
-    let handles = handles.map(|ability| checker.slot(&ability));
+    let handles = checker.slot(&ability);
     let row = checker.row(&row);
-    let suspends = native.suspends && handles.is_some();
+    let suspends = native.suspends;
     Ok(Open {
         tree: Tree::Extern {
             package: package.to_owned(),

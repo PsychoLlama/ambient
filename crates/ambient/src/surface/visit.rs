@@ -1,6 +1,6 @@
 //! Walking surface trees: the names in one, and how many binders it has.
 
-use super::{Definition, DefinitionKind, Expr, ExternKind, Function, Key, Pattern, Type};
+use super::{Definition, DefinitionKind, Expr, Function, Key, Pattern, Type};
 
 impl<N> Key<N> {
     fn names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
@@ -446,24 +446,11 @@ impl<N> Definition<N> {
                     .for_each(|param| param.ty.names(visit));
                 ability.ret.names(visit);
             }
-            DefinitionKind::Extern(native) => match &native.kind {
-                ExternKind::Function { params, ret, row } => {
-                    for param in params {
-                        param.ty.names(visit);
-                    }
-                    ret.names(visit);
-                    row.iter().for_each(visit);
-                }
-                ExternKind::Handler {
-                    ability,
-                    row,
-                    targets,
-                } => {
-                    visit(ability);
-                    row.iter().for_each(&mut *visit);
-                    targets.iter().for_each(visit);
-                }
-            },
+            DefinitionKind::Extern(native) => {
+                visit(&native.ability);
+                native.row.iter().for_each(&mut *visit);
+                native.targets.iter().for_each(visit);
+            }
             DefinitionKind::Target(target) => {
                 target.extends.iter().for_each(&mut *visit);
                 target.tool.iter().for_each(&mut *visit);

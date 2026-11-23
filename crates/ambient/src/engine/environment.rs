@@ -12,7 +12,7 @@ use super::Engine;
 use super::check::definitions;
 use crate::error::Error;
 use crate::hash::{Hasher, encode};
-use crate::surface::{DefinitionKind, ExternKind, Param, Reference, Shape};
+use crate::surface::{DefinitionKind, Param, Reference, Shape};
 use crate::symbol::{ModuleId, Namespace, Symbol};
 use crate::types::{Env, Signature, Ty, abilities};
 
@@ -161,49 +161,32 @@ impl Engine<'_> {
                 row: row(&header.row),
                 native: false,
             },
-            (DefinitionKind::Extern(native), _) => match &native.kind {
-                ExternKind::Function {
-                    params,
-                    ret,
-                    row: takes,
-                } => Signature {
-                    type_params: Vec::new(),
-                    params: types(params),
-                    ret: ret.clone(),
-                    row: row(takes),
-                    native: false,
-                },
-                // A native handler takes what its ability takes.
-                ExternKind::Handler {
-                    ability,
-                    row: takes,
-                    ..
-                } => {
-                    let Reference::Definition(ability) = ability else {
-                        return Ok(None);
-                    };
-                    let ability = self.resolve(ability)?;
-                    let DefinitionKind::Ability(ability) = &ability.definition.kind else {
-                        return Ok(None);
-                    };
-                    let bounds = ability.type_params.iter();
-                    let mut params: Vec<Ty> = types(&ability.params);
-                    // One that does not return is handed the trace of
-                    // the abort it ends: see `checker::world`.
-                    if ability.ret == Ty::Never {
-                        params.push(crate::types::trace());
-                    }
-                    Signature {
-                        type_params: bounds
-                            .map(|p| p.bound.clone().unwrap_or(Ty::Unknown))
-                            .collect(),
-                        params,
-                        ret: ability.ret.clone(),
-                        row: row(takes),
-                        native: true,
-                    }
+            // A native handler takes what its ability takes.
+            (DefinitionKind::Extern(native), _) => {
+                let Reference::Definition(ability) = &native.ability else {
+                    return Ok(None);
+                };
+                let ability = self.resolve(ability)?;
+                let DefinitionKind::Ability(ability) = &ability.definition.kind else {
+                    return Ok(None);
+                };
+                let bounds = ability.type_params.iter();
+                let mut params: Vec<Ty> = types(&ability.params);
+                // One that does not return is handed the trace of the
+                // abort it ends: see `checker::world`.
+                if ability.ret == Ty::Never {
+                    params.push(crate::types::trace());
                 }
-            },
+                Signature {
+                    type_params: bounds
+                        .map(|p| p.bound.clone().unwrap_or(Ty::Unknown))
+                        .collect(),
+                    params,
+                    ret: ability.ret.clone(),
+                    row: row(&native.row),
+                    native: true,
+                }
+            }
             _ => return Ok(None),
         };
         Ok(Some((signature, named)))

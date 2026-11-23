@@ -51,7 +51,7 @@ fn fetched(ty: Type, arg: i64) -> Expr {
         (pat::is(ty::null()), b::int(-1)),
         (pat::bind("f"), b::call(b::name("f"), [b::int(arg)])),
     ];
-    let cast = b::cast(b::call(b::name("fetch"), []), ty, b::null());
+    let cast = b::cast(b::perform("fetch", []), ty, b::null());
     b::match_(cast, arms)
 }
 
@@ -86,10 +86,16 @@ impl Loading {
         body: Expr,
         find: impl FnOnce(&Engine) -> Symbol,
     ) -> Self {
-        let fetch = b::extern_function("fetch").returns(ty::unknown());
-        let main = b::function("main").returns(ty::unknown()).body(body);
+        let fetch = b::ability("fetch").returns(ty::unknown());
+        let fetches = b::native_handler("fetch", "fetch");
+        let world = b::target("world").bind("fetch", "fetch");
+        let main = b::function("main")
+            .returns(ty::unknown())
+            .performs(["fetch"])
+            .body(body);
+        let module = b::module().define(fetch).define(fetches).define(world);
         let workspace = support::workspace([
-            ("app", "main", b::module().define(fetch).define(main)),
+            ("app", "main", module.define(main)),
             (
                 "app",
                 "plugin",
@@ -98,7 +104,9 @@ impl Loading {
         ]);
         let store = MemoryStore::new();
         let engine = Engine::new(&workspace, &store);
-        let (found, main) = (find(&engine), value("main", "main"));
+        let found = find(&engine);
+        let main = engine.program(&value("main", "main"), &value("main", "world"));
+        let main = main.unwrap();
         let compiled = |backend: &dyn Backend| {
             let plugin = Rc::new(engine.link_to_load(&found, backend).unwrap());
             (engine.link_open(&main, backend).unwrap(), plugin)
@@ -192,7 +200,7 @@ fn a_loaded_function_of_another_type_does_not_pass_the_cast() {
 
 #[test]
 fn what_is_loaded_twice_is_there_once() {
-    let fetch = || b::call(b::name("fetch"), []);
+    let fetch = || b::perform("fetch", []);
     let mut loading = Loading::local(double(), b::equal(fetch(), fetch()));
 
     assert_eq!(loading.run(), Ok(Value::Bool(true)));

@@ -5,6 +5,7 @@ use pkg.console;
 use pkg.env;
 use pkg.exchange;
 use pkg.fs;
+use pkg.os;
 use pkg.path;
 
 /// What is said of a test: the key and value of an annotation on it.
@@ -30,10 +31,13 @@ pub type Refused = { name: string, group: Group | null, refused: string };
 pub type Cases = List<Case | Refused>;
 
 /// Where what testing keeps is kept: bytes by key. A runner keeps
-/// outcomes in it, and a test utility what it chooses.
+/// outcomes in it, which `recall` and `remember` read and write as
+/// their bytes, and a test utility what it chooses.
 pub type Cache = {
     read: fn(key: string): bytes | null,
     keep: fn(key: string, content: bytes): null,
+    recall: fn(key: string): Outcome | null,
+    remember: fn(key: string, outcome: Outcome): null,
 };
 
 /// How many tests of a run passed, failed, and were not run again.
@@ -63,7 +67,8 @@ pub type Run = { directory: string, harness: List<string>, packages: List<Packag
 /// What is said of an outcome: each check that did not hold, then the
 /// error that ended it with its trace named, less the frames of
 /// `harness` at its outer end.
-pub extern fn said(outcome: Outcome, harness: List<string>): List<string>;
+pub ability said(outcome: Outcome, harness: List<string>): List<string>;
+extern handler said in os;
 
 /// The name of a test, after those of its groups, outermost first.
 pub fn named(name: string, group: Group | null): string => match group {
@@ -72,39 +77,44 @@ pub fn named(name: string, group: Group | null): string => match group {
 };
 
 /// The cache in `directory`: a file for each key.
-pub fn cache(directory: string): Cache with fs.read_bytes, fs.write_bytes, fs.make_directory {
+pub fn cache(directory: string): Cache with fs.read_bytes, fs.write_bytes, fs.make_directory, exchange {
     let at = fn(key: string): string => path.join([directory, key]);
+    let read = fn(key: string): bytes | null => match fs.read_bytes!(at(key)) {
+        let content: bytes => content,
+        _ => null,
+    };
+    let keep = fn(key: string, content: bytes): null {
+        fs.make_directory!(directory);
+        fs.write_bytes!(at(key), content);
+        return null;
+    };
     return {
-        read: fn(key: string): bytes | null => match fs.read_bytes!(at(key)) {
-            let content: bytes => content,
+        read,
+        keep,
+        recall: fn(key: string): Outcome | null => match read(key) {
+            let content: bytes => match exchange.decode!(content) {
+                let outcome: Outcome => outcome,
+                _ => null,
+            },
             _ => null,
         },
-        keep: fn(key: string, content: bytes): null {
-            fs.make_directory!(directory);
-            fs.write_bytes!(at(key), content);
-            return null;
+        // Only an outcome that is plain data has bytes to keep.
+        remember: fn(key: string, outcome: Outcome): null => match exchange.encode!(outcome) {
+            let content: bytes => keep(key, content),
+            _ => null,
         },
     };
 }
 
 /// What is kept of `case`'s outcome, if it may be kept and is.
 fn stored(case: Case, cache: Cache): Outcome | null => match case.key {
-    let key: string => match cache.read(key) {
-        let content: bytes => match exchange.decode(content) {
-            let outcome: Outcome => outcome,
-            _ => null,
-        },
-        _ => null,
-    },
+    let key: string => cache.recall(key),
     _ => null,
 };
 
 /// Keeps `outcome` for `case`, if it may be kept and is plain data.
 fn store(case: Case, cache: Cache, outcome: Outcome): null => match case.key {
-    let key: string => match exchange.encode(outcome) {
-        let content: bytes => cache.keep(key, content),
-        _ => null,
-    },
+    let key: string => cache.remember(key, outcome),
     _ => null,
 };
 
@@ -198,12 +208,12 @@ fn summary(tally: Tally): string {
 
 /// The standard reporter: each test as it ends, then how many passed
 /// and failed.
-fn reported(event: Event, harness: List<string>): null with console.write {
+fn reported(event: Event, harness: List<string>): null with console.write, said {
     // A case is asked for no more than its name: a function cannot be
     // asked for its type.
     let text = match event {
         let ended: { ended: { name: string, group: Group | null }, outcome: Outcome } =>
-            verdict(named(ended.ended.name, ended.ended.group), said(ended.outcome, harness)),
+            verdict(named(ended.ended.name, ended.ended.group), said!(ended.outcome, harness)),
         let refused: { refused: Refused } =>
             verdict(named(refused.refused.name, refused.refused.group), [refused.refused.refused]),
         let done: { done: Tally } => summary(done.done),
@@ -216,7 +226,7 @@ fn reported(event: Event, harness: List<string>): null with console.write {
 /// whose name holds the program's first argument, if it has one, by
 /// the package's runner, reporting each event as text. Gives what to
 /// exit with: zero if none failed.
-pub fn main(run: Run): int with env.args, console.write, fs.read_bytes, fs.write_bytes, fs.make_directory {
+pub fn main(run: Run): int with env.args, console.write, fs.read_bytes, fs.write_bytes, fs.make_directory, exchange, said {
     let only = env.args!().first();
     let failed = run.packages.fold(0, fn(failed: int, package: Package): int {
         let cases = chosen(package.cases, only);

@@ -21,7 +21,7 @@ pub use definition::{
 };
 pub use error::BuildError;
 pub use operations::*;
-pub use world::{ExternBuilder, TargetBuilder, extern_function, native_handler, target};
+pub use world::{ExternBuilder, TargetBuilder, native_handler, target};
 
 use crate::literal::Literal;
 use crate::surface::{Arm, CellOp, Expr, Key, Path, Pattern};

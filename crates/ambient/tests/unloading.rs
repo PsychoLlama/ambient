@@ -6,12 +6,11 @@
 mod support;
 
 use std::collections::HashMap;
-use std::rc::Rc;
 
 use ambient::backend::native::{Host, Native, Natives, Program};
 use ambient::backend::wasm;
 use ambient::builder::{self as b, ModuleBuilder, ty};
-use ambient::engine::{self, Backend, Engine, Parts};
+use ambient::engine::{Backend, Engine, Parts};
 use ambient::hash::Hash;
 use ambient::store::MemoryStore;
 use ambient::surface::Definition;
@@ -320,30 +319,5 @@ fn a_function_named_as_a_value_holds_its_code() {
 
         assert_eq!(plugins.take(made), Value::String("made".to_owned()));
         assert!(plugins.clean());
-    }
-}
-
-#[test]
-fn native_code_goes_with_the_code_that_reaches_it() {
-    let natives = Natives::new().with("app", "plugin.seven", |_| Ok(Value::Int(7)));
-    let seven = engine::Native {
-        package: "app".to_owned(),
-        path: "plugin.seven".to_owned(),
-        row: Vec::new(),
-    };
-    // How many hold the native code: this list, and each load of it.
-    let held = || Rc::strong_count(&natives.get(&seven).unwrap().run);
-    let call = b::call(b::name("seven"), []);
-    let module = b::module()
-        .define(b::extern_function("seven").returns(ty::int()))
-        .define(giving("f", call));
-    for mut plugins in plugins_with(&module, ["f"], &natives) {
-        let before = held();
-        let function = plugins.add("f");
-        assert_eq!(held(), before + 1);
-        plugins.release(function);
-
-        assert!(!plugins.has("f"));
-        assert_eq!(held(), before);
     }
 }

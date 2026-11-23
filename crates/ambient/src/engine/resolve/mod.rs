@@ -18,8 +18,8 @@ use super::{Engine, Query, Stage, memo};
 use crate::error::Error;
 use crate::hash::{Hasher, digest};
 use crate::surface::{
-    Ability, Annotation, ContractDefinition, Definition, DefinitionKind, Expr, Extern, ExternKind,
-    Function, Param, Path, Reference, Target, Type, TypeDefinition, TypeParam,
+    Ability, Annotation, ContractDefinition, Definition, DefinitionKind, Expr, Extern, Function,
+    Param, Path, Reference, Target, Type, TypeDefinition, TypeParam,
 };
 use crate::symbol::{ModuleId, Namespace, Symbol};
 
@@ -281,31 +281,22 @@ impl<'a> Resolver<'a> {
             DefinitionKind::Contract(key) => DefinitionKind::Contract(ContractDefinition {
                 ty: self.ty(&key.ty)?,
             }),
-            DefinitionKind::Extern(native) => DefinitionKind::Extern(Extern {
-                suspends: native.suspends,
-                kind: match &native.kind {
-                    ExternKind::Function { params, ret, row } => ExternKind::Function {
-                        params: self.params(params)?,
-                        ret: self.ty(ret)?,
-                        row: self.row(row)?,
-                    },
-                    ExternKind::Handler {
-                        ability,
-                        row,
-                        targets,
-                    } => {
-                        let target = |path| {
-                            self.lookup(Namespace::Value, path)
-                                .map(Reference::Definition)
-                        };
-                        ExternKind::Handler {
-                            ability: self.ability(ability)?,
-                            row: self.row(row)?,
-                            targets: targets.iter().map(target).collect::<Result<_, _>>()?,
-                        }
-                    }
-                },
-            }),
+            DefinitionKind::Extern(native) => {
+                let target = |path| {
+                    self.lookup(Namespace::Value, path)
+                        .map(Reference::Definition)
+                };
+                DefinitionKind::Extern(Extern {
+                    ability: self.ability(&native.ability)?,
+                    row: self.row(&native.row)?,
+                    targets: native
+                        .targets
+                        .iter()
+                        .map(target)
+                        .collect::<Result<_, _>>()?,
+                    suspends: native.suspends,
+                })
+            }
             DefinitionKind::Target(target) => {
                 let value = |path| {
                     self.lookup(Namespace::Value, path)

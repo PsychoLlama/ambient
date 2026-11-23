@@ -289,18 +289,14 @@ impl Verifier<'_> {
                 self.env.contracts.insert(symbol, info);
             }
             Tree::Extern {
-                params,
-                ret,
-                handles,
-                row,
-                ..
+                params, ret, row, ..
             } => {
                 let signature = Signature {
                     type_params: Vec::new(),
                     params: all(params)?,
                     ret: raise(ret)?,
                     row: named(row)?,
-                    native: handles.is_some(),
+                    native: true,
                 };
                 pending.extend(signature.row.iter().cloned());
                 header.extend(signature.params.iter().cloned());
@@ -393,13 +389,13 @@ impl Verifier<'_> {
         self.env.functions = functions;
     }
 
-    /// An extern: a signature, and, for a native handler, the ability
-    /// whose signature it is.
+    /// A native handler: a signature, and the ability whose signature
+    /// it is.
     fn external(
         &self,
         params: &[core::Type],
         ret: &core::Type,
-        handles: Option<Slot>,
+        handles: Slot,
         row: &[Slot],
     ) -> Result<(), Invalid> {
         if params.iter().any(core::Type::takes_bindings) {
@@ -408,17 +404,15 @@ impl Verifier<'_> {
         let params = self.sound_all(params)?;
         let ret = self.sound(ret)?;
         self.row(row)?;
-        if let Some(ability) = handles {
-            let (_, info) = self.ability(ability)?;
-            // One for an ability that does not return is handed the
-            // trace of the abort it ends.
-            let mut takes = info.params.clone();
-            if info.ret == Ty::Never {
-                takes.push(self.env.normalize(&crate::types::trace()));
-            }
-            if takes != params || info.ret != ret {
-                return shape("a native handler does not take what its ability takes");
-            }
+        let (_, info) = self.ability(handles)?;
+        // One for an ability that does not return is handed the trace of
+        // the abort it ends.
+        let mut takes = info.params.clone();
+        if info.ret == Ty::Never {
+            takes.push(self.env.normalize(&crate::types::trace()));
+        }
+        if takes != params || info.ret != ret {
+            return shape("a native handler does not take what its ability takes");
         }
         Ok(())
     }

@@ -4,7 +4,7 @@ use system.fs;
 use system.path;
 
 /// The name a function is kept and called by: the hash of its pack.
-pub fn name(packed: bytes): string => crypto.hash(crypto.sha256, packed).hex();
+pub fn name(packed: bytes): string with crypto.hash => crypto.hash!(crypto.sha256, packed).hex();
 
 /// Where a function is kept under a name, as a pack or as compiled
 /// code, if it is a name at all. Only a hash written out is one, so a
@@ -23,7 +23,7 @@ fn read(name: string, kind: string): bytes | null with fs.read_bytes {
 
 /// Keeps a function, as it was packed and as it was compiled, and
 /// gives the name it is called by.
-pub fn keep(packed: bytes, compiled: bytes): string | Error with fs.make_directory, fs.write_bytes {
+pub fn keep(packed: bytes, compiled: bytes): string | Error with fs.make_directory, fs.write_bytes, crypto.hash {
     let name = name(packed);
     let _ = fs.make_directory!(".cache");
     match fs.write_bytes!(file(name, "pack") ?? "", packed) {

@@ -216,15 +216,11 @@ fn an_annotation_is_a_key_and_a_value_or_a_key_alone() {
 }
 
 #[test]
-fn the_world_is_declared_as_externs_and_a_target() {
+fn the_world_is_declared_as_native_handlers_and_a_target() {
     let source = "
-        extern fn size(text: string): int;
         extern handler write for log.print with log.flush;
         pub target console extends base { log.print: write }
     ";
-    let size = b::extern_function("size")
-        .param("text", ty::string())
-        .returns(ty::int());
     let write = b::native_handler("write", "log.print").performs(["log.flush"]);
     let console = b::target("console")
         .public()
@@ -233,18 +229,13 @@ fn the_world_is_declared_as_externs_and_a_target() {
 
     assert_eq!(
         parse(source).unwrap(),
-        built([size.into(), write.into(), console.into()])
+        built([write.into(), console.into()])
     );
 }
 
 #[test]
-fn an_extern_function_says_what_it_performs() {
-    let source = "extern fn shout(text: string): null with log.print;";
-    let shout = b::extern_function("shout")
-        .param("text", ty::string())
-        .performs(["log.print"]);
-
-    assert_eq!(parse(source).unwrap(), built([shout.into()]));
+fn native_code_is_declared_only_as_a_handler() {
+    assert!(parse("extern fn size(text: string): int;").is_err());
 }
 
 #[test]

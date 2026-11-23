@@ -12,12 +12,18 @@ pub ability sleep(milliseconds: int): null;
 /// holds it and hands it back.
 type(nominal) Element;
 
+/// The element of the page that has an ID.
+ability element(id: string): Element;
+
+/// Puts text at the end of an element.
+ability append(to: Element, text: string): null;
+
 /// The page's own, by what JavaScript calls each. The build writes
 /// their JavaScript from these lines, so the package holds none.
 #[binding("document.getElementById")]
-extern fn element(id: string): Element;
+extern handler element in host;
 #[binding({ method: "append" })]
-extern fn append(to: Element, text: string): null;
+extern handler append in host;
 
 /// Waiting is JavaScript of this package's (`js/main.js`), since it
 /// answers later. It answers under `host`, which says how a program is
@@ -26,9 +32,9 @@ extern handler(suspending) sleep in host;
 
 /// Counts aloud, slowly, beside a task that says it is waiting. What
 /// is said goes to the element of the page that shows it.
-pub fn main(): int with sleep {
-    let shown = element("said");
-    return provide { [say](text) => append(shown, "${text}\n") } => counting();
+pub fn main(): int with sleep, element, append {
+    let shown = element!("said");
+    return provide { [say](text) => append!(shown, "${text}\n") } => counting();
 }
 
 fn counting(): int with say, sleep {

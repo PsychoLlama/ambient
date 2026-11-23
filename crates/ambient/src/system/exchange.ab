@@ -1,3 +1,4 @@
+use pkg.os;
 use ambient.Error;
 
 /// What was given is not plain data, or is no encoding of any.
@@ -6,7 +7,10 @@ pub tag invalid;
 /// A value as bytes: the same bytes for the same value, on every
 /// machine. Only plain data has them: a value that holds a function, a
 /// cell, a handle, or an iterator is an error.
-pub extern fn encode(value: unknown): bytes | Error;
+pub ability encode(value: unknown): bytes | Error;
 
 /// The value that bytes `encode` gave are of.
-pub extern fn decode(encoded: bytes): unknown | Error;
+pub ability decode(encoded: bytes): unknown | Error;
+
+extern handler encode in os;
+extern handler decode in os;

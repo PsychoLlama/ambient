@@ -130,8 +130,9 @@ pub fn execute_in(
     run_entry(&engine, &entry, args, natives)
 }
 
-/// Runs `main` of a one-module program natively and nowhere else: for
-/// native code no other backend takes, as a native bundle's is.
+/// Runs `main` of a one-module program natively and nowhere else, under
+/// the target `world` defined beside it: for native code no other
+/// backend takes, as a native bundle's is.
 pub fn run_natively(
     definitions: impl IntoIterator<Item = ambient::surface::Definition>,
     natives: &Natives,
@@ -143,7 +144,8 @@ pub fn run_natively(
     let workspace = program(definitions);
     let store = MemoryStore::new();
     let engine = Engine::new(&workspace, &store);
-    let entry = value("main", "main");
+    let entry = engine.program(&value("main", "main"), &value("main", "world"));
+    let entry = entry.unwrap();
     verify_all(&engine, &entry);
     let parts = engine.link(&entry, &Native::new().unwrap()).unwrap();
     run_native(&parts, &[], natives).0

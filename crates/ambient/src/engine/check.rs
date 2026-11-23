@@ -15,7 +15,7 @@ use crate::core::{self, Open, Tree};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, encode};
 use crate::lower::deep;
-use crate::surface::{DefinitionKind, ExternKind, Function, Reference, TypeDefinition};
+use crate::surface::{DefinitionKind, Function, Reference, TypeDefinition};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::{AbilityInfo, ContractInfo, Env, Ty, TypeInfo};
 
@@ -400,10 +400,8 @@ impl Engine<'_> {
                 })
             }
             DefinitionKind::Extern(native) => {
-                if let ExternKind::Function { row, .. } = &native.kind {
-                    self.held_to(symbol, row)?;
-                }
-                self.defaulting(symbol, &native.kind)?;
+                self.held_to(symbol, &native.row)?;
+                self.defaulting(symbol, native)?;
                 let env = self.environment(used, &[], &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
                     checker::check_extern(symbol, native, &package, &env)

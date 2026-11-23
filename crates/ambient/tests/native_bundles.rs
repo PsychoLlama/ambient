@@ -86,39 +86,48 @@ fn natives() -> Natives {
     functions.into_iter().fold(Natives::new(), offer)
 }
 
-/// An extern that takes `takes` and gives an integer.
-fn takes<const N: usize>(name: &str, takes: [Type; N]) -> Definition {
+/// An ability that takes `takes` and gives `gives`, and its native
+/// handler, which is its default under `world`.
+fn native<const N: usize>(name: &str, takes: [Type; N], gives: Type) -> [Definition; 2] {
     let params = takes.into_iter().enumerate();
-    let function = params.fold(b::extern_function(name), |function, (index, takes)| {
-        function.param(&format!("p{index}"), takes)
+    let ability = params.fold(b::ability(name), |ability, (index, takes)| {
+        ability.param(&format!("p{index}"), takes)
     });
-    function.returns(ty::int()).into()
+    let handler = b::native_handler(name, name).under("world");
+    [ability.returns(gives).into(), handler.into()]
 }
 
-/// What `main` gives as `body`, beside every extern above.
+/// What `main` gives as `body`, beside every native handler above.
 fn outcome(body: Expr) -> Outcome {
-    let externs = [
-        takes("double", [ty::int()]),
-        takes("size", [ty::string()]),
-        takes("apply", [ty::function([ty::int()], ty::int()), ty::int()]),
-        takes("refuse", []),
-        b::brand("File"),
-        b::extern_function("mint").returns(ty::named("File")).into(),
+    let handlers = [
+        native("double", [ty::int()], ty::int()),
+        native("size", [ty::string()], ty::int()),
+        native(
+            "apply",
+            [ty::function([ty::int()], ty::int()), ty::int()],
+            ty::int(),
+        ),
+        native("refuse", [], ty::int()),
+        native("mint", [], ty::named("File")),
     ];
-    let main = b::function("main").returns(ty::int()).body(body);
-    run_natively(externs.into_iter().chain([main]), &natives())
+    let main = b::function("main")
+        .returns(ty::int())
+        .performs(["double", "size", "apply", "refuse", "mint"])
+        .body(body);
+    let beside = [b::brand("File"), b::target("world").into(), main];
+    run_natively(handlers.into_iter().flatten().chain(beside), &natives())
 }
 
 #[test]
 fn a_bundled_function_reads_an_argument_and_makes_what_it_gives() {
-    let body = b::call(b::name("double"), [b::int(21)]);
+    let body = b::perform("double", [b::int(21)]);
 
     assert_eq!(outcome(body), Ok(Value::Int(42)));
 }
 
 #[test]
 fn a_bundle_is_told_of_a_handle_its_program_dropped() {
-    let body = b::let_("file", b::call(b::name("mint"), []), b::int(42));
+    let body = b::let_("file", b::perform("mint", []), b::int(42));
 
     assert_eq!(outcome(body), Ok(Value::Int(42)));
     assert_eq!(CLOSED.load(Ordering::Relaxed), MINTED);
@@ -126,7 +135,7 @@ fn a_bundle_is_told_of_a_handle_its_program_dropped() {
 
 #[test]
 fn a_bundled_function_reads_a_value_where_it_lies() {
-    let body = b::call(b::name("size"), [b::string("ambient")]);
+    let body = b::perform("size", [b::string("ambient")]);
 
     assert_eq!(outcome(body), Ok(Value::Int(7)));
 }
@@ -134,7 +143,7 @@ fn a_bundled_function_reads_a_value_where_it_lies() {
 #[test]
 fn a_bundled_function_calls_a_function_with_what_it_captured() {
     let adds = b::lambda([("n", None)], b::add(b::name("n"), b::name("held")));
-    let body = b::call(b::name("apply"), [adds, b::int(2)]);
+    let body = b::perform("apply", [adds, b::int(2)]);
 
     assert_eq!(
         outcome(b::let_("held", b::int(40), body)),
@@ -145,14 +154,14 @@ fn a_bundled_function_calls_a_function_with_what_it_captured() {
 #[test]
 fn a_fault_in_what_a_bundled_function_calls_goes_on_through_it() {
     let faults = b::lambda([("n", None)], b::divide(b::name("n"), b::int(0)));
-    let body = b::call(b::name("apply"), [faults, b::int(1)]);
+    let body = b::perform("apply", [faults, b::int(1)]);
 
     assert_eq!(outcome(body), Err(Fault::DivideByZero));
 }
 
 #[test]
 fn a_bundled_function_that_says_it_failed_faults_its_task() {
-    let body = b::call(b::name("refuse"), []);
+    let body = b::perform("refuse", []);
 
     assert_eq!(outcome(body), Err(Fault::Native));
 }

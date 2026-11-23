@@ -1,31 +1,21 @@
 //! Externs and targets: what a program is given by the world it runs in.
 
-use super::ty;
-use crate::surface::{Definition, DefinitionKind, Extern, ExternKind, Param, Path, Target};
-
-/// Starts a pure function implemented in native code, which is found by
-/// where it is declared. With nothing else said it is private, takes no parameters, and
-/// returns `null`.
-#[must_use]
-pub fn extern_function(name: &str) -> ExternBuilder {
-    let kind = ExternKind::Function {
-        params: Vec::new(),
-        ret: ty::null(),
-        row: Vec::new(),
-    };
-    ExternBuilder::new(name, kind)
-}
+use crate::surface::{Definition, DefinitionKind, Extern, Path, Target};
 
 /// Starts a native implementation of the ability at a dotted path, found
 /// by where it is declared. Only a target can bind it.
 #[must_use]
 pub fn native_handler(name: &str, ability: &str) -> ExternBuilder {
-    let kind = ExternKind::Handler {
-        ability: Path::parse(ability),
-        row: Vec::new(),
-        targets: Vec::new(),
-    };
-    ExternBuilder::new(name, kind)
+    ExternBuilder {
+        name: name.to_owned(),
+        public: false,
+        native: Extern {
+            ability: Path::parse(ability),
+            row: Vec::new(),
+            targets: Vec::new(),
+            suspends: false,
+        },
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -36,43 +26,9 @@ pub struct ExternBuilder {
 }
 
 impl ExternBuilder {
-    fn new(name: &str, kind: ExternKind) -> Self {
-        Self {
-            name: name.to_owned(),
-            public: false,
-            native: Extern {
-                kind,
-                suspends: false,
-            },
-        }
-    }
-
     #[must_use]
     pub fn public(mut self) -> Self {
         self.public = true;
-        self
-    }
-
-    /// Adds a parameter. A native handler has none of its own: it takes
-    /// what its ability takes.
-    #[must_use]
-    pub fn param(mut self, name: &str, ty: crate::surface::Type) -> Self {
-        if let ExternKind::Function { params, .. } = &mut self.native.kind {
-            params.push(Param {
-                name: name.to_owned(),
-                ty,
-            });
-        }
-        self
-    }
-
-    /// Sets what a native function returns. A native handler returns what
-    /// its ability returns.
-    #[must_use]
-    pub fn returns(mut self, ty: crate::surface::Type) -> Self {
-        if let ExternKind::Function { ret, .. } = &mut self.native.kind {
-            *ret = ty;
-        }
         self
     }
 
@@ -87,9 +43,7 @@ impl ExternBuilder {
     /// at a dotted path, and under whatever extends it.
     #[must_use]
     pub fn under(mut self, target: &str) -> Self {
-        if let ExternKind::Handler { targets, .. } = &mut self.native.kind {
-            targets.push(Path::parse(target));
-        }
+        self.native.targets.push(Path::parse(target));
         self
     }
 
@@ -97,9 +51,9 @@ impl ExternBuilder {
     /// performs.
     #[must_use]
     pub fn performs<'a>(mut self, abilities: impl IntoIterator<Item = &'a str>) -> Self {
-        let (ExternKind::Handler { row, .. } | ExternKind::Function { row, .. }) =
-            &mut self.native.kind;
-        row.extend(abilities.into_iter().map(Path::parse));
+        self.native
+            .row
+            .extend(abilities.into_iter().map(Path::parse));
         self
     }
 }

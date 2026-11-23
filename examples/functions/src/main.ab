@@ -1,6 +1,7 @@
 use ambient.{catch, Error};
 use system.code;
 use system.console;
+use system.crypto;
 use system.env;
 use system.fs;
 use system.http.{self, Request, Response};
@@ -24,7 +25,7 @@ type Function = fn(request: Request): Response with throw;
 /// and lets it go when it is answered, so nothing is held between
 /// requests however many functions there are. See `publish` to
 /// send one.
-pub fn main(): int with console, env, fs, http, code.compile, code.load {
+pub fn main(): int with console, env, fs, http, crypto.hash, code.compile, code.load {
     let port = (env.args!().first() ?? "8080").to_int() ?? 8080;
     match http.listen!("127.0.0.1", port) {
         let error: Error => {
@@ -59,7 +60,7 @@ fn unsuited(): Error =>
 
 /// Compiles the function a request carries and keeps it, if it is one,
 /// and says where it is called.
-fn published(request: Request): Response with fs, code.compile, code.load {
+fn published(request: Request): Response with fs, crypto.hash, code.compile, code.load {
     if request.method != "POST" {
         return http.text(405, "post a packed function here\n");
     }

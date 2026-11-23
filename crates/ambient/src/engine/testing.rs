@@ -6,7 +6,7 @@
 //! the test and the runner, which are named where the entry is written.
 //! A test's key is worked out here, where its hash is known.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use ambient_runtime::FAULT_PACKAGE;
 
@@ -15,7 +15,7 @@ use crate::error::Error;
 use crate::exchange;
 use crate::hash::{Hasher, digest};
 use crate::literal::Literal;
-use crate::surface::{DefinitionKind, Expr, Key, Reference};
+use crate::surface::{Expr, Key, Reference};
 use crate::symbol::{ModuleId, Symbol};
 use crate::types::abilities;
 use crate::value::Value;
@@ -27,9 +27,6 @@ pub struct Testing {
     /// The hashes of what runs a test, which a trace leaves out.
     pub harness: Vec<String>,
     pub packages: Vec<Tested>,
-    /// The digest of each package's native bundle for this machine, by
-    /// the package's ID.
-    pub bundles: BTreeMap<String, String>,
 }
 
 /// A package's tests, and what runs them.
@@ -207,7 +204,7 @@ impl Engine<'_> {
             world.extend(self.runnable(&tested.runner, target)?);
             let mut cases = Vec::new();
             for case in &tested.cases {
-                cases.push(self.case(case, &tested.runner, &testing.bundles, &mut world)?);
+                cases.push(self.case(case, &tested.runner, &mut world)?);
             }
             packages.push(record(vec![
                 ("id", Expr::Literal(Literal::String(tested.id.clone()))),
@@ -236,7 +233,6 @@ impl Engine<'_> {
         &self,
         case: &Case,
         runner: &Symbol,
-        bundles: &BTreeMap<String, String>,
         world: &mut BTreeSet<Symbol>,
     ) -> Result<Expr<Reference>, Error> {
         let name = written(&field(&case.test, "name")).unwrap_or(Expr::Null);
@@ -251,11 +247,7 @@ impl Engine<'_> {
         }
         let reaches = self.world_of(&case.function)?;
         let key = if reaches.is_empty() {
-            Expr::Literal(Literal::String(self.key(
-                &case.function,
-                runner,
-                bundles,
-            )?))
+            Expr::Literal(Literal::String(self.key(&case.function, runner)?))
         } else {
             Expr::Null
         };
@@ -282,36 +274,14 @@ impl Engine<'_> {
     }
 
     /// The key a pure test's outcome is kept under: its hash, what runs
-    /// it, the build, and the native bundles it reaches. Its name is no
-    /// part of it.
-    fn key(
-        &self,
-        test: &Symbol,
-        runner: &Symbol,
-        bundles: &BTreeMap<String, String>,
-    ) -> Result<String, Error> {
+    /// it, and the build. Its name is no part of it, and no native code
+    /// is: a pure test reaches none, since native code is reached only
+    /// by performing an ability.
+    fn key(&self, test: &Symbol, runner: &Symbol) -> Result<String, Error> {
         let mut key = Hasher::new("test");
         key.hash(&self.hash(test)?).hash(&self.hash(runner)?);
         key.bytes(super::BUILD.as_bytes());
-        let mut reached = BTreeSet::new();
-        self.walk(test, &mut |symbol, said| {
-            if said.is_none() && self.is_extern(symbol) {
-                reached.insert(symbol.module.package.0.clone());
-            }
-        })?;
-        for package in reached {
-            if let Some(bundle) = bundles.get(&package) {
-                key.bytes(package.as_bytes()).bytes(bundle.as_bytes());
-            }
-        }
         Ok(key.finish().to_string())
-    }
-
-    /// Whether `symbol` is an extern: native code, which a bundle may
-    /// bring.
-    fn is_extern(&self, symbol: &Symbol) -> bool {
-        let resolved = self.resolve(symbol);
-        resolved.is_ok_and(|resolved| matches!(resolved.definition.kind, DefinitionKind::Extern(_)))
     }
 
     /// The root that hands `entry` what `handed` makes under `target`,

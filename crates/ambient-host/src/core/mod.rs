@@ -422,15 +422,15 @@ pub enum Tree {
         path: String,
         ty: Type,
     },
-    /// A definition implemented in native code, found by its identity,
-    /// as an ability's.
+    /// A native handler: an ability's implementation in native code,
+    /// found by its identity, as an ability's.
     Extern {
         package: String,
         path: String,
         params: Vec<Type>,
         ret: Type,
-        /// The ability it handles, if it is a native handler.
-        handles: Option<Slot>,
+        /// The ability it handles.
+        handles: Slot,
         /// Whether it may suspend the task that performs it.
         suspends: bool,
         /// The abilities it performs, ordered by identity.

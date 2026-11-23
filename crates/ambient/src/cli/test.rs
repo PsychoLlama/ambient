@@ -4,7 +4,6 @@
 //! process, or linked with the native bundles it reaches. What runs,
 //! keeps, and reports them is `system.test`. See `docs/spec/testing.md`.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use ambient_host::launch::{code, started};
@@ -68,7 +67,6 @@ impl Session<'_> {
             directory: built.join(BUILT).join(KEPT).to_string_lossy().into_owned(),
             harness: trace::reach(&engine, &outcome).into_iter().collect(),
             packages,
-            bundles: self.bundles(&project).map_err(|problem| vec![problem])?,
         };
         let root = engine.testing(&testing, &target).map_err(reported)?;
         let main = ModuleId::new(system::PACKAGE, "test").value("main");
@@ -94,40 +92,5 @@ impl Session<'_> {
         );
         let gave = started(&linked.parts, &natives, || launch.frames(&linked.root))?;
         Ok(code(&gave))
-    }
-
-    /// The digest of each native bundle of `project` for this machine,
-    /// by the ID of its package: what stands for the native code a test
-    /// reaches in the key its outcome is kept under.
-    fn bundles(
-        &self,
-        project: &crate::project::Project,
-    ) -> Result<BTreeMap<String, String>, String> {
-        let mut digests = BTreeMap::new();
-        for (package, bundles) in &project.natives {
-            let Some(bundle) = bundles.get(ambient_host::native::MACHINE) else {
-                continue;
-            };
-            let identity = project
-                .workspace
-                .identity(&crate::symbol::PackageId(package.clone()));
-            let digest = match (&bundle.digest, &bundle.path) {
-                (Some(digest), _) => digest.clone(),
-                // What a member keeps in its directory is what it is.
-                (None, Some(place)) => {
-                    let place = project.packages[package].directory.join(place);
-                    let bytes = self.files.bytes(&place).map_err(|error| {
-                        format!("the native bundle of package `{package}`: {error}")
-                    })?;
-                    crate::hash::Hasher::new("bundle")
-                        .bytes(&bytes)
-                        .finish()
-                        .to_string()
-                }
-                (None, None) => continue,
-            };
-            digests.insert(identity, digest);
-        }
-        Ok(digests)
     }
 }

@@ -170,27 +170,6 @@ fn native_code_is_given_the_arguments_and_gives_back_any_value() {
 }
 
 #[test]
-fn an_extern_function_is_called_like_any_other() {
-    let double = b::extern_function("double")
-        .param("n", ty::int())
-        .returns(ty::int());
-    let main = b::function("main")
-        .returns(ty::int())
-        .body(b::call(b::name("double"), [b::int(21)]));
-    let natives = || {
-        Natives::new().with("app", "main.double", |args| match args {
-            [Value::Int(n)] => Ok(Value::Int(n * 2)),
-            _ => Err("not an integer".to_owned()),
-        })
-    };
-
-    assert_eq!(
-        run_with(None, [double.into(), main], natives),
-        Ok(Value::Int(42))
-    );
-}
-
-#[test]
 fn native_code_that_fails_is_a_fault() {
     let read = b::native_handler("read", "ask");
     let target = b::target("target").bind("ask", "read");

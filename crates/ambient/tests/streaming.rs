@@ -278,13 +278,13 @@ fn paired(url: &str) -> Outcome {
         r#"{SAID}
         use system.crypto;
 
-        fn main(): string with http.certificate, http.open, stream {{
+        fn main(): string with http.certificate, http.open, stream, crypto.hash {{
             match http.certificate!("{url}", "127.0.0.1") {{
                 let error: Error => {{
                     return error.kind == http.invalid ? "invalid" : error.message;
                 }}
                 let shown: bytes => {{
-                    let pin = crypto.hash(crypto.sha256, shown);
+                    let pin = crypto.hash!(crypto.sha256, shown);
                     let request = {{ method: "GET", url: "{url}", headers: [], body: "".to_bytes() }};
                     match http.send_trusting(request, {{ roots: null, pin, address: "127.0.0.1" }}) {{
                         let response: http.Response => {{ return said(response.body); }}

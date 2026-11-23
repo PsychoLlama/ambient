@@ -13,7 +13,7 @@ fn gives(body: &str) -> Value {
     let source = format!(
         "use system.exchange;
         use ambient.Error;
-        fn main(): unknown {{ {body} }}"
+        fn main(): unknown with exchange {{ {body} }}"
     );
     Scripted::default().program(&source).0.unwrap()
 }
@@ -22,9 +22,9 @@ fn gives(body: &str) -> Value {
 fn a_value_read_back_from_its_bytes_is_the_value() {
     let same = gives(
         r#"let kept = { name: "ada", marks: [1, 2.5, null], pair: (true, 0x[00 ff]) };
-        match exchange.encode(kept) {
+        match exchange.encode!(kept) {
             let error: Error => { return error.message; }
-            let encoded: bytes => { return exchange.decode(encoded) == kept; }
+            let encoded: bytes => { return exchange.decode!(encoded) == kept; }
         }"#,
     );
 
@@ -34,7 +34,7 @@ fn a_value_read_back_from_its_bytes_is_the_value() {
 #[test]
 fn only_plain_data_has_bytes() {
     let kind = gives(
-        "match exchange.encode({ work: fn(n: int): int => n }) {
+        "match exchange.encode!({ work: fn(n: int): int => n }) {
             let error: Error => { return error.kind == exchange.invalid; }
             _ => { return false; }
         }",
@@ -46,7 +46,7 @@ fn only_plain_data_has_bytes() {
 #[test]
 fn bytes_that_are_no_value_are_refused() {
     let kind = gives(
-        "match exchange.decode(0x[ff ff ff]) {
+        "match exchange.decode!(0x[ff ff ff]) {
             let error: Error => { return error.kind == exchange.invalid; }
             _ => { return false; }
         }",

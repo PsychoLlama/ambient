@@ -4,18 +4,18 @@ This is for someone who wants a package to reach code that is not Ambient: a C l
 
 ## What a package declares
 
-An extern is a function, or the handler of an ability, whose body is native code:
+An extern is the handler of an ability whose body is native code. Native code is reached only by performing an ability, even code that touches no world, so a program's row says all the native code it reaches:
 
 ```
 type(nominal) Stream;
 
-extern fn open(address: string): Stream;
+pub ability open(address: string): Stream;
+extern handler open in os;
 
 pub ability line(of: Stream): string;
 extern handler(suspending) line in os;
 ```
 
-- An `extern fn` is called like any function.
 - An `extern handler` answers an ability, and takes its name unless it is given one (`extern handler reads for line`). `in os` makes it the ability's binding under `system.os`, where `ambient run` runs a program, so a program reaches it by having `line` in its row.
 - Only the package that declares an ability says so of it. Any other binds it in a target of its own (`pub target world extends os { line: reads }`), which a binary names in the manifest: `target = "pkg.main.world"` under `[bin.main]`.
 - `(suspending)` says the handler may answer later, while other tasks run.

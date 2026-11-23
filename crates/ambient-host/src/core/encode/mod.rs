@@ -161,7 +161,7 @@ impl Tree {
                 text(path, out);
                 encode_types(params, out);
                 encode_type(ret, out);
-                encode_slots(handles.as_slice(), out);
+                encode_slots(&[*handles], out);
                 encode_slots(row, out);
             }
             Self::Target { bindings } => {

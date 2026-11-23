@@ -4,8 +4,8 @@ use super::super::lex::Token;
 use super::{Parsed, Parser};
 use crate::builder::{self as b, ModuleBuilder, Part};
 use crate::surface::{
-    Ability, Annotation, ContractDefinition, Definition, DefinitionKind, Expr, Extern, ExternKind,
-    Function, GENERATOR, Param, Path, Target, Type, TypeDefinition, constant_name,
+    Ability, Annotation, ContractDefinition, Definition, DefinitionKind, Expr, Extern, Function,
+    GENERATOR, Param, Path, Target, Type, TypeDefinition, constant_name,
 };
 use crate::syntax::{Placed, Position, SyntaxError, place};
 
@@ -344,43 +344,35 @@ impl Parser {
         Ok((name, DefinitionKind::Contract(ContractDefinition { ty })))
     }
 
-    /// `extern fn name(params): Type with row;` or
     /// `extern handler name for ability with row in target, ...;`,
     /// which may be `extern handler(suspending)`. A handler written
-    /// with its ability alone takes the ability's name.
+    /// with its ability alone takes the ability's name. Native code is
+    /// reached only through an ability, so a handler is the one extern.
     fn native(&mut self) -> Parsed<(String, DefinitionKind)> {
+        self.expect_word("handler")?;
         let mut suspends = false;
-        let (name, kind) = if self.eat_word("fn") {
-            let name = self.name()?;
-            let params = self.params()?;
-            let ret = self.returns()?;
-            let row = self.row()?;
-            (name, ExternKind::Function { params, ret, row })
-        } else {
-            self.expect_word("handler")?;
-            if self.eat("(") {
-                self.expect_word("suspending")?;
-                self.expect(")")?;
-                suspends = true;
-            }
-            let (name, ability) = self.handled()?;
-            let row = self.row()?;
-            let mut targets = Vec::new();
-            if self.eat_word("in") {
+        if self.eat("(") {
+            self.expect_word("suspending")?;
+            self.expect(")")?;
+            suspends = true;
+        }
+        let (name, ability) = self.handled()?;
+        let row = self.row()?;
+        let mut targets = Vec::new();
+        if self.eat_word("in") {
+            targets.push(self.path()?);
+            while self.eat(",") {
                 targets.push(self.path()?);
-                while self.eat(",") {
-                    targets.push(self.path()?);
-                }
             }
-            let kind = ExternKind::Handler {
-                ability,
-                row,
-                targets,
-            };
-            (name, kind)
-        };
+        }
         self.expect(";")?;
-        Ok((name, DefinitionKind::Extern(Extern { kind, suspends })))
+        let native = Extern {
+            ability,
+            row,
+            targets,
+            suspends,
+        };
+        Ok((name, DefinitionKind::Extern(native)))
     }
 
     /// What a native handler is named and the ability it answers:

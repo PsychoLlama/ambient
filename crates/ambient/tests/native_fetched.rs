@@ -21,9 +21,12 @@ use support::scripted::Scripted;
 const URL: &str = "https://example.test/app.o";
 const BUNDLE: &[u8] = b"an object";
 
-const SOURCE: &str = "extern fn double(n: int): int;
+const SOURCE: &str = "use system.{os};
 
-pub fn main(): int => double(21);
+pub ability double(n: int): int;
+extern handler double in os;
+
+pub fn main(): int with double => double!(21);
 
 pub fn idle(): int => 1;
 ";
@@ -256,12 +259,14 @@ fn vendored(allowed: &str) -> Files {
         ("dep/ambient.toml", manifest("dep", &bundle)),
         (
             "dep/src/lib.ab",
-            "extern fn double(n: int): int;\npub fn twice(n: int): int => double(n);".to_owned(),
+            "use system.{os};\npub ability double(n: int): int;\nextern handler double in os;\n\
+             pub fn twice(n: int): int with double => double!(n);"
+                .to_owned(),
         ),
         ("user/ambient.toml", manifest("user", &declared)),
         (
             "user/src/main.ab",
-            "use dep;\npub fn main(): int => dep.twice(21);".to_owned(),
+            "use dep;\npub fn main(): int with dep.double => dep.twice(21);".to_owned(),
         ),
     ];
     files
