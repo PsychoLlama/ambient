@@ -216,6 +216,15 @@ pub fn named_brand(name: string): Definition => { name, public: true, said: [], 
 pub fn named_extern(name: string, takes: List<Type>, returns: Type): Definition =>
     { name, public: true, said: [], extern: takes, returns, takes: [] };
 
+/// A public native handler of a generated module that performs
+/// nothing: its name there, the ability it handles, and the targets it
+/// is that ability's default under, each a reference as `beside` or
+/// `comptime tree.reference(target)` gives one. What is said of it to
+/// a build, by `said`, is how a target's tool comes to write its native
+/// side.
+pub fn named_handler(name: string, handles: Reference, under: List<Reference>): Definition =>
+    { name, public: true, said: [], handles, takes: [], under };
+
 /// `definition`, with `said` said of it to a build besides what was:
 /// each an annotation, by a reference to the tag that is its key, as
 /// `comptime tree.reference(tag)` gives one, and plain data. It is how
@@ -233,5 +242,7 @@ pub fn said(definition: Definition, said: List<Said>): Definition {
         { brand: null } => { name, public, said, brand: null },
         let it: { extern: List<Type>, returns: Type, takes: List<Reference> } =>
             { name, public, said, extern: it.extern, returns: it.returns, takes: it.takes },
+        let it: { handles: Reference, takes: List<Reference>, under: List<Reference> } =>
+            { name, public, said, handles: it.handles, takes: it.takes, under: it.under },
     };
 }

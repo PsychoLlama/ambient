@@ -3,15 +3,17 @@
 //! `docs/spec/targets.md`.
 //!
 //! A default is found by its ability: only the package that declares
-//! the ability gives one, so nothing else is read to find it.
+//! the ability gives one, so nothing else is read to find it. An
+//! ability of a generated module is given one by a handler beside it,
+//! so only that module's call is run to find it.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::{Engine, Query, memo};
 use crate::error::Error;
-use crate::surface::{DefinitionKind, Extern, ExternKind};
-use crate::symbol::{Namespace, PackageId, Symbol};
+use crate::surface::{DefinitionKind, Extern, ExternKind, Reference};
+use crate::symbol::{ModuleId, Namespace, PackageId, Symbol};
 use crate::types::abilities;
 
 /// A native handler that is its ability's default under `targets`.
@@ -43,28 +45,22 @@ impl Engine<'_> {
                 for definition in read.definitions.iter().filter(|one| says(&one.kind)) {
                     let handler = module.symbol(Namespace::Value, &definition.name);
                     let resolved = self.resolve(&handler)?;
-                    let DefinitionKind::Extern(native) = &resolved.definition.kind else {
-                        continue;
-                    };
-                    let ExternKind::Handler {
-                        ability, targets, ..
-                    } = &native.kind
-                    else {
-                        continue;
-                    };
-                    let Some(ability) = abilities(std::slice::from_ref(ability)).pop() else {
-                        continue;
-                    };
-                    let targets = abilities(targets);
-                    found.push(Defaulted {
-                        ability,
-                        handler,
-                        targets,
-                    });
+                    found.extend(defaulted(handler, &resolved.definition.kind));
                 }
             }
             Ok(Arc::new(found))
         })
+    }
+
+    /// Every default the handlers of a generated module give; none, for
+    /// a module that was written.
+    fn generated_defaults(&self, module: &ModuleId) -> Result<Vec<Defaulted>, Error> {
+        let made = self.made(module)?;
+        let handler = |name: &str| module.symbol(Namespace::Value, name);
+        Ok(made
+            .iter()
+            .filter_map(|made| defaulted(handler(&made.name), &made.kind))
+            .collect())
     }
 
     /// The default binding of `ability` under `target`: the native
@@ -80,8 +76,10 @@ impl Engine<'_> {
         ability: &Symbol,
     ) -> Result<Option<Symbol>, Error> {
         let defaults = self.defaults(&ability.module.package)?;
+        let generated = self.generated_defaults(&ability.module)?;
         let mut found: Option<&Symbol> = None;
-        for default in defaults.iter().filter(|one| one.ability == *ability) {
+        let all = defaults.iter().chain(&generated);
+        for default in all.filter(|one| one.ability == *ability) {
             let mut under = false;
             for base in &default.targets {
                 under = under || self.extends(target, base)?;
@@ -169,9 +167,15 @@ impl Engine<'_> {
                 return Err(Error::NotTarget(target));
             }
         }
+        // A generated handler is found only beside its ability, so it
+        // gives a default only for an ability of its own module.
+        let generated = self.generates(&symbol.module)?;
         let foreign = abilities(std::slice::from_ref(ability))
             .pop()
-            .filter(|ability| ability.module.package != symbol.module.package);
+            .filter(|ability| {
+                ability.module.package != symbol.module.package
+                    || (generated && ability.module != symbol.module)
+            });
         match foreign {
             Some(ability) if !targets.is_empty() => Err(Error::ForeignDefault {
                 symbol: symbol.clone(),
@@ -180,4 +184,25 @@ impl Engine<'_> {
             _ => Ok(()),
         }
     }
+}
+
+/// The default a definition gives, if it is a native handler that
+/// names targets.
+fn defaulted(handler: Symbol, kind: &DefinitionKind<Reference>) -> Option<Defaulted> {
+    let DefinitionKind::Extern(Extern {
+        kind: ExternKind::Handler {
+            ability, targets, ..
+        },
+        ..
+    }) = kind
+    else {
+        return None;
+    };
+    let ability = abilities(std::slice::from_ref(ability)).pop()?;
+    let targets = abilities(targets);
+    (!targets.is_empty()).then_some(Defaulted {
+        ability,
+        handler,
+        targets,
+    })
 }

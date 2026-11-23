@@ -26,7 +26,7 @@ use ambient::workspace::Workspace;
 /// The package the tests run: its ID, and its one module. Its target
 /// binds an ability that answers at once and one that answers later.
 /// What it is handed is how long it waits before it gives up, and gives
-/// zero. Two externs are functions of the package's JavaScript: one
+/// zero. Two handlers are functions of the package's JavaScript: one
 /// calls a function it is handed, and one performs an ability of its
 /// row. The rest have none: each is bound to something JavaScript has,
 /// so the build writes it, and one gives a handle another takes. One
@@ -44,37 +44,43 @@ const PROGRAM: &str = r#"
     extern handler said for say;
     extern handler(suspending) sleep in host;
 
-    extern fn applied(work: fn(number: int): int, to: int): int;
-    extern fn echoed(text: string): null with say;
+    ability applied(work: fn(number: int): int, to: int): int;
+    ability echoed(text: string): null;
+    extern handler applied in host;
+    extern handler echoed with say in host;
 
+    ability version(): string;
     #[binding({ build: "digest" })]
-    extern fn version(): string;
+    extern handler version in host;
 
     type(nominal) Address;
+    ability address(text: string): Address;
+    ability host_of(address: Address): string;
+    ability written(address: Address): string;
     #[binding({ new: "URL" })]
-    extern fn address(text: string): Address;
+    extern handler address in host;
     #[binding({ property: "hostname" })]
-    extern fn host_of(address: Address): string;
+    extern handler host_of in host;
     #[binding({ method: "toString" })]
-    extern fn written(address: Address): string;
+    extern handler written in host;
 
     target page extends host { say: said }
 
     /// Counts what is left once every wait is over.
-    fn main(patience: int): int with say, sleep {
+    fn main(patience: int): int with say, sleep, applied, echoed, version, address, host_of, written, web.larger {
         return tasks.first(fn() => together(), fn() => gives_up(patience));
     }
 
-    fn together(): int with say, sleep {
+    fn together(): int with say, sleep, applied, echoed {
         let (counted, waited) = tasks.all(fn() => count(3), fn() => linger());
-        return applied(fn(count: int) => count + waited, counted);
+        return applied!(fn(count: int) => count + waited, counted);
     }
 
-    fn gives_up(after: int): int with sleep {
+    fn gives_up(after: int): int with sleep, version, address, host_of, written, web.larger {
         sleep!(after);
-        let home = address("https://example.com/path");
-        return web.larger(0, -1) + host_of(home).length() + written(home).length() - 35
-            + version().length() - 64;
+        let home = address!("https://example.com/path");
+        return web.larger!(0, -1) + host_of!(home).length() + written!(home).length() - 35
+            + version!().length() - 64;
     }
 
     fn count(to: int): int with say, sleep {
@@ -85,24 +91,27 @@ const PROGRAM: &str = r#"
         return to;
     }
 
-    fn linger(): int with say, sleep {
+    fn linger(): int with say, sleep, echoed {
         sleep!(25);
-        echoed("still here");
+        echoed!("still here");
         return 1;
     }
 "#;
 
 /// A module of bindings no one wrote: `web` is the call of this, which
-/// gives an extern bound to a function JavaScript has.
+/// gives an ability and its handler, bound to a function JavaScript has
+/// and the ability's default under `host`.
 const BINDINGS: &str = r#"
     use ambient.code;
     use ambient.tree;
-    use js.{binding};
+    use js.{binding, host};
 
     pub fn all(): tree.Module => [
-        code.said(code.named_extern("larger", [tree.integer, tree.integer], tree.integer), [
-            { key: comptime tree.reference(binding), value: "Math.max" },
-        ]),
+        code.named_ability("larger", [tree.integer, tree.integer], tree.integer),
+        code.said(
+            code.named_handler("larger", code.beside("larger", "ability"), [comptime tree.reference(host)]),
+            [{ key: comptime tree.reference(binding), value: "Math.max" }],
+        ),
     ];
 "#;
 

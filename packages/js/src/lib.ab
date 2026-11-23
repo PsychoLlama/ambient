@@ -233,8 +233,10 @@ pub fn bundle(of: Build): Files
     match build.compile!(of.entry, of.target) {
         let error: Error => { return throw!(error); }
         let compiled: Compiled => {
-            // An extern is reached from the entry, or bound by the target.
-            let bindings = bound(of.target).join(bound(of.entry));
+            // What each extern the program reached says of itself, which
+            // finds one a target binds by default as well as one it lists.
+            let bindings = compiled.externs.fold([], fn(found: List<Bound>, native: Extern): List<Bound> =>
+                found.join(bound(native.definition)));
             let written = fn(native: Extern): bool => binding_of(bindings, native) == null;
             let host = RUNTIME.map(fn(name: string): File => file("runtime/" + name, read("host/" + name)));
             return [{ path: "program.wasm", bytes: compiled.module }]

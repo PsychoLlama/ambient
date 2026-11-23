@@ -23,24 +23,25 @@ export const echoed = (line, call) =>
   call.perform("<package id>", "main.say", line);
 ```
 
-An extern whose native side is something JavaScript already has needs no file. It is annotated with what it is, and the build writes its function:
+A handler whose native side is something JavaScript already has needs no file. It is annotated with what it is, and the build writes its function:
 
 ```
-use js.{binding};
+use js.{binding, host};
 
+pub ability larger(one: int, other: int): int;
 #[binding("Math.max")]
-extern fn larger(one: int, other: int): int;
+extern handler larger in host;
 
 type(nominal) Address;
+pub ability address(text: string): Address;
+pub ability host_of(address: Address): string;
 #[binding({ new: "URL" })]
-extern fn address(text: string): Address;
+extern handler address in host;
 #[binding({ property: "hostname" })]
-extern fn host_of(address: Address): string;
-#[binding({ method: "toString" })]
-extern fn written(address: Address): string;
+extern handler host_of in host;
 ```
 
-A path is a call of a global function; `get` reads one; `new` makes an object; `method`, `property`, and `set` are of the first thing the extern takes; `{ build: "digest" }` is the digest of the program's own module. An extern that gives a handle, as `address` does, gives the JavaScript object, which the host holds until the program lets the handle go.
+A path is a call of a global function; `get` reads one; `new` makes an object; `method`, `property`, and `set` are of the first thing the ability takes; `{ build: "digest" }` is the digest of the program's own module. An extern that gives a handle, as `address` does, gives the JavaScript object, which the host holds until the program lets the handle go.
 
 `ambient build`, of a binary whose manifest names the target (`target = "js.host"` under `[bin.main]`), writes a directory, `build/<name>` for the binary's name:
 

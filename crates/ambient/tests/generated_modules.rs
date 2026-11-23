@@ -5,6 +5,7 @@
 
 mod support;
 
+use ambient::backend::native::Natives;
 use ambient::engine::{Engine, Stage};
 use ambient::error::Error;
 use ambient::store::MemoryStore;
@@ -294,6 +295,61 @@ fn a_generated_module_is_made_once_for_a_store() {
 
     assert!(!build().is_empty());
     assert_eq!(build(), Vec::<String>::new());
+}
+
+/// An ability, and a native handler beside it that is its default
+/// under `base`, with something said of the handler under a tag the
+/// making module declares.
+const HANDLED: &str = "[
+    code.named_ability(\"larger\", [tree.integer, tree.integer], tree.integer),
+    code.said(
+        code.named_handler(\"larger\", code.beside(\"larger\", \"ability\"), [comptime tree.reference(base)]),
+        [{ key: comptime tree.reference(note), value: \"Math.max\" }],
+    ),
+]";
+
+/// What `main` gives, run under `world` with native code for the
+/// handler of [`HANDLED`]: a target `main` declares that extends `base`.
+fn handled(main: &str) -> support::Outcome {
+    let maker = format!("pub tag note;\npub target base {{}}\n{}", make(HANDLED));
+    let made = "use pkg.make; comptime make.all();";
+    let workspace = modules(&[("make", &maker), ("made", made), ("main", main)]);
+    let larger = |args: &[Value]| match args {
+        [Value::Int(left), Value::Int(right), ..] => Ok(Value::Int(*left.max(right))),
+        _ => Err("larger takes two integers".to_owned()),
+    };
+    support::execute_in(&workspace, &[], Some("world"), move || {
+        Natives::new().with("app", "made.larger", larger)
+    })
+}
+
+#[test]
+fn a_module_is_given_a_native_handler_that_is_its_abilitys_default() {
+    let main = "use pkg.made; use pkg.make;
+        pub target world extends make.base {}
+        fn main(): int with made.larger => made.larger!(3, 7);";
+
+    assert_eq!(handled(main), Ok(Value::Int(7)));
+}
+
+#[test]
+fn a_generated_handler_is_no_default_for_an_ability_of_another_module() {
+    let maker = format!(
+        "pub tag note;\npub target base {{}}\npub ability elsewhere(): int;\n{}",
+        make(
+            "[code.named_handler(\"elsewhere\", { package: \"app\", module: [\"make\"], name: \"elsewhere\", kind: \"ability\" }, [comptime tree.reference(base)])]"
+        )
+    );
+    let made = "use pkg.make; comptime make.all();";
+    let main = "use pkg.make; fn main(): int => 1;";
+    let workspace = modules(&[("make", &maker), ("made", made), ("main", main)]);
+    let store = MemoryStore::new();
+    let checked = Engine::new(&workspace, &store).check(&value("made", "elsewhere"));
+
+    assert!(
+        matches!(checked, Err(Error::ForeignDefault { .. })),
+        "{checked:?}"
+    );
 }
 
 /// A brand, and an extern that mints under it, with something said of

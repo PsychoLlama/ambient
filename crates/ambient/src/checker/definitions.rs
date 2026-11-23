@@ -182,6 +182,21 @@ fn kind(home: Home, fields: &[(core::Key, core::Expr)]) -> Read<DefinitionKind<R
                 row,
             },
         })
+    } else if let Some(ability) = has("handles") {
+        let row = each(need(fields, "takes")?, |taken| {
+            definition(home, taken, &["ability"])
+        })?;
+        let targets = each(need(fields, "under")?, |target| {
+            definition(home, target, &["value"])
+        })?;
+        DefinitionKind::Extern(Extern {
+            suspends: false,
+            kind: ExternKind::Handler {
+                ability: definition(home, ability, &["ability"])?,
+                row,
+                targets,
+            },
+        })
     } else if has("tag").is_some() {
         DefinitionKind::Tag
     } else if has("brand").is_some() {
