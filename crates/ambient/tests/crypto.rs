@@ -5,8 +5,15 @@
 
 mod support;
 
+use ambient::backend::native::Natives;
+use ambient::core::{Expr as Core, Tree};
+use ambient::engine::Engine;
+use ambient::literal::Literal;
+use ambient::store::MemoryStore;
 use ambient::value::Value;
 use support::scripted::Scripted;
+use support::text::workspace;
+use support::value;
 
 /// What `expr`, a string, gives under the command-line target.
 fn gives(row: &str, expr: &str) -> String {
@@ -26,6 +33,25 @@ fn hash(algorithm: &str, data: &str) -> String {
         "",
         &format!(r#"crypto.hash!(crypto.{algorithm}, "{data}".to_bytes()).hex()"#),
     )
+}
+
+/// The build target binds what the pure target does, so a comptime
+/// call hashes through its row, with no native code of its own.
+#[test]
+fn a_comptime_call_hashes_as_a_program_does() {
+    let source = "use system.crypto;
+        fn digest(data: string): string with crypto =>
+            crypto.hash!(crypto.sha1, data.to_bytes()).hex();
+        fn main(): string => comptime digest(\"abc\");";
+    let (workspace, store) = (workspace(source), MemoryStore::new());
+    let engine =
+        Engine::new(&workspace, &store).with_build(ambient::library::build(), Natives::new());
+    let checked = engine.check(&value("main", "main")).unwrap();
+    let Tree::Function(main) = &checked.tree else {
+        panic!("not a function");
+    };
+    let digest = "a9993e364706816aba3e25717850c26c9cd0d89d";
+    assert_eq!(main.body, Core::Literal(Literal::String(digest.to_owned())));
 }
 
 #[test]

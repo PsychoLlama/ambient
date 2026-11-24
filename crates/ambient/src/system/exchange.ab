@@ -1,4 +1,5 @@
-use pkg.os;
+use ambient.build;
+use pkg.pure;
 use ambient.Error;
 
 /// What was given is not plain data, or is no encoding of any.
@@ -12,5 +13,5 @@ pub ability encode(value: unknown): bytes | Error;
 /// The value that bytes `encode` gave are of.
 pub ability decode(encoded: bytes): unknown | Error;
 
-extern handler encode in os;
-extern handler decode in os;
+extern handler encode in pure, build.compiler;
+extern handler decode in pure, build.compiler;

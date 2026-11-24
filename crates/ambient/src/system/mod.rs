@@ -37,6 +37,13 @@ pub fn target() -> Symbol {
     ModuleId::new(PACKAGE, "").value("os")
 }
 
+/// The target of what is only computed, which the command-line target
+/// extends: see "Standard targets" in `docs/spec/targets.md`.
+#[must_use]
+pub fn pure() -> Symbol {
+    ModuleId::new(PACKAGE, "").value("pure")
+}
+
 /// Adds the package to a workspace that has the standard library.
 ///
 /// # Errors

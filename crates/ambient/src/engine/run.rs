@@ -91,8 +91,7 @@ impl Engine<'_> {
     /// takes abilities when the build has no target.
     pub fn run(&self, from: &PackageId, function: &Symbol, args: &[Value]) -> Result<Value, Error> {
         if !self.takes_abilities(function)? {
-            let natives = crate::host::computing(Natives::new());
-            return self.memoized(function, function, args, &natives, "");
+            return self.memoized(function, function, args, &Natives::new(), "");
         }
         let Some(build) = &self.build else {
             return Err(Error::ComptimeAbilities(function.clone()));
@@ -101,7 +100,7 @@ impl Engine<'_> {
         // What a run reads depends on where its package is, so the
         // runs of two packages are kept apart.
         // The engine answers what a run asks of the build itself.
-        let natives = crate::host::computing((build.natives)(from)).and(asked::natives());
+        let natives = crate::host::pure((build.natives)(from)).and(asked::natives());
         self.memoized(function, &root, args, &natives, &from.0)
     }
 

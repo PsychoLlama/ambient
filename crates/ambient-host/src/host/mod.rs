@@ -299,12 +299,12 @@ fn strings(items: Vec<String>) -> Value {
     Value::List(items.into_iter().map(Value::String).collect())
 }
 
-/// `natives`, with the extern functions of `system` that are no
-/// abilities: what is only computed, as a hash is. They reach no
-/// world, so a test and a build have them as any program does. See
-/// "The system package" in `docs/spec/targets.md`.
+/// `natives`, with the handlers of `system.pure`: what is only
+/// computed, as a hash is. A build binds them as a program does, so a
+/// comptime call that takes them is run with them. See "Standard
+/// targets" in `docs/spec/targets.md`.
 #[must_use]
-pub fn computing(natives: Natives) -> Natives {
+pub fn pure(natives: Natives) -> Natives {
     exchange::offer(crypto::offer(natives))
 }
 

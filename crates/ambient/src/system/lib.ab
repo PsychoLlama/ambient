@@ -17,7 +17,13 @@ use ambient.errors;
 
 extern handler thrown for errors.throw;
 
+/// What is only computed, as a hash is: the abilities whose answer is
+/// a function of what they are asked. It binds nothing of a world, so
+/// a test that takes no more is kept by what it is, and a build may
+/// take it as a program does.
+pub target pure {}
+
 /// The world of a program run from a command line.
-pub target os {
+pub target os extends pure {
     errors.throw: thrown,
 }
