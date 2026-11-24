@@ -6,7 +6,7 @@ use super::Checker;
 use super::header::visit_types;
 use crate::error::Error;
 use crate::surface::Reference;
-use crate::types::{Ty, Unbounded};
+use crate::types::{Ty, Unbounded, holds_match};
 
 impl Checker<'_> {
     /// Fails if a type applies a definition to the wrong number of
@@ -16,10 +16,17 @@ impl Checker<'_> {
         if self.env.testable(ty) {
             return Ok(());
         }
-        Err(Error::Untestable {
-            symbol: self.symbol.clone(),
-            found: self.env.show(ty),
-        })
+        Err(self.untestable(ty))
+    }
+
+    /// Why no value can be tested for `ty`.
+    pub(super) fn untestable(&self, ty: &Ty) -> Error {
+        let (symbol, found) = (self.symbol.clone(), self.env.show(ty));
+        if holds_match(&self.env.normalize(ty)) {
+            Error::UntestableMatch { symbol, found }
+        } else {
+            Error::Untestable { symbol, found }
+        }
     }
 
     /// Fails if a type applies a definition to the wrong number of

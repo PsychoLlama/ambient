@@ -20,20 +20,6 @@ impl fmt::Display for Error {
             | Self::PrivateName { .. }
             | Self::NotPerformed { .. }
             | Self::Intrinsic { .. } => self.fmt_name(f),
-            Self::Arity {
-                symbol,
-                callee,
-                expected,
-                found,
-            } => write!(
-                f,
-                "{symbol}: `{callee}` takes {expected} arguments, found {found}"
-            ),
-            Self::Mismatch {
-                symbol,
-                expected,
-                found,
-            } => write!(f, "{symbol}: expected `{expected}`, found `{found}`"),
             Self::Operands {
                 symbol,
                 operator,
@@ -92,8 +78,11 @@ impl fmt::Display for Error {
             | Self::UnknownGrant { .. }
             | Self::ComptimeAbilities(_)
             | Self::EntryAbilities(_) => self.fmt_ability(f),
-            Self::UntypedParameter { .. }
+            Self::Arity { .. }
+            | Self::Mismatch { .. }
+            | Self::UntypedParameter { .. }
             | Self::Untestable { .. }
+            | Self::UntestableMatch { .. }
             | Self::AsksAFunction { .. }
             | Self::Uncontractive(_)
             | Self::MatchesItself(_)
@@ -129,6 +118,20 @@ impl Error {
     /// The errors about what a type may be.
     fn fmt_type(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Arity {
+                symbol,
+                callee,
+                expected,
+                found,
+            } => write!(
+                f,
+                "{symbol}: `{callee}` takes {expected} arguments, found {found}"
+            ),
+            Self::Mismatch {
+                symbol,
+                expected,
+                found,
+            } => write!(f, "{symbol}: expected `{expected}`, found `{found}`"),
             Self::UntypedParameter { symbol, name } => {
                 write!(f, "{symbol}: parameter `{name}` needs a type")
             }
@@ -145,6 +148,10 @@ impl Error {
             Self::Untestable { symbol, found } => write!(
                 f,
                 "{symbol}: no value can be tested for `{found}`: a function type in it mentions a type parameter"
+            ),
+            Self::UntestableMatch { symbol, found } => write!(
+                f,
+                "{symbol}: no value can be tested for `{found}`: a type match in it depends on a type parameter; match with the type match's own arms instead"
             ),
             Self::AsksAFunction { symbol, found } => write!(
                 f,

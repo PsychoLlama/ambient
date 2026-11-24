@@ -217,7 +217,8 @@ fn branded(ty: Ty, mut brands: Vec<Ty>) -> Ty {
 }
 
 /// Whether a type holds a type match left open, at any depth.
-fn holds_match(ty: &Ty) -> bool {
+#[must_use]
+pub fn holds_match(ty: &Ty) -> bool {
     let held = std::cell::Cell::new(false);
     let _ = ty.rewrite(0, &|ty, _| {
         if matches!(ty, Ty::Match(_) | Ty::Matched(_)) {

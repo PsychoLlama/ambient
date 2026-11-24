@@ -258,6 +258,9 @@ pub enum Error {
     /// A cast or a pattern tests for a function type that mentions a
     /// type parameter, which no function says it is of.
     Untestable { symbol: Symbol, found: String },
+    /// A cast or a pattern tests for a type that holds a type match left
+    /// open by a type parameter, which no value says it is of.
+    UntestableMatch { symbol: Symbol, found: String },
     /// An arm of a match could tell a field of a record only by asking
     /// a function for its type, which may turn away a value it names.
     AsksAFunction { symbol: Symbol, found: String },
@@ -357,6 +360,7 @@ impl Error {
             | Self::Takes { symbol, .. }
             | Self::UntypedParameter { symbol, .. }
             | Self::Untestable { symbol, .. }
+            | Self::UntestableMatch { symbol, .. }
             | Self::AsksAFunction { symbol, .. }
             | Self::Backend { symbol, .. }
             | Self::Invalid { symbol, .. } => Some(symbol),

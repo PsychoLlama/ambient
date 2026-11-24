@@ -146,6 +146,7 @@ A type match computes a type from another as a match computes a value: by the sa
 - A type match left as it is is within a type that every arm that may match is within, with each parameter at its bound.
 - Nothing is within one but `never` and the same type match, related to it by their subjects and the types its patterns name, each the way the match varies with it.
 - A value of one is therefore given only by a match with the same arms, or by what already has that type.
+- No cast or pattern names a type that holds a type match left as it is: nothing tells as a program runs which arm a value would have been taken by.
 - A type match does not refer to itself, directly or through a [group](definitions.md).
 
 ## Overlap

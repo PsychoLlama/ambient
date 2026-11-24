@@ -167,3 +167,21 @@ fn a_type_match_an_unfolding_holds_is_decided_where_it_is_compared() {
     );
     assert_eq!(int(&source), 2);
 }
+
+#[test]
+fn no_value_is_tested_for_a_type_match_left_open() {
+    let read = |body: &str| {
+        format!(
+            "{VALUE}
+            fn main<E: (key: string, value: unknown), K: string>(held: unknown): Value<E, K> | null =>
+                {body};"
+        )
+    };
+    let cast = read("cast::<Value<E, K>>(held, null)");
+    let tested = read("match held { let found: Value<E, K> => found, _ => null }");
+    assert!(matches!(wrong(&cast), Some(Error::UntestableMatch { .. })));
+    assert!(matches!(
+        wrong(&tested),
+        Some(Error::UntestableMatch { .. })
+    ));
+}

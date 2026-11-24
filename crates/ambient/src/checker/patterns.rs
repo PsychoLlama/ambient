@@ -176,10 +176,7 @@ impl Checker<'_> {
                 let loose = Pattern::Is(self.env.loose_test(&written));
                 let near = Pattern::Is(self.env.nearest_test(&written));
                 let Some(asked) = [shape, loose, near].into_iter().find(tells) else {
-                    return Err(Error::Untestable {
-                        symbol: self.symbol.clone(),
-                        found: self.env.show(&written),
-                    });
+                    return Err(self.untestable(&written));
                 };
                 asked
             }
