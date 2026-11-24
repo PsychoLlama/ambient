@@ -91,6 +91,10 @@ A target defines the world a program runs in: a root binding for every ability t
 - The command-line target binds `throw`: an [error](errors.md) nothing caught ends the program, and is reported as a fault is. One a test throws ends the test, as its [outcome](testing.md#outcomes).
 - [Tests](testing.md#running) run under the command-line target, as one program.
 - The build target is an ordinary target; see [comptime](comptime.md).
+- The `system` package also defines the pure target: the abilities whose answer is a function of what they are asked, which are [values as bytes](#values-as-bytes) and [cryptography](#cryptography) but random bytes. It binds nothing of a world.
+- The command-line target extends the pure target, and the build target binds what it does, so a comptime call hashes as a program does.
+- Only `system` binds an ability under the pure target, so its native code is the host's own, and [keeping](testing.md#keeping) a test's outcome needs no more than the host's build.
+- No native code reaches a program but through a target's bindings: what is only computed is reached as what touches a world is.
 
 ## WebAssembly hosts
 
@@ -174,14 +178,14 @@ A target defines the world a program runs in: a root binding for every ability t
 ## Values as bytes
 
 - `system.exchange` gives a value as its [bytes](exchange.md) and the value of such bytes, for a program that keeps a value or sends one.
-- They are abilities, as all native code is, though the bytes are a function of the value.
+- They are abilities, as all native code is, though the bytes are a function of the value; the pure target binds them.
 - Only plain data has bytes here: a value that holds a function, a cell, a handle, or an iterator is an error, since each is tied to the program that holds it.
 - What is read back is of no known type; a program casts it to the type it expects.
 
 ## Cryptography
 
 - `system.crypto` hashes bytes, and signs them with a key as an HMAC, by an algorithm a tag names: SHA-256, SHA-512, or SHA-1.
-- They are abilities, as all native code is, though a hash is a function of what is hashed: a program that receives code grants hashing to it as it grants anything.
+- They are abilities, as all native code is, though a hash is a function of what is hashed: a program that receives code grants hashing to it as it grants anything. The pure target binds them.
 - Comparing two digests takes as long whatever they hold, so how long it took says nothing of where they differ.
 - Random bytes are drawn through `system.random`, the one ability randomness has.
 - SHA-1 is there for the protocols that still name it, and for nothing new.

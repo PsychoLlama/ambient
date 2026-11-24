@@ -7,7 +7,8 @@ Testing is library code over one program the build writes: the tests of a run, h
 - A test is a function that takes nothing, a name, and the plain data it is handed.
 - A name is a string and the group it is in, if any; a group has a name and a group of its own. A module is a group, and so is any grouping a library makes.
 - A test reaches what its [row](abilities.md) names: what its outcome is made through provides, and the world of the [command-line target](targets.md#standard-targets). One that needs less provides it, which is how a test says what the world holds.
-- A test whose row names nothing of the world is pure: it is a function of its [hash](definitions.md) and the native code it reaches.
+- A test whose row names nothing but what the [pure target](targets.md#standard-targets) binds is pure: it is a function of its [hash](definitions.md) and the build of the host, whose native code that is.
+- A test says nothing of being pure. One that hashes is kept as one that performs nothing is, and one that reads a file is run every time.
 - A test that does not compile is refused where it is found, and runs no other the worse for it.
 - Importing a module runs nothing, so no test is made by being imported.
 
@@ -48,7 +49,7 @@ Testing is library code over one program the build writes: the tests of a run, h
 
 - What testing keeps is kept apart from the [build](build.md): in a cache of bytes by key, under the build directory of the workspace, or of the package where there is none, by each package's ID. The build's store holds nothing of a test.
 - The library's functions are the only way to the cache, so where it is is decided once. A runner keeps outcomes in it, and a test utility keeps what it chooses.
-- Only a pure test's outcome is kept by its key: the hash of the test, the hash of what runs it, and the build of the host. Native code is reached only by performing an ability, so a pure test reaches none.
+- Only a pure test's outcome is kept by its key: the hash of the test, the hash of what runs it, and the build of the host. Native code is reached only by performing an ability, so a pure test reaches only the host's.
 - A test that is not pure runs every time.
 - Neither a test's name nor its group is in its key, and no outcome holds a name: a test moved or renamed unchanged is not run again, and is reported under the name it has now.
 - A test that failed is kept as one that passed is, so a failure is reported again without running again, for as long as what caused it lasts.

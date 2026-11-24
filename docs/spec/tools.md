@@ -16,9 +16,9 @@ A tool is a function a build runs to make something other than a program's defin
 ## Build abilities
 
 - The standard library declares the build abilities. Each is a narrow question, so a run's trace holds only what its result depends on.
-- They are [verifiable](memoization.md) unless this section says otherwise.
+- They are [verifiable](memoization.md).
 - The files of a package: reading one as text or as bytes, and listing a directory. Which files those are is the [package's](packages.md#layout) to say.
-- The build target binds none of the [`system`](targets.md#the-system-package) abilities, whose files are those of the machine a program runs on.
+- The build target binds none of the [`system`](targets.md#the-system-package) abilities, whose files are those of the machine a program runs on, but what its [pure target](targets.md#standard-targets) binds.
 - A definition: its tree, its interface, its [annotations](annotations.md), and its [metadata](trees.md). A module's definitions, the [annotations](annotations.md#collecting) of a key on them, and a package's modules.
 - What a definition reaches: its definitions, its externs, and the annotations of a key, [in order](annotations.md#collecting).
 - Compiling an entry under a target for a backend, which gives the module and the externs it imports.
@@ -26,7 +26,6 @@ A tool is a function a build runs to make something other than a program's defin
 - Running a function under a target, as a memoized run of its own, which gives its result or its fault. It takes what its own package is granted, whoever asked.
 - The bytes at a URL, given their digest. The digest is what is verified, so what was fetched once is never fetched again.
 - The digest of bytes, which is how a tool names what it made.
-- What differs from one build to the next, as the time does, is asked through volatile abilities. A run that asks is run on every build, and one that gives what it gave before invalidates nothing.
 - A comptime call may perform these too. One that asks about what reaches its own definition is the [cycle](comptime.md#calls) every such call is refused for.
 
 ## Builds

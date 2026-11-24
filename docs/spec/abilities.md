@@ -45,6 +45,7 @@ An ability is an operation that code may perform but does not implement. Abiliti
 - A top-level function captures nothing.
 - Capture is how authority is delegated: whoever holds a function value can exercise what it captured.
 - Captures are explicit in the [core tree](trees.md) and statically known.
+- TODO: a handler's own row is bound where it is [provided](handlers.md), so one a target binds reaches the target's bindings and never a provide around the perform, while a lambda with no row reaches its caller's. Which a callback of a handler should reach is undecided.
 
 ## Errors
 
