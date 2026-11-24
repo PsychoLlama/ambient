@@ -131,10 +131,6 @@ pub ability kept(digest: string): bytes | Error;
 /// The digest of bytes, as `fetch` is given one.
 pub ability digest(of: bytes): string;
 
-/// The time, in milliseconds since 1970. It is never what it was, so
-/// a run that asks is made again on every build.
-pub ability now(): int;
-
 extern handler compile in compiler;
 extern handler modules in compiler;
 extern handler definitions in compiler;
@@ -146,7 +142,6 @@ extern handler fetch in compiler;
 extern handler keep in compiler;
 extern handler kept in compiler;
 extern handler digest in compiler;
-extern handler now in compiler;
 extern handler signature in compiler;
 extern handler annotations in compiler;
 extern handler host_code in compiler;

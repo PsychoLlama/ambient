@@ -81,13 +81,6 @@ pub(super) fn natives() -> Natives {
                 _ => Err("argument 0 is not bytes".to_owned()),
             }
         })
-        // The time is never what it was, so a run that asks is made
-        // again on every build.
-        .with(FAULT_PACKAGE, "build.now", |_| {
-            let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-            let now = since.map_or(0, |since| since.as_millis());
-            Ok(Value::Int(i64::try_from(now).unwrap_or(i64::MAX)))
-        })
         .verifiable(FAULT_PACKAGE, "build.thrown", thrown)
 }
 
