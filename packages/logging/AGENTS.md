@@ -9,7 +9,7 @@ Structured logs as an ability: an Ambient package with no native code. The root 
 - A handler is a plain `fn(entry: Log): null`. What chooses or fans out logs is a function from handlers to a handler, so it composes with any other.
 - Origin is dynamic scope: `within` provides `log` again and performs the binding it replaced. No log carries a logger.
 - A level is a tag of `level`, and `Level` their union, so a match over one is exhaustive. Order is `level.rank`, stated once.
-- A context is a `Map<Json>`, so JSON writes it as it is. A formatter that wants its own order of members writes them one by one (`ndjson.line`).
+- A context is a `Map<json.Member>`, so JSON writes it as it is. A formatter that wants its own order of members writes them one by one (`ndjson.line`).
 
 ## Testing
 

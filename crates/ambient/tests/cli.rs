@@ -138,7 +138,7 @@ fn an_error_is_reported_at_the_expression_that_is_wrong() {
     // A test that cannot tell what it is asked: any record passes it.
     assert_eq!(
         wrong_at(
-            "use ambient.map.{Map};\nfn f(v: unknown): int =>\n  cast::<int>(cast::<Map<int>>(v, null), 0);"
+            "use ambient.map.{Entry, Map};\nfn f(v: unknown): int =>\n  cast::<int>(cast::<Map<Entry<string, int>>>(v, null), 0);"
         ),
         "3:15"
     );
