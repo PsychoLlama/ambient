@@ -153,9 +153,8 @@ impl Env {
         if ty == Ty::Never {
             return None;
         }
-        // A type parameter is known only by its bound.
-        if let Ty::Named(Reference::Parameter(position), _) = &ty {
-            return self.narrow(&self.bound(*position)?, pattern);
+        if let Some(known) = self.known(&ty) {
+            return self.narrow(&known, pattern);
         }
         match pattern {
             Pattern::Wildcard => Some(ty),
@@ -225,12 +224,22 @@ impl Env {
         if self.covers_as_written(&ty, pattern) {
             return true;
         }
-        // A type parameter is known only by its bound.
-        match &ty {
-            Ty::Named(Reference::Parameter(position), _) => self
-                .bound(*position)
-                .is_some_and(|bound| self.covers(&bound, pattern)),
-            _ => false,
+        self.known(&ty)
+            .is_some_and(|known| self.covers(&known, pattern))
+    }
+
+    /// What a type that says nothing of its shape is known as: a type
+    /// parameter by its bound, a type match left open by what it is
+    /// within, and a binder of an arm as anything. Nothing for any
+    /// other type.
+    fn known(&self, ty: &Ty) -> Option<Ty> {
+        match ty {
+            Ty::Named(Reference::Parameter(position), _) => {
+                Some(self.bound(*position).unwrap_or(Ty::Unknown))
+            }
+            Ty::Match(matching) => Some(self.upper(matching)),
+            Ty::Matched(_) => Some(Ty::Unknown),
+            _ => None,
         }
     }
 
@@ -286,12 +295,9 @@ impl Env {
         // What is left of a type parameter is the parameter while its
         // bound is all left, and otherwise what is left of the bound: a
         // type parameter narrowed is no longer one.
-        if let Ty::Named(Reference::Parameter(position), _) = &ty {
-            let Some(bound) = self.bound(*position) else {
-                return ty;
-            };
-            let left = self.remainder(&bound, pattern);
-            return if left == bound { ty } else { left };
+        if let Some(known) = self.known(&ty) {
+            let left = self.remainder(&known, pattern);
+            return if left == known { ty } else { left };
         }
         // When exactly one member of a record or tuple pattern can fail,
         // what is left is the same type with that member narrowed.
@@ -345,7 +351,9 @@ impl Env {
     pub fn field(&self, ty: &Ty, key: &TyKey) -> Option<Ty> {
         match self.unfold(ty) {
             Ty::Never => Some(Ty::Never),
-            Ty::Named(Reference::Parameter(position), _) => self.field(&self.bound(position)?, key),
+            ty @ (Ty::Named(Reference::Parameter(_), _) | Ty::Match(_) | Ty::Matched(_)) => {
+                self.field(&self.known(&ty)?, key)
+            }
             Ty::Record(fields) => entry(&fields, key).map(Ty::read),
             Ty::Union(members) => {
                 let fields: Option<Vec<Ty>> = members.iter().map(|m| self.field(m, key)).collect();
@@ -361,8 +369,8 @@ impl Env {
     #[must_use]
     pub fn method(&self, ty: &Ty, key: &TyKey) -> Option<Ty> {
         match self.unfold(ty) {
-            Ty::Named(Reference::Parameter(position), _) => {
-                self.method(&self.bound(position)?, key)
+            ty @ (Ty::Named(Reference::Parameter(_), _) | Ty::Match(_) | Ty::Matched(_)) => {
+                self.method(&self.known(&ty)?, key)
             }
             Ty::Record(fields) => match entry(&fields, key)? {
                 Ty::Method { function, .. } => Some(self.unfold(function)),
@@ -409,6 +417,8 @@ impl Env {
     #[must_use]
     pub fn shape(&self, ty: &Ty) -> Option<Shape> {
         Some(match self.unfold(ty) {
+            // A type match left open has the shape of what it is within.
+            Ty::Match(matching) => return self.shape(&self.upper(&matching)),
             Ty::Null => Shape::Null,
             Ty::Bool | Ty::Literal(Literal::Bool(_)) => Shape::Bool,
             Ty::Int | Ty::Literal(Literal::Int(_)) => Shape::Int,
@@ -441,9 +451,9 @@ impl Env {
                 let parts = members.iter().map(|m| self.member(m, index)).collect();
                 self.union(parts)
             }
-            Ty::Named(Reference::Parameter(position), _) => {
-                self.bound(*position).map_or(Ty::Unknown, |bound| {
-                    self.member(&self.unfold(&bound), index)
+            Ty::Named(Reference::Parameter(_), _) | Ty::Match(_) | Ty::Matched(_) => {
+                self.known(ty).map_or(Ty::Unknown, |known| {
+                    self.member(&self.unfold(&known), index)
                 })
             }
             _ => Ty::Unknown,

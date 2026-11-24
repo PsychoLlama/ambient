@@ -80,6 +80,12 @@ impl Type {
             Self::List(member) | Self::Cell(member) | Self::Iterator(member) => member.depth(),
             Self::Function { params, ret, .. } => deepest(params).max(ret.depth()),
             Self::Generic { bounds, function } => deepest(bounds).max(function.depth()),
+            Self::Match { subject, arms } => arms
+                .iter()
+                .map(|(pattern, ty)| pattern.depth().max(ty.depth()))
+                .max()
+                .unwrap_or(0)
+                .max(subject.depth()),
             _ => 0,
         }
     }

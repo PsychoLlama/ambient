@@ -8,6 +8,7 @@
 
 mod generic;
 mod lower;
+mod matching;
 mod normal;
 mod operations;
 mod patterns;
@@ -120,7 +121,19 @@ pub fn substitute(ty: &Ty, args: &[Ty]) -> Ty {
         | Ty::Literal(_)
         | Ty::Brand(_)
         | Ty::Bound(_)
+        | Ty::Matched(_)
         | Ty::Named(Reference::Local(_), _) => ty.clone(),
+        Ty::Match(matching) => Ty::Match(Box::new(crate::surface::TypeMatch {
+            subject: substitute(&matching.subject, args),
+            arms: matching
+                .arms
+                .iter()
+                .map(|(pattern, ty)| {
+                    let pattern = pattern.retyped(0, &|ty, _| Some(substitute(ty, args)));
+                    (pattern, substitute(ty, args))
+                })
+                .collect(),
+        })),
         Ty::Branded(ty, brands) => Ty::Branded(Box::new(substitute(ty, args)), all(brands)),
         // An argument mentions no parameter of a generic function
         // type from outside it, so it goes inside one as it is.
@@ -200,6 +213,18 @@ fn branded(ty: Ty, mut brands: Vec<Ty>) -> Ty {
     Ty::Branded(Box::new(ty), brands)
 }
 
+/// Whether a type holds a type match left open, at any depth.
+fn holds_match(ty: &Ty) -> bool {
+    let held = std::cell::Cell::new(false);
+    let _ = ty.rewrite(0, &|ty, _| {
+        if matches!(ty, Ty::Match(_) | Ty::Matched(_)) {
+            held.set(true);
+        }
+        None
+    });
+    held.get()
+}
+
 /// Whether a type mentions a type parameter of the definition it is
 /// written in.
 fn mentions_parameter(ty: &Ty) -> bool {
@@ -215,6 +240,17 @@ fn mentions_parameter(ty: &Ty) -> bool {
         Ty::Method { needs, function } => mentions_parameter(needs) || mentions_parameter(function),
         Ty::Function { params, ret, .. } => any(params) || mentions_parameter(ret),
         Ty::Generic { bounds, function } => any(bounds) || mentions_parameter(function),
+        Ty::Match(matching) => {
+            let named = std::cell::Cell::new(mentions_parameter(&matching.subject));
+            for (pattern, ty) in &matching.arms {
+                let _ = pattern.retyped(0, &|tested, _| {
+                    named.set(named.get() || mentions_parameter(tested));
+                    Some(tested.clone())
+                });
+                named.set(named.get() || mentions_parameter(ty));
+            }
+            named.get()
+        }
         _ => false,
     }
 }
@@ -241,8 +277,10 @@ impl Env {
             // function is.
             Ty::Function { .. } | Ty::Generic { .. } | Ty::Iterator(_) => !mentions_parameter(ty),
             // A test never yields a method: see `docs/spec/methods.md`. And
-            // nothing of a brand on a type is there as a program runs.
-            Ty::Method { .. } | Ty::Branded(..) => false,
+            // nothing of a brand on a type is there as a program runs, nor
+            // anything that decides a type match.
+            Ty::Method { .. } | Ty::Branded(..) | Ty::Match(_) | Ty::Matched(_) => false,
+            Ty::Cell(member) => !holds_match(member),
             Ty::Record(fields) => fields.iter().all(|(_, ty)| self.tests(ty, seen)),
             Ty::Tuple(members) => members.iter().all(|member| self.tests(member, seen)),
             Ty::Union(members) => members.iter().all(|member| self.tests(member, seen)),

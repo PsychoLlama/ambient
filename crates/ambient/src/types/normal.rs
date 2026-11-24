@@ -29,7 +29,9 @@ impl Env {
             | Ty::Literal(_)
             | Ty::Brand(_)
             | Ty::Bound(_)
+            | Ty::Matched(_)
             | Ty::Named(Reference::Local(_) | Reference::Parameter(_), _) => ty.clone(),
+            Ty::Match(matching) => self.normal_match(matching, absorb),
             Ty::Branded(ty, brands) => {
                 let brands = brands.iter().map(|brand| self.normal(brand, absorb));
                 self.intersect(self.normal(ty, absorb), brands.collect(), absorb)
@@ -100,7 +102,11 @@ impl Env {
             };
             ty = self.normal(&substitute(&info.ty, args), false);
         }
-        ty
+        // A type match at the head is decided where it can be.
+        match ty {
+            Ty::Match(matching) => self.decide(*matching),
+            ty => ty,
+        }
     }
 
     /// The union of normalized types, simplified: nested unions flattened,

@@ -43,6 +43,7 @@ Native code and WebAssembly are produced from one lowered form and one runtime. 
 
 - A type a [cast](types.md) or type test names exists at run time as a descriptor: data, laid out when a program is loaded.
 - A recursive type definition has one descriptor, which the descriptors that name it refer to.
+- A [type match](types.md#type-matches) is decided before a program runs wherever it can be. One left open by a type parameter is opaque at run time: no value passes a test against it, and it is the same as no other type. A cast may not name a type that holds one, so it is met only inside what a cell or a function carries.
 - A generic function that needs its type arguments is handed them at run time, as descriptors. A function value over one holds them with what it captured, so calling it is no different from calling any function.
 - A function needs them if it tests a value against a type parameter, makes a cell at one, or hands one on to a function that needs it; handing them on to itself is no need.
 - Any other generic function is one function at every type argument, and is called like a function that is not generic.

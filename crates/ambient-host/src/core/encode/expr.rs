@@ -3,7 +3,7 @@
 use super::{Sink, encode_literal, encode_slots, encode_type, encode_types, text, unsigned};
 use crate::core::{Expr, Handler, Key, Pattern};
 
-fn encode_pattern(pattern: &Pattern, out: &mut Sink<'_>) {
+pub(super) fn encode_pattern(pattern: &Pattern, out: &mut Sink<'_>) {
     match pattern {
         Pattern::Wildcard => out.push(0),
         Pattern::Literal(literal) => {

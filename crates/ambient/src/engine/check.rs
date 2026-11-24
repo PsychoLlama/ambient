@@ -45,6 +45,19 @@ fn type_definitions(ty: &Ty) -> Vec<Symbol> {
     definitions(|visit| ty.names(&mut |name| visit(name)))
 }
 
+/// The definitions the type matches in `ty` name.
+fn matched_definitions(ty: &Ty) -> Vec<Symbol> {
+    let named = std::cell::RefCell::new(Vec::new());
+    let _ = ty.rewrite(0, &|ty, _| match ty {
+        Ty::Match(_) => {
+            named.borrow_mut().extend(type_definitions(ty));
+            Some(ty.clone())
+        }
+        _ => None,
+    });
+    named.into_inner()
+}
+
 fn header_definitions(function: &Function<Reference>) -> Vec<Symbol> {
     definitions(|visit| function.header_names(&mut |name| visit(name)))
 }
@@ -75,22 +88,12 @@ impl Engine<'_> {
         memo(&self.type_info, symbol, || {
             let unknown = || Error::UnknownSymbol(symbol.clone());
             let (params, ty) = self.type_of(symbol)?.ok_or_else(unknown)?;
-
-            let mut seen = BTreeSet::new();
-            let mut pending = type_definitions(&ty);
-            let mut recursive = false;
-            while let Some(next) = pending.pop() {
-                if next == *symbol {
-                    recursive = true;
-                    break;
-                }
-                if !seen.insert(next.clone()) {
-                    continue;
-                }
-                if let Some((_, ty)) = self.type_of(&next)? {
-                    pending.extend(type_definitions(&ty));
-                }
+            // Deciding a type match that holds its own definition would
+            // not end, so one is refused before anything decides it.
+            if self.types_reach(matched_definitions(&ty), symbol)? {
+                return Err(Error::MatchesItself(symbol.clone()));
             }
+            let recursive = self.types_reach(type_definitions(&ty), symbol)?;
             Ok(Arc::new(TypeInfo {
                 params,
                 ty,
@@ -99,6 +102,25 @@ impl Engine<'_> {
                 finite: true,
             }))
         })
+    }
+
+    /// Whether following the type definitions `from` names leads to
+    /// `symbol`.
+    fn types_reach(&self, from: Vec<Symbol>, symbol: &Symbol) -> Result<bool, Error> {
+        let mut seen = BTreeSet::new();
+        let mut pending = from;
+        while let Some(next) = pending.pop() {
+            if next == *symbol {
+                return Ok(true);
+            }
+            if !seen.insert(next.clone()) {
+                continue;
+            }
+            if let Some((_, ty)) = self.type_of(&next)? {
+                pending.extend(type_definitions(&ty));
+            }
+        }
+        Ok(false)
     }
 
     /// What a type definition says its name means, and how many

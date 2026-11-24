@@ -194,7 +194,13 @@ pub(crate) fn type_tree(env: &Env, ty: &Ty) -> Option<Value> {
             ])
         }
         // `Callable` is only a pattern's, and a pattern is no type's tree.
-        Ty::Named(..) | Ty::Bound(_) | Ty::Generic { .. } | Ty::Method { .. } | Ty::Callable => {
+        Ty::Named(..)
+        | Ty::Bound(_)
+        | Ty::Generic { .. }
+        | Ty::Method { .. }
+        | Ty::Callable
+        | Ty::Match(_)
+        | Ty::Matched(_) => {
             return None;
         }
     })

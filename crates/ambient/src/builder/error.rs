@@ -41,6 +41,9 @@ pub enum BuildError {
     /// Type parameters are given to something other than a function
     /// type, or one is named outside the function type that has it.
     GenericType,
+    /// A type match has no arms, or a type names a binder of an arm it
+    /// is not inside.
+    TypeMatch,
 }
 
 impl fmt::Display for BuildError {
@@ -72,6 +75,10 @@ impl fmt::Display for BuildError {
             Self::GenericType => write!(
                 f,
                 "only a function type has type parameters, named only inside it"
+            ),
+            Self::TypeMatch => write!(
+                f,
+                "a type match has arms, and a binder is named only in its arm"
             ),
             Self::WrittenTag(tag) => {
                 write!(f, "the tag `{tag}` is written out: declare it and name it")

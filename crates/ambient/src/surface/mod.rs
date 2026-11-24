@@ -13,6 +13,7 @@ pub mod intrinsic;
 mod members;
 mod name;
 mod operator;
+mod pattern;
 mod shape;
 pub mod shown;
 mod visit;
@@ -24,6 +25,7 @@ pub use fallback::{fallback, is_fallback};
 pub use members::Members;
 pub use name::{Path, Reference};
 pub use operator::Operator;
+pub use pattern::{Pattern, TypeMatch};
 pub use shape::Shape;
 pub use shown::Shown;
 
@@ -307,6 +309,13 @@ pub enum Type<N = Path> {
     /// one around it. A name is not part of a type, so two generic
     /// function types that differ only in names are one type.
     Bound(usize),
+    /// A type computed from another by a match: see "Type matches" in
+    /// `docs/spec/types.md`.
+    Match(Box<TypeMatch<N>>),
+    /// A type a binder of a type match's arm this is inside stands
+    /// for, counted as [`Type::Bound`] is: the innermost arm's binders
+    /// in binding order, then those of the arm around it.
+    Matched(usize),
 }
 
 /// What can be done with a cell. See `docs/spec/cells.md`.
@@ -321,21 +330,6 @@ pub enum CellOp {
     Replace,
     /// A cell and the value read: suspends until the cell holds another.
     Wait,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Pattern<N = Path> {
-    /// Matches anything.
-    Wildcard,
-    Literal(Literal),
-    /// Matches a record that has at least these fields, each matching.
-    Record(Vec<(String, Pattern<N>)>),
-    /// Matches a tuple of exactly this length, each member matching.
-    Tuple(Vec<Pattern<N>>),
-    /// Matches a value the type describes.
-    Is(Type<N>),
-    /// Matches what the inner pattern matches, and binds it to a name.
-    Bind(String, Box<Pattern<N>>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

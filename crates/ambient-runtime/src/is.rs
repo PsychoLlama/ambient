@@ -85,6 +85,9 @@ pub mod descriptor {
     /// A function of whatever type: the kind of the value is all that
     /// is tested.
     pub const CALLABLE: u64 = 24;
+    /// A type a type parameter keeps undecided (a type match): no value
+    /// passes a test against it, and no other type is the same as it.
+    pub const OPAQUE: u64 = 25;
 }
 
 /// The tests a descriptor makes of the values inside a value.

@@ -115,7 +115,37 @@ pub(super) fn check_type(ty: &crate::surface::Type) -> Result<(), BuildError> {
     if !ty.closed() {
         return Err(BuildError::GenericType);
     }
+    if !matched_within(ty, 0) {
+        return Err(BuildError::TypeMatch);
+    }
     check_inside(ty)
+}
+
+/// Whether every binder `ty` names is of an arm it is inside, given
+/// `binders` of arms around it.
+fn matched_within(ty: &crate::surface::Type, binders: usize) -> bool {
+    use crate::surface::Type;
+    let named = std::cell::Cell::new(true);
+    let _ = ty.rewrite(0, &|ty, _| match ty {
+        Type::Matched(index) => {
+            named.set(named.get() && *index < binders);
+            None
+        }
+        Type::Match(matching) => {
+            let within = |inner: &Type| matched_within(inner, binders);
+            for (pattern, arm) in &matching.arms {
+                let _ = pattern.retyped(0, &|ty, _| {
+                    named.set(named.get() && within(ty));
+                    Some(ty.clone())
+                });
+                named.set(named.get() && matched_within(arm, binders + pattern.binders()));
+            }
+            named.set(named.get() && within(&matching.subject));
+            Some(ty.clone())
+        }
+        _ => None,
+    });
+    named.get()
 }
 
 /// [`check_type`], of a type that may be inside a generic function type.
@@ -133,7 +163,19 @@ fn check_inside(ty: &crate::surface::Type) -> Result<(), BuildError> {
         | Type::Tag
         | Type::Callable
         | Type::Brand(_)
-        | Type::Bound(_) => Ok(()),
+        | Type::Bound(_)
+        | Type::Matched(_) => Ok(()),
+        Type::Match(matching) => {
+            if matching.arms.is_empty() {
+                return Err(BuildError::TypeMatch);
+            }
+            check_inside(&matching.subject)?;
+            for (pattern, ty) in &matching.arms {
+                check_type_pattern(pattern, &mut BTreeSet::new())?;
+                check_inside(ty)?;
+            }
+            Ok(())
+        }
         Type::Literal(literal) => check_literal(literal),
         Type::Generic { bounds, function } => {
             if !matches!(**function, Type::Function { .. }) {
@@ -179,6 +221,37 @@ fn check_tuple(members: usize) -> Result<(), BuildError> {
         return Err(BuildError::ShortTuple);
     }
     Ok(())
+}
+
+/// [`check_pattern`], of a pattern of a type match: its types may be
+/// inside a generic function type.
+fn check_type_pattern<'a>(
+    pattern: &'a Pattern,
+    bound: &mut BTreeSet<&'a String>,
+) -> Result<(), BuildError> {
+    match pattern {
+        Pattern::Is(ty) => check_inside(ty),
+        Pattern::Record(fields) => {
+            check_fields(fields.iter().map(|(name, _)| name))?;
+            fields
+                .iter()
+                .try_for_each(|(_, pattern)| check_type_pattern(pattern, bound))
+        }
+        Pattern::Tuple(members) => {
+            check_tuple(members.len())?;
+            members
+                .iter()
+                .try_for_each(|member| check_type_pattern(member, bound))
+        }
+        Pattern::Bind(name, inner) => {
+            check_name(name)?;
+            if !bound.insert(name) {
+                return Err(BuildError::DuplicateBinder(name.clone()));
+            }
+            check_type_pattern(inner, bound)
+        }
+        Pattern::Wildcard | Pattern::Literal(_) => check_pattern(pattern, bound),
+    }
 }
 
 pub(super) fn check_pattern<'a>(

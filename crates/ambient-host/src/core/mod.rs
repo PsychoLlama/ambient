@@ -81,6 +81,17 @@ pub enum Type {
     /// A type parameter of a generic function type this is inside,
     /// counted from the innermost.
     Bound(usize),
+    /// A type computed from its subject by arms, each a pattern and the
+    /// type it gives: see "Type matches" in `docs/spec/types.md`. A tree
+    /// holds one only where a type parameter keeps it from being
+    /// decided.
+    Match {
+        subject: Box<Type>,
+        arms: Vec<(Pattern, Type)>,
+    },
+    /// What a binder of an arm of a type match this is inside stands
+    /// for, counted from the innermost arm's first binder.
+    Matched(usize),
 }
 
 impl Type {

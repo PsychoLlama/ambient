@@ -6,7 +6,7 @@
 use std::fmt::Write as _;
 
 use super::Ty;
-use crate::surface::{Key, Members, Reference};
+use crate::surface::{Key, Members, Reference, TypeMatch};
 
 fn ability_name(ability: &Reference) -> &str {
     match ability {
@@ -93,12 +93,66 @@ fn show_alternative(ty: &Ty, out: &mut String) {
     }
 }
 
+/// A pattern of a type match as an error message shows it: its
+/// binders by place, as the arm's type names them.
+fn show_pattern(pattern: &crate::surface::Pattern<Reference>, out: &mut String) {
+    use crate::surface::Pattern;
+    match pattern {
+        Pattern::Wildcard => out.push('_'),
+        Pattern::Literal(literal) => {
+            let _ = write!(out, "{literal}");
+        }
+        Pattern::Is(ty) => show(ty, out),
+        Pattern::Bind(_, inner) => {
+            out.push_str("let ");
+            show_pattern(inner, out);
+        }
+        Pattern::Tuple(members) => {
+            out.push('(');
+            for (index, member) in members.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                show_pattern(member, out);
+            }
+            out.push(')');
+        }
+        Pattern::Record(fields) => {
+            out.push('{');
+            for (index, (name, inner)) in fields.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                let _ = write!(out, "{name}: ");
+                show_pattern(inner, out);
+            }
+            out.push('}');
+        }
+    }
+}
+
 /// A type as an error message shows it.
 #[must_use]
 pub fn shown(ty: &Ty) -> String {
     let mut out = String::new();
     show(ty, &mut out);
     out
+}
+
+/// A type match as it is written.
+fn show_match(matching: &TypeMatch<Reference>, out: &mut String) {
+    out.push_str("match ");
+    show(&matching.subject, out);
+    out.push_str(" { ");
+    for (index, (pattern, ty)) in matching.arms.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        show_pattern(pattern, out);
+        out.push_str(" => ");
+        show(ty, out);
+    }
+    out.push_str(" }");
 }
 
 fn show(ty: &Ty, out: &mut String) {
@@ -179,6 +233,10 @@ fn show(ty: &Ty, out: &mut String) {
         Ty::Bound(index) => {
             let _ = write!(out, "G{index}");
         }
+        Ty::Matched(index) => {
+            let _ = write!(out, "M{index}");
+        }
+        Ty::Match(matching) => show_match(matching, out),
         Ty::Named(Reference::Local(number) | Reference::Parameter(number), _) => {
             let _ = write!(out, "T{number}");
         }

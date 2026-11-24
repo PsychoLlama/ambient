@@ -3,7 +3,7 @@
 
 use super::{Invalid, Verifier};
 use crate::core::{self, Slot};
-use crate::surface::{Key, Reference};
+use crate::surface::{Key, Pattern, Reference, TypeMatch};
 use crate::symbol::Symbol;
 use crate::types::Ty;
 
@@ -64,8 +64,41 @@ pub(super) fn raise(ty: &core::Type, slots: &[Symbol]) -> Result<Ty, Invalid> {
             function: one(function)?,
         },
         core::Type::Bound(index) => Ty::Bound(*index),
+        core::Type::Matched(index) => Ty::Matched(*index),
+        core::Type::Match { subject, arms } => Ty::Match(Box::new(TypeMatch {
+            subject: raise(subject, slots)?,
+            arms: arms
+                .iter()
+                .map(|(pattern, ty)| Ok((raise_pattern(pattern, slots)?, raise(ty, slots)?)))
+                .collect::<Result<_, Invalid>>()?,
+        })),
         core::Type::Parameter(position) => Ty::Named(Reference::Parameter(*position), Vec::new()),
         core::Type::Reference(slot, args) => Ty::Named(name(slot)?, all(args)?),
+    })
+}
+
+/// A core pattern of a type match as the relations between types read
+/// one. A binder has no name, and needs none.
+fn raise_pattern(pattern: &core::Pattern, slots: &[Symbol]) -> Result<Pattern<Reference>, Invalid> {
+    Ok(match pattern {
+        core::Pattern::Wildcard => Pattern::Wildcard,
+        core::Pattern::Literal(literal) => Pattern::Literal(literal.clone()),
+        core::Pattern::Is(ty) => Pattern::Is(raise(ty, slots)?),
+        core::Pattern::Bind(inner) => {
+            Pattern::Bind(String::new(), Box::new(raise_pattern(inner, slots)?))
+        }
+        core::Pattern::Tuple(members) => Pattern::Tuple(
+            members
+                .iter()
+                .map(|member| raise_pattern(member, slots))
+                .collect::<Result<_, _>>()?,
+        ),
+        core::Pattern::Record(fields) => Pattern::Record(
+            fields
+                .iter()
+                .map(|(name, inner)| Ok((name.clone(), raise_pattern(inner, slots)?)))
+                .collect::<Result<_, Invalid>>()?,
+        ),
     })
 }
 
@@ -131,8 +164,19 @@ impl Verifier<'_> {
             | Ty::Tag
             | Ty::Callable
             | Ty::Bound(_)
+            | Ty::Matched(_)
             | Ty::Brand(_)
             | Ty::Literal(_) => Ok(()),
+            Ty::Match(matching) => {
+                self.well_formed(&matching.subject)?;
+                for (pattern, ty) in &matching.arms {
+                    for tested in pattern.tested() {
+                        self.well_formed(tested)?;
+                    }
+                    self.well_formed(ty)?;
+                }
+                Ok(())
+            }
             // Brands are on a type that is none itself.
             Ty::Branded(ty, brands) => {
                 let marks = brands.iter().all(|brand| matches!(brand, Ty::Brand(_)));

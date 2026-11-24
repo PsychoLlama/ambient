@@ -1,7 +1,7 @@
 //! Type constructors.
 
 use crate::literal::Literal;
-use crate::surface::{Key, Path, Type};
+use crate::surface::{Key, Path, Pattern, Type, TypeMatch};
 
 #[must_use]
 pub fn never() -> Type {
@@ -196,4 +196,63 @@ pub fn method(needs: Type, function: Type) -> Type {
         needs: Box::new(needs),
         function: Box::new(function),
     }
+}
+
+/// A type match: `subject`, and arms that each give a type for what
+/// their pattern matched. An arm's type names each binder of its
+/// pattern by the name it binds. See "Type matches" in
+/// `docs/spec/types.md`.
+pub fn matching(subject: Type, arms: impl IntoIterator<Item = (Pattern, Type)>) -> Type {
+    let arms = arms.into_iter().map(|(pattern, ty)| {
+        let mut names = Vec::new();
+        binders(&pattern, &mut names);
+        let ty = named_binders(&ty, &names, 0);
+        (pattern, ty)
+    });
+    Type::Match(Box::new(TypeMatch {
+        subject,
+        arms: arms.collect(),
+    }))
+}
+
+/// The names `pattern` binds, in binding order.
+fn binders<'a>(pattern: &'a Pattern, names: &mut Vec<&'a str>) {
+    match pattern {
+        Pattern::Wildcard | Pattern::Literal(_) | Pattern::Is(_) => {}
+        Pattern::Bind(name, inner) => {
+            names.push(name);
+            binders(inner, names);
+        }
+        Pattern::Tuple(members) => members.iter().for_each(|member| binders(member, names)),
+        Pattern::Record(fields) => fields.iter().for_each(|(_, inner)| binders(inner, names)),
+    }
+}
+
+/// `ty` with each name of `names` it holds replaced by the binder it
+/// names, inside `depth` binders of arms it is within.
+fn named_binders(ty: &Type, names: &[&str], depth: usize) -> Type {
+    ty.rewrite(0, &|ty, _| match ty {
+        Type::Named(Path(segments), args) if args.is_empty() => {
+            let [name] = segments.as_slice() else {
+                return None;
+            };
+            // A later binder of the same name is the one named.
+            let position = names.iter().rposition(|binder| binder == name)?;
+            Some(Type::Matched(depth + position))
+        }
+        Type::Match(inner) => Some(Type::Match(Box::new(TypeMatch {
+            subject: named_binders(&inner.subject, names, depth),
+            arms: inner
+                .arms
+                .iter()
+                .map(|(pattern, arm)| {
+                    let pattern =
+                        pattern.retyped(0, &|tested, _| Some(named_binders(tested, names, depth)));
+                    let inside = depth + pattern.binders();
+                    (pattern, named_binders(arm, names, inside))
+                })
+                .collect(),
+        }))),
+        _ => None,
+    })
 }

@@ -152,6 +152,18 @@ impl Env {
                 all(bounds, at.of(Variance::Invariant));
                 self.varies(function, at, found);
             }
+            // A type match left open is related only to itself.
+            Ty::Match(matching) => {
+                let at = at.of(Variance::Invariant);
+                self.varies(&matching.subject, at, found);
+                for (pattern, ty) in &matching.arms {
+                    pattern
+                        .tested()
+                        .into_iter()
+                        .for_each(|tested| self.varies(tested, at, found));
+                    self.varies(ty, at, found);
+                }
+            }
             _ => {}
         }
     }

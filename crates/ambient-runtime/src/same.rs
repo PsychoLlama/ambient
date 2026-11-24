@@ -235,7 +235,7 @@ impl Types {
                 // the two are compared from the outside in.
                 d::BOUND | d::HANDLE => word(left, 1) == word(right, 1),
                 // Nothing is known of a parameter read outside any scope.
-                d::PARAMETER => false,
+                d::PARAMETER | d::OPAQUE => false,
                 _ => true,
             }
         }

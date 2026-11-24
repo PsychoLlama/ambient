@@ -96,6 +96,7 @@ impl fmt::Display for Error {
             | Self::Untestable { .. }
             | Self::AsksAFunction { .. }
             | Self::Uncontractive(_)
+            | Self::MatchesItself(_)
             | Self::NotExhaustive { .. }
             | Self::UnreachableArm { .. }
             | Self::NoFallback { .. } => self.fmt_type(f),
@@ -154,6 +155,9 @@ impl Error {
                     f,
                     "{symbol}: a recursive type must pass through a constructor"
                 )
+            }
+            Self::MatchesItself(symbol) => {
+                write!(f, "{symbol}: a type match may not name the type it is in")
             }
             _ => Ok(()),
         }

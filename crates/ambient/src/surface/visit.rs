@@ -1,6 +1,6 @@
 //! Walking surface trees: the names in one, and how many binders it has.
 
-use super::{Definition, DefinitionKind, Expr, Function, Key, Pattern, Type};
+use super::{Definition, DefinitionKind, Expr, Function, Key, Type, TypeMatch};
 
 impl<N> Key<N> {
     fn names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
@@ -25,8 +25,16 @@ impl<N> Type<N> {
             | Self::Tag
             | Self::Callable
             | Self::Bound(_)
+            | Self::Matched(_)
             | Self::Brand(_)
             | Self::Literal(_) => {}
+            Self::Match(matching) => {
+                matching.subject.names(visit);
+                for (pattern, ty) in &matching.arms {
+                    pattern.names(visit);
+                    ty.names(visit);
+                }
+            }
             Self::Record(fields) => {
                 for (key, ty) in fields {
                     key.names(visit);
@@ -73,13 +81,18 @@ impl<N> Type<N> {
     }
 }
 
+/// What [`Type::rewrite`] passes each type through: what to put in its
+/// place, or nothing to keep it, told how many generic parameters are
+/// bound around it.
+pub type Leaf<'a, N> = dyn Fn(&Type<N>, usize) -> Option<Type<N>> + 'a;
+
 impl<N: Clone> Type<N> {
     /// The type with every type in it passed through `leaf`, which
     /// gives what to put in its place or nothing to keep it. `leaf` is
     /// told how many parameters of generic function types are bound
     /// around the type it is asked about: `depth`, and more inside.
     #[must_use]
-    pub fn rewrite(&self, depth: usize, leaf: &dyn Fn(&Self, usize) -> Option<Self>) -> Self {
+    pub fn rewrite(&self, depth: usize, leaf: &Leaf<'_, N>) -> Self {
         if let Some(replaced) = leaf(self, depth) {
             return replaced;
         }
@@ -112,6 +125,14 @@ impl<N: Clone> Type<N> {
                 bounds: all(bounds, depth + bounds.len()),
                 function: one(function, depth + bounds.len()),
             },
+            Self::Match(matching) => Self::Match(Box::new(TypeMatch {
+                subject: matching.subject.rewrite(depth, leaf),
+                arms: matching
+                    .arms
+                    .iter()
+                    .map(|(pattern, ty)| (pattern.retyped(depth, leaf), ty.rewrite(depth, leaf)))
+                    .collect(),
+            })),
             _ => self.clone(),
         }
     }
@@ -138,19 +159,6 @@ impl<N: Clone> Type<N> {
             None
         });
         !free.get()
-    }
-}
-
-impl<N> Pattern<N> {
-    /// Calls `visit` with every name in the pattern's types, in order.
-    pub fn names<'a>(&'a self, visit: &mut impl FnMut(&'a N)) {
-        match self {
-            Self::Wildcard | Self::Literal(_) => {}
-            Self::Record(fields) => fields.iter().for_each(|(_, p)| p.names(visit)),
-            Self::Tuple(members) => members.iter().for_each(|p| p.names(visit)),
-            Self::Is(ty) => ty.names(visit),
-            Self::Bind(_, inner) => inner.names(visit),
-        }
     }
 }
 
@@ -208,19 +216,6 @@ impl<N> Expr<N> {
             _ => {}
         }
         self.children(&mut |child| child.names(visit));
-    }
-}
-
-impl<N> Pattern<N> {
-    /// How many names the pattern binds.
-    #[must_use]
-    pub fn binders(&self) -> usize {
-        match self {
-            Self::Wildcard | Self::Literal(_) | Self::Is(_) => 0,
-            Self::Record(fields) => fields.iter().map(|(_, p)| p.binders()).sum(),
-            Self::Tuple(members) => members.iter().map(Self::binders).sum(),
-            Self::Bind(_, inner) => 1 + inner.binders(),
-        }
     }
 }
 

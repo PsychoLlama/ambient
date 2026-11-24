@@ -43,7 +43,7 @@ pub type Dropped = unsafe extern "C" fn(number: u64);
 #[macro_export]
 macro_rules! layout {
     () => {
-        33
+        34
     };
 }
 

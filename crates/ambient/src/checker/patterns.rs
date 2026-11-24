@@ -23,6 +23,8 @@ impl Checker<'_> {
             return self.ascribed(subject, stated, &arm.body, expected);
         }
         let (subject, mut remaining) = self.infer(subject)?;
+        let whole = remaining.clone();
+        let mut tests = Vec::new();
         let mut core_arms = Vec::new();
         let mut results = Vec::new();
         for (index, arm) in arms.iter().enumerate() {
@@ -43,7 +45,11 @@ impl Checker<'_> {
                     Error::UnreachableArm { symbol, arm: index }
                 });
             };
-            let pattern = self.bind(&matched, &asked);
+            tests.push(asked.clone());
+            // A binder of what an open type narrows to is the type match
+            // that picks it out.
+            let picked = self.env.picked(&whole, &tests, index).unwrap_or_default();
+            let pattern = self.bind(&matched, &asked, &mut picked.into_iter());
             let (body, ty) = self.infer_to(&arm.body, expected)?;
             core_arms.push((pattern, body));
             results.push(ty);
@@ -211,8 +217,14 @@ impl Checker<'_> {
     }
 
     /// Gives every binder in `pattern` its type, in binding order, and
-    /// returns the core pattern. `ty` is what the pattern matched.
-    pub(super) fn bind(&mut self, ty: &Ty, pattern: &Pat) -> core::Pattern {
+    /// returns the core pattern. `ty` is what the pattern matched; a
+    /// binder `given` holds a type for has that type instead.
+    fn bind(
+        &mut self,
+        ty: &Ty,
+        pattern: &Pat,
+        given: &mut dyn Iterator<Item = Ty>,
+    ) -> core::Pattern {
         // A binder holds the type by the name it had, so that it is
         // still the type definition it was, with its methods.
         let named = ty;
@@ -225,8 +237,8 @@ impl Checker<'_> {
                 core::Pattern::Is(self.lower(&tested))
             }
             Pattern::Bind(_, inner) => {
-                self.bind_local(named.clone());
-                core::Pattern::Bind(Box::new(self.bind(named, inner)))
+                self.bind_local(given.next().unwrap_or_else(|| named.clone()));
+                core::Pattern::Bind(Box::new(self.bind(named, inner, given)))
             }
             Pattern::Record(patterns) => core::Pattern::Record(
                 patterns
@@ -234,7 +246,7 @@ impl Checker<'_> {
                     .map(|(name, pattern)| {
                         let key = Key::Field(name.clone());
                         let member = self.env.field(&ty, &key).unwrap_or(Ty::Unknown);
-                        (name.clone(), self.bind(&member, pattern))
+                        (name.clone(), self.bind(&member, pattern, given))
                     })
                     .collect(),
             ),
@@ -244,7 +256,7 @@ impl Checker<'_> {
                     .enumerate()
                     .map(|(index, pattern)| {
                         let member = self.env.member(&ty, index);
-                        self.bind(&member, pattern)
+                        self.bind(&member, pattern, given)
                     })
                     .collect(),
             ),

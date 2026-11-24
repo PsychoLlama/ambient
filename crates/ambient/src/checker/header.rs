@@ -190,6 +190,15 @@ pub(super) fn visit_types(ty: &Ty, visit: &mut impl FnMut(&Ty)) {
             }
             visit_types(function, visit);
         }
+        Ty::Match(matching) => {
+            visit_types(&matching.subject, visit);
+            for (pattern, ty) in &matching.arms {
+                for tested in pattern.tested() {
+                    visit_types(tested, visit);
+                }
+                visit_types(ty, visit);
+            }
+        }
         _ => {}
     }
 }

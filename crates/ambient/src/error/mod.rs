@@ -252,6 +252,9 @@ pub enum Error {
     UntypedParameter { symbol: Symbol, name: String },
     /// A recursive type that never reaches a constructor.
     Uncontractive(Symbol),
+    /// A type match that names the type definition it is in, however
+    /// indirectly.
+    MatchesItself(Symbol),
     /// A cast or a pattern tests for a function type that mentions a
     /// type parameter, which no function says it is of.
     Untestable { symbol: Symbol, found: String },
@@ -312,6 +315,7 @@ impl Error {
             | Self::ComptimeAbilities(symbol)
             | Self::EntryAbilities(symbol)
             | Self::Uncontractive(symbol)
+            | Self::MatchesItself(symbol)
             | Self::Nesting(symbol)
             | Self::NotCompilable(symbol)
             | Self::ComptimeFault {

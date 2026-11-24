@@ -2,12 +2,37 @@
 
 use super::Resolver;
 use crate::error::Error;
-use crate::surface::{Reference, Type};
+use crate::surface::{Pattern, Reference, Type, TypeMatch};
 use crate::symbol::Namespace;
 
 impl Resolver<'_> {
     pub(super) fn types(&self, types: &[Type]) -> Result<Vec<Type<Reference>>, Error> {
         types.iter().map(|ty| self.ty(ty)).collect()
+    }
+
+    /// A pattern of a type match resolved. Its binders bind no local:
+    /// the arm's type names each by its place (`Type::Matched`).
+    fn type_pattern(&self, pattern: &Pattern) -> Result<Pattern<Reference>, Error> {
+        Ok(match pattern {
+            Pattern::Wildcard => Pattern::Wildcard,
+            Pattern::Literal(literal) => Pattern::Literal(literal.clone()),
+            Pattern::Record(fields) => Pattern::Record(
+                fields
+                    .iter()
+                    .map(|(name, pattern)| Ok((name.clone(), self.type_pattern(pattern)?)))
+                    .collect::<Result<_, Error>>()?,
+            ),
+            Pattern::Tuple(members) => Pattern::Tuple(
+                members
+                    .iter()
+                    .map(|member| self.type_pattern(member))
+                    .collect::<Result<_, Error>>()?,
+            ),
+            Pattern::Is(ty) => Pattern::Is(self.ty(ty)?),
+            Pattern::Bind(name, inner) => {
+                Pattern::Bind(name.clone(), Box::new(self.type_pattern(inner)?))
+            }
+        })
     }
 
     pub(super) fn ty(&self, ty: &Type) -> Result<Type<Reference>, Error> {
@@ -46,6 +71,15 @@ impl Resolver<'_> {
             },
             Type::Union(members) => Type::Union(self.types(members)?),
             Type::Bound(index) => Type::Bound(*index),
+            Type::Matched(index) => Type::Matched(*index),
+            Type::Match(matching) => Type::Match(Box::new(TypeMatch {
+                subject: self.ty(&matching.subject)?,
+                arms: matching
+                    .arms
+                    .iter()
+                    .map(|(pattern, ty)| Ok((self.type_pattern(pattern)?, self.ty(ty)?)))
+                    .collect::<Result<_, Error>>()?,
+            })),
             Type::Generic { bounds, function } => Type::Generic {
                 bounds: self.types(bounds)?,
                 function: Box::new(self.ty(function)?),

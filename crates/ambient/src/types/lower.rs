@@ -5,7 +5,7 @@
 
 use super::{Env, Ty, TyKey, abilities};
 use crate::core::{self, Slot};
-use crate::surface::{Key, Reference};
+use crate::surface::{Key, Pattern, Reference};
 use crate::symbol::Symbol;
 
 /// The slot a symbol has in the table of the definition being made.
@@ -52,6 +52,30 @@ impl Env {
             Key::Field(name) => core::Key::Field(name.clone()),
             // Resolution only ever names an ability here.
             Key::Ability(_) => core::Key::Field(String::new()),
+        }
+    }
+
+    /// A normalized pattern as a core pattern.
+    pub fn lower_pattern(&self, pattern: &Pattern<Reference>, slot: Slots<'_>) -> core::Pattern {
+        match pattern {
+            Pattern::Wildcard => core::Pattern::Wildcard,
+            Pattern::Literal(literal) => core::Pattern::Literal(literal.clone()),
+            Pattern::Is(ty) => core::Pattern::Is(self.lower(ty, slot)),
+            Pattern::Bind(_, inner) => {
+                core::Pattern::Bind(Box::new(self.lower_pattern(inner, slot)))
+            }
+            Pattern::Tuple(members) => core::Pattern::Tuple(
+                members
+                    .iter()
+                    .map(|member| self.lower_pattern(member, slot))
+                    .collect(),
+            ),
+            Pattern::Record(fields) => core::Pattern::Record(
+                fields
+                    .iter()
+                    .map(|(name, inner)| (name.clone(), self.lower_pattern(inner, slot)))
+                    .collect(),
+            ),
         }
     }
 
@@ -103,6 +127,15 @@ impl Env {
                 row: self.row(&abilities(row)).iter().map(slot).collect(),
             },
             Ty::Bound(index) => core::Type::Bound(*index),
+            Ty::Matched(index) => core::Type::Matched(*index),
+            Ty::Match(matching) => core::Type::Match {
+                subject: Box::new(self.lower(&matching.subject, slot)),
+                arms: matching
+                    .arms
+                    .iter()
+                    .map(|(pattern, ty)| (self.lower_pattern(pattern, slot), self.lower(ty, slot)))
+                    .collect(),
+            },
             Ty::Generic { bounds, function } => core::Type::Generic {
                 bounds: all(bounds),
                 function: Box::new(self.lower(function, slot)),

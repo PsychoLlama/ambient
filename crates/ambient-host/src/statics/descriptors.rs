@@ -30,7 +30,10 @@ fn node_size(ty: &Type) -> usize {
         | Type::String
         | Type::Bytes
         | Type::Tag
-        | Type::Callable => 1,
+        | Type::Callable
+        // A type match left open is opaque: one word that nothing passes.
+        | Type::Match { .. }
+        | Type::Matched(_) => 1,
         // A brand on a type is not there as a program runs.
         Type::Branded(ty, _) => node_size(ty),
         Type::Function { params, row, .. } => 5 + params.len() + row.len(),
@@ -103,6 +106,9 @@ impl Statics {
         let tag = |statics: &mut Self, tag| statics.set(at, Field::Word(tag));
         match ty {
             Type::Never => tag(self, d::NEVER),
+            // Nothing that runs decides a type match: see "Type
+            // matches" in `docs/spec/backends.md`.
+            Type::Match { .. } | Type::Matched(_) => tag(self, d::OPAQUE),
             Type::Brand(brand) => {
                 tag(self, d::HANDLE);
                 let text = Literal::tag_text(&brand.package, &brand.brand);

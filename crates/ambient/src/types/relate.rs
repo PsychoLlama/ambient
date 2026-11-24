@@ -135,6 +135,45 @@ impl Env {
 
     /// `proof` holds the judgements this one is being proved under.
     /// Meeting one again proves it: subtyping is coinductive.
+    /// Whether `sub` is within `sup`, one of which is a use of a type
+    /// definition: by arguments, or by unfolding under an assumption.
+    fn sub_named(&self, sub: &Ty, sup: &Ty, proof: &mut Proof) -> bool {
+        // Two uses of one definition are compared by their
+        // arguments first, and only so if unfolding it may not end.
+        match self.by_arguments(sub, sup, proof) {
+            Some(true) => return true,
+            Some(false) if !self.unfolds(sub) => return false,
+            _ => {}
+        }
+        let judgement = (sub.clone(), sup.clone());
+        if proof.assumed.contains(&judgement) {
+            return true;
+        }
+        let ends = self.unfolds(sub) && self.unfolds(sup);
+        let far = if ends {
+            proof.depth >= DEPTH
+        } else {
+            proof.assumed.len() >= SHALLOW
+        };
+        if far {
+            return false;
+        }
+        let (below, above) = (self.unfold(sub), self.unfold(sup));
+        if below == *sub && above == *sup {
+            return false;
+        }
+        let made = proof.assumed.len();
+        proof.assumed.push(judgement);
+        proof.depth += 1;
+        let holds = self.sub(&below, &above, proof);
+        proof.depth -= 1;
+        if !holds {
+            // A judgement that failed must not stay assumed.
+            proof.assumed.truncate(made);
+        }
+        holds
+    }
+
     fn sub(&self, sub: &Ty, sup: &Ty, proof: &mut Proof) -> bool {
         // Every function is one, whatever its type.
         let function = matches!(sub, Ty::Function { .. } | Ty::Generic { .. });
@@ -144,42 +183,7 @@ impl Env {
         match (sub, sup) {
             (Ty::Never, _) | (_, Ty::Unknown) => true,
             (Ty::Named(Reference::Definition(_), _), _)
-            | (_, Ty::Named(Reference::Definition(_), _)) => {
-                // Two uses of one definition are compared by their
-                // arguments first, and only so if unfolding it may not end.
-                match self.by_arguments(sub, sup, proof) {
-                    Some(true) => return true,
-                    Some(false) if !self.unfolds(sub) => return false,
-                    _ => {}
-                }
-                let judgement = (sub.clone(), sup.clone());
-                if proof.assumed.contains(&judgement) {
-                    return true;
-                }
-                let ends = self.unfolds(sub) && self.unfolds(sup);
-                let far = if ends {
-                    proof.depth >= DEPTH
-                } else {
-                    proof.assumed.len() >= SHALLOW
-                };
-                if far {
-                    return false;
-                }
-                let (below, above) = (self.unfold(sub), self.unfold(sup));
-                if below == *sub && above == *sup {
-                    return false;
-                }
-                let made = proof.assumed.len();
-                proof.assumed.push(judgement);
-                proof.depth += 1;
-                let holds = self.sub(&below, &above, proof);
-                proof.depth -= 1;
-                if !holds {
-                    // A judgement that failed must not stay assumed.
-                    proof.assumed.truncate(made);
-                }
-                holds
-            }
+            | (_, Ty::Named(Reference::Definition(_), _)) => self.sub_named(sub, sup, proof),
             (Ty::Union(members), _) => members.iter().all(|m| self.sub(m, sup, proof)),
             // A type parameter is known only by its bound.
             (Ty::Named(Reference::Parameter(position), _), _) => {
@@ -188,6 +192,14 @@ impl Env {
                 let bound = self.bound(*position).or_else(opened);
                 member || bound.is_some_and(|bound| self.sub(&bound, sup, proof))
             }
+            // A type match left open is within what it gives with its
+            // parameters at their bounds, and nothing but itself is
+            // within it.
+            (Ty::Match(matching), _) => {
+                let member = matches!(sup, Ty::Union(members) if members.contains(sub));
+                member || self.sub(&self.upper(matching), sup, proof)
+            }
+            (_, Ty::Match(_)) => false,
             (Ty::Bool, Ty::Union(_)) => self.sub(&booleans(), sup, proof),
             (_, Ty::Union(members)) => members.iter().any(|m| self.sub(sub, m, proof)),
             // A branded value is one of the type under its brands, and
@@ -282,8 +294,11 @@ impl Env {
             | (other, Ty::Named(Reference::Parameter(position), _)) => self
                 .bound(*position)
                 .is_some_and(|bound| self.apart(&bound, other, next)),
-            (Ty::Unknown | Ty::Named(..), _)
-            | (_, Ty::Unknown | Ty::Named(..))
+            (Ty::Match(matching), other) | (other, Ty::Match(matching)) => {
+                self.apart(&self.upper(matching), other, next)
+            }
+            (Ty::Unknown | Ty::Named(..) | Ty::Matched(_), _)
+            | (_, Ty::Unknown | Ty::Named(..) | Ty::Matched(_))
             | (Ty::List(_), Ty::List(_))
             | (Ty::Iterator(_), Ty::Iterator(_))
             | (Ty::Generic { .. }, Ty::Generic { .. })

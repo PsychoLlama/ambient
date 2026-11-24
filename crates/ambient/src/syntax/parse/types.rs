@@ -1,6 +1,7 @@
 //! Types, rows, and type parameters.
 
 use super::super::lex::Token;
+use super::patterns::Mode;
 use super::{Parsed, Parser};
 use crate::builder::ty;
 use crate::literal::Literal;
@@ -168,6 +169,10 @@ impl Parser {
             self.advance();
             return self.function_type();
         }
+        if word == "match" {
+            self.advance();
+            return self.type_match();
+        }
         let path = self.path()?;
         let args = if self.eat("<") {
             self.list(">", Self::ty)?
@@ -329,5 +334,19 @@ impl Parser {
             },
         };
         Ok((key, ty::method(needs, Self::function_of(signature))))
+    }
+
+    /// A type match, after `match`: the subject type, and arms of a
+    /// pattern, `=>`, and a type. See "Type matches" in
+    /// `docs/spec/types.md`.
+    fn type_match(&mut self) -> Parsed<Type> {
+        let subject = self.typed(false, Self::ty)?;
+        self.expect("{")?;
+        let arms = self.list("}", |parser| {
+            let pattern = parser.pattern(Mode::Testing, &mut Vec::new())?;
+            parser.expect("=>")?;
+            Ok((pattern, parser.typed(false, Self::ty)?))
+        })?;
+        Ok(ty::matching(subject, arms))
     }
 }

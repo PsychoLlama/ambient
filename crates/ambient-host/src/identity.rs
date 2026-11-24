@@ -98,6 +98,6 @@ fn spell(ty: &Type, hash: &dyn Fn(Slot) -> Hash) -> Option<String> {
             )
         }
         Type::Bound(index) => format!("^{index}"),
-        Type::Parameter(_) => return None,
+        Type::Parameter(_) | Type::Match { .. } | Type::Matched(_) => return None,
     })
 }
