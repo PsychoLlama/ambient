@@ -194,7 +194,12 @@ fn kind(home: Home, fields: &[(core::Key, core::Expr)]) -> Read<DefinitionKind<R
         let count =
             usize::try_from(*count).map_err(|_| format!("a type has {count} parameters"))?;
         DefinitionKind::Type(TypeDefinition {
-            params: (0..count).map(|at| format!("__T{at}")).collect(),
+            params: (0..count)
+                .map(|at| TypeParam {
+                    name: format!("__T{at}"),
+                    bound: None,
+                })
+                .collect(),
             ty: within(home, count, need(fields, "means")?)?,
         })
     })

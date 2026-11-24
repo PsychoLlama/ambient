@@ -39,7 +39,7 @@ impl Checker<'_> {
                     .map(Reference::Definition)
                     .collect(),
             },
-            (_, Some(info)) if info.params == 0 => {
+            (_, Some(info)) if info.bounds.is_empty() => {
                 self.env.normalize(&Ty::Named(name.clone(), Vec::new()))
             }
             _ => return Err(no_tree(format!("`{symbol}`"))),

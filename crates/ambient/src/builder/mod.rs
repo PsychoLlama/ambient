@@ -8,6 +8,7 @@
 mod constant;
 mod definition;
 mod error;
+mod module;
 mod operations;
 pub mod pat;
 pub mod ty;
@@ -16,10 +17,11 @@ mod world;
 
 pub use constant::{ConstantBuilder, constant};
 pub use definition::{
-    AbilityBuilder, FunctionBuilder, ModuleBuilder, Part, ability, brand, contract, derived,
-    function, generated, generates, generic_type, intrinsic, module, tag, type_,
+    AbilityBuilder, FunctionBuilder, ability, bounded_type, brand, contract, derived, function,
+    generated, generates, generic_type, intrinsic, tag, type_,
 };
 pub use error::BuildError;
+pub use module::{ModuleBuilder, Part, module};
 pub use operations::*;
 pub use world::{ExternBuilder, TargetBuilder, native_handler, target};
 

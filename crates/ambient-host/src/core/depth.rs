@@ -144,7 +144,8 @@ impl Tree {
     #[must_use]
     pub fn depth(&self) -> usize {
         match self {
-            Self::Type { ty, .. } | Self::Contract { ty, .. } => ty.depth(),
+            Self::Type { params, ty } => deepest(params).max(ty.depth()),
+            Self::Contract { ty, .. } => ty.depth(),
             Self::Function(Function {
                 type_params,
                 captures,
@@ -155,9 +156,13 @@ impl Tree {
             }) => deepest(type_params.iter().chain(captures).chain(params))
                 .max(ret.depth())
                 .max(body.depth()),
-            Self::Ability { params, ret, .. } | Self::Extern { params, ret, .. } => {
-                deepest(params).max(ret.depth())
-            }
+            Self::Ability {
+                type_params,
+                params,
+                ret,
+                ..
+            } => deepest(type_params.iter().chain(params)).max(ret.depth()),
+            Self::Extern { params, ret, .. } => deepest(params).max(ret.depth()),
             Self::Constant { ty, value } => ty.depth().max(value.depth()),
             Self::Target { .. } => 0,
         }

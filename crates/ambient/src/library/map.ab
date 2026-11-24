@@ -5,7 +5,7 @@ use pkg.intrinsics;
 /// value under it, so reading a key gives the value types of the pairs
 /// that key may match. Changing one gives another and leaves the first
 /// as it was. See `docs/spec/maps.md`.
-pub type Map<E> = {
+pub type Map<E: Any> = {
     tree: Tree<E>,
     // How many keys it has.
     size(self): int,

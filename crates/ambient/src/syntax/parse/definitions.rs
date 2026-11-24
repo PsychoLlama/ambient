@@ -5,7 +5,7 @@ use super::{Parsed, Parser};
 use crate::builder::{self as b, ModuleBuilder, Part};
 use crate::surface::{
     Ability, Annotation, ContractDefinition, Definition, DefinitionKind, Expr, Extern, Function,
-    GENERATOR, Param, Path, Target, Type, TypeDefinition, constant_name,
+    GENERATOR, Param, Path, Target, Type, TypeDefinition, TypeParam, constant_name,
 };
 use crate::syntax::{Placed, Position, SyntaxError, place};
 
@@ -303,18 +303,14 @@ impl Parser {
             return Ok((name, DefinitionKind::Brand));
         }
         let name = self.name()?;
-        let params = if self.eat("<") {
-            self.list(">", Self::name)?
-        } else {
-            Vec::new()
-        };
+        let params = self.type_params()?;
         self.expect("=")?;
         if params.is_empty() && self.at_word("comptime") {
             let call = self.expr()?;
             self.expect(";")?;
             return Ok((name, DefinitionKind::Derived(call)));
         }
-        let named = |param: &String| Type::Named(Path(vec![param.clone()]), Vec::new());
+        let named = |param: &TypeParam| Type::Named(Path(vec![param.name.clone()]), Vec::new());
         self.own = Some(Type::Named(
             Path(vec![name.clone()]),
             params.iter().map(named).collect(),

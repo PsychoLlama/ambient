@@ -249,9 +249,9 @@ impl<'a> Resolver<'a> {
     fn definition(&mut self, definition: &Definition) -> Result<Definition<Reference>, Error> {
         let kind = match &definition.kind {
             DefinitionKind::Type(definition) => {
-                self.type_params.clone_from(&definition.params);
+                let params = self.type_params(&definition.params)?;
                 DefinitionKind::Type(TypeDefinition {
-                    params: definition.params.clone(),
+                    params,
                     ty: self.ty(&definition.ty)?,
                 })
             }

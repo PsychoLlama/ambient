@@ -206,8 +206,8 @@ pub struct ContractDefinition<N = Path> {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TypeDefinition<N = Path> {
-    /// The names of its type parameters.
-    pub params: Vec<String>,
+    /// Its type parameters, each with its bound if it has one.
+    pub params: Vec<TypeParam<N>>,
     pub ty: Type<N>,
 }
 

@@ -48,6 +48,18 @@ impl Env {
         self.evaluate(&loose, &always.collect::<Vec<_>>())
     }
 
+    /// What an arm of a type match over `subject` gives, with each of
+    /// its binders as what its pattern narrows the subject to, and a
+    /// test of an open type taken to match anything.
+    pub(super) fn arm_known(&self, subject: &Ty, pattern: &Pat, ty: &Ty) -> Ty {
+        let pattern = loosened(pattern);
+        let mut bound = Vec::new();
+        if let Some(matched) = self.narrow(subject, &pattern) {
+            self.binders(&matched, &pattern, &mut bound);
+        }
+        fill(ty, &bound, 0)
+    }
+
     /// Each member of the subject taken by every arm that may match it,
     /// up to the first that always does: the union of what they give.
     /// `last` says which arms may be that first; every arm may if it is

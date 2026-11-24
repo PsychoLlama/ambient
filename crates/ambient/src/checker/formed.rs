@@ -6,7 +6,7 @@ use super::Checker;
 use super::header::visit_types;
 use crate::error::Error;
 use crate::surface::Reference;
-use crate::types::Ty;
+use crate::types::{Ty, Unbounded};
 
 impl Checker<'_> {
     /// Fails if a type applies a definition to the wrong number of
@@ -23,7 +23,7 @@ impl Checker<'_> {
     }
 
     /// Fails if a type applies a definition to the wrong number of
-    /// arguments.
+    /// arguments, or to one outside the bound of its parameter.
     pub(super) fn well_formed(&self, ty: &Ty) -> Result<(), Error> {
         let mut result = Ok(());
         visit_types(ty, &mut |ty| {
@@ -43,7 +43,9 @@ impl Checker<'_> {
             }
             let Ty::Named(name, args) = ty else { return };
             let expected = match name {
-                Reference::Definition(symbol) => self.env.types.get(symbol).map(|info| info.params),
+                Reference::Definition(symbol) => {
+                    self.env.types.get(symbol).map(|info| info.bounds.len())
+                }
                 Reference::Local(_) | Reference::Parameter(_) => Some(0),
             };
             if let Some(expected) = expected
@@ -56,6 +58,10 @@ impl Checker<'_> {
                 });
             }
         });
-        result
+        result?;
+        match self.env.unbounded(ty) {
+            Some(Unbounded { bound, found }) => Err(self.mismatch(&bound, &found)),
+            None => Ok(()),
+        }
     }
 }

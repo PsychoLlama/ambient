@@ -126,7 +126,8 @@ pub fn verify(open: &Open, root: bool, lookup: Lookup<'_>) -> Result<(), Invalid
     verifier.gather(lookup)?;
     match &open.tree {
         Tree::Type { params, ty } => {
-            verifier.env.bounds = vec![Ty::Unknown; *params];
+            verifier.env.bounds = vec![Ty::Unknown; params.len()];
+            verifier.env.bounds = verifier.sound_all(params)?;
             verifier.sound(ty).map(drop)
         }
         Tree::Ability {
@@ -254,7 +255,7 @@ impl Verifier<'_> {
         match &target.tree {
             Tree::Type { params, ty } => {
                 let info = TypeInfo {
-                    params: *params,
+                    bounds: all(params)?,
                     ty: raise(ty)?,
                     recursive: true,
                     variance: Vec::new(),

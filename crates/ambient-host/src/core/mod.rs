@@ -408,8 +408,9 @@ pub struct Function {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Tree {
     Type {
-        /// How many type parameters the definition takes.
-        params: usize,
+        /// The bound of each type parameter the definition takes:
+        /// `unknown` for one written without.
+        params: Vec<Type>,
         ty: Type,
     },
     Function(Function),

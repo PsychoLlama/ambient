@@ -43,6 +43,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - A group nests, and `self` in one is the path the group is under.
 - `pub use` re-exports, and `pub mod` in a library module lists a [public module](packages.md).
 - Type parameters follow a name in angle brackets, each with an optional bound after a colon.
+- Type parameters follow a definition's name in angle brackets, each a name and, after a colon, its bound if it has one: `type Map<E: Entry<Key, unknown>>`, `fn sum<T: int>`. A bound may name any of them.
 - A function's row follows its return type after `with`: abilities, and modules for all of theirs.
 - A [constant](constants.md) is `const`, its name, a colon and its type, `=`, and its value.
 - A constant's name is capital letters, digits, and `_`, and begins with a letter; the reader refuses any other. No other definition's name is held to a case. A name of that form before a `.` is a value, as a local is, so what follows is a field of it; a module imported under such a name is not reached through it.

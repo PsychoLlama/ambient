@@ -61,7 +61,7 @@ impl Env {
             .collect();
         for symbol in bodies.keys() {
             if let Some(info) = self.types.get_mut(symbol) {
-                info.variance = vec![Variance::Unused; info.params];
+                info.variance = vec![Variance::Unused; info.bounds.len()];
             }
         }
         // The least answer that holds: each pass can only find more ways

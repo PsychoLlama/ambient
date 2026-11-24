@@ -12,22 +12,30 @@ use crate::types::{Env, Ty, abilities};
 ///
 /// # Errors
 ///
-/// Fails if the type is ill-formed, or recursive without passing
-/// through a constructor.
+/// Fails if the type or a bound is ill-formed, or the type is
+/// recursive without passing through a constructor.
 pub fn check_type(
     symbol: &Symbol,
     definition: &TypeDefinition<Reference>,
-    env: &Env,
+    mut env: Env,
 ) -> Result<Open, Error> {
-    contractive(symbol, &definition.ty, env, &mut vec![symbol.clone()])?;
-    let mut checker = Checker::new(symbol, env);
+    contractive(symbol, &definition.ty, &env, &mut vec![symbol.clone()])?;
+    // Inside the definition each parameter is known by its bound, which
+    // may name any of them.
+    env.bounds = vec![Ty::Unknown; definition.params.len()];
+    let mut bounds = Vec::new();
+    for param in &definition.params {
+        let bound = param.bound.clone().unwrap_or(Ty::Unknown);
+        Checker::new(symbol, &env).well_formed(&bound)?;
+        bounds.push(env.normalize(&bound));
+    }
+    env.bounds.clone_from(&bounds);
+    let mut checker = Checker::new(symbol, &env);
     checker.well_formed(&definition.ty)?;
+    let params = bounds.iter().map(|bound| checker.lower(bound)).collect();
     let ty = checker.lower(&env.normalize(&definition.ty));
     Ok(Open {
-        tree: Tree::Type {
-            params: definition.params.len(),
-            ty,
-        },
+        tree: Tree::Type { params, ty },
         slots: checker.finish().slots,
         lambdas: Vec::new(),
         annotations: Vec::new(),
@@ -141,17 +149,21 @@ pub(super) fn header(
     function: &Function<Reference>,
     env: &mut Env,
 ) -> Result<Header, Error> {
-    let checker = Checker::new(symbol, env);
+    // A bound may name any parameter, and is checked before any is
+    // known by its own.
+    env.bounds = vec![Ty::Unknown; function.type_params.len()];
     let mut bounds = Vec::new();
     for param in &function.type_params {
         bounds.push(match &param.bound {
             Some(bound) => {
-                checker.well_formed(bound)?;
+                Checker::new(symbol, env).well_formed(bound)?;
                 env.normalize(bound)
             }
             None => Ty::Unknown,
         });
     }
+    env.bounds = bounds;
+    let checker = Checker::new(symbol, env);
     let mut params = Vec::new();
     for param in &function.params {
         checker.well_formed(&param.ty)?;
@@ -159,7 +171,6 @@ pub(super) fn header(
     }
     checker.well_formed(&function.ret)?;
     let ret = env.normalize(&function.ret);
-    env.bounds = bounds;
     let row = abilities(&function.row);
     Ok(Header { params, ret, row })
 }

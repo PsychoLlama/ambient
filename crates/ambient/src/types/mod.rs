@@ -6,6 +6,7 @@
 //! is transparent and is replaced by its expansion before anything looks at
 //! it.
 
+mod bounded;
 mod generic;
 mod lower;
 mod matching;
@@ -22,6 +23,7 @@ use crate::literal::Literal;
 use crate::surface::{Key, Reference, Shape, Type};
 use crate::symbol::Symbol;
 
+pub use bounded::Unbounded;
 pub use generic::{generalize, instantiate};
 pub use show::shown;
 pub use variance::Variance;
@@ -30,8 +32,9 @@ pub type Ty = Type<Reference>;
 
 #[derive(Clone, Debug)]
 pub struct TypeInfo {
-    /// How many type parameters the definition takes.
-    pub params: usize,
+    /// The bound of each type parameter the definition takes: `unknown`
+    /// for one written without. See "Generics" in `docs/spec/types.md`.
+    pub bounds: Vec<Ty>,
     pub ty: Ty,
     /// Whether the definition can reach itself.
     pub recursive: bool,

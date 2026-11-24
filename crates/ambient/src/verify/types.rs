@@ -112,6 +112,9 @@ impl Verifier<'_> {
             return Err(Invalid::Type);
         }
         self.well_formed(&raised)?;
+        if self.env.unbounded(&raised).is_some() {
+            return Err(Invalid::Type);
+        }
         let normal = self.env.normalize(&raised);
         let mut known = true;
         let written = self.env.lower(&normal, &mut |symbol| {
@@ -225,7 +228,7 @@ impl Verifier<'_> {
             }
             Ty::Named(Reference::Definition(symbol), args) => {
                 let info = self.env.types.get(symbol).ok_or(Invalid::Slot)?;
-                if info.params != args.len() {
+                if info.bounds.len() != args.len() {
                     return Err(Invalid::Arity);
                 }
                 all(args)

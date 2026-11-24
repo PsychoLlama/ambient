@@ -15,7 +15,7 @@ use crate::core::{self, Open, Tree};
 use crate::error::Error;
 use crate::hash::{Hash, Hasher, encode};
 use crate::lower::deep;
-use crate::surface::{DefinitionKind, Function, Reference, TypeDefinition};
+use crate::surface::{DefinitionKind, Function, Reference, TypeDefinition, TypeParam};
 use crate::symbol::{Namespace, Symbol};
 use crate::types::{AbilityInfo, ContractInfo, Env, Ty, TypeInfo};
 
@@ -87,7 +87,7 @@ impl Engine<'_> {
     fn type_info(&self, symbol: &Symbol) -> Query<TypeInfo> {
         memo(&self.type_info, symbol, || {
             let unknown = || Error::UnknownSymbol(symbol.clone());
-            let (params, ty) = self.type_of(symbol)?.ok_or_else(unknown)?;
+            let (bounds, ty) = self.type_of(symbol)?.ok_or_else(unknown)?;
             // Deciding a type match that holds its own definition would
             // not end, so one is refused before anything decides it.
             if self.types_reach(matched_definitions(&ty), symbol)? {
@@ -95,7 +95,7 @@ impl Engine<'_> {
             }
             let recursive = self.types_reach(type_definitions(&ty), symbol)?;
             Ok(Arc::new(TypeInfo {
-                params,
+                bounds,
                 ty,
                 recursive,
                 variance: Vec::new(),
@@ -123,16 +123,21 @@ impl Engine<'_> {
         Ok(false)
     }
 
-    /// What a type definition says its name means, and how many
-    /// parameters it has: the type as written, or the one its call
+    /// What a type definition says its name means, and the bound of
+    /// each of its parameters: the type as written, or the one its call
     /// gave, which may name definitions as a written one does. Nothing,
     /// for a definition that is no type.
-    fn type_of(&self, symbol: &Symbol) -> Result<Option<(usize, Ty)>, Error> {
+    fn type_of(&self, symbol: &Symbol) -> Result<Option<(Vec<Ty>, Ty)>, Error> {
         Ok(match &self.resolve(symbol)?.definition.kind {
             DefinitionKind::Type(definition) => {
-                Some((definition.params.len(), definition.ty.clone()))
+                let bound =
+                    |param: &TypeParam<Reference>| param.bound.clone().unwrap_or(Ty::Unknown);
+                Some((
+                    definition.params.iter().map(bound).collect(),
+                    definition.ty.clone(),
+                ))
             }
-            DefinitionKind::Derived(_) => Some((0, (*self.derived(symbol)?).clone())),
+            DefinitionKind::Derived(_) => Some((Vec::new(), (*self.derived(symbol)?).clone())),
             _ => None,
         })
     }
@@ -146,6 +151,7 @@ impl Engine<'_> {
                 Namespace::Type if !env.types.contains_key(&symbol) => {
                     let info = self.type_info(&symbol)?;
                     pending.extend(type_definitions(&info.ty));
+                    pending.extend(info.bounds.iter().flat_map(type_definitions));
                     env.types.insert(symbol, (*info).clone());
                 }
                 Namespace::Ability if !env.abilities.contains_key(&symbol) => {
@@ -389,7 +395,7 @@ impl Engine<'_> {
                 self.gather(vec![symbol.clone()], &mut env)?;
                 self.reachable(&env, &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
-                    checker::check_type(symbol, definition, &env)
+                    checker::check_type(symbol, definition, env)
                 })
             }
             // A derived type is checked as the type its call gave, which
@@ -404,7 +410,7 @@ impl Engine<'_> {
                 self.gather(vec![symbol.clone()], &mut env)?;
                 self.reachable(&env, &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
-                    checker::check_type(symbol, &definition, &env)
+                    checker::check_type(symbol, &definition, env)
                 })
             }
             DefinitionKind::Ability(ability) => {
