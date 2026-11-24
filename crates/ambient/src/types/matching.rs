@@ -2,7 +2,7 @@
 //! type matches a value match over an open subject gives its binders.
 //! See "Type matches" in `docs/spec/types.md`.
 
-use super::{Env, Ty, field, mentions_parameter};
+use super::{Env, Ty, Variance, field, mentions_parameter};
 use crate::surface::{Key, Pattern, Reference, TypeMatch};
 
 type Pat = Pattern<Reference>;
@@ -24,6 +24,23 @@ impl Env {
     #[must_use]
     pub(super) fn decidable(&self, ty: &Ty) -> bool {
         matches!(ty, Ty::Match(matching) if !self.undecided(matching))
+    }
+
+    /// Whether each arm of a type match gives a wider type of wider
+    /// binders: none holds one to more than being read.
+    pub(super) fn widens(&self, matching: &Matching) -> bool {
+        let base = self.parameters();
+        matching.arms.iter().all(|(pattern, ty)| {
+            let count = pattern.binders();
+            let fresh: Vec<Ty> = (base..base + count)
+                .map(|position| Ty::Named(Reference::Parameter(position), Vec::new()))
+                .collect();
+            let opened = fill(ty, &fresh, 0);
+            let held = self.variance(&opened, base + count);
+            held[base..]
+                .iter()
+                .all(|variance| matches!(variance, Variance::Covariant | Variance::Unused))
+        })
     }
 
     /// What a type match gives with each type parameter it depends on

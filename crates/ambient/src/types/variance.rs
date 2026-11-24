@@ -173,20 +173,28 @@ impl Env {
                 all(bounds, at.of(Variance::Invariant));
                 self.vary(function, at, reading, found);
             }
-            // A type match left open is related only to itself.
+            // A type match left open widens with its subject if each arm
+            // widens with its binders, and is otherwise related only to
+            // one of the same arms. Read, it holds nothing to more than
+            // being read.
             Ty::Match(matching) => {
-                let at = if reading {
+                let arms = if reading {
                     at
                 } else {
                     at.of(Variance::Invariant)
                 };
-                self.vary(&matching.subject, at, reading, found);
+                let subject = if reading || self.widens(matching) {
+                    at
+                } else {
+                    arms
+                };
+                self.vary(&matching.subject, subject, reading, found);
                 for (pattern, ty) in &matching.arms {
                     pattern
                         .tested()
                         .into_iter()
-                        .for_each(|tested| self.vary(tested, at, reading, found));
-                    self.vary(ty, at, reading, found);
+                        .for_each(|tested| self.vary(tested, arms, reading, found));
+                    self.vary(ty, arms, reading, found);
                 }
             }
             _ => {}

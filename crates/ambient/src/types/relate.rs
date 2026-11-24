@@ -198,11 +198,19 @@ impl Env {
                 self.sub(&self.normalize(sub), &self.normalize(sup), proof)
             }
             // A type match left open is within what it gives with its
-            // parameters at their bounds, and nothing but itself is
-            // within it.
+            // parameters at their bounds, and within one of the same arms
+            // over a wider subject, if each arm gives more of more: a
+            // member a wider subject holds goes through the same arms, or
+            // on to later ones, binding wider types. Nothing else is
+            // within it, since what its patterns test does not widen what
+            // it gives.
             (Ty::Match(matching), _) => {
                 let member = matches!(sup, Ty::Union(members) if members.contains(sub));
-                member || self.sub(&self.upper(matching), sup, proof)
+                let wider = matches!(sup, Ty::Match(other)
+                    if other.arms == matching.arms
+                        && self.widens(matching)
+                        && self.sub(&matching.subject, &other.subject, proof));
+                member || wider || self.sub(&self.upper(matching), sup, proof)
             }
             (_, Ty::Match(_)) => false,
             (Ty::Bool, Ty::Union(_)) => self.sub(&booleans(), sup, proof),

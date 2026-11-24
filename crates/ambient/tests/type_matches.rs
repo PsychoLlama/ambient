@@ -185,3 +185,28 @@ fn no_value_is_tested_for_a_type_match_left_open() {
         Some(Error::UntestableMatch { .. })
     ));
 }
+
+/// A program whose `main` holds a value of `from` as one of `to`, each
+/// over `E`, a parameter, beside `Value` and `Takes`.
+fn held_as(from: &str, to: &str) -> String {
+    format!(
+        "{VALUE}
+        type Takes<E> = match E {{ (_, let V) => fn(value: V): null }};
+        fn main<E: (key: string, value: int), K: string>(held: {from}): {to} => held;"
+    )
+}
+
+#[test]
+fn a_type_match_left_open_is_within_one_over_a_wider_subject() {
+    const WIDER: &str = "E | (key: \"z\", value: int)";
+    let wider = held_as("Value<E, K>", &format!("Value<{WIDER}, K>"));
+    let narrower = held_as(&format!("Value<{WIDER}, K>"), "Value<E, K>");
+    assert!(wrong(&wider).is_none());
+    assert!(matches!(wrong(&narrower), Some(Error::Mismatch { .. })));
+}
+
+#[test]
+fn a_type_match_whose_arm_takes_its_binder_is_not_within_a_wider_one() {
+    let wider = held_as("Takes<E>", "Takes<E | (key: \"z\", value: int)>");
+    assert!(matches!(wrong(&wider), Some(Error::Mismatch { .. })));
+}

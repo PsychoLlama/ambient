@@ -145,6 +145,8 @@ A type match computes a type from another as a match computes a value: by the sa
 - So a generic function narrows a value of a type parameter without losing what it is related to: a binder's type is the type match that picks it out.
 - A type match left as it is is within a type that every arm that may match is within, with each parameter at its bound.
 - Nothing is within one but `never` and the same type match, related to it by their subjects and the types its patterns name, each the way the match varies with it.
+- A type match widens with its subject if each arm's type widens with its binders: a member of a wider subject is taken by the same arms or later ones, binding wider types.
+- It is held to be the same in what its patterns test and its arms give, since a wider test may take a member from a later arm.
 - A value of one is therefore given only by a match with the same arms, or by what already has that type.
 - No cast or pattern names a type that holds a type match left as it is: nothing tells as a program runs which arm a value would have been taken by.
 - A type match does not refer to itself, directly or through a [group](definitions.md).
