@@ -153,6 +153,10 @@ impl Env {
         if ty == Ty::Never {
             return None;
         }
+        // A type parameter is known only by its bound.
+        if let Ty::Named(Reference::Parameter(position), _) = &ty {
+            return self.narrow(&self.bound(*position)?, pattern);
+        }
         match pattern {
             Pattern::Wildcard => Some(ty),
             Pattern::Bind(_, inner) => self.narrow(&ty, inner),
@@ -218,23 +222,38 @@ impl Env {
         if let Ty::Union(members) = &ty {
             return members.iter().all(|member| self.covers(member, pattern));
         }
+        if self.covers_as_written(&ty, pattern) {
+            return true;
+        }
+        // A type parameter is known only by its bound.
+        match &ty {
+            Ty::Named(Reference::Parameter(position), _) => self
+                .bound(*position)
+                .is_some_and(|bound| self.covers(&bound, pattern)),
+            _ => false,
+        }
+    }
+
+    /// [`Self::covers`] of a type that is no union, by what it is
+    /// written as.
+    fn covers_as_written(&self, ty: &Ty, pattern: &Pat) -> bool {
         match pattern {
             Pattern::Wildcard => true,
-            Pattern::Bind(_, inner) => self.covers(&ty, inner),
-            Pattern::Literal(literal) => ty == Ty::Literal(literal.clone()),
+            Pattern::Bind(_, inner) => self.covers(ty, inner),
+            Pattern::Literal(literal) => *ty == Ty::Literal(literal.clone()),
             // A test that asks a function for its type may turn away one
             // whose own type is within it.
             Pattern::Is(tested) => {
                 let tested = self.normalize(tested);
-                self.subtype(&ty, &tested) && !self.asks_a_name(&tested)
+                self.subtype(ty, &tested) && !self.asks_a_name(&tested)
             }
-            Pattern::Record(patterns) => match &ty {
+            Pattern::Record(patterns) => match ty {
                 Ty::Record(fields) => patterns.iter().all(|(name, pattern)| {
                     field(fields, name).is_some_and(|ty| self.covers(ty, pattern))
                 }),
                 _ => false,
             },
-            Pattern::Tuple(patterns) => match &ty {
+            Pattern::Tuple(patterns) => match ty {
                 Ty::Tuple(members) => {
                     members.len() == patterns.len()
                         && members.iter().zip(patterns).all(|(m, p)| self.covers(m, p))
@@ -263,6 +282,16 @@ impl Env {
         }
         if self.covers(&ty, pattern) {
             return Ty::Never;
+        }
+        // What is left of a type parameter is the parameter while its
+        // bound is all left, and otherwise what is left of the bound: a
+        // type parameter narrowed is no longer one.
+        if let Ty::Named(Reference::Parameter(position), _) = &ty {
+            let Some(bound) = self.bound(*position) else {
+                return ty;
+            };
+            let left = self.remainder(&bound, pattern);
+            return if left == bound { ty } else { left };
         }
         // When exactly one member of a record or tuple pattern can fail,
         // what is left is the same type with that member narrowed.
@@ -411,6 +440,11 @@ impl Env {
             Ty::Union(members) => {
                 let parts = members.iter().map(|m| self.member(m, index)).collect();
                 self.union(parts)
+            }
+            Ty::Named(Reference::Parameter(position), _) => {
+                self.bound(*position).map_or(Ty::Unknown, |bound| {
+                    self.member(&self.unfold(&bound), index)
+                })
             }
             _ => Ty::Unknown,
         }

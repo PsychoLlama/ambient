@@ -12,8 +12,9 @@ use ambient::core::Open;
 use ambient::engine::Engine;
 use ambient::error::Error;
 use ambient::store::MemoryStore;
-use ambient::surface::{Definition, Expr, Type};
-use support::{value, workspace};
+use ambient::surface::{Definition, Expr, Pattern, Type};
+use ambient::value::Value;
+use support::{run, value, workspace};
 
 fn check(definitions: impl IntoIterator<Item = Definition>) -> Result<Arc<Open>, Error> {
     let module = definitions
@@ -468,4 +469,68 @@ fn a_type_parameter_is_named_only_inside_its_function_type() {
     assert!(build(generic(None, u())).is_ok());
     assert!(build(twice).is_err());
     assert!(build(escaped).is_err());
+}
+
+/// `fn pick<T: bound>(v: T): returns => match v { arms }`.
+fn matching(bound: Type, returns: Type, arms: Vec<(Pattern, Expr)>) -> Definition {
+    matching_as("pick", bound, returns, arms)
+}
+
+/// [`matching`], named `name`.
+fn matching_as(name: &str, bound: Type, returns: Type, arms: Vec<(Pattern, Expr)>) -> Definition {
+    b::function(name)
+        .bounded("T", bound)
+        .param("v", t())
+        .returns(returns)
+        .body(b::match_(b::name("v"), arms))
+}
+
+#[test]
+fn a_match_on_a_type_parameter_narrows_by_its_bound() {
+    let entry = |value| ty::tuple([ty::string(), value]);
+    let either = || ty::union([ty::int(), ty::bool()]);
+    let second = matching(
+        ty::union([entry(ty::int()), entry(ty::bool())]),
+        either(),
+        vec![(
+            pat::tuple([pat::is(ty::string()), pat::bind("x")]),
+            b::name("x"),
+        )],
+    );
+    let main = returning(
+        either(),
+        call("pick", [b::tuple([b::string("a"), b::int(1)])]),
+    );
+    assert_eq!(run([second, main], &[]).unwrap(), Value::Int(1));
+}
+
+#[test]
+fn arms_over_a_type_parameter_are_exhaustive_by_its_bound() {
+    let kind = matching(
+        ty::union([ty::int(), ty::string()]),
+        ty::string(),
+        vec![
+            (pat::is(ty::int()), b::string("int")),
+            (pat::is(ty::string()), b::string("string")),
+        ],
+    );
+    let main = returning(ty::string(), call("pick", [b::string("x")]));
+    assert_eq!(
+        run([kind, main], &[]).unwrap(),
+        Value::String("string".into())
+    );
+}
+
+#[test]
+fn an_arm_the_bound_rules_out_is_never_taken() {
+    let ruled_out = matching_as(
+        "main",
+        ty::int(),
+        ty::int(),
+        vec![(pat::is(ty::string()), b::int(0)), (pat::any(), b::int(1))],
+    );
+    assert!(matches!(
+        check([ruled_out]),
+        Err(Error::UnreachableArm { .. })
+    ));
 }
