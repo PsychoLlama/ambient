@@ -6,7 +6,10 @@ pub tag malformed;
 
 /// A JSON value. An object is a map, so its members are read in
 /// the order of their names, never the order they were written in.
-pub type Json = null | bool | int | float | string | List<Json> | Map<Json>;
+pub type Json = null | bool | int | float | string | List<Json> | Map<Member>;
+
+/// A member of an object: its name, and what it holds.
+pub type Member = map.Entry<string, Json>;
 
 /// The value that `text` is JSON for.
 pub fn parse(text: string): Json with throw {
@@ -31,7 +34,7 @@ pub fn write(value: Json): string {
         let items: List<Json> => {
             return "[" + items.map(write).join_with(",") + "]";
         }
-        let members: Map<Json> => {
+        let members: Map<Member> => {
             let each = fn((name, member): (name: string, member: Json)): string => quote(name) + ":" + write(member);
             return "{" + members.entries().map(each).join_with(",") + "}";
         }
@@ -42,7 +45,7 @@ pub fn write(value: Json): string {
 /// or if `value` is no object.
 pub fn get(value: Json, name: string): Json {
     match value {
-        let members: Map<Json> => { return members.get(name); }
+        let members: Map<Member> => { return members.get(name); }
         _ => { return null; }
     }
 }
@@ -135,12 +138,12 @@ fn items(text: string, at: int, read: List<Json>): (value: Json, after: int) wit
 /// An object, after its brace and any space.
 fn object(text: string, at: int): (value: Json, after: int) with throw {
     if peek(text, at) == "}" {
-        return (map.empty::<Json>(), at + 1);
+        return (map.empty::<Member>(), at + 1);
     }
-    return members(text, at, map.empty::<Json>());
+    return members(text, at, map.empty::<Member>());
 }
 
-fn members(text: string, at: int, read: Map<Json>): (value: Json, after: int) with throw {
+fn members(text: string, at: int, read: Map<Member>): (value: Json, after: int) with throw {
     if peek(text, at) != "\"" {
         wrong(text, at, "expected a name");
     }
@@ -153,12 +156,12 @@ fn members(text: string, at: int, read: Map<Json>): (value: Json, after: int) wi
     let next = blank(text, rest);
     let here = peek(text, next);
     if here == "," {
-        return members(text, blank(text, next + 1), read.set(name, member));
+        return members(text, blank(text, next + 1), read.set((name, member)));
     }
     if here != "}" {
         wrong(text, next, "expected `,` or `}`");
     }
-    return (read.set(name, member), next + 1);
+    return (read.set((name, member)), next + 1);
 }
 
 /// A string, after its opening quote.

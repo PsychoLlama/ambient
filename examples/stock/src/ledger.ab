@@ -1,5 +1,5 @@
 use ambient.map.{self, Map};
-use ambient.json.{self, Json};
+use ambient.json.{self, Json, Member};
 use ambient.{catch, fail, throw, Error};
 use ambient.test;
 use ambient.test.{check, unmet};
@@ -10,10 +10,13 @@ pub tag not_a_ledger;
 /// The command is none of those there are, or takes what is not there.
 pub tag refused;
 
+/// A name, and how many of it there are.
+pub type Count = map.Entry<string, int>;
+
 /// The count under each name that the text of a file holds.
-pub fn read(text: string): Map<int> with throw {
+pub fn read(text: string): Map<Count> with throw {
     match json.parse(text) {
-        let members: Map<Json> => {
+        let members: Map<Member> => {
             return map.of(members.entries().map(fn((name, held)) => (name, count_of(name, held))));
         }
         _ => { return fail(not_a_ledger, "the file does not hold an object"); }
@@ -24,23 +27,23 @@ fn count_of(name: string, held: Json): int with throw =>
     cast::<int>(held, null) ?? fail(not_a_ledger, "`${name}` does not hold a count");
 
 /// The text of a file that holds `counts`.
-pub fn write(counts: Map<int>): string => json.write(map.of::<Json>(counts.entries()));
+pub fn write(counts: Map<Count>): string => json.write(map.of::<Member>(counts.entries()));
 
 /// The counts after a command.
-pub fn change(counts: Map<int>, command: List<string>): Map<int> with throw {
+pub fn change(counts: Map<Count>, command: List<string>): Map<Count> with throw {
     match (command.get(0), command.get(1), command.get(2)) {
         (null, _, _) => { return counts; }
         ("list", _, _) => { return counts; }
         ("add", let name: string, let count: string) => {
             let more = number(count);
-            return counts.update(name, fn(have) => (have ?? 0) + more);
+            return counts.update(name, fn(have) => (name, (have ?? 0) + more));
         }
         ("take", let name: string, let count: string) => {
             let left = (counts.get(name) ?? 0) - number(count);
             if left < 0 {
                 fail(refused, "there are not ${count} of ${name}");
             }
-            return left == 0 ? counts.remove(name) : counts.set(name, left);
+            return left == 0 ? counts.remove(name) : counts.set((name, left));
         }
         _ => { return fail(refused, "usage: stock [list | add <name> <count> | take <name> <count>]"); }
     }

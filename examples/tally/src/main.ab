@@ -30,10 +30,13 @@ fn report(path: string): int with console.print, console.warn, fs.read {
     }
 }
 
+/// A word, and how often it is in a text.
+type Tally = map.Entry<string, int>;
+
 /// How often each word of `text` is in it.
-fn count(text: string): Map<int> =>
-    words(text).fold(map.empty::<int>(), fn(seen: Map<int>, word: string): Map<int> =>
-        seen.update(word, fn(times) => (times ?? 0) + 1));
+fn count(text: string): Map<Tally> =>
+    words(text).fold(map.empty::<Tally>(), fn(seen: Map<Tally>, word: string): Map<Tally> =>
+        seen.update(word, fn(times) => (word, (times ?? 0) + 1)));
 
 /// The words of `text`: what its spaces and line endings separate.
 fn words(text: string): List<string> =>
@@ -42,7 +45,7 @@ fn words(text: string): List<string> =>
 
 /// The `limit` entries counted most, the most first. Entries counted
 /// alike stay in the order of their words.
-fn most(counts: Map<int>, limit: int): List<(word: string, times: int)> =>
+fn most(counts: Map<Tally>, limit: int): List<(word: string, times: int)> =>
     counts.entries()
         .sort_by(fn((_, a), (_, b)) => a > b)
         .iter().take(limit).to_list();

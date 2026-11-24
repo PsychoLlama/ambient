@@ -516,7 +516,7 @@ Import a module by path; its public definitions are reached through its name, or
 | Module                                                       | What it has                                                                                                                                             |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ambient.string`, `list`, `int`, `float`, `iterator`, `cell` | the methods of each shape                                                                                                                               |
-| `ambient.map`                                                | `Map<V>`: values by string key, read in key order                                                                                                       |
+| `ambient.map`                                                | `Map<E>`: values by key, typed by entry, read in key order                                                                                              |
 | `ambient.url`                                                | `Url`, `parse`, `write`, `query`, `write_query`, `encode`, `decode`                                                                                     |
 | `ambient.json`                                               | `Json`, `parse`, `write`, `get`, `at`                                                                                                                   |
 | `ambient.bytes`                                              | the methods of `bytes`, and `of`, `from_hex`                                                                                                            |
@@ -542,12 +542,26 @@ use ambient.map;
 
 pub fn main(): string {
     let stock = map.of([("tea", 3), ("milk", 1)]);
-    let more = stock.update("tea", fn(have) => (have ?? 0) + 2);
+    let more = stock.update("tea", fn(have) => ("tea", (have ?? 0) + 2));
     return "${more.keys().join_with(", ")}: ${more.get("tea") ?? 0}";
 }
 ```
 
-JSON is read into ordinary values: a list is a `List<Json>`, an object a `Map<Json>`. Text that is not JSON throws.
+A map's type is a union of its entries, so a key reads the type of value its entry says. Write the entry type out to narrow: a map made from literals widens its keys to `string`, `int`, and so on.
+
+```ab
+use ambient.map.{self, Entry, Map};
+
+type Setting = Entry<"name", string> | Entry<"port", int>;
+
+pub fn main(): string {
+    let settings = map.of::<Setting>([("name", "web"), ("port", 80)]);
+    let port: int = settings.get("port") ?? 0;
+    return "${settings.get("name") ?? "?"} on ${port}";
+}
+```
+
+JSON is read into ordinary values: a list is a `List<Json>`, an object a `Map<json.Member>`. Text that is not JSON throws.
 
 ```ab
 use ambient.json;
@@ -569,7 +583,7 @@ pub fn main(): string {
 
 - A type error is reported at its line and column, and so is each function a fault or an uncaught error left: `in app:main.divide at src/main.ab:2:39`. A frame inside the standard library has a name and no place.
 - A record type that names a contract says its type again: `{ [dispose](): null }`.
-- A record with methods, such as a `Map`, can be tested for only where the value's type leaves no doubt: a `Json` can be cast to `Map<Json>`, an `unknown` cannot.
+- A record with methods, such as a `Map`, can be tested for only where the value's type leaves no doubt: a `Json` can be cast to `Map<json.Member>`, an `unknown` cannot.
 - Only a function that captured nothing is packed: one written at the top of a module, not one written inside another that uses what is around it.
 - A function written inside another may call itself, and then says its parameter and return types.
 - A package is depended on by where it is: at a path (`text = { path = "../text" }`, which `ambient add ../text` writes), or in a git repository: `text = { git = "…", branch = "main" }`, or a `tag`, or a whole commit as `rev`. Neither says an ID: the package's own manifest does. `ambient.lock` holds the commit that led to and the ID of the package there, and only `ambient update` reads the branch again. A member of the workspace may also be named by its ID and a version: `text = { id = "…", version = "1.0.0" }`. There are no releases to depend on yet.

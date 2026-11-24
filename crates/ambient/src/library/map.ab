@@ -1,139 +1,181 @@
-/// A map: values by string key, kept in the order of their keys.
-/// Changing one gives another and leaves the first as it was.
-pub type Map<V> = {
-    tree: Tree<V>,
+use pkg.intrinsics;
+
+/// A map: values by key, kept in the order of their keys. Its type is
+/// that of its entries, a union of pairs of a key type and the type of
+/// value under it, so reading a key gives the value types of the pairs
+/// that key may match. Changing one gives another and leaves the first
+/// as it was. See `docs/spec/maps.md`.
+pub type Map<E> = {
+    tree: Tree<E>,
     // How many keys it has.
     size(self): int,
     // What is under `key`, or null if nothing is.
-    get(self, key: string): V | null,
+    get<K: Key>(self, key: K): Value<E, K> | null,
     // Whether anything is under `key`.
-    has(self, key: string): bool,
-    // `key` with what is under it, or null if nothing is: unlike `get`,
-    // it tells a value that is null from none.
-    entry(self, key: string): (key: string, value: V) | null,
-    // This with `value` under `key`, in place of what was there.
-    set(self, key: string, value: V): Map<V>,
-    // This with what `change` makes of what is under `key`, which is
-    // null if nothing is.
-    update(self, key: string, change: fn(held: V | null): V): Map<V>,
+    has(self, key: Key): bool,
+    // The entry of `key`, or null if it has none: unlike `get`, it
+    // tells a value that is null from none.
+    entry<K: Key>(self, key: K): Found<E, K> | null,
+    // This with `entry`, in place of what was under its key.
+    set(self, entry: E): Map<E>,
+    // This with the entry `change` makes of what is under `key`, which
+    // is null if nothing is.
+    update<K: Key>(self, key: K, change: fn(held: Value<E, K> | null): E): Map<E>,
     // This with nothing under `key`.
-    remove(self, key: string): Map<V>,
+    remove(self, key: Key): Map<E>,
     // The keys, in order.
-    keys(self): List<string>,
+    keys(self): List<Keys<E>>,
     // The values, in the order of their keys.
-    values(self): List<V>,
-    // Each key with its value, in the order of the keys.
-    entries(self): List<(key: string, value: V)>,
+    values(self): List<Values<E>>,
+    // Each entry, in the order of the keys.
+    entries(self): List<E>,
 };
+
+/// What a map may hold a value under.
+pub type Key = null | bool | int | string | bytes | Tag;
+
+/// An entry of a map: a key, and the value under it.
+pub type Entry<K, V> = (key: K, value: V);
+
+/// The value types of the entries `E` whose key types `K` may match.
+pub type Value<E, K> = match E { (K, let V) => V };
+
+/// The entries of `E` whose key types `K` may match.
+pub type Found<E, K> = match E { let found: (K, _) => found };
+
+/// The key types of the entries `E`.
+pub type Keys<E> = match E { (let K, _) => K };
+
+/// The value types of the entries `E`.
+pub type Values<E> = match E { (_, let V) => V };
+
+/// What every entry of a map is within.
+type Any = Entry<Key, unknown>;
 
 /// A balanced tree: the keys to the left of a node come before its key,
 /// and neither side holds over three times what the other does.
-type Tree<V> = Node<V> | null;
-type Node<V> = { key: string, value: V, left: Tree<V>, right: Tree<V>, count: int };
+type Tree<E> = Node<E> | null;
+type Node<E> = { entry: E, left: Tree<E>, right: Tree<E>, count: int };
 
 /// A map with nothing in it.
-pub fn empty<V>(): Map<V> => over::<V>(null);
+pub fn empty<E: Any>(): Map<E> => over::<E>(null);
 
-/// A map of each key and its value. A later one replaces an
-/// earlier one of the same key.
-pub fn of<V>(entries: List<(key: string, value: V)>): Map<V> =>
-    over::<V>(entries.iter().fold(null, fn(tree: Tree<V>, entry: (key: string, value: V)): Tree<V> {
-        let (key, value) = entry;
-        return insert(tree, key, value);
-    }));
+/// A map of each entry. A later one replaces an earlier one of the
+/// same key.
+pub fn of<E: Any>(entries: List<E>): Map<E> =>
+    over::<E>(entries.iter().fold(null, fn(tree: Tree<E>, entry: E): Tree<E> => insert(tree, entry)));
 
-fn over<V>(tree: Tree<V>): Map<V> => {
+fn over<E: Any>(tree: Tree<E>): Map<E> => {
     tree,
     size(self): int => count(self.tree),
-    get(self, key: string): V | null => find(self.tree, key),
-    has(self, key: string): bool => holds(self.tree, key),
-    entry(self, key: string): (key: string, value: V) | null => locate(self.tree, key),
-    set(self, key: string, value: V): Map<V> => over(insert(self.tree, key, value)),
-    update(self, key: string, change: fn(held: V | null): V): Map<V> =>
-        over(insert(self.tree, key, change(find(self.tree, key)))),
-    remove(self, key: string): Map<V> => over(delete(self.tree, key)),
-    keys(self): List<string> =>
-        walk(self.tree, [], fn(found: List<string>, node: Node<V>) => found.push(node.key)),
-    values(self): List<V> =>
-        walk(self.tree, [], fn(found: List<V>, node: Node<V>) => found.push(node.value)),
-    entries(self): List<(key: string, value: V)> =>
-        walk(self.tree, [], fn(found: List<(key: string, value: V)>, node: Node<V>) =>
-            found.push((node.key, node.value))),
+    get<K: Key>(self, key: K): Value<E, K> | null => read::<E, K>(self.tree, key),
+    has(self, key: Key): bool => find(self.tree, key) != null,
+    entry<K: Key>(self, key: K): Found<E, K> | null =>
+        match find(self.tree, key) {
+            null => null,
+            let found => found_as::<E, K>(found),
+        },
+    set(self, entry: E): Map<E> => over(insert(self.tree, entry)),
+    update<K: Key>(self, key: K, change: fn(held: Value<E, K> | null): E): Map<E> =>
+        over(insert(self.tree, change(read::<E, K>(self.tree, key)))),
+    remove(self, key: Key): Map<E> => over(delete(self.tree, key)),
+    keys(self): List<Keys<E>> =>
+        walk(self.tree, [], fn(found: List<Keys<E>>, node: Node<E>): List<Keys<E>> =>
+            match node.entry { (let key, _) => found.push(key) }),
+    values(self): List<Values<E>> =>
+        walk(self.tree, [], fn(found: List<Values<E>>, node: Node<E>): List<Values<E>> =>
+            match node.entry { (_, let value) => found.push(value) }),
+    entries(self): List<E> =>
+        walk(self.tree, [], fn(found: List<E>, node: Node<E>): List<E> => found.push(node.entry)),
 };
 
-fn count<V>(tree: Tree<V>): int =>
+/// What is under `key` in `tree`, or null if nothing is.
+fn read<E: Any, K: Key>(tree: Tree<E>, key: K): Value<E, K> | null =>
+    match find(tree, key) {
+        null => null,
+        let found => held::<E, K>(found),
+    };
+
+/// The value of `entry`, if its key is a `K`: a test as the program
+/// runs, which is what proves the value is of a type `K` reads.
+fn held<E, K>(entry: E): Value<E, K> | null =>
+    match entry {
+        (K, let value) => value,
+        _ => null,
+    };
+
+/// `entry`, if its key is a `K`.
+fn found_as<E, K>(entry: E): Found<E, K> | null =>
+    match entry {
+        let found: (K, _) => found,
+        _ => null,
+    };
+
+/// The key of an entry.
+fn key_of<E: Any>(entry: E): Key =>
+    match entry {
+        (let key, _) => key,
+    };
+
+/// Whether `one` comes before `other`. See "Order" in
+/// `docs/spec/operations.md`.
+fn before(one: Key, other: Key): bool => intrinsics.order(one, other) < 0;
+
+fn count<E>(tree: Tree<E>): int =>
     match tree {
         null => 0,
         let node => node.count,
     };
 
-fn node<V>(key: string, value: V, left: Tree<V>, right: Tree<V>): Node<V> =>
-    { key, value, left, right, count: count(left) + count(right) + 1 };
+fn node<E>(entry: E, left: Tree<E>, right: Tree<E>): Node<E> =>
+    { entry, left, right, count: count(left) + count(right) + 1 };
 
-fn find<V>(tree: Tree<V>, key: string): V | null {
+/// The entry of `key` in `tree`, or null if it has none.
+fn find<E: Any>(tree: Tree<E>, key: Key): E | null {
     match tree {
         null => { return null; }
         let node => {
-            if key < node.key { return find(node.left, key); }
-            if node.key < key { return find(node.right, key); }
-            return node.value;
-        }
-    }
-}
-
-fn locate<V>(tree: Tree<V>, key: string): (key: string, value: V) | null {
-    match tree {
-        null => { return null; }
-        let node => {
-            if key < node.key { return locate(node.left, key); }
-            if node.key < key { return locate(node.right, key); }
-            return (node.key, node.value);
-        }
-    }
-}
-
-fn holds<V>(tree: Tree<V>, key: string): bool {
-    match tree {
-        null => { return false; }
-        let node => {
-            if key < node.key { return holds(node.left, key); }
-            if node.key < key { return holds(node.right, key); }
-            return true;
+            let at = key_of(node.entry);
+            if before(key, at) { return find(node.left, key); }
+            if before(at, key) { return find(node.right, key); }
+            return node.entry;
         }
     }
 }
 
 /// What `visit` makes of `found` and each node in turn, in key order.
-fn walk<V, A>(tree: Tree<V>, found: A, visit: fn(found: A, node: Node<V>): A): A =>
+fn walk<E, A>(tree: Tree<E>, found: A, visit: fn(found: A, node: Node<E>): A): A =>
     match tree {
         null => found,
         let node => walk(node.right, visit(walk(node.left, found, visit), node), visit),
     };
 
-fn insert<V>(tree: Tree<V>, key: string, value: V): Node<V> {
+fn insert<E: Any>(tree: Tree<E>, entry: E): Node<E> {
     match tree {
-        null => { return node(key, value, null, null); }
+        null => { return node(entry, null, null); }
         let at => {
-            if key < at.key {
-                return balance(at.key, at.value, insert(at.left, key, value), at.right);
+            let (new, old) = (key_of(entry), key_of(at.entry));
+            if before(new, old) {
+                return balance(at.entry, insert(at.left, entry), at.right);
             }
-            if at.key < key {
-                return balance(at.key, at.value, at.left, insert(at.right, key, value));
+            if before(old, new) {
+                return balance(at.entry, at.left, insert(at.right, entry));
             }
-            return node(key, value, at.left, at.right);
+            return node(entry, at.left, at.right);
         }
     }
 }
 
-fn delete<V>(tree: Tree<V>, key: string): Tree<V> {
+fn delete<E: Any>(tree: Tree<E>, key: Key): Tree<E> {
     match tree {
         null => { return null; }
         let at => {
-            if key < at.key {
-                return balance(at.key, at.value, delete(at.left, key), at.right);
+            let held = key_of(at.entry);
+            if before(key, held) {
+                return balance(at.entry, delete(at.left, key), at.right);
             }
-            if at.key < key {
-                return balance(at.key, at.value, at.left, delete(at.right, key));
+            if before(held, key) {
+                return balance(at.entry, at.left, delete(at.right, key));
             }
             return glue(at.left, at.right);
         }
@@ -142,17 +184,17 @@ fn delete<V>(tree: Tree<V>, key: string): Tree<V> {
 
 /// One tree of two, every key of the first before every key of the
 /// second: the first of the second goes on top.
-fn glue<V>(left: Tree<V>, right: Tree<V>): Tree<V> {
+fn glue<E: Any>(left: Tree<E>, right: Tree<E>): Tree<E> {
     match right {
         null => { return left; }
         let rest => {
             let top = least(rest);
-            return balance(top.key, top.value, left, delete(rest, top.key));
+            return balance(top.entry, left, delete(rest, key_of(top.entry)));
         }
     }
 }
 
-fn least<V>(at: Node<V>): Node<V> =>
+fn least<E>(at: Node<E>): Node<E> =>
     match at.left {
         null => at,
         let left => least(left),
@@ -160,51 +202,51 @@ fn least<V>(at: Node<V>): Node<V> =>
 
 /// A node of two sides that were balanced before one of them gained or
 /// lost a key, turned so that they are again.
-fn balance<V>(key: string, value: V, left: Tree<V>, right: Tree<V>): Node<V> {
+fn balance<E>(entry: E, left: Tree<E>, right: Tree<E>): Node<E> {
     if count(left) + count(right) < 2 {
-        return node(key, value, left, right);
+        return node(entry, left, right);
     }
     if count(right) > 3 * count(left) {
         return match right {
-            null => node(key, value, left, right),
-            let heavy => lean_left(key, value, left, heavy),
+            null => node(entry, left, right),
+            let heavy => lean_left(entry, left, heavy),
         };
     }
     if count(left) > 3 * count(right) {
         return match left {
-            null => node(key, value, left, right),
-            let heavy => lean_right(key, value, heavy, right),
+            null => node(entry, left, right),
+            let heavy => lean_right(entry, heavy, right),
         };
     }
-    return node(key, value, left, right);
+    return node(entry, left, right);
 }
 
 /// Lifts the right side, or its left child if that is the heavier.
-fn lean_left<V>(key: string, value: V, left: Tree<V>, right: Node<V>): Node<V> {
+fn lean_left<E>(entry: E, left: Tree<E>, right: Node<E>): Node<E> {
     match right.left {
         null => {}
         let inner => {
             if count(inner) >= 2 * count(right.right) {
-                let under = node(key, value, left, inner.left);
-                let beside = node(right.key, right.value, inner.right, right.right);
-                return node(inner.key, inner.value, under, beside);
+                let under = node(entry, left, inner.left);
+                let beside = node(right.entry, inner.right, right.right);
+                return node(inner.entry, under, beside);
             }
         }
     }
-    return node(right.key, right.value, node(key, value, left, right.left), right.right);
+    return node(right.entry, node(entry, left, right.left), right.right);
 }
 
 /// Lifts the left side, or its right child if that is the heavier.
-fn lean_right<V>(key: string, value: V, left: Node<V>, right: Tree<V>): Node<V> {
+fn lean_right<E>(entry: E, left: Node<E>, right: Tree<E>): Node<E> {
     match left.right {
         null => {}
         let inner => {
             if count(inner) >= 2 * count(left.left) {
-                let beside = node(left.key, left.value, left.left, inner.left);
-                let under = node(key, value, inner.right, right);
-                return node(inner.key, inner.value, beside, under);
+                let beside = node(left.entry, left.left, inner.left);
+                let under = node(entry, inner.right, right);
+                return node(inner.entry, beside, under);
             }
         }
     }
-    return node(left.key, left.value, left.left, node(key, value, left.right, right));
+    return node(left.entry, left.left, node(entry, left.right, right));
 }

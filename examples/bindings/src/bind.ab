@@ -1,6 +1,6 @@
 use ambient.code;
 use ambient.errors.{catch, fail, throw};
-use ambient.json.{self, Json};
+use ambient.json.{self, Json, Member};
 use ambient.map.{Map};
 use ambient.tree;
 use ambient.Error;
@@ -103,7 +103,7 @@ fn hosting(entries: List<(name: string, member: Json)>): tree.Function =>
 /// `comptime bind.all();`
 pub fn all(): tree.Module with build.read {
     match read() {
-        let entries: Map<Json> => {
+        let entries: Map<Member> => {
             let listed = entries.entries();
             return listed.map(offered).push(code.named("hosted", hosting(listed)));
         }

@@ -11,7 +11,7 @@ pub mod level;
 pub mod ndjson;
 pub mod pattern;
 
-use ambient.json.{Json};
+use ambient.json.{Json, Member};
 use ambient.map.{self, Map};
 use ambient.test;
 use ambient.test.{check, unmet};
@@ -19,11 +19,11 @@ use pkg.level.{self, Level};
 
 /// What a log carries beside its message: values by name, where a
 /// message would otherwise have them written into it.
-pub type Context = Map<Json>;
+pub type Context = Map<Member>;
 
 /// A context of each name and its value: `context([("port", 8080)])`,
 /// and `context([])` for a log that carries nothing.
-pub fn context(entries: List<(key: string, value: Json)>): Context => map.of::<Json>(entries);
+pub fn context(entries: List<Member>): Context => map.of::<Member>(entries);
 
 /// A message, with what it would say of the program kept as data.
 pub type Log = {

@@ -198,13 +198,13 @@ fn a_value_is_told_apart_by_the_type_it_is_asked_for() {
     // test made is the nearest that can be, and tells as much here.
     let source = r#"
         use ambient.json;
-        use ambient.json.{Json};
+        use ambient.json.{Json, Member};
         use ambient.map.{Map};
         use ambient.{catch, throw};
 
         fn kind(value: Json): string {
             match value {
-                let members: Map<Json> => { return "object of ${members.size()}"; }
+                let members: Map<Member> => { return "object of ${members.size()}"; }
                 let items: List<Json> => { return "array of ${items.length()}"; }
                 _ => { return "scalar"; }
             }
@@ -212,7 +212,7 @@ fn a_value_is_told_apart_by_the_type_it_is_asked_for() {
         fn read(): string with throw {
             let value = json.parse("{\"a\": [1, 2], \"b\": 3}");
             let inner = cast::<List<Json>>(json.get(value, "a"), []);
-            let none = cast::<Map<Json>>(json.get(value, "b"), null);
+            let none = cast::<Map<Member>>(json.get(value, "b"), null);
             return "${kind(value)}, ${kind(inner)}, ${kind(none)}";
         }
         fn main(): string => cast::<string>(catch(read), "threw");
