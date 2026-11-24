@@ -15,7 +15,7 @@ ambient-runtime = { path = "crates/ambient-runtime" }
 corosensei = "0.3"
 cranelift-codegen = "0.136"
 cranelift-frontend = "0.136"
-cranelift-native = "0.136"
+cranelift-native = "0.138"
 memmap2 = "0.9"
 object = { version = "0.40", default-features = false, features = ["read_core", "elf", "macho", "std", "unaligned"] }
 wasm-encoder = "0.263"
