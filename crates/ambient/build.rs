@@ -126,6 +126,7 @@ fn launcher(cargo: &std::ffi::OsStr, out: &Path) {
     packed(
         &made.join("libambient_launcher.a"),
         &out.join("launcher.a.gz"),
+        release,
     );
     let named = |line: &str| {
         let (_, libraries) = line.split_once("native-static-libs: ")?;
@@ -144,8 +145,11 @@ fn launcher(cargo: &std::ffi::OsStr, out: &Path) {
 }
 
 /// Writes the archive at `from` to `to`, compressed: the command
-/// holds it, and it is several times the command's own size.
-fn packed(from: &Path, to: &Path) {
+/// holds it, and it is several times the command's own size. A
+/// release is compressed as far as it goes; a build to debug is
+/// rebuilt on every change to the compiler, and the best compression
+/// takes far longer than the rest of that.
+fn packed(from: &Path, to: &Path, release: bool) {
     use std::io::Write;
 
     let archive = fs::read(from);
@@ -153,7 +157,12 @@ fn packed(from: &Path, to: &Path) {
         archive.is_ok(),
         "the launcher's archive was not where it was built"
     );
-    let mut packed = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    let level = if release {
+        flate2::Compression::best()
+    } else {
+        flate2::Compression::fast()
+    };
+    let mut packed = flate2::write::GzEncoder::new(Vec::new(), level);
     let written = packed.write_all(&archive.unwrap_or_default());
     let written = written.and_then(|()| packed.finish());
     let written = written.and_then(|packed| fs::write(to, packed));
