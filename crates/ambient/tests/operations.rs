@@ -251,6 +251,47 @@ fn a_slice_of_a_string_is_what_lies_between_two_positions_or_a_miss() {
     assert_eq!(each(pairs().map(slice)), expected);
 }
 
+// Order
+
+#[test]
+fn order_ranks_shapes_before_what_they_hold() {
+    // In order: null, bool, int, string, bytes.
+    let ascending = || {
+        [
+            b::null(),
+            b::boolean(false),
+            b::boolean(true),
+            b::int(-5),
+            b::int(i64::MAX),
+            b::string(""),
+            b::string("b"),
+            b::to_bytes(b::string("a")),
+        ]
+    };
+    let pairs = ascending().into_iter().zip(ascending().into_iter().skip(1));
+    let before = pairs.map(|(left, right)| b::order(left, right));
+    let after = ascending()
+        .into_iter()
+        .skip(1)
+        .zip(ascending())
+        .map(|(l, r)| b::order(l, r));
+    let same = ascending()
+        .into_iter()
+        .zip(ascending())
+        .map(|(l, r)| b::order(l, r));
+    assert_eq!(each(before), vec![Value::Int(-1); 7]);
+    assert_eq!(each(after), vec![Value::Int(1); 7]);
+    assert_eq!(each(same), vec![Value::Int(0); 8]);
+}
+
+#[test]
+fn order_does_not_take_a_float_or_a_list() {
+    let float = checks(ty::unknown(), b::order(b::float(1.0), b::float(2.0)));
+    let list = checks(ty::unknown(), b::order(int_list([1]), int_list([2])));
+    assert!(matches!(float, Err(Error::Operands { .. })));
+    assert!(matches!(list, Err(Error::Operands { .. })));
+}
+
 // Lists
 
 #[test]
@@ -362,6 +403,8 @@ proptest! {
         let (a, b) = (|| b::int(left), || b::int(right));
         let compared = each([b::less(a(), b()), b::equal(a(), b())]);
         prop_assert_eq!(compared, vec![Value::Bool(left < right), Value::Bool(left == right)]);
+        let ordered = each([b::order(a(), b())]);
+        prop_assert_eq!(ordered, vec![Value::Int(left.cmp(&right) as i64)]);
 
         let sum = outcome(b::add(a(), b())).ok();
         prop_assert_eq!(sum, left.checked_add(right).map(Value::Int));

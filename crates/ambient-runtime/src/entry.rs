@@ -167,4 +167,5 @@ entries! {
     BytesText = amb_bytes_text, plain, 1, word;
     ListBytes = amb_bytes_of_list, plain, 1, word;
     TagText = amb_tag_text, plain, 1, word;
+    Order = amb_order, plain, 2, word;
 }

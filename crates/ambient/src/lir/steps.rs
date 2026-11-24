@@ -359,6 +359,7 @@ fn entry_for(operation: Primitive) -> Entry {
         Primitive::IntRemainder => Entry::IntRemainder,
         Primitive::IntPower => Entry::IntPower,
         Primitive::FloatPower => Entry::FloatPower,
+        Primitive::Order => Entry::Order,
         Primitive::FloatDivide => Entry::FloatDivide,
         Primitive::StringLess => Entry::StringLess,
         Primitive::StringLength => Entry::StringLength,

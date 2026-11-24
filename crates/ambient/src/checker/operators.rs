@@ -143,6 +143,7 @@ fn meanings(operator: Operator) -> &'static [Primitive] {
         Operator::Range => &[P::IntRange],
         Operator::Gather => &[P::ListAll],
         Operator::Race => &[P::ListFirst],
+        Operator::Order => &[P::Order],
         Operator::Step => &[],
     }
 }

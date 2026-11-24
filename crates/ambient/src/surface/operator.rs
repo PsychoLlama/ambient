@@ -48,11 +48,14 @@ pub enum Operator {
     Gather,
     /// What the first of a list of functions to be over gives.
     Race,
+    /// Whether one value comes before another, is the same, or comes
+    /// after it.
+    Order,
 }
 
 impl Operator {
     /// Every operator.
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 26] = [
         Self::Add,
         Self::Subtract,
         Self::Multiply,
@@ -78,6 +81,7 @@ impl Operator {
         Self::Step,
         Self::Gather,
         Self::Race,
+        Self::Order,
     ];
 
     /// The word for the operator: the name of its intrinsic, and
@@ -110,6 +114,7 @@ impl Operator {
             Self::Step => "step",
             Self::Gather => "gather",
             Self::Race => "race",
+            Self::Order => "order",
         }
     }
 

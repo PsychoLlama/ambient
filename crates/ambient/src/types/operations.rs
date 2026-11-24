@@ -97,6 +97,7 @@ impl Env {
         let or_null = |ty: Ty| self.union(vec![ty, Ty::Null]);
         Some(match (operation, operands) {
             (P::Equal, [_, _]) => Ty::Bool,
+            (P::Order, [_, _]) if all(&ordered()) => Ty::Int,
             (
                 P::IntAdd
                 | P::IntSubtract
@@ -159,4 +160,18 @@ impl Env {
             _ => return None,
         })
     }
+}
+
+/// What order compares: a value of any of the shapes it orders. See
+/// "Order" in `docs/spec/operations.md`.
+#[must_use]
+pub fn ordered() -> Ty {
+    Ty::Union(vec![
+        Ty::Null,
+        Ty::Bool,
+        Ty::Int,
+        Ty::String,
+        Ty::Bytes,
+        Ty::Tag,
+    ])
 }

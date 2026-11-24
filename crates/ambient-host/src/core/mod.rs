@@ -182,6 +182,10 @@ pub enum Primitive {
     IntPower,
     /// A float to the power of another.
     FloatPower,
+    /// Whether one value comes before another, is the same, or comes
+    /// after it, as -1, 0, or 1: see "Order" in
+    /// `docs/spec/operations.md`.
+    Order,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

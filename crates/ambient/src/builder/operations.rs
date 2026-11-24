@@ -129,6 +129,13 @@ pub fn to_text(value: Expr) -> Expr {
     operation(Operator::ToText, [value])
 }
 
+/// Whether one value comes before another, is the same, or comes after
+/// it, as -1, 0, or 1.
+#[must_use]
+pub fn order(left: Expr, right: Expr) -> Expr {
+    binary(Operator::Order, left, right)
+}
+
 #[must_use]
 pub fn less(left: Expr, right: Expr) -> Expr {
     binary(Operator::Less, left, right)

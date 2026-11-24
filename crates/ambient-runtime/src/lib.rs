@@ -51,6 +51,7 @@ mod list;
 mod native;
 mod number;
 mod object;
+mod order;
 mod record;
 mod same;
 mod scope;
@@ -84,6 +85,7 @@ pub use object::{
     Fixed, amb_release, amb_retain, fixed_closure, fixed_count, fixed_header, fixed_int,
     fixed_list, layout,
 };
+pub use order::amb_order;
 pub use record::*;
 pub use scope::{amb_scope_new, amb_scope_set, fixed_scope};
 pub use sequence::*;
