@@ -192,6 +192,11 @@ impl Env {
                 let bound = self.bound(*position).or_else(opened);
                 member || bound.is_some_and(|bound| self.sub(&bound, sup, proof))
             }
+            // A type match an unfolding left as it was may be decided
+            // now that its arguments are in.
+            (Ty::Match(_), _) | (_, Ty::Match(_)) if self.decidable(sub) || self.decidable(sup) => {
+                self.sub(&self.normalize(sub), &self.normalize(sup), proof)
+            }
             // A type match left open is within what it gives with its
             // parameters at their bounds, and nothing but itself is
             // within it.

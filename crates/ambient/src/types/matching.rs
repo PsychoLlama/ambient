@@ -15,35 +15,58 @@ impl Env {
         if self.undecided(&matching) {
             Ty::Match(Box::new(matching))
         } else {
-            self.evaluate(&matching)
+            self.evaluate(&matching, &[])
         }
+    }
+
+    /// Whether `ty` is a type match that can be decided: one an
+    /// unfolding made, whose arguments are now in.
+    #[must_use]
+    pub(super) fn decidable(&self, ty: &Ty) -> bool {
+        matches!(ty, Ty::Match(matching) if !self.undecided(matching))
     }
 
     /// What a type match gives with each type parameter it depends on
     /// at its bound: what it gives, if it is decided, and otherwise a
-    /// type it is within.
+    /// type it is within. A test of a type that is open may match
+    /// anything, so it is asked as a wildcard, and taken to always
+    /// match nothing.
     #[must_use]
     pub fn upper(&self, matching: &Matching) -> Ty {
-        self.evaluate(matching)
+        let arms = matching
+            .arms
+            .iter()
+            .map(|(pattern, ty)| (loosened(pattern), ty.clone()));
+        let loose = TypeMatch {
+            subject: matching.subject.clone(),
+            arms: arms.collect(),
+        };
+        let always = matching
+            .arms
+            .iter()
+            .map(|(pattern, _)| !names_open(pattern));
+        self.evaluate(&loose, &always.collect::<Vec<_>>())
     }
 
     /// Each member of the subject taken by every arm that may match it,
     /// up to the first that always does: the union of what they give.
-    fn evaluate(&self, matching: &Matching) -> Ty {
+    /// `last` says which arms may be that first; every arm may if it is
+    /// empty.
+    fn evaluate(&self, matching: &Matching, last: &[bool]) -> Ty {
         let members = match self.unfold(&matching.subject) {
             Ty::Union(members) => members,
             other => vec![other],
         };
         let mut given = Vec::new();
         for member in &members {
-            for (pattern, ty) in &matching.arms {
+            for (index, (pattern, ty)) in matching.arms.iter().enumerate() {
                 let Some(matched) = self.narrow(member, pattern) else {
                     continue;
                 };
                 let mut bound = Vec::new();
                 self.binders(&matched, pattern, &mut bound);
                 given.push(self.normalize(&fill(ty, &bound, 0)));
-                if self.covers(member, pattern) {
+                if last.get(index).copied().unwrap_or(true) && self.covers(member, pattern) {
                     break;
                 }
             }
@@ -132,8 +155,10 @@ impl Env {
 
     /// The type of each binder of the arm `arm` of a match on a value
     /// of type `subject`, whose arms test `tests`: the type match that
-    /// picks it out. Nothing if the subject is closed, since narrowing
-    /// it loses nothing.
+    /// picks it out. Nothing if the subject is closed, or if the arm
+    /// binds only what is left of the whole subject, since narrowing
+    /// then loses nothing. A part of a type parameter is otherwise
+    /// known only by its bound, which would.
     #[must_use]
     pub fn picked(&self, subject: &Ty, tests: &[Pat], arm: usize) -> Option<Vec<Ty>> {
         let pattern = tests.get(arm)?;
@@ -141,7 +166,11 @@ impl Env {
             subject: subject.clone(),
             arms: vec![(pattern.clone(), Ty::Null)],
         });
-        if decided || self.covers(subject, pattern) {
+        let whole = match pattern {
+            Pattern::Bind(_, inner) => inner.binders() == 0,
+            _ => pattern.binders() == 0,
+        };
+        if decided || (whole && self.covers(subject, pattern)) {
             return None;
         }
         // An earlier arm gives nothing, so what it always takes is not
@@ -225,6 +254,22 @@ fn blank(pattern: &Pat) -> Pat {
 /// binder of an arm around it.
 fn open(ty: &Ty) -> bool {
     mentions_parameter(ty) || !ty.closed() || free_matched(ty, 0)
+}
+
+/// `pattern` with each test of a type that is [`open`] made a wildcard.
+fn loosened(pattern: &Pat) -> Pat {
+    match pattern {
+        Pattern::Is(ty) if open(ty) => Pattern::Wildcard,
+        Pattern::Wildcard | Pattern::Literal(_) | Pattern::Is(_) => pattern.clone(),
+        Pattern::Bind(name, inner) => Pattern::Bind(name.clone(), Box::new(loosened(inner))),
+        Pattern::Tuple(members) => Pattern::Tuple(members.iter().map(loosened).collect()),
+        Pattern::Record(fields) => Pattern::Record(
+            fields
+                .iter()
+                .map(|(name, inner)| (name.clone(), loosened(inner)))
+                .collect(),
+        ),
+    }
 }
 
 /// Whether a pattern tests for a type that is [`open`].

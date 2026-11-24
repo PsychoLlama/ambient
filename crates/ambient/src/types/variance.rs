@@ -104,12 +104,33 @@ impl Env {
         found
     }
 
+    /// How a type holds each of `count` type parameters in scope where
+    /// it is written: as [`Self::variance`], but a type match, which
+    /// only reads what it tests, holds nothing to more than being read.
+    #[must_use]
+    pub fn held(&self, ty: &Ty, count: usize) -> Vec<Variance> {
+        let mut found = vec![Variance::Unused; count];
+        self.vary(
+            &self.normal(ty, false),
+            Variance::Covariant,
+            true,
+            &mut found,
+        );
+        found
+    }
+
     /// Adds to `found` how a type in a place that varies as `at` varies
     /// with each type parameter it mentions.
     fn varies(&self, ty: &Ty, at: Variance, found: &mut [Variance]) {
+        self.vary(ty, at, false, found);
+    }
+
+    /// [`Self::varies`], and when `reading`, a type match held only to
+    /// be read: what it tests for and gives vary as it does.
+    fn vary(&self, ty: &Ty, at: Variance, reading: bool, found: &mut [Variance]) {
         let mut all = |types: &[Ty], at: Variance| {
             for ty in types {
-                self.varies(ty, at, found);
+                self.vary(ty, at, reading, found);
             }
         };
         match ty {
@@ -125,43 +146,47 @@ impl Env {
                 for (position, arg) in args.iter().enumerate() {
                     let inner = known.as_ref().and_then(|known| known.get(position));
                     let inner = inner.copied().unwrap_or(Variance::Invariant);
-                    self.varies(arg, at.of(inner), found);
+                    self.vary(arg, at.of(inner), reading, found);
                 }
             }
             Ty::Record(fields) => {
                 for (_, ty) in fields {
-                    self.varies(ty, at, found);
+                    self.vary(ty, at, reading, found);
                 }
             }
             Ty::Tuple(members) => all(members, at),
             Ty::Union(members) => all(members, at),
             Ty::List(member) | Ty::Iterator(member) | Ty::Branded(member, _) => {
-                self.varies(member, at, found);
+                self.vary(member, at, reading, found);
             }
-            Ty::Cell(member) => self.varies(member, at.of(Variance::Invariant), found),
+            Ty::Cell(member) => self.vary(member, at.of(Variance::Invariant), reading, found),
             Ty::Method { needs, function } => {
-                self.varies(needs, at.of(Variance::Contravariant), found);
-                self.varies(function, at, found);
+                self.vary(needs, at.of(Variance::Contravariant), reading, found);
+                self.vary(function, at, reading, found);
             }
             Ty::Function { params, ret, .. } => {
                 all(params, at.of(Variance::Contravariant));
-                self.varies(ret, at, found);
+                self.vary(ret, at, reading, found);
             }
             // Bounds are held to be the same, not one within the other.
             Ty::Generic { bounds, function } => {
                 all(bounds, at.of(Variance::Invariant));
-                self.varies(function, at, found);
+                self.vary(function, at, reading, found);
             }
             // A type match left open is related only to itself.
             Ty::Match(matching) => {
-                let at = at.of(Variance::Invariant);
-                self.varies(&matching.subject, at, found);
+                let at = if reading {
+                    at
+                } else {
+                    at.of(Variance::Invariant)
+                };
+                self.vary(&matching.subject, at, reading, found);
                 for (pattern, ty) in &matching.arms {
                     pattern
                         .tested()
                         .into_iter()
-                        .for_each(|tested| self.varies(tested, at, found));
-                    self.varies(ty, at, found);
+                        .for_each(|tested| self.vary(tested, at, reading, found));
+                    self.vary(ty, at, reading, found);
                 }
             }
             _ => {}

@@ -127,3 +127,43 @@ fn an_arm_names_only_its_own_binders() {
     let main = b::function("main").returns(outside).body(b::int(1));
     assert!(b::module().define(main).build().is_err());
 }
+
+#[test]
+fn a_type_match_over_a_generic_method_type_stays_open() {
+    // The key type may match the entry, so what the method gives is not
+    // taken to be null alone.
+    let source = format!(
+        "{VALUE}
+        type Getter<E> = {{ get<K: string>(self, key: K): Value<E, K> | null }};
+        fn make<E: (key: string, value: unknown)>(): Getter<E> =>
+            {{ get<K: string>(self, key: K): Value<E, K> | null => null }};
+        fn main(): int => make::<Entries>().get(\"a\") ?? 0;"
+    );
+    assert_eq!(int(&source), 0);
+}
+
+/// The key types of entries.
+const KEYS: &str = "type Keys<E> = match E { (let K, _) => K };";
+
+#[test]
+fn a_binder_of_a_part_of_a_type_parameter_is_what_picks_it_out() {
+    // The bound covers the arm, but says only that the key is a string.
+    let source = format!(
+        "{KEYS}
+        fn key<E: (key: string, value: unknown)>(entry: E): Keys<E> =>
+            match entry {{ (let key, _) => key }};
+        fn main(): string => key::<(key: \"a\", value: int)>((\"a\", 1));"
+    );
+    assert_eq!(support::text::text(&source), "a");
+}
+
+#[test]
+fn a_type_match_an_unfolding_holds_is_decided_where_it_is_compared() {
+    let source = format!(
+        "{KEYS}
+        type Holder<E> = {{ keys: List<Keys<E>> }};
+        fn keys(holder: Holder<(key: string, value: int)>): List<string> => holder.keys;
+        fn main(): int => keys({{ keys: [\"a\", \"b\"] }}).length();"
+    );
+    assert_eq!(int(&source), 2);
+}

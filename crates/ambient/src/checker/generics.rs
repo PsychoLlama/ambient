@@ -333,7 +333,8 @@ impl Checker<'_> {
         so_far
     }
 
-    /// `ty` with each literal type as its primitive.
+    /// `ty` with each literal type as its primitive, those a tuple, a
+    /// record, or a list holds among them.
     pub(super) fn widened(&self, ty: &Ty) -> Ty {
         match ty {
             Ty::Literal(Literal::Bool(_)) => Ty::Bool,
@@ -345,6 +346,14 @@ impl Checker<'_> {
                 let members = members.iter().map(|member| self.widened(member));
                 self.env.union(members.collect())
             }
+            Ty::Tuple(members) => Ty::Tuple(members.each(|member| self.widened(member))),
+            Ty::Record(fields) => Ty::Record(
+                fields
+                    .iter()
+                    .map(|(key, ty)| (key.clone(), self.widened(ty)))
+                    .collect(),
+            ),
+            Ty::List(member) => Ty::List(Box::new(self.widened(member))),
             other => other.clone(),
         }
     }
@@ -362,11 +371,16 @@ impl Checker<'_> {
         let mut args = self.least(own, lower);
         // A literal type is no use where the result holds the parameter
         // to more than being read: a map of `1 | 2` takes no `3`.
-        let held = self.env.variance(&signature.ret, args.len());
+        let held = self.env.held(&signature.ret, args.len());
         for (arg, held) in args.iter_mut().zip(held).skip(own) {
             if matches!(held, Variance::Invariant | Variance::Contravariant) {
                 *arg = self.widened(arg);
             }
+        }
+        // What was collected may be an unfolding, which is not in
+        // normal form, and an argument is written as one.
+        for arg in &mut args {
+            *arg = self.env.normalize(arg);
         }
         match (self.within_bounds(signature, &args), function) {
             (Ok(()), _) => Ok(args),
