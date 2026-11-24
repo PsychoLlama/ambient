@@ -10,7 +10,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - Records: a set of keys, each with a type; a key is a field name, a [contract](methods.md), or an [ability](handlers.md).
 - A record's key may hold a [method](methods.md), whose type also says what it needs of its receiver.
 - Tuples: a fixed sequence of two or more types. Nothing to group is null, and one value grouped is that value.
-- Collections: `List<T>` and `Set<T>`. A [map](maps.md) is a type of the standard library.
+- Collections: `List<T>`. A [map and a set](maps.md) are types of the standard library.
 - Functions: parameter types, a return type, a [row](abilities.md), and optional type parameters; parameter names are not part of the type.
 - Unions and intersections.
 - `never`, a subtype of every type, and `unknown`, a supertype of every type.

@@ -25,7 +25,7 @@ The core tree is the checked form of a definition and the only form that is hash
 
 - Primitive types, `never`, and `unknown` are leaves, and so is the test for a function of any type, which only a pattern holds.
 - A literal type holds the literal.
-- Record, tuple, list, set, function, union, intersection, brand, and cell types are nodes over their component types.
+- Record, tuple, list, function, union, intersection, brand, and cell types are nodes over their component types.
 - A [type match](types.md#type-matches) holds its subject and each arm's pattern and type. A tree holds one only where a type parameter keeps it from being decided.
 - A record type's fields are ordered by key, so field order is not content; fields are ordered by name and handlers by [tag](definitions.md).
 - A function type holds its type parameters with their bounds, its parameter types, its return type, and its row.

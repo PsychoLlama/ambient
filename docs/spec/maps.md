@@ -33,3 +33,10 @@ A map holds values by key, and its type says which type of value each type of ke
 
 - Reading, setting, and removing take time in the logarithm of the size, and a changed map shares all but one path with the one it was made from.
 - Reading a key tests the entry it finds against the key's type, which is how the reading is checked; it is [handed](backends.md) the key's type to test against.
+
+## Sets
+
+- A set holds keys, each once, and is a type of the standard library over a map whose values are all null: `Set<T>`, with `T` a key type.
+- It is made empty, or of a list of keys, and is a value as a map is: adding or removing a key gives another set.
+- Its keys are read in their order, so two sets of the same keys read the same.
+- Two sets combine into the keys of either, of both, or of the first and not the second.
