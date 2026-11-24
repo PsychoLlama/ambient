@@ -204,7 +204,7 @@ impl Engine<'_> {
             world.extend(self.runnable(&tested.runner, target)?);
             let mut cases = Vec::new();
             for case in &tested.cases {
-                cases.push(self.case(case, &tested.runner, &mut world)?);
+                cases.push(self.case(case, &tested.runner, target, &mut world)?);
             }
             packages.push(record(vec![
                 ("id", Expr::Literal(Literal::String(tested.id.clone()))),
@@ -233,6 +233,7 @@ impl Engine<'_> {
         &self,
         case: &Case,
         runner: &Symbol,
+        target: &Symbol,
         world: &mut BTreeSet<Symbol>,
     ) -> Result<Expr<Reference>, Error> {
         let name = written(&field(&case.test, "name")).unwrap_or(Expr::Null);
@@ -246,7 +247,7 @@ impl Engine<'_> {
             ]));
         }
         let reaches = self.world_of(&case.function)?;
-        let key = if reaches.is_empty() {
+        let key = if self.computes(&reaches, target)? {
             Expr::Literal(Literal::String(self.key(&case.function, runner)?))
         } else {
             Expr::Null
@@ -273,10 +274,28 @@ impl Engine<'_> {
         ]))
     }
 
+    /// Whether what a test `reaches` of the world is only computed: the
+    /// pure target binds each, and `target` binds it as that does. The
+    /// test is then pure, whatever its row says, since what it reaches
+    /// of native code is the host's own.
+    fn computes(&self, reaches: &[Symbol], target: &Symbol) -> Result<bool, Error> {
+        let pure = self.bound(&crate::system::pure(), reaches.to_vec())?;
+        if reaches.iter().any(|ability| !pure.contains_key(ability)) {
+            return Ok(false);
+        }
+        let under = self.bound(target, reaches.to_vec())?;
+        let same = |(ability, (handler, _)): (&Symbol, &(Symbol, Vec<Symbol>))| {
+            under
+                .get(ability)
+                .is_some_and(|(bound, _)| bound == handler)
+        };
+        Ok(pure.iter().all(same))
+    }
+
     /// The key a pure test's outcome is kept under: its hash, what runs
     /// it, and the build. Its name is no part of it, and no native code
-    /// is: a pure test reaches none, since native code is reached only
-    /// by performing an ability.
+    /// is: native code is reached only by performing an ability, and a
+    /// pure test reaches only the host's, which the build names.
     fn key(&self, test: &Symbol, runner: &Symbol) -> Result<String, Error> {
         let mut key = Hasher::new("test");
         key.hash(&self.hash(test)?).hash(&self.hash(runner)?);

@@ -60,6 +60,20 @@ fn a_failure_of_a_test_that_may_be_tried_again_is_never_reused() {
     assert_eq!(runs.summary(source), "0 passed (1 not run again), 2 failed");
 }
 
+/// A test that only computes is kept, though its row names native
+/// code; one that reads the world is run every time.
+#[test]
+fn a_test_that_only_hashes_is_not_run_again() {
+    let source = "use ambient.test;
+        use system.{clock, crypto};
+        #[test.case] fn hashes(): int with crypto => crypto.hash!(crypto.sha256, 0x[]).length();
+        #[test.case] fn reads(): int with clock.now => clock.now!();";
+    let runs = Runs::default();
+
+    assert_eq!(runs.summary(source), "2 passed, 0 failed");
+    assert_eq!(runs.summary(source), "2 passed (1 not run again), 0 failed");
+}
+
 #[test]
 fn what_is_kept_is_kept_under_the_build_directory_by_package() {
     let runs = Runs::default();
