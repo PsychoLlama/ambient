@@ -19,6 +19,14 @@ An operation is something the language itself does with values: arithmetic, comp
 - Dividing an integer by zero is a [fault](values.md), as leaving the range of `int` is.
 - Less-than orders two integers, two floats, or two strings; a string is ordered by its bytes.
 
+## Order
+
+- Order compares any two values of the shapes it orders: null, bool, int, string, bytes, and tag. It gives whether the first comes before the second, is the same, or comes after.
+- Values of different shapes are ordered by shape, in that order.
+- False comes before true, integers are ordered as numbers, strings and bytes by their bytes, and tags by their [identity](definitions.md).
+- It is a total order: two values are the same exactly when they are equal, so it orders the keys of a [map](maps.md).
+- TODO: a float is not ordered until how a NaN compares is decided, and other shapes not until each has an order.
+
 ## Conversions
 
 - Nothing converts unless a conversion is written.

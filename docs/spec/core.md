@@ -25,7 +25,8 @@ The core tree is the checked form of a definition and the only form that is hash
 
 - Primitive types, `never`, and `unknown` are leaves, and so is the test for a function of any type, which only a pattern holds.
 - A literal type holds the literal.
-- Record, tuple, list, set, map, function, union, intersection, brand, and cell types are nodes over their component types.
+- Record, tuple, list, set, function, union, intersection, brand, and cell types are nodes over their component types.
+- A [type match](types.md#type-matches) holds its subject and each arm's pattern and type. A tree holds one only where a type parameter keeps it from being decided.
 - A record type's fields are ordered by key, so field order is not content; fields are ordered by name and handlers by [tag](definitions.md).
 - A function type holds its type parameters with their bounds, its parameter types, its return type, and its row.
 - A row is a set of slots, each an ability; row aliases are expanded.
@@ -45,7 +46,7 @@ The core tree is the checked form of a definition and the only form that is hash
 - A perform holds an ability slot, arguments, and whether the ability [returns](handlers.md).
 - A provide holds its mode, its body, and each handler with its ability slot.
 - Binding a function value [in place](abilities.md) has no node: it appears as a closure that captures the value and the bindings.
-- Constructions of records, tuples, lists, sets, and maps; a record construction keeps the order its fields were written in, because that is their evaluation order.
+- Constructions of records, tuples, lists, and sets; a record construction keeps the order its fields were written in, because that is their evaluation order.
 - Field access, match, cast, and a block of bindings ending in an expression.
 - A record merge holds both records and the keys taken from the second, which are those its type lists.
 - Provide, boundary, cleanup, and the task constructs each have one node.

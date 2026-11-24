@@ -1,26 +1,35 @@
 # Maps
 
-A map holds values by string key. It is a type of the standard library written in the language, not a shape of the runtime.
+A map holds values by key, and its type says which type of value each type of key holds. It is a type of the standard library written in the language, not a shape of the runtime.
 
 ## Shape
 
 - A map is a record whose [methods](methods.md) are its operations, so it is used as a list is: `prices.get("tea")`.
-- It is made empty, or of a list of keys paired with values.
+- It is made empty, or of a list of entries.
 - It is a value like any other: setting or removing a key gives another map and leaves the first as it was.
-- Reading a key that is absent gives null, as reading past the end of a list does.
-- Reading a key's entry gives the key with its value, or null: a value that is null is then told from none in one reading.
+
+## Entries
+
+- A map's type is that of its entries: a union of pairs, each a key type with a value type, as `Map<(key: "name", value: string) | (key: "age", value: int)>`.
+- The relation between a key's type and its value's is kept: no reading of a map flattens it into two independent unions.
+- Reading a key gives the value types of every pair whose key type the key's [may match](types.md#type-matches), or null when the key is absent. The standard library says so with a type match, so a map holds no rule of the checker's.
+- A key whose type matches one pair gives that pair's value type; a key that may match several gives the union of theirs.
+- Narrowing therefore needs key types that are [disjoint](types.md#overlap): literals and tags are, and two brands on one type are not.
+- Reading a key's entry gives the pair, of the pairs its type may match, or null: a value that is null is then told from none in one reading.
 - Null for absence stays the common reading, since most values are never null; no reading wraps what it gives in a type of its own.
-- An update gives a map whose value under a key is made from the one there, or from null: counting is one call.
+- Setting takes an entry, which must be of the map's entry type.
+- An update gives a map with the entry a function makes of the value under a key, or of null, set as setting would: counting is one call.
+- An update's function gives an entry and not a value. A key that may match several pairs reads a union of their values, and a value of that union under the key would not be an entry.
+- A map made of a list of literal entries holds their keys widened to their primitives, as any [inferred](types.md#generics) type argument a value is written to is; a map that narrows has its entry type written out.
 
-## Order
+## Keys
 
-- Keys, values, and entries are read in the order of the keys, never the order they were set in.
+- A key is null, a bool, an int, a string, bytes, or a tag.
+- Keys, values, and entries are read in the [order](operations.md#order) of the keys, never the order they were set in.
 - Two maps with the same entries read the same, so nothing a program [observes](memoization.md) depends on how one was built.
+- A key of any other shape waits for the order to take it.
 
 ## Cost
 
 - Reading, setting, and removing take time in the logarithm of the size, and a changed map shares all but one path with the one it was made from.
-
-## Limits
-
-- A key is a string. Other keys wait for a way to order any value.
+- Reading a key tests the entry it finds against the key's type, which is how the reading is checked; it is [handed](backends.md) the key's type to test against.

@@ -4,7 +4,7 @@ Values are immutable and self-describing. A value's runtime shape is enough to t
 
 ## Shapes
 
-- The shapes are null, bool, int, float, string, bytes, list, map, set, tag, record, tuple, function, cell, [iterator](iteration.md), and handle.
+- The shapes are null, bool, int, float, string, bytes, list, set, tag, record, tuple, function, cell, [iterator](iteration.md), and handle.
 - No shape is user-defined; every [type](types.md) describes a subset of these.
 - A function value is a definition hash, captured values, [captured handlers](abilities.md), and the type arguments it was made at if its function [needs them](backends.md).
 - A function value says which type it is of, as one name, and nothing of what that type is within.

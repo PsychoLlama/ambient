@@ -106,6 +106,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - A parameter in a type and a member of a tuple type are each a name, a colon, and a type, as `(name: string, count: int)`. The name is for a reader: it is no part of the type, and a tuple value is written without one.
 - A type is shown as it would be written, names and all. One that nothing wrote out, as a tuple value's is, is shown without names.
 - A union is its members separated by `|`.
+- A [type match](types.md#type-matches) is written as a match is, where a type is expected: `match`, the subject type, and arms of a pattern, `=>`, and a type. `let` and a name binds a type, as `match E { (K, let V) => V }`.
 
 ## Files
 

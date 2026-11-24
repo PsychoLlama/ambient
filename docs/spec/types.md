@@ -10,7 +10,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - Records: a set of keys, each with a type; a key is a field name, a [contract](methods.md), or an [ability](handlers.md).
 - A record's key may hold a [method](methods.md), whose type also says what it needs of its receiver.
 - Tuples: a fixed sequence of two or more types. Nothing to group is null, and one value grouped is that value.
-- Collections: `List<T>`, `Set<T>`, and `Map<E>`, where `E` is the type of the map's entries.
+- Collections: `List<T>` and `Set<T>`. A [map](maps.md) is a type of the standard library.
 - Functions: parameter types, a return type, a [row](abilities.md), and optional type parameters; parameter names are not part of the type.
 - Unions and intersections.
 - `never`, a subtype of every type, and `unknown`, a supertype of every type.
@@ -18,6 +18,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - `Cell<T>`.
 - `Iterator<T>`, the type of an [iterator](iteration.md).
 - Type parameters, each with an optional upper bound.
+- [Type matches](#type-matches).
 
 ## Soundness
 
@@ -54,14 +55,6 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - Anything that can be authored as a literal has a singleton type.
 - A literal expression has its singleton type, and nothing but subtyping widens it; values are immutable, so there is no assignment to widen for.
 - A [comptime](comptime.md) argument is known because its type is a singleton.
-
-## Maps
-
-- A map's entry type is a union of pairs, each a key type with a value type.
-- A lookup by a key of type `K` yields the union of the value types of every pair whose key type overlaps `K`, or `null`.
-- An inserted entry is a subtype of the entry type.
-- Two types overlap unless they are provably disjoint.
-- The relation between a key's type and its value's type is therefore never flattened into two independent unions.
 
 ## Unknown and casts
 
@@ -135,7 +128,31 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - A lambda has only the type parameters it writes: nothing expected of it makes it generic.
 - A [method](methods.md) written as such a lambda is generic the same way.
 - A recursive generic type may apply itself to types other than its own parameters: a method of a container may give the container at another type.
-- There are no conditional types, mapped types, or type operators.
+
+## Type matches
+
+A type match computes a type from another as a match computes a value: by the same patterns, arm by arm. It is how a type depends on a type parameter; computation over closed types is [comptime](comptime.md)'s.
+
+- A type match holds a subject type and arms, each a pattern and a type.
+- Its patterns are those of a [match](#narrowing). A binder binds the type of what its pattern matched, for the arm's type to name.
+- A test may name any type, functions and brands among them: nothing is tested as a program runs.
+- Each member of the subject's union is taken by every arm that may match it, up to the first that always does, as a value would be. The type match is the union of what those arms give.
+- Two types may match unless they are [disjoint](#overlap).
+- A member no arm may match gives nothing, so a type match need not be exhaustive, and one over `never` is `never`.
+- A type match whose subject or patterns name a type parameter is decided where the parameter is known, and is left as it is until then.
+- A match on a value of type `T` gives the type match over `T` with the same patterns, each arm giving the type of the arm's value.
+- So a generic function narrows a value of a type parameter without losing what it is related to: a binder's type is the type match that picks it out.
+- A type match left as it is is within a type that every arm that may match is within, with each parameter at its bound.
+- Nothing is within one but `never` and the same type match, related to it by their subjects and the types its patterns name, each the way the match varies with it.
+- A value of one is therefore given only by a match with the same arms, or by what already has that type.
+- A type match does not refer to itself, directly or through a [group](definitions.md).
+
+## Overlap
+
+- Two types are disjoint if no value is described by both, and overlap otherwise.
+- Overlap is decided by the checker and errs toward overlapping: two types not proven disjoint overlap.
+- Two brands on one type overlap, since brands are [erased](#brands) and a value may carry both.
+- Two record types overlap unless a key both list has disjoint types, since a record may hold keys its type leaves out.
 
 ## Type definitions
 
