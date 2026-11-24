@@ -291,3 +291,11 @@ pub fn cleanup(
 pub fn kept(expr: ambient::surface::Expr) -> ambient::surface::Expr {
     ambient::builder::let_("kept", expr, ambient::builder::name("kept"))
 }
+
+/// The launcher, as the command holds it, for a test that links.
+pub fn launcher() -> ambient::cli::Launcher {
+    ambient::cli::Launcher {
+        packed: ambient_archive::PACKED,
+        libraries: ambient_archive::LIBRARIES,
+    }
+}

@@ -11,15 +11,19 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::{env, fs, io};
 
-use ambient_host::hash::Hasher;
-use ambient_host::parts::BUILD;
+use std::sync::OnceLock;
 
-use super::linking::{LIBRARIES, Link, Linker};
+use ambient_host::hash::{Hash, Hasher};
+
+use super::linking::{Launcher, Link, Linker};
 use super::sealing::seal;
 
 /// The machine's own linker, and where what it makes is kept.
 pub struct Machine {
     root: PathBuf,
+    launcher: Launcher,
+    /// The digest of the launcher, which names what is kept of it.
+    named: OnceLock<Hash>,
 }
 
 /// Writes `bytes` at `path` whole or not at all: another process may
@@ -51,16 +55,34 @@ const STRIP: &[&str] = if cfg!(debug_assertions) {
 };
 
 impl Machine {
+    /// What links with `launcher`, keeping what it makes under `root`.
     #[must_use]
-    pub fn under(root: PathBuf) -> Self {
-        Self { root }
+    pub fn under(root: PathBuf, launcher: Launcher) -> Self {
+        Self {
+            root,
+            launcher,
+            named: OnceLock::new(),
+        }
+    }
+
+    /// The digest of the launcher: of all it holds, the compiler and
+    /// the host both, so what was made with another is never reused.
+    fn named(&self) -> Hash {
+        let digest = || {
+            let mut hasher = Hasher::new("launcher");
+            hasher
+                .bytes(self.launcher.packed)
+                .bytes(self.launcher.libraries.as_bytes());
+            hasher.finish()
+        };
+        *self.named.get_or_init(digest)
     }
 
     /// Where the executable of `link` is kept: a directory named for
     /// everything it is made from.
     fn place(&self, link: &Link) -> io::Result<PathBuf> {
         let mut hasher = Hasher::new("link");
-        hasher.bytes(BUILD.as_bytes()).bytes(link.main.as_bytes());
+        hasher.hash(&self.named()).bytes(link.main.as_bytes());
         for bundle in &link.bundles {
             hasher.bytes(&fs::read(bundle)?);
         }
@@ -74,9 +96,9 @@ impl Machine {
     fn linked(&self, link: &Link, place: &Path) -> Result<(), String> {
         let failed = |error: io::Error| error.to_string();
         fs::create_dir_all(place).map_err(failed)?;
-        let archive = self.root.join(format!("launcher-{BUILD}.a"));
+        let archive = self.root.join(format!("launcher-{}.a", self.named()));
         if !archive.exists() {
-            keep(&archive, &super::linking::archive().map_err(failed)?).map_err(failed)?;
+            keep(&archive, &self.launcher.archive().map_err(failed)?).map_err(failed)?;
         }
         let main = place.join("main.c");
         fs::write(&main, &link.main).map_err(failed)?;
@@ -98,7 +120,7 @@ impl Machine {
         command.args(link.libraries.iter().chain(&[PRUNE.to_owned()]));
         command.args(STRIP);
         command
-            .args(LIBRARIES.split_whitespace())
+            .args(self.launcher.libraries.split_whitespace())
             .arg("-o")
             .arg(&made);
         let ran = command.output().map_err(|error| {

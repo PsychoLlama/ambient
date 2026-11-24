@@ -1,15 +1,22 @@
-//! The `ambient` command.
+//! The `ambient` command: the compiler's command line, with the
+//! launcher it links programs with (`ambient-archive`).
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::rc::Rc;
 
-use ambient::cli::{Cli, Command, Linker, Machine, Session, Unlinked};
+use ambient::cli::{Cli, Command, Launcher, Linker, Machine, Session, Unlinked};
 use ambient::host::{System, World};
 use ambient::project::{Disk, Kept, Nowhere, Offline, Snapshots};
 use ambient::store::{DiskStore, MemoryStore, Store};
 use clap::Parser;
+
+/// The launcher, as this command's build made it.
+const LAUNCHER: Launcher = Launcher {
+    packed: ambient_archive::PACKED,
+    libraries: ambient_archive::LIBRARIES,
+};
 
 /// Where what is built and what is fetched are kept between runs: one
 /// place for every project, since each is kept by its content.
@@ -46,7 +53,7 @@ fn main() -> ExitCode {
     };
     // Without somewhere to keep it, nothing is linked.
     let linker: Box<dyn Linker> = match cache() {
-        Some(root) => Box::new(Machine::under(root.join("linked"))),
+        Some(root) => Box::new(Machine::under(root.join("linked"), LAUNCHER)),
         None => Box::new(Unlinked),
     };
     let session = Session {

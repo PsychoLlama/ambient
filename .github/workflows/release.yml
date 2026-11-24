@@ -78,7 +78,7 @@ jobs:
 
       - name: Build
         run: |
-          cargo build --release --locked --package ambient --target ${{ matrix.target }}
+          cargo build --release --locked --package ambient-cli --target ${{ matrix.target }}
           mkdir -p dist
           cp "target/${{ matrix.target }}/release/ambient" \
             "dist/ambient-${{ steps.version.outputs.version }}-${{ matrix.name }}"

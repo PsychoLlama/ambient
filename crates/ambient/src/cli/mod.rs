@@ -33,7 +33,7 @@ pub use chosen::Chosen;
 pub use header::header;
 use init::Begun;
 use launch::Launch;
-pub use linking::{Link, Linker, Unlinked, archive, built, symbol};
+pub use linking::{Launcher, Link, Linker, Unlinked, built, symbol};
 pub use machine::Machine;
 use picked::Picked;
 

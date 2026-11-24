@@ -233,7 +233,7 @@ fn executed_of(scratch: &Scratch, command: &Command) -> i32 {
         store: &MemoryStore::new(),
         snapshots: &Nowhere,
         world: Rc::new(RefCell::new(System::new(Vec::new()))),
-        linker: &Machine::under(scratch.0.join("linked")),
+        linker: &Machine::under(scratch.0.join("linked"), support::launcher()),
     };
     session.execute(command)
 }

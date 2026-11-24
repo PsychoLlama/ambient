@@ -1,0 +1,17 @@
+[package]
+name = "ambient-cli"
+version.workspace = true
+edition.workspace = true
+description = "The ambient command"
+
+[[bin]]
+name = "ambient"
+path = "src/main.rs"
+
+[dependencies]
+ambient.path = "../ambient"
+ambient-archive.path = "../ambient-archive"
+clap.workspace = true
+
+[lints]
+workspace = true

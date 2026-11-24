@@ -1,7 +1,9 @@
 ## Structure
 
 - `docs/spec/`: source of truth for the language design. The implementation follows it; change the spec first.
-- `crates/ambient`: the implementation, a library plus an empty binary. Module docs name the spec page each module implements.
+- `crates/ambient`: the implementation, a library. Module docs name the spec page each module implements.
+- `crates/ambient-cli`: the `ambient` binary, which hands the library's command line the launcher (`cli::Launcher`) from `ambient-archive`.
+- `crates/ambient-archive`: the launcher as an archive, compressed, which its build script builds with a cargo of its own. Only the binary and the tests that link depend on it, so the compiler builds without waiting for the launcher that holds it.
 - `crates/ambient-host`: what loads and runs a compiled program, with no compiler in it: trees, values, parts, the native loader, the native side of `system`, and launching. `ambient` gives its modules again at the paths they had (`ambient::core`, `backend::native`, `host`), which is how the bullets below name them.
 - `crates/ambient-native`: what a native bundle is built against: the one list of the runtime's entry points a bundle may call, and nothing of the runtime. `ambient header` writes the C header from it.
 - `crates/ambient-launcher`: what a built program is put after, as an archive the machine's linker makes that file of. It links `ambient-host`, and the compiler built without the command (`ambient`, no default features), and names no group of the native side (`host::GROUPS`, or the compiler's `host::GROUP`), so an executable holds only the groups its program reaches; keep it so.
@@ -9,7 +11,7 @@
 - `packages/logging`: structured logs as an ability, an Ambient package with no native code. `examples/logs` uses it.
 - `integrations/neovim`: a Neovim plugin for `.ab` files: filetype, highlighting by pattern, and comment settings. It follows `docs/spec/syntax.md` by hand; change it when the syntax changes.
 - `crates/ambient-runtime`: what compiled code calls. Built natively into the compiler, and for wasm32 by `crates/ambient/build.rs` as one relocatable object.
-- Each crate but the launcher, and each package, has an `AGENTS.md` of its own invariants. Read it before working there, and put a new invariant in the crate that must uphold it.
+- Each crate but the launcher and the archive, and each package, has an `AGENTS.md` of its own invariants. Read it before working there, and put a new invariant in the crate that must uphold it.
 
 ## Invariants
 
@@ -23,7 +25,7 @@ What spans crates:
 
 ## Testing
 
-- Tests build a `Workspace` in memory and run an `Engine` over a `MemoryStore`; nothing touches disk, except `tests/disk.rs`, `tests/fetched.rs`, and `tests/linked.rs`, which test the `DiskStore`, fetching with `git`, and linking a native bundle with `cc`, under the system's temporary directory.
+- Tests build a `Workspace` in memory and run an `Engine` over a `MemoryStore`; nothing touches disk, except `tests/disk.rs`, `tests/fetched.rs`, and `tests/linked.rs`, which test the `DiskStore`, fetching with `git`, and linking a native bundle with `cc`, and `crates/ambient-cli/tests`, which runs the binary, under the system's temporary directory.
 - Programs are built with builders. Text is for tests of the reader, of library methods (`support::text`), and of whole packages.
 - A program is run with `support::run` or `support::run_with`, which run it natively and in wasmtime and fail if they disagree or if either leaks an object.
 - An incremental test builds twice over one store and asserts on `Engine::ran` and `Engine::reused`.

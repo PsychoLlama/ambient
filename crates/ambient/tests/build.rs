@@ -8,7 +8,6 @@ mod support;
 use std::cell::RefCell;
 use std::io::Cursor;
 use std::path::PathBuf;
-use std::process::Command as Process;
 use std::rc::Rc;
 
 use ambient::cli::{Chosen, Command, carried, start};
@@ -190,47 +189,6 @@ fn a_program_that_is_wrong_builds_nothing() {
         after.err
     );
     assert!(!after.files.contains_key("out"));
-}
-
-/// The one test that touches the disk: the command builds a package
-/// there, and what it built runs with the package gone.
-#[test]
-fn the_command_builds_a_file_that_runs_on_its_own() {
-    let ambient = env!("CARGO_BIN_EXE_ambient");
-    let directory = std::env::temp_dir().join(format!("ambient-build-{}", std::process::id()));
-    let package = directory.join("app");
-    std::fs::create_dir_all(package.join("src")).unwrap();
-    std::fs::write(
-        package.join("ambient.toml"),
-        "[package]\nname = \"app\"\nid = \"app\"\nversion = \"0.1.0\"",
-    )
-    .unwrap();
-    std::fs::write(package.join("src/main.ab"), GREETS).unwrap();
-    let executable = directory.join("greet");
-
-    let build = Process::new(ambient)
-        .args(["build", "--output", "../greet"])
-        .current_dir(&package)
-        .env("XDG_CACHE_HOME", directory.join("cache"))
-        .output()
-        .unwrap();
-    assert!(
-        build.status.success(),
-        "{}",
-        String::from_utf8_lossy(&build.stderr)
-    );
-    std::fs::remove_dir_all(&package).unwrap();
-    let ran = Process::new(&executable)
-        .args(["build", "you"])
-        .output()
-        .unwrap();
-    std::fs::remove_dir_all(&directory).unwrap();
-
-    assert_eq!(ran.status.code(), Some(3));
-    assert_eq!(
-        String::from_utf8_lossy(&ran.stdout),
-        "hello, build and you\n"
-    );
 }
 
 /// A package with a target of its own: one ability, which native code

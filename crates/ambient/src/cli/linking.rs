@@ -21,25 +21,30 @@ use crate::project::{Project, fetched};
 use crate::symbol::PackageId;
 use crate::workspace::{Granting, Sources, could_allow, native};
 
-/// What the launcher is as an archive, compressed: what a link joins
-/// a `main` and native bundles with, once [`archive`] has made it what
-/// it was.
-const PACKED: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/launcher.a.gz"));
-
-/// The launcher as an archive.
-///
-/// # Errors
-///
-/// Fails if what the command holds is not what its build wrote.
-pub fn archive() -> std::io::Result<Vec<u8>> {
-    let mut archive = Vec::new();
-    flate2::read::GzDecoder::new(PACKED).read_to_end(&mut archive)?;
-    Ok(archive)
+/// The launcher as an archive: what a link joins a `main` and native
+/// bundles with. The command is handed it (`ambient-archive`), so the
+/// compiler is built without waiting for the launcher, which holds it.
+#[derive(Clone, Copy)]
+pub struct Launcher {
+    /// The archive, compressed.
+    pub packed: &'static [u8],
+    /// The libraries of the system it is linked with, as the compiler
+    /// that made it names them to a linker.
+    pub libraries: &'static str,
 }
 
-/// The libraries of the system an archive of the launcher is linked
-/// with, as the compiler that made it names them to a linker.
-pub const LIBRARIES: &str = include_str!(concat!(env!("OUT_DIR"), "/launcher.libraries"));
+impl Launcher {
+    /// The archive as it was made.
+    ///
+    /// # Errors
+    ///
+    /// Fails if what was packed is not what its build wrote.
+    pub fn archive(&self) -> std::io::Result<Vec<u8>> {
+        let mut archive = Vec::new();
+        flate2::read::GzDecoder::new(self.packed).read_to_end(&mut archive)?;
+        Ok(archive)
+    }
+}
 
 /// What a linker is to join into what loads one program.
 #[derive(Clone, Debug, PartialEq, Eq)]

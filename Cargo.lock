@@ -27,6 +27,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 name = "ambient"
 version = "0.2.0"
 dependencies = [
+ "ambient-archive",
  "ambient-host",
  "ambient-native",
  "ambient-runtime",
@@ -49,6 +50,22 @@ dependencies = [
  "wasm-encoder 0.263.0",
  "wasmparser 0.263.0",
  "wasmtime",
+]
+
+[[package]]
+name = "ambient-archive"
+version = "0.2.0"
+dependencies = [
+ "flate2",
+]
+
+[[package]]
+name = "ambient-cli"
+version = "0.2.0"
+dependencies = [
+ "ambient",
+ "ambient-archive",
+ "clap",
 ]
 
 [[package]]

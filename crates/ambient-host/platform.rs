@@ -1,5 +1,5 @@
 // Included by the build scripts of `ambient-host`, which names the
-// platform, and of `ambient`, which builds the launcher for it.
+// platform, and of `ambient-archive`, which builds the launcher for it.
 
 /// The platform a command built for `target` builds programs for: what
 /// a native bundle says it is for, and what the launcher is built for.

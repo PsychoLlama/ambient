@@ -12,11 +12,6 @@ command = ["dep:clap", "dep:semver", "dep:toml", "dep:toml_edit", "dep:ureq"]
 # Running WebAssembly in this process, as tests do.
 wasmtime = ["dep:wasmtime"]
 
-[[bin]]
-name = "ambient"
-path = "src/main.rs"
-required-features = ["command"]
-
 [dependencies]
 ambient-host.workspace = true
 ambient-native.workspace = true
@@ -39,12 +34,10 @@ ureq = { workspace = true, optional = true }
 wasmtime = { workspace = true, optional = true }
 
 [dev-dependencies]
+ambient-archive = { path = "../ambient-archive" }
 proptest.workspace = true
 rcgen.workspace = true
 rustls.workspace = true
-
-[build-dependencies]
-flate2.workspace = true
 
 [lints]
 workspace = true

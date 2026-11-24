@@ -1,0 +1,11 @@
+[package]
+name = "ambient-archive"
+version.workspace = true
+edition.workspace = true
+description = "The Ambient launcher as an archive, compressed, for the command to link programs with"
+
+[build-dependencies]
+flate2.workspace = true
+
+[lints]
+workspace = true

@@ -1,7 +1,7 @@
 //! Builds the runtime for WebAssembly as one relocatable object, so the
 //! compiler can link into each module the parts of it the module
 //! reaches. See `docs/spec/linking.md`. Also names the build, for the
-//! store, and builds the launcher the command links programs with.
+//! store.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -63,112 +63,6 @@ fn identify() {
     println!("cargo::rustc-env=AMBIENT_BUILD={:016x}", hasher.finish());
 }
 
-include!("../ambient-host/platform.rs");
-
-/// What a build of the launcher is told, whatever it is building.
-fn launching(cargo: &std::ffi::OsStr, verb: &str, target: &Path) -> Command {
-    let machine = platform(&env::var("TARGET").unwrap_or_default());
-    let mut build = Command::new(cargo);
-    build
-        .args([verb, "--locked", "--package", "ambient-launcher"])
-        .args(["--target", &machine, "--target-dir"])
-        .arg(target)
-        // Flags meant for this build's own scripts do not apply.
-        .env_remove("CARGO_ENCODED_RUSTFLAGS");
-    // Nor do this build's features: the compiler the launcher builds
-    // would otherwise read them as its own, and build a launcher again.
-    for (name, _) in env::vars_os() {
-        if name.to_string_lossy().starts_with("CARGO_FEATURE_") {
-            build.env_remove(name);
-        }
-    }
-    // The command holds what this makes, twice over, so what says
-    // where its lines came from is left out of even a build to debug.
-    build.args(["--config", "profile.dev.debug=false"]);
-    if env::var("PROFILE").is_ok_and(|profile| profile == "release") {
-        build.args(["--release", "--config", "profile.release.lto=true"]);
-        build.args(["--config", "profile.release.codegen-units=1"]);
-        build.args(["--config", "profile.release.strip=true"]);
-    }
-    build
-}
-
-/// Builds the launcher for the platform the command being built makes
-/// programs for (`platform`) and as the command is: a release build of one is of the other,
-/// stripped and optimized as a whole, since every executable carries
-/// it.
-///
-/// It is built as an archive for the machine's linker to join with
-/// what a program reaches, beside the libraries of the system such a
-/// link needs: see "Native code" in `docs/spec/linking.md`.
-fn launcher(cargo: &std::ffi::OsStr, out: &Path) {
-    println!("cargo::rerun-if-changed=../ambient-launcher");
-    println!("cargo::rerun-if-changed=Cargo.toml");
-    println!("cargo::rerun-if-changed=../ambient-host/platform.rs");
-    let target = out.join("launching");
-    let machine = platform(&env::var("TARGET").unwrap_or_default());
-    let release = env::var("PROFILE").is_ok_and(|profile| profile == "release");
-    let profile = if release { "release" } else { "debug" };
-    let made = target.join(machine).join(profile);
-    // The archive is the library made as nothing else: a release
-    // build is then optimized as a whole, and holds what the entry
-    // points reach in place of every crate's code and bitcode. The
-    // compiler says which libraries an archive is linked with, and
-    // only when asked as it makes one.
-    let mut asking = launching(cargo, "rustc", &target);
-    asking.args(["--lib", "--crate-type", "staticlib"]);
-    asking.args(["--", "--print", "native-static-libs"]);
-    let asked = asking.output();
-    let built = asked.as_ref().is_ok_and(|ran| ran.status.success());
-    let said = asked.map(|ran| ran.stderr).unwrap_or_default();
-    let said = String::from_utf8_lossy(&said);
-    assert!(built, "building the launcher failed:\n{said}");
-    packed(
-        &made.join("libambient_launcher.a"),
-        &out.join("launcher.a.gz"),
-        release,
-    );
-    let named = |line: &str| {
-        let (_, libraries) = line.split_once("native-static-libs: ")?;
-        Some(libraries.trim().to_owned())
-    };
-    let libraries = said.lines().find_map(named);
-    assert!(
-        libraries.is_some(),
-        "the compiler did not say what the launcher links with:\n{said}"
-    );
-    let written = fs::write(
-        out.join("launcher.libraries"),
-        libraries.unwrap_or_default(),
-    );
-    assert!(written.is_ok(), "the launcher's libraries were not written");
-}
-
-/// Writes the archive at `from` to `to`, compressed: the command
-/// holds it, and it is several times the command's own size. A
-/// release is compressed as far as it goes; a build to debug is
-/// rebuilt on every change to the compiler, and the best compression
-/// takes far longer than the rest of that.
-fn packed(from: &Path, to: &Path, release: bool) {
-    use std::io::Write;
-
-    let archive = fs::read(from);
-    assert!(
-        archive.is_ok(),
-        "the launcher's archive was not where it was built"
-    );
-    let level = if release {
-        flate2::Compression::best()
-    } else {
-        flate2::Compression::fast()
-    };
-    let mut packed = flate2::write::GzEncoder::new(Vec::new(), level);
-    let written = packed.write_all(&archive.unwrap_or_default());
-    let written = written.and_then(|()| packed.finish());
-    let written = written.and_then(|packed| fs::write(to, packed));
-    assert!(written.is_ok(), "the launcher's archive was not written");
-}
-
 fn main() {
     identify();
     println!("cargo::rerun-if-changed=../ambient-runtime/src");
@@ -177,11 +71,6 @@ fn main() {
 
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap_or_default());
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    // The launcher holds the compiler, built without the command, so
-    // only the command's build makes one.
-    if env::var_os("CARGO_FEATURE_COMMAND").is_some() {
-        launcher(&cargo, &out);
-    }
     // A target directory of its own: the one this build is running in is
     // locked by the cargo that is running this script.
     let target = out.join("runtime");
