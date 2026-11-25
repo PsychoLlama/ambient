@@ -128,6 +128,16 @@ fn a_shape_has_no_method_its_module_lacks() {
 }
 
 #[test]
+fn a_function_of_a_shapes_module_that_takes_another_first_is_no_method() {
+    // `bytes.of` takes a list of ints first.
+    let source = "fn main(): bytes | null => 0x[01].of();";
+    let workspace = support::text::workspace(source);
+    let store = ambient::store::MemoryStore::new();
+    let checked = ambient::engine::Engine::new(&workspace, &store).check(&value("main", "main"));
+    assert!(matches!(checked, Err(Error::NoMethod { name, .. }) if name == "of"));
+}
+
+#[test]
 fn a_union_of_shapes_has_no_methods_until_it_is_narrowed() {
     let either = ty::union([ty::string(), ty::list(ty::int())]);
     let narrowed = b::match_(

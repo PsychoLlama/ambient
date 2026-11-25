@@ -112,7 +112,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - Elsewhere it is a type of its own: nothing but itself and `never` is within it, and it is within nothing but itself and `unknown`.
 - Two uses of it are related only if their arguments are the same: how its content varies is its module's to change, so no other code relies on it.
 - Outside its module no field of it is read, no value of it is written, and no pattern looks into it.
-- Its [methods](methods.md) are the public functions of its module, wherever it is used; nothing else adds one, and it holds no field one could be put in.
+- Its [methods](methods.md) are the public functions of its module whose first parameter is of it, wherever it is used; nothing else adds one, and it holds no field one could be put in.
 - No code outside its module therefore changes or adds to what its operations do.
 - It is erased: as a program runs a value of it is its content, and costs nothing more.
 - A test for one is therefore a test for its content, made only where that tells it from the rest of the subject's type, as a [brand](#brands)'s is.

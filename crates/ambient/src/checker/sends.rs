@@ -28,7 +28,12 @@ impl Checker<'_> {
             && self.env.types.get(owner).is_some_and(|info| info.opaque)
         {
             let name = Self::key_name(method);
-            return match self.env.owned.get(&(owner.clone(), name.clone())).cloned() {
+            let function = self.env.owned.get(&(owner.clone(), name.clone()));
+            let takes = |first: &Ty| matches!(first, Ty::Named(Reference::Definition(of), _) if of == owner);
+            return match function
+                .filter(|function| self.first_is(function, takes))
+                .cloned()
+            {
                 Some(function) => self.send_function(&function, (receiver, found), args),
                 None => Err(Error::NoMethod {
                     symbol: self.symbol.clone(),
@@ -42,7 +47,11 @@ impl Checker<'_> {
         }
         let name = Self::key_name(method);
         let shape = self.env.shape(&found);
-        let function = shape.and_then(|shape| self.env.methods.get(&(shape, name.clone())));
+        let function = shape.and_then(|shape| {
+            let function = self.env.methods.get(&(shape, name.clone()))?;
+            let takes = |first: &Ty| self.env.shape(first) == Some(shape);
+            self.first_is(function, takes).then_some(function)
+        });
         match function.cloned() {
             Some(function) => self.send_function(&function, (receiver, found), args),
             None => Err(Error::NoMethod {
@@ -51,6 +60,16 @@ impl Checker<'_> {
                 name,
             }),
         }
+    }
+
+    /// Whether `function` takes a first parameter, of a type `receives`
+    /// accepts: a function of a module is a method only of what it
+    /// takes first. See "Built-in methods" in `docs/spec/methods.md`.
+    fn first_is(&self, function: &Symbol, receives: impl Fn(&Ty) -> bool) -> bool {
+        let signature = self.env.functions.get(function);
+        signature
+            .and_then(|signature| signature.params.first())
+            .is_some_and(receives)
     }
 
     /// A call of what a record holds under `key`. A method is called

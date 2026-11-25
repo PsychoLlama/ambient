@@ -63,4 +63,5 @@ A method is a function reached through a value it then receives. A record's meth
 - A built-in method is called, never read as a field; the function is named in its module where a value is wanted.
 - Adding a method to a shape changes no definition already checked, since each call holds the hash of what it meant.
 - A [brand](types.md) marks a value and carries no methods.
-- An opaque type's methods are found as a shape's are, in its own module: a call of one is a call of the public function of that name, with the receiver first.
+- An opaque type's methods are found as a shape's are, in its own module: a call of one is a call of the public function of that name whose first parameter is of it, with the receiver first.
+- A function of the module that takes something else first is no method: calling it as one is an error that there is no such method.

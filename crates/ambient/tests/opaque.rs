@@ -50,7 +50,10 @@ fn an_opaque_type_has_the_methods_of_its_module() {
 #[test]
 fn an_opaque_type_has_no_other_methods() {
     let main = "fn main(): int => counter.start().negate().count();";
+    // `boxed` is of the module, but takes an int first.
+    let other = "fn main(): Box => counter.start().boxed();";
     assert!(matches!(wrong(main), Some(Error::NoMethod { .. })));
+    assert!(matches!(wrong(other), Some(Error::NoMethod { .. })));
 }
 
 #[test]
