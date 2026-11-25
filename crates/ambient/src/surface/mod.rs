@@ -209,6 +209,9 @@ pub struct TypeDefinition<N = Path> {
     /// Its type parameters, each with its bound if it has one.
     pub params: Vec<TypeParam<N>>,
     pub ty: Type<N>,
+    /// Whether only its own module sees what it is. See "Opaque types"
+    /// in `docs/spec/types.md`.
+    pub opaque: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

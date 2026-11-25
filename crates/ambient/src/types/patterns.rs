@@ -25,6 +25,10 @@ impl Env {
                 Ty::Unknown
             }
         };
+        // What is under an opaque type is all there is to test.
+        if let Some(content) = self.revealed(&self.unfold(ty)) {
+            return self.nearest_test(&content);
+        }
         match self.unfold(ty) {
             Ty::Record(fields) => {
                 let held = fields
@@ -56,6 +60,9 @@ impl Env {
             Ty::Method { .. } => None,
             _ => Some(Ty::Unknown),
         };
+        if let Some(content) = self.revealed(&self.unfold(ty)) {
+            return self.shape_test(&content);
+        }
         match self.unfold(ty) {
             Ty::Record(fields) => {
                 let held = fields.iter();
@@ -156,6 +163,11 @@ impl Env {
         if let Some(known) = self.known(&ty) {
             return self.narrow(&known, pattern);
         }
+        // An opaque type checking does not see into is matched by what
+        // it is as a program runs, and what matches is still of it.
+        if let Some(content) = self.revealed(&ty) {
+            return self.narrow(&content, pattern).map(|_| ty);
+        }
         match pattern {
             Pattern::Wildcard => Some(ty),
             Pattern::Bind(_, inner) => self.narrow(&ty, inner),
@@ -225,6 +237,7 @@ impl Env {
             return true;
         }
         self.known(&ty)
+            .or_else(|| self.revealed(&ty))
             .is_some_and(|known| self.covers(&known, pattern))
     }
 

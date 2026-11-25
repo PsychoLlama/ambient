@@ -45,13 +45,13 @@ syn match ambientDefine '\%(\<extern\s\+\)\@<=handler\>'
 syn match ambientInclude '\%(^\s*\%(pub\s\+\)\=\)\@<=use\>\ze\s\+\h'
 
 " Words that mean something only after another: `for x in xs`, `use a as
-" b`, `target t extends u built by tool`, `type(nominal)`, `extern handler
+" b`, `target t extends u built by tool`, `type(nominal)`, `type(opaque)`, `extern handler
 " a for b in t`.
 syn match ambientRepeat '\%(^\s*for\>.*\s\)\@<=in\>\ze\s'
 syn match ambientInclude '\%(\w\s\+\)\@<=as\>\ze\s\+\h\w*\s*[,;}]'
 syn match ambientKeyword '\%(^\s*\%(pub\s\+\)\=target\>.*\s\)\@<=\%(extends\|built\s\+by\)\>'
 syn match ambientKeyword '\%(^\s*\%(pub\s\+\)\=extern\s\+handler\>.*\s\)\@<=\%(for\|in\)\>\ze\s'
-syn match ambientKeyword '\%(\<type(\)\@<=nominal\>\ze)'
+syn match ambientKeyword '\%(\<type(\)\@<=\%(nominal\|opaque\)\>\ze)'
 syn match ambientKeyword '\%(\<handler(\)\@<=suspending\>\ze)'
 
 " An annotation: `#[binding("document.title")]`, or `#[test.case]`. Its

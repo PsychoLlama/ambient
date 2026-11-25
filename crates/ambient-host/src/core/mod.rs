@@ -412,6 +412,12 @@ pub enum Tree {
         /// `unknown` for one written without.
         params: Vec<Type>,
         ty: Type,
+        /// For an opaque type, what tells it from every other: the ID
+        /// of the package that declares it, and its module path and
+        /// name as one text, as an ability's. Nothing that reads a core
+        /// tree sees less of the type for it. See "Opaque types" in
+        /// `docs/spec/types.md`.
+        opaque: Option<(String, String)>,
     },
     Function(Function),
     /// A constant: the type it states, and its value, which is one

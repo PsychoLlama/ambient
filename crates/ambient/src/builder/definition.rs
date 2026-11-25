@@ -112,6 +112,7 @@ pub fn type_(name: &str, ty: crate::surface::Type) -> Definition {
         kind: DefinitionKind::Type(TypeDefinition {
             params: Vec::new(),
             ty,
+            opaque: false,
         }),
     }
 }
@@ -232,8 +233,25 @@ pub fn bounded_type<'a>(
         kind: DefinitionKind::Type(TypeDefinition {
             params: params.into_iter().map(param).collect(),
             ty,
+            opaque: false,
         }),
     }
+}
+
+/// A private opaque type definition: one only its own module sees the
+/// content of, with each parameter by its name and bound. See "Opaque
+/// types" in `docs/spec/types.md`.
+#[must_use]
+pub fn opaque_type<'a>(
+    name: &str,
+    params: impl IntoIterator<Item = (&'a str, Option<crate::surface::Type>)>,
+    ty: crate::surface::Type,
+) -> Definition {
+    let mut definition = bounded_type(name, params, ty);
+    if let DefinitionKind::Type(written) = &mut definition.kind {
+        written.opaque = true;
+    }
+    definition
 }
 
 impl Definition {

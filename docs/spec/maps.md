@@ -4,7 +4,8 @@ A map holds values by key, and its type says which type of value each type of ke
 
 ## Shape
 
-- A map is a record whose [methods](methods.md) are its operations, so it is used as a list is: `prices.get("tea")`.
+- A map is an [opaque type](types.md#opaque-types) whose [methods](methods.md) are its operations, so it is used as a list is: `prices.get("tea")`.
+- What holds its entries is seen only by its own module, so no other code reads it, builds one, or changes what an operation does.
 - It is made empty, or of a list of entries.
 - It is a value like any other: setting or removing a key gives another map and leaves the first as it was.
 
@@ -36,7 +37,8 @@ A map holds values by key, and its type says which type of value each type of ke
 
 ## Sets
 
-- A set holds keys, each once, and is a type of the standard library over a map whose values are all null: `Set<T>`, with `T` a key type.
+- A set holds keys, each once, and is an opaque type of the standard library: `Set<T>`, with `T` a key type.
+- It is not a map: what holds its keys is its own module's, whatever that is.
 - It is made empty, or of a list of keys, and is a value as a map is: adding or removing a key gives another set.
 - Its keys are read in their order, so two sets of the same keys read the same.
 - Two sets combine into the keys of either, of both, or of the first and not the second.

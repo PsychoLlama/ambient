@@ -22,6 +22,21 @@ impl Checker<'_> {
         args: &[Expr<Reference>],
     ) -> Result<(core::Expr, Ty), Error> {
         let (receiver, found) = self.infer(target)?;
+        // An opaque type has the methods of its module, wherever it is,
+        // and no field one could be put in.
+        if let Ty::Named(Reference::Definition(owner), _) = &found
+            && self.env.types.get(owner).is_some_and(|info| info.opaque)
+        {
+            let name = Self::key_name(method);
+            return match self.env.owned.get(&(owner.clone(), name.clone())).cloned() {
+                Some(function) => self.send_function(&function, (receiver, found), args),
+                None => Err(Error::NoMethod {
+                    symbol: self.symbol.clone(),
+                    ty: self.env.show(&found),
+                    name,
+                }),
+            };
+        }
         if self.env.field(&found, method).is_some() {
             return self.send_field(receiver, &found, method, args);
         }

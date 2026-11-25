@@ -54,7 +54,7 @@ impl Env {
     /// ends. Until this has run, none of them is compared by its
     /// arguments.
     pub fn settle(&mut self) {
-        let recursive = self.types.iter().filter(|(_, info)| info.recursive);
+        let recursive = self.types.iter().filter(|(_, info)| info.nominal());
         // Unions are left as written: simplifying one compares types.
         let bodies: BTreeMap<Symbol, Ty> = recursive
             .map(|(symbol, info)| (symbol.clone(), self.normal(&info.ty, false)))
@@ -142,7 +142,7 @@ impl Env {
             // A definition that is not recursive is not here: its name
             // was replaced by what it stands for.
             Ty::Named(Reference::Definition(symbol), args) => {
-                let known = self.recursive(symbol).map(|info| info.variance.clone());
+                let known = self.nominal(symbol).map(|info| info.variance.clone());
                 for (position, arg) in args.iter().enumerate() {
                     let inner = known.as_ref().and_then(|known| known.get(position));
                     let inner = inner.copied().unwrap_or(Variance::Invariant);
@@ -209,7 +209,7 @@ impl Env {
         let grows = std::cell::Cell::new(false);
         let _ = body.rewrite(0, &|ty, _| {
             if let Ty::Named(Reference::Definition(symbol), args) = ty
-                && self.recursive(symbol).is_some()
+                && self.nominal(symbol).is_some()
             {
                 let bare = |arg: &Ty| matches!(arg, Ty::Named(Reference::Parameter(_), _));
                 let built = |arg: &Ty| mentions_parameter(arg) && !bare(arg);

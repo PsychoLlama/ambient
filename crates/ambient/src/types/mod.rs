@@ -17,7 +17,7 @@ mod relate;
 mod show;
 mod variance;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::literal::Literal;
 use crate::surface::{Key, Reference, Shape, Type};
@@ -38,12 +38,25 @@ pub struct TypeInfo {
     pub ty: Ty,
     /// Whether the definition can reach itself.
     pub recursive: bool,
+    /// Whether only its own module sees what it is: elsewhere it is
+    /// a type of its own (`Env::sees`). See "Opaque types" in
+    /// `docs/spec/types.md`.
+    pub opaque: bool,
     /// How a recursive definition varies with each of its parameters:
     /// empty until [`Env::settle`] has run.
     pub variance: Vec<Variance>,
     /// Whether unfolding a recursive definition comes back to types it
     /// has already been, and so can be relied on to end.
     pub finite: bool,
+}
+
+impl TypeInfo {
+    /// Whether its name is kept in normal form: it refers to itself, or
+    /// it is opaque.
+    #[must_use]
+    pub fn nominal(&self) -> bool {
+        self.recursive || self.opaque
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -97,8 +110,17 @@ pub struct Env {
     /// The function each method it may call by name means, for each
     /// built-in shape that has one of that name.
     pub methods: BTreeMap<(Shape, String), Symbol>,
+    /// The function each method it may call by name means, for each
+    /// opaque type it holds that has one of that name: see "Opaque
+    /// types" in `docs/spec/types.md`.
+    pub owned: BTreeMap<(Symbol, String), Symbol>,
     /// The bound of each type parameter of the definition being checked.
     pub bounds: Vec<Ty>,
+    /// The opaque types the definition being checked sees into: those
+    /// of its own module.
+    pub sees: BTreeSet<Symbol>,
+    /// The opaque types whose methods have been looked for.
+    pub owners: BTreeSet<Symbol>,
     /// The bound of each type parameter of the generic lambdas checking
     /// is inside of, outermost first: type parameters like the
     /// definition's, numbered after them. It changes as checking goes
@@ -260,8 +282,31 @@ fn mentions_parameter(ty: &Ty) -> bool {
 }
 
 impl Env {
-    fn recursive(&self, symbol: &Symbol) -> Option<&TypeInfo> {
-        self.types.get(symbol).filter(|info| info.recursive)
+    /// A definition that is kept as a name in normal form: one that
+    /// refers to itself, or is opaque.
+    fn nominal(&self, symbol: &Symbol) -> Option<&TypeInfo> {
+        self.types.get(symbol).filter(|info| info.nominal())
+    }
+
+    /// Whether what `symbol` is can be seen where checking is: it is no
+    /// opaque type, or one of the module being checked.
+    #[must_use]
+    pub fn sees(&self, symbol: &Symbol) -> bool {
+        self.types
+            .get(symbol)
+            .is_none_or(|info| !info.opaque || self.sees.contains(symbol))
+    }
+
+    /// What an opaque type checking does not see into is, as a program
+    /// runs: its content, for a test to be made of. Nothing, for any
+    /// other type.
+    #[must_use]
+    pub fn revealed(&self, ty: &Ty) -> Option<Ty> {
+        let Ty::Named(Reference::Definition(symbol), args) = ty else {
+            return None;
+        };
+        let info = self.types.get(symbol).filter(|_| !self.sees(symbol))?;
+        Some(self.normal(&substitute(&info.ty, args), false))
     }
 
     /// Whether a value can be tested against a type as a program runs.
@@ -289,6 +334,9 @@ impl Env {
             Ty::Tuple(members) => members.iter().all(|member| self.tests(member, seen)),
             Ty::Union(members) => members.iter().all(|member| self.tests(member, seen)),
             Ty::List(member) => self.tests(member, seen),
+            // An opaque type checking does not see into is not there as a
+            // program runs, as a brand is not: only its content is.
+            Ty::Named(Reference::Definition(symbol), _) if !self.sees(symbol) => false,
             Ty::Named(name, args) => {
                 let definition = match name {
                     Reference::Definition(symbol) if !seen.contains(&symbol) => {

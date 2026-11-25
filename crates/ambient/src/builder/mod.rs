@@ -18,7 +18,7 @@ mod world;
 pub use constant::{ConstantBuilder, constant};
 pub use definition::{
     AbilityBuilder, FunctionBuilder, ability, bounded_type, brand, contract, derived, function,
-    generated, generates, generic_type, intrinsic, tag, type_,
+    generated, generates, generic_type, intrinsic, opaque_type, tag, type_,
 };
 pub use error::BuildError;
 pub use module::{ModuleBuilder, Part, module};

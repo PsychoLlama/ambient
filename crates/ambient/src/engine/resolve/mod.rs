@@ -183,6 +183,7 @@ pub(super) fn tag(package: &str, symbol: &Symbol) -> DefinitionKind<Reference> {
             package: package.to_owned(),
             tag: symbol.identity(),
         }),
+        opaque: false,
     })
 }
 
@@ -195,6 +196,7 @@ pub(super) fn brand(package: &str, symbol: &Symbol) -> DefinitionKind<Reference>
             package: package.to_owned(),
             brand: symbol.identity(),
         }),
+        opaque: false,
     })
 }
 
@@ -253,6 +255,7 @@ impl<'a> Resolver<'a> {
                 DefinitionKind::Type(TypeDefinition {
                     params,
                     ty: self.ty(&definition.ty)?,
+                    opaque: definition.opaque,
                 })
             }
             DefinitionKind::Derived(call) => DefinitionKind::Derived(self.expr(call)?),

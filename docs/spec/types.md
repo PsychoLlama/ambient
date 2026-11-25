@@ -15,6 +15,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - Unions and intersections.
 - `never`, a subtype of every type, and `unknown`, a supertype of every type.
 - Brands.
+- [Opaque types](#opaque-types).
 - `Cell<T>`.
 - `Iterator<T>`, the type of an [iterator](iteration.md).
 - Type parameters, each with an optional upper bound.
@@ -103,6 +104,20 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - A branded type cannot be tested for, since nothing of the brand is there as a program runs: a match on one tests the type under the brand, and only where that is enough to tell.
 - Brands are erased: they constrain code compiled from source and are not a security boundary; see [exchange](exchange.md).
 - A brand on its own is the type of a [handle](values.md).
+
+## Opaque types
+
+- An opaque type is a type definition with an [identity](definitions.md), whose content only its own module sees.
+- Within its module it is its content, both ways, as a transparent definition is.
+- Elsewhere it is a type of its own: nothing but itself and `never` is within it, and it is within nothing but itself and `unknown`.
+- Two uses of it are related by their arguments, each the way its content varies with it.
+- Outside its module no field of it is read, no value of it is written, and no pattern looks into it.
+- Its [methods](methods.md) are the public functions of its module, wherever it is used; nothing else adds one, and it holds no field one could be put in.
+- No code outside its module therefore changes or adds to what its operations do.
+- It is erased: as a program runs a value of it is its content, and costs nothing more.
+- A test for one is therefore a test for its content, made only where that tells it from the rest of the subject's type, as a [brand](#brands)'s is.
+- Nothing is cast to an opaque type from a type that holds other values of its content's shape, such as `unknown`.
+- A [core tree](core.md) sees through it: opacity constrains code compiled from source, as a brand does.
 
 ## Intersections
 

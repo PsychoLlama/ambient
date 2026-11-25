@@ -125,7 +125,7 @@ pub fn verify(open: &Open, root: bool, lookup: Lookup<'_>) -> Result<(), Invalid
     };
     verifier.gather(lookup)?;
     match &open.tree {
-        Tree::Type { params, ty } => {
+        Tree::Type { params, ty, .. } => {
             verifier.env.bounds = vec![Ty::Unknown; params.len()];
             verifier.env.bounds = verifier.sound_all(params)?;
             verifier.sound(ty).map(drop)
@@ -253,11 +253,13 @@ impl Verifier<'_> {
         };
         let mut header: Vec<Ty> = Vec::new();
         match &target.tree {
-            Tree::Type { params, ty } => {
+            Tree::Type { params, ty, .. } => {
                 let info = TypeInfo {
                     bounds: all(params)?,
                     ty: raise(ty)?,
                     recursive: true,
+                    // A core tree sees through every opaque type.
+                    opaque: false,
                     variance: Vec::new(),
                     finite: true,
                 };

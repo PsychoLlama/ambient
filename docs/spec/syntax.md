@@ -73,6 +73,7 @@ Source text is braces and statements, read by anyone who reads TypeScript, Rust,
 - Type arguments are written out after `::` in angle brackets.
 - An [operation](operations.md) is a call of the [intrinsic](definitions.md#intrinsics) of its name, whether or not it has an operator too. The standard library wraps each that has none in a function, and other code calls that.
 - Operators are those of [operations](operations.md) and, built from them, the other comparisons, `&&`, `||`, and `!`; the last three evaluate only the operands they need.
+- An opaque type is declared `type(opaque)` and then as any type definition is.
 - A brand is declared `type(nominal) Name;`, a type and a brand are intersected with `&`, which binds tighter than `|`, and `Name(value)` brands a value.
 - Bytes are written `0x[` and `]` around pairs of hexadecimal digits, a byte each, with any space between pairs: `0x[89 50 4E 47]`, and `0x[]` for none.
 - `+` between two strings, two lists, or two bytes values joins them, as between two numbers it adds; nothing else is joined, and nothing converts.

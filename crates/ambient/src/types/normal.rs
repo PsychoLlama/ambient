@@ -73,7 +73,7 @@ impl Env {
             Ty::Named(Reference::Definition(symbol), args) => {
                 let args: Vec<Ty> = args.iter().map(|arg| self.normal(arg, absorb)).collect();
                 match self.types.get(symbol) {
-                    Some(info) if !info.recursive => {
+                    Some(info) if !info.nominal() => {
                         self.normal(&substitute(&info.ty, &args), absorb)
                     }
                     _ => Ty::Named(Reference::Definition(symbol.clone()), args),
@@ -84,6 +84,7 @@ impl Env {
 
     /// A normalized type with any recursive name at its head replaced by
     /// its definition, so its outermost constructor can be inspected.
+    /// An opaque type checking does not see into is left as it is.
     ///
     /// The unions of the definition are not simplified: simplifying asks
     /// whether one member is a subtype of another, which unfolds, and a
@@ -97,7 +98,7 @@ impl Env {
             let Ty::Named(Reference::Definition(symbol), args) = &ty else {
                 break;
             };
-            let Some(info) = self.recursive(symbol) else {
+            let Some(info) = self.nominal(symbol).filter(|_| self.sees(symbol)) else {
                 break;
             };
             ty = self.normal(&substitute(&info.ty, args), false);

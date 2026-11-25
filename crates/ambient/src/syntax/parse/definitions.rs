@@ -295,12 +295,18 @@ impl Parser {
 
     fn type_definition(&mut self) -> Parsed<(String, DefinitionKind)> {
         // `type(nominal) Name;`: a brand, which has no structure to say.
+        // `type(opaque)`: a type definition only its module sees into.
+        let mut opaque = false;
         if self.eat("(") {
-            self.expect_word("nominal")?;
+            opaque = self.eat_word("opaque");
+            if !opaque {
+                self.expect_word("nominal")?;
+                self.expect(")")?;
+                let name = self.name()?;
+                self.expect(";")?;
+                return Ok((name, DefinitionKind::Brand));
+            }
             self.expect(")")?;
-            let name = self.name()?;
-            self.expect(";")?;
-            return Ok((name, DefinitionKind::Brand));
         }
         let name = self.name()?;
         let params = self.type_params()?;
@@ -319,7 +325,8 @@ impl Parser {
         self.own = None;
         let ty = ty?;
         self.expect(";")?;
-        Ok((name, DefinitionKind::Type(TypeDefinition { params, ty })))
+        let definition = TypeDefinition { params, ty, opaque };
+        Ok((name, DefinitionKind::Type(definition)))
     }
 
     /// `contract name: Type;`, or `contract name(params): Type;` for

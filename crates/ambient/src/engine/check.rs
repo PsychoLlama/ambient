@@ -8,6 +8,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use super::environment::see;
 use super::generate::whole;
 use super::{Engine, Query, Stage, memo};
 use crate::checker;
@@ -94,10 +95,15 @@ impl Engine<'_> {
                 return Err(Error::MatchesItself(symbol.clone()));
             }
             let recursive = self.types_reach(type_definitions(&ty), symbol)?;
+            let opaque = matches!(
+                &self.resolve(symbol)?.definition.kind,
+                DefinitionKind::Type(TypeDefinition { opaque: true, .. })
+            );
             Ok(Arc::new(TypeInfo {
                 bounds,
                 ty,
                 recursive,
+                opaque,
                 variance: Vec::new(),
                 finite: true,
             }))
@@ -383,7 +389,10 @@ impl Engine<'_> {
         // are declared, which is no part of what was resolved.
         if matches!(
             &resolved.definition.kind,
-            DefinitionKind::Ability(_) | DefinitionKind::Contract(_) | DefinitionKind::Extern(_)
+            DefinitionKind::Ability(_)
+                | DefinitionKind::Contract(_)
+                | DefinitionKind::Extern(_)
+                | DefinitionKind::Type(TypeDefinition { opaque: true, .. })
         ) {
             key.bytes(symbol.identity().as_bytes());
         }
@@ -394,8 +403,9 @@ impl Engine<'_> {
                 // reads is the definitions it can reach.
                 self.gather(vec![symbol.clone()], &mut env)?;
                 self.reachable(&env, &mut key)?;
+                see(&symbol.module, &mut env, &mut key);
                 self.stage(Stage::Check, symbol, key.finish(), || {
-                    checker::check_type(symbol, definition, env)
+                    checker::check_type(symbol, definition, &package, env)
                 })
             }
             // A derived type is checked as the type its call gave, which
@@ -406,11 +416,13 @@ impl Engine<'_> {
                 let definition = TypeDefinition {
                     params: Vec::new(),
                     ty,
+                    opaque: false,
                 };
                 self.gather(vec![symbol.clone()], &mut env)?;
                 self.reachable(&env, &mut key)?;
+                see(&symbol.module, &mut env, &mut key);
                 self.stage(Stage::Check, symbol, key.finish(), || {
-                    checker::check_type(symbol, &definition, env)
+                    checker::check_type(symbol, &definition, &package, env)
                 })
             }
             DefinitionKind::Ability(ability) => {
@@ -430,7 +442,7 @@ impl Engine<'_> {
             DefinitionKind::Extern(native) => {
                 self.held_to(symbol, &native.row)?;
                 self.defaulting(symbol, native)?;
-                let env = self.environment(used, &[], &mut key)?;
+                let env = self.environment(&symbol.module, used, &[], &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
                     checker::check_extern(symbol, native, &package, &env)
                 })
@@ -449,7 +461,7 @@ impl Engine<'_> {
                     .iter()
                     .flat_map(|(ability, handler)| [ability.clone(), handler.clone()])
                     .collect();
-                let env = self.environment(used, &[], &mut key)?;
+                let env = self.environment(&symbol.module, used, &[], &mut key)?;
                 self.stage(Stage::Check, symbol, key.finish(), || {
                     checker::check_target(symbol, &bindings, &env)
                 })

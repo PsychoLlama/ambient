@@ -186,7 +186,7 @@ impl Engine<'_> {
         if !signature.type_params.is_empty() {
             return Err(no_tree());
         }
-        let env = self.environment(named, &[], &mut Hasher::new("signature"))?;
+        let env = self.environment(&symbol.module, named, &[], &mut Hasher::new("signature"))?;
         let ty = Ty::Function {
             params: signature
                 .params

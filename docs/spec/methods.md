@@ -5,9 +5,9 @@ A method is a function reached through a value it then receives. A record's meth
 ## Calls
 
 - A method call names a receiver, a method, and arguments.
-- The static type of the receiver decides what it means: a field of a record, or a method of a built-in shape.
+- The static type of the receiver decides what it means: a field of a record, or a method of a built-in shape or an [opaque type](types.md#opaque-types).
 - A value is a record or it is not, so a call has one meaning and nothing is tried in turn.
-- A record has the methods written in it and no others; a type definition, a module, and a name in scope add none.
+- A record has the methods written in it and no others; a module and a name in scope add none.
 - A receiver whose type is a union of different shapes, a type parameter, or `unknown` has no methods until it is [narrowed](types.md).
 - A method call compiles to a call of one field or of one known definition; no table of methods can be changed as a program runs, and there is no chain to search.
 
@@ -63,3 +63,4 @@ A method is a function reached through a value it then receives. A record's meth
 - A built-in method is called, never read as a field; the function is named in its module where a value is wanted.
 - Adding a method to a shape changes no definition already checked, since each call holds the hash of what it meant.
 - A [brand](types.md) marks a value and carries no methods.
+- An opaque type's methods are found as a shape's are, in its own module: a call of one is a call of the public function of that name, with the receiver first.

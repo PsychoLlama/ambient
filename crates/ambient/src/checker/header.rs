@@ -17,6 +17,7 @@ use crate::types::{Env, Ty, abilities};
 pub fn check_type(
     symbol: &Symbol,
     definition: &TypeDefinition<Reference>,
+    package: &str,
     mut env: Env,
 ) -> Result<Open, Error> {
     contractive(symbol, &definition.ty, &env, &mut vec![symbol.clone()])?;
@@ -35,7 +36,13 @@ pub fn check_type(
     let params = bounds.iter().map(|bound| checker.lower(bound)).collect();
     let ty = checker.lower(&env.normalize(&definition.ty));
     Ok(Open {
-        tree: Tree::Type { params, ty },
+        tree: Tree::Type {
+            params,
+            ty,
+            opaque: definition
+                .opaque
+                .then(|| (package.to_owned(), symbol.identity())),
+        },
         slots: checker.finish().slots,
         lambdas: Vec::new(),
         annotations: Vec::new(),

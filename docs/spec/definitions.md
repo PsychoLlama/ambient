@@ -52,7 +52,7 @@ A definition is the unit of naming, hashing, checking, compiling, and exchange. 
 
 ## Identity
 
-- Some definitions are told apart by where they are declared, since structure cannot tell them apart: [brands](types.md), [contracts](methods.md), [abilities](abilities.md), [externs](externs.md), and tags.
+- Some definitions are told apart by where they are declared, since structure cannot tell them apart: [brands](types.md), [opaque types](types.md#opaque-types), [contracts](methods.md), [abilities](abilities.md), [externs](externs.md), and tags.
 - The identity of one is its package's [ID](packages.md), its module path, and its name. Nothing else in the language is nominal.
 - An identity is written nowhere: it is read from the declaration, so no second name can drift from the first or collide with another by accident.
 - An identity is content. It is the one place a name reaches a hash.

@@ -159,6 +159,13 @@ impl Env {
             return false;
         }
         let (below, above) = (self.unfold(sub), self.unfold(sup));
+        // An opaque type checking does not see into is within a union
+        // only by being within one of its members.
+        if self.revealed(sub).is_some()
+            && let Ty::Union(members) = &above
+        {
+            return members.iter().any(|member| self.sub(sub, member, proof));
+        }
         if below == *sub && above == *sup {
             return false;
         }
@@ -309,6 +316,13 @@ impl Env {
                 .is_some_and(|bound| self.apart(&bound, other, next)),
             (Ty::Match(matching), other) | (other, Ty::Match(matching)) => {
                 self.apart(&self.upper(matching), other, next)
+            }
+            // An opaque type takes its values from its content.
+            (named @ Ty::Named(..), other) | (other, named @ Ty::Named(..))
+                if self.revealed(named).is_some() =>
+            {
+                let content = self.revealed(named).unwrap_or(Ty::Unknown);
+                self.apart(&content, other, next)
             }
             (Ty::Unknown | Ty::Named(..) | Ty::Matched(_), _)
             | (_, Ty::Unknown | Ty::Named(..) | Ty::Matched(_))

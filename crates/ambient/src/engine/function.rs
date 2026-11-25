@@ -62,7 +62,7 @@ impl Engine<'_> {
         if function.body.releases() {
             used.push(crate::library::dispose());
         }
-        let env = self.environment(used.clone(), &sends, &mut key)?;
+        let env = self.environment(&symbol.module, used.clone(), &sends, &mut key)?;
         // What a comptime call returns is content of this definition, and
         // depends on everything its callee is.
         let mut callees = Vec::new();
@@ -128,7 +128,8 @@ impl Engine<'_> {
                         self.end_runs();
                         self.begin_runs();
                         let all = used.iter().chain(&reached).cloned().collect();
-                        match self.environment(all, &sends, &mut Hasher::new("reached")) {
+                        let mut wider = Hasher::new("reached");
+                        match self.environment(&symbol.module, all, &sends, &mut wider) {
                             Ok(wider) => env = Some(wider),
                             Err(error) => break Err(error),
                         }

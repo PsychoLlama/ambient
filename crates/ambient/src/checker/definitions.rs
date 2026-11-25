@@ -201,6 +201,7 @@ fn kind(home: Home, fields: &[(core::Key, core::Expr)]) -> Read<DefinitionKind<R
                 })
                 .collect(),
             ty: within(home, count, need(fields, "means")?)?,
+            opaque: false,
         })
     })
 }

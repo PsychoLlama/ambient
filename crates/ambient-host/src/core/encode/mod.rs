@@ -76,7 +76,7 @@ impl<'a> Sink<'a> {
 
 /// The version named by every encoding. Changing the node set or the
 /// encoding means changing this, which changes every hash.
-const FORMAT: u8 = 44;
+const FORMAT: u8 = 45;
 
 impl Tree {
     /// The encoding of the tree as it is stored: slots by index.
@@ -106,10 +106,18 @@ impl Tree {
         let out = &mut sink;
         out.push(FORMAT);
         match self {
-            Self::Type { params, ty } => {
+            Self::Type { params, ty, opaque } => {
                 out.push(0);
                 encode_types(params, out);
                 encode_type(ty, out);
+                match opaque {
+                    None => out.push(0),
+                    Some((package, path)) => {
+                        out.push(1);
+                        text(package, out);
+                        text(path, out);
+                    }
+                }
             }
             Self::Function(function) => {
                 out.push(1);

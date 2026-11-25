@@ -17,11 +17,12 @@ use crate::symbol::{ModuleId, Namespace, Symbol};
 use crate::types::{Env, Signature, Ty, abilities};
 
 impl Engine<'_> {
-    /// Everything checking reads about the definitions in `used` and
-    /// about the methods called `sends`, with what covers it added to
-    /// `key`.
+    /// Everything checking a definition of module `within` reads about
+    /// the definitions in `used` and about the methods called `sends`,
+    /// with what covers it added to `key`.
     pub(super) fn environment(
         &self,
+        within: &ModuleId,
         used: Vec<Symbol>,
         sends: &[String],
         key: &mut Hasher,
@@ -48,6 +49,15 @@ impl Engine<'_> {
         }
         roots.extend(self.methods(sends, &mut env, key)?);
         self.gather(roots, &mut env)?;
+        // What an opaque type's methods name may hold another.
+        loop {
+            let more = self.owned(sends, &mut env, key)?;
+            if more.is_empty() {
+                break;
+            }
+            self.gather(more, &mut env)?;
+        }
+        see(within, &mut env, key);
         // Headers are read in normal form everywhere.
         let functions = std::mem::take(&mut env.functions);
         env.functions = functions
@@ -128,6 +138,44 @@ impl Engine<'_> {
         Ok(named)
     }
 
+    /// Adds to `env` the function each method called one of `sends`
+    /// means for each opaque type it holds whose methods are not there
+    /// yet: the public function of that name in the type's own module.
+    /// Gives the definitions their headers name.
+    fn owned(
+        &self,
+        sends: &[String],
+        env: &mut Env,
+        key: &mut Hasher,
+    ) -> Result<Vec<Symbol>, Error> {
+        let opaque = env.types.iter().filter(|(_, info)| info.opaque);
+        let fresh: Vec<Symbol> = opaque
+            .map(|(symbol, _)| symbol.clone())
+            .filter(|symbol| !env.owners.contains(symbol))
+            .collect();
+        let mut named = Vec::new();
+        for owner in fresh {
+            env.owners.insert(owner.clone());
+            let members = self.members(&owner.module)?;
+            for name in sends {
+                let member = members.0.get(&(Namespace::Value, name.clone()));
+                let Some(member) = member.filter(|member| member.public) else {
+                    continue;
+                };
+                let Some((signature, mentions)) = self.signature(&member.symbol)? else {
+                    continue;
+                };
+                key.bytes(&encode(&owner)).bytes(&encode(&member.symbol));
+                key.hash(&self.interface(&member.symbol)?.digest);
+                named.extend(mentions);
+                let function = member.symbol.clone();
+                env.functions.entry(function.clone()).or_insert(signature);
+                env.owned.insert((owner.clone(), name.clone()), function);
+            }
+        }
+        Ok(named)
+    }
+
     /// The header of a function or an extern as written, and the
     /// definitions it names. A target has none: it is not a value.
     pub(super) fn signature(
@@ -190,5 +238,21 @@ impl Engine<'_> {
             _ => return Ok(None),
         };
         Ok(Some((signature, named)))
+    }
+}
+
+/// Lets checking in module `within` see into the opaque types of
+/// that module `env` holds. Which those are is in `key`: an opaque
+/// type's identity is content, so the same definition in another
+/// module checks as another would.
+pub(super) fn see(within: &ModuleId, env: &mut Env, key: &mut Hasher) {
+    let own = env
+        .types
+        .iter()
+        .filter(|(symbol, info)| info.opaque && symbol.module == *within);
+    let own: Vec<Symbol> = own.map(|(symbol, _)| symbol.clone()).collect();
+    for symbol in own {
+        key.bytes(b"sees").bytes(symbol.identity().as_bytes());
+        env.sees.insert(symbol);
     }
 }
