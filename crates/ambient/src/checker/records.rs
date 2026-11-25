@@ -171,13 +171,17 @@ impl Checker<'_> {
             Expr::Record(fields) => self.fields(fields, &[], &[])?,
             left => self.infer(left)?,
         };
-        let below = self.env.unfold(&left);
+        // An unfolding is not in normal form: its unions are as written
+        // and its type matches undecided. The merged record is lowered
+        // as it is, so it must be.
+        let below = self.env.normalize(&self.env.unfold(&left));
         let (core_right, right) = match (right, &below) {
             (Expr::Record(fields), Ty::Record(below)) => self.fields(fields, below, &[])?,
             (Expr::Record(fields), _) => self.fields(fields, &[], &[])?,
             (right, _) => self.infer(right)?,
         };
-        let (Ty::Record(mut fields), Ty::Record(over)) = (below, self.env.unfold(&right)) else {
+        let over = self.env.normalize(&self.env.unfold(&right));
+        let (Ty::Record(mut fields), Ty::Record(over)) = (below, over) else {
             return Err(Error::Operands {
                 symbol: self.symbol.clone(),
                 operator: "...".to_owned(),

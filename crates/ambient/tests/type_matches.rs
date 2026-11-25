@@ -206,6 +206,25 @@ fn a_type_match_left_open_is_within_one_over_a_wider_subject() {
 }
 
 #[test]
+fn a_type_match_a_merged_record_unfolds_to_is_decided() {
+    // `Holder` refers to itself, so merging over one unfolds it, and
+    // what the merged record's methods receive is written out.
+    let source = format!(
+        "{KEYS}
+        type Entries = (key: string, value: int);
+        type Holder<E> = {{ size(self): int, keys(self): List<Keys<E>>, more(self): Holder<E> }};
+        fn make(): Holder<Entries> => {{
+            size(self): int => 1,
+            keys(self): List<string> => [\"a\"],
+            more(self): Holder<Entries> => make(),
+        }};
+        fn liar(real: Holder<Entries>): Holder<Entries> => {{ ...real, size(self): int => 2 }};
+        fn main(): int => liar(make()).size() + liar(make()).keys().length();"
+    );
+    assert_eq!(int(&source), 3);
+}
+
+#[test]
 fn a_type_match_whose_arm_takes_its_binder_is_not_within_a_wider_one() {
     let wider = held_as("Takes<E>", "Takes<E | (key: \"z\", value: int)>");
     assert!(matches!(wrong(&wider), Some(Error::Mismatch { .. })));
