@@ -15,6 +15,7 @@ mod operations;
 mod patterns;
 mod relate;
 mod show;
+mod testable;
 mod variance;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -307,63 +308,6 @@ impl Env {
         };
         let info = self.types.get(symbol).filter(|_| !self.sees(symbol))?;
         Some(self.normal(&substitute(&info.ty, args), false))
-    }
-
-    /// Whether a normalized type holds, at any depth, an opaque type
-    /// checking does not see into.
-    #[must_use]
-    pub fn holds_opaque(&self, ty: &Ty) -> bool {
-        let held = std::cell::Cell::new(false);
-        let _ = ty.rewrite(0, &|ty, _| {
-            if self.revealed(ty).is_some() {
-                held.set(true);
-            }
-            None
-        });
-        held.get()
-    }
-
-    /// Whether a value can be tested against a type as a program runs.
-    /// A function says which type it is of and no more, so a function
-    /// type in it must be one type whatever the type arguments in
-    /// force: it may mention no type parameter. Inside a cell type
-    /// anything may be, since a cell keeps the type it was made at.
-    #[must_use]
-    pub fn testable(&self, ty: &Ty) -> bool {
-        self.tests(ty, &mut Vec::new())
-    }
-
-    /// [`Self::testable`], given the definitions already looked into.
-    fn tests<'a>(&'a self, ty: &'a Ty, seen: &mut Vec<&'a Symbol>) -> bool {
-        match ty {
-            // An iterator that a function steps is tested as that
-            // function is.
-            Ty::Function { .. } | Ty::Generic { .. } | Ty::Iterator(_) => !mentions_parameter(ty),
-            // A test never yields a method: see `docs/spec/methods.md`. And
-            // nothing of a brand on a type is there as a program runs, nor
-            // anything that decides a type match.
-            Ty::Method { .. } | Ty::Branded(..) | Ty::Match(_) | Ty::Matched(_) => false,
-            Ty::Cell(member) => !holds_match(member),
-            Ty::Record(fields) => fields.iter().all(|(_, ty)| self.tests(ty, seen)),
-            Ty::Tuple(members) => members.iter().all(|member| self.tests(member, seen)),
-            Ty::Union(members) => members.iter().all(|member| self.tests(member, seen)),
-            Ty::List(member) => self.tests(member, seen),
-            // An opaque type checking does not see into is not there as a
-            // program runs, as a brand is not: only its content is.
-            Ty::Named(Reference::Definition(symbol), _) if !self.sees(symbol) => false,
-            Ty::Named(name, args) => {
-                let definition = match name {
-                    Reference::Definition(symbol) if !seen.contains(&symbol) => {
-                        seen.push(symbol);
-                        self.types.get(symbol)
-                    }
-                    _ => None,
-                };
-                args.iter().all(|arg| self.tests(arg, seen))
-                    && definition.is_none_or(|info| self.tests(&info.ty, seen))
-            }
-            _ => true,
-        }
     }
 
     /// The type as an error message shows it. This is not a syntax.
