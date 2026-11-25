@@ -309,6 +309,20 @@ impl Env {
         Some(self.normal(&substitute(&info.ty, args), false))
     }
 
+    /// Whether a normalized type holds, at any depth, an opaque type
+    /// checking does not see into.
+    #[must_use]
+    pub fn holds_opaque(&self, ty: &Ty) -> bool {
+        let held = std::cell::Cell::new(false);
+        let _ = ty.rewrite(0, &|ty, _| {
+            if self.revealed(ty).is_some() {
+                held.set(true);
+            }
+            None
+        });
+        held.get()
+    }
+
     /// Whether a value can be tested against a type as a program runs.
     /// A function says which type it is of and no more, so a function
     /// type in it must be one type whatever the type arguments in

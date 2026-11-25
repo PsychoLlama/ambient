@@ -584,7 +584,7 @@ pub fn main(): string {
 
 - A type error is reported at its line and column, and so is each function a fault or an uncaught error left: `in app:main.divide at src/main.ab:2:39`. A frame inside the standard library has a name and no place.
 - A record type that names a contract says its type again: `{ [dispose](): null }`.
-- A record with methods, such as a `Map`, can be tested for only where the value's type leaves no doubt: a `Json` can be cast to `Map<json.Member>`, an `unknown` cannot.
+- An opaque type, such as a `Map`, is tested for by what it holds, and so only where the value's type leaves no doubt: a `Json` can be cast to `Map<json.Member>`, an `unknown` cannot.
 - Only a function that captured nothing is packed: one written at the top of a module, not one written inside another that uses what is around it.
 - A function written inside another may call itself, and then says its parameter and return types.
 - A package is depended on by where it is: at a path (`text = { path = "../text" }`, which `ambient add ../text` writes), or in a git repository: `text = { git = "…", branch = "main" }`, or a `tag`, or a whole commit as `rev`. Neither says an ID: the package's own manifest does. `ambient.lock` holds the commit that led to and the ID of the package there, and only `ambient update` reads the branch again. A member of the workspace may also be named by its ID and a version: `text = { id = "…", version = "1.0.0" }`. There are no releases to depend on yet.

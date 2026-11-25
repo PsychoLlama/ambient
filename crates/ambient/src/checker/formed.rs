@@ -22,8 +22,11 @@ impl Checker<'_> {
     /// Why no value can be tested for `ty`.
     pub(super) fn untestable(&self, ty: &Ty) -> Error {
         let (symbol, found) = (self.symbol.clone(), self.env.show(ty));
-        if holds_match(&self.env.normalize(ty)) {
+        let ty = self.env.normalize(ty);
+        if holds_match(&ty) {
             Error::UntestableMatch { symbol, found }
+        } else if self.env.holds_opaque(&ty) {
+            Error::UntestableOpaque { symbol, found }
         } else {
             Error::Untestable { symbol, found }
         }

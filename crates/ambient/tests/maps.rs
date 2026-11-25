@@ -25,6 +25,19 @@ fn over(ret: &str, body: &str) -> String {
 }
 
 #[test]
+fn no_other_code_changes_what_a_map_does() {
+    let source = r#"
+        use ambient.map.{self, Map};
+        fn main(): Map<(key: string, value: int)> =>
+            { ...map.of([("a", 1)]), size(self): int => 99 };
+    "#;
+    let workspace = support::text::workspace(source);
+    let store = MemoryStore::new();
+    let checked = Engine::new(&workspace, &store).check(&support::value("main", "main"));
+    assert!(checked.is_err());
+}
+
+#[test]
 fn a_map_gives_what_is_under_a_key() {
     assert_eq!(int(&over("int", r#"return d.get("b") ?? 0;"#)), 2);
     assert_eq!(int(&over("int", r#"return d.get("z") ?? 0;"#)), 0);

@@ -83,6 +83,7 @@ impl fmt::Display for Error {
             | Self::UntypedParameter { .. }
             | Self::Untestable { .. }
             | Self::UntestableMatch { .. }
+            | Self::UntestableOpaque { .. }
             | Self::AsksAFunction { .. }
             | Self::Uncontractive(_)
             | Self::MatchesItself(_)
@@ -148,6 +149,10 @@ impl Error {
             Self::Untestable { symbol, found } => write!(
                 f,
                 "{symbol}: no value can be tested for `{found}`: a function type in it mentions a type parameter"
+            ),
+            Self::UntestableOpaque { symbol, found } => write!(
+                f,
+                "{symbol}: no value can be tested for `{found}` here: an opaque type in it is told only by what it holds, which does not tell it from the rest"
             ),
             Self::UntestableMatch { symbol, found } => write!(
                 f,

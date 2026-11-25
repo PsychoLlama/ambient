@@ -103,8 +103,11 @@ fn nothing_is_cast_to_an_opaque_type_its_content_cannot_tell() {
             _ => 0,
         };
     ";
-    assert!(matches!(wrong(cast), Some(Error::Untestable { .. })));
-    assert!(matches!(wrong(overlapping), Some(Error::Untestable { .. })));
+    assert!(matches!(wrong(cast), Some(Error::UntestableOpaque { .. })));
+    assert!(matches!(
+        wrong(overlapping),
+        Some(Error::UntestableOpaque { .. })
+    ));
 }
 
 #[test]

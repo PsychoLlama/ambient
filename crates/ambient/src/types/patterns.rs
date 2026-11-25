@@ -164,9 +164,15 @@ impl Env {
             return self.narrow(&known, pattern);
         }
         // An opaque type checking does not see into is matched by what
-        // it is as a program runs, and what matches is still of it.
+        // it is as a program runs. What matches is still of it, or, for
+        // a test it may pass, of the type tested, as any other type
+        // that test may let through is; nothing of its content is said.
         if let Some(content) = self.revealed(&ty) {
-            return self.narrow(&content, pattern).map(|_| ty);
+            self.narrow(&content, pattern)?;
+            return Some(match tested(pattern) {
+                Some(tested) => self.normalize(tested),
+                None => ty,
+            });
         }
         match pattern {
             Pattern::Wildcard => Some(ty),
@@ -482,4 +488,13 @@ fn uninhabited_if_member_is(ty: Ty) -> Ty {
         _ => false,
     };
     if empty { Ty::Never } else { ty }
+}
+
+/// The type a pattern tests for, under any binder of the whole.
+fn tested(pattern: &Pat) -> Option<&Ty> {
+    match pattern {
+        Pattern::Bind(_, inner) => tested(inner),
+        Pattern::Is(ty) => Some(ty),
+        _ => None,
+    }
 }

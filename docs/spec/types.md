@@ -110,7 +110,7 @@ Types are structural, erased at runtime, and content-addressed. A type is checke
 - An opaque type is a type definition with an [identity](definitions.md), whose content only its own module sees.
 - Within its module it is its content, both ways, as a transparent definition is.
 - Elsewhere it is a type of its own: nothing but itself and `never` is within it, and it is within nothing but itself and `unknown`.
-- Two uses of it are related by their arguments, each the way its content varies with it.
+- Two uses of it are related only if their arguments are the same: how its content varies is its module's to change, so no other code relies on it.
 - Outside its module no field of it is read, no value of it is written, and no pattern looks into it.
 - Its [methods](methods.md) are the public functions of its module, wherever it is used; nothing else adds one, and it holds no field one could be put in.
 - No code outside its module therefore changes or adds to what its operations do.

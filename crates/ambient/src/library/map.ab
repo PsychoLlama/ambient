@@ -4,32 +4,9 @@ use pkg.intrinsics;
 /// that of its entries, a union of pairs of a key type and the type of
 /// value under it, so reading a key gives the value types of the pairs
 /// that key may match. Changing one gives another and leaves the first
-/// as it was. See `docs/spec/maps.md`.
-pub type Map<E: Any> = {
-    tree: Tree<E>,
-    // How many keys it has.
-    size(self): int,
-    // What is under `key`, or null if nothing is.
-    get<K: Key>(self, key: K): Value<E, K> | null,
-    // Whether anything is under `key`.
-    has(self, key: Key): bool,
-    // The entry of `key`, or null if it has none: unlike `get`, it
-    // tells a value that is null from none.
-    entry<K: Key>(self, key: K): Found<E, K> | null,
-    // This with `entry`, in place of what was under its key.
-    set(self, entry: E): Map<E>,
-    // This with the entry `change` makes of what is under `key`, which
-    // is null if nothing is.
-    update<K: Key>(self, key: K, change: fn(held: Value<E, K> | null): E): Map<E>,
-    // This with nothing under `key`.
-    remove(self, key: Key): Map<E>,
-    // The keys, in order.
-    keys(self): List<Keys<E>>,
-    // The values, in the order of their keys.
-    values(self): List<Values<E>>,
-    // Each entry, in the order of the keys.
-    entries(self): List<E>,
-};
+/// as it was. Only this module sees what holds its entries. See
+/// `docs/spec/maps.md`.
+pub type(opaque) Map<E: Any> = { tree: Tree<E> };
 
 /// What a map may hold a value under.
 pub type Key = null | bool | int | string | bytes | Tag;
@@ -58,36 +35,54 @@ type Tree<E> = Node<E> | null;
 type Node<E> = { entry: E, left: Tree<E>, right: Tree<E>, count: int };
 
 /// A map with nothing in it.
-pub fn empty<E: Any>(): Map<E> => over::<E>(null);
+pub fn empty<E: Any>(): Map<E> => { tree: null };
 
 /// A map of each entry. A later one replaces an earlier one of the
 /// same key.
 pub fn of<E: Any>(entries: List<E>): Map<E> =>
-    over::<E>(entries.iter().fold(null, fn(tree: Tree<E>, entry: E): Tree<E> => insert(tree, entry)));
+    { tree: entries.iter().fold(null, fn(tree: Tree<E>, entry: E): Tree<E> => insert(tree, entry)) };
 
-fn over<E: Any>(tree: Tree<E>): Map<E> => {
-    tree,
-    size(self): int => count(self.tree),
-    get<K: Key>(self, key: K): Value<E, K> | null => read::<E, K>(self.tree, key),
-    has(self, key: Key): bool => find(self.tree, key) != null,
-    entry<K: Key>(self, key: K): Found<E, K> | null =>
-        match find(self.tree, key) {
-            null => null,
-            let found => found_as::<E, K>(found),
-        },
-    set(self, entry: E): Map<E> => over(insert(self.tree, entry)),
-    update<K: Key>(self, key: K, change: fn(held: Value<E, K> | null): E): Map<E> =>
-        over(insert(self.tree, change(read::<E, K>(self.tree, key)))),
-    remove(self, key: Key): Map<E> => over(delete(self.tree, key)),
-    keys(self): List<Keys<E>> =>
-        walk(self.tree, [], fn(found: List<Keys<E>>, node: Node<E>): List<Keys<E>> =>
-            match node.entry { (let key, _) => found.push(key) }),
-    values(self): List<Values<E>> =>
-        walk(self.tree, [], fn(found: List<Values<E>>, node: Node<E>): List<Values<E>> =>
-            match node.entry { (_, let value) => found.push(value) }),
-    entries(self): List<E> =>
-        walk(self.tree, [], fn(found: List<E>, node: Node<E>): List<E> => found.push(node.entry)),
-};
+/// How many keys it has.
+pub fn size<E: Any>(self: Map<E>): int => count(self.tree);
+
+/// What is under `key`, or null if nothing is.
+pub fn get<E: Any, K: Key>(self: Map<E>, key: K): Value<E, K> | null => read::<E, K>(self.tree, key);
+
+/// Whether anything is under `key`.
+pub fn has<E: Any>(self: Map<E>, key: Key): bool => find(self.tree, key) != null;
+
+/// The entry of `key`, or null if it has none: unlike `get`, it tells
+/// a value that is null from none.
+pub fn entry<E: Any, K: Key>(self: Map<E>, key: K): Found<E, K> | null =>
+    match find(self.tree, key) {
+        null => null,
+        let found => found_as::<E, K>(found),
+    };
+
+/// This with `entry`, in place of what was under its key.
+pub fn set<E: Any>(self: Map<E>, entry: E): Map<E> => { tree: insert(self.tree, entry) };
+
+/// This with the entry `change` makes of what is under `key`, which is
+/// null if nothing is.
+pub fn update<E: Any, K: Key>(self: Map<E>, key: K, change: fn(held: Value<E, K> | null): E): Map<E> =>
+    { tree: insert(self.tree, change(read::<E, K>(self.tree, key))) };
+
+/// This with nothing under `key`.
+pub fn remove<E: Any>(self: Map<E>, key: Key): Map<E> => { tree: delete(self.tree, key) };
+
+/// The keys, in order.
+pub fn keys<E: Any>(self: Map<E>): List<Keys<E>> =>
+    walk(self.tree, [], fn(found: List<Keys<E>>, node: Node<E>): List<Keys<E>> =>
+        match node.entry { (let key, _) => found.push(key) });
+
+/// The values, in the order of their keys.
+pub fn values<E: Any>(self: Map<E>): List<Values<E>> =>
+    walk(self.tree, [], fn(found: List<Values<E>>, node: Node<E>): List<Values<E>> =>
+        match node.entry { (_, let value) => found.push(value) });
+
+/// Each entry, in the order of the keys.
+pub fn entries<E: Any>(self: Map<E>): List<E> =>
+    walk(self.tree, [], fn(found: List<E>, node: Node<E>): List<E> => found.push(node.entry));
 
 /// What is under `key` in `tree`, or null if nothing is.
 fn read<E: Any, K: Key>(tree: Tree<E>, key: K): Value<E, K> | null =>

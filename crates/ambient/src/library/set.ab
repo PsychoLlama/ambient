@@ -1,48 +1,43 @@
 use pkg.map.{self, Key, Map};
 
 /// A set: keys, each held once, kept in their order. Changing one
-/// gives another and leaves the first as it was. See "Sets" in
-/// `docs/spec/maps.md`.
-pub type Set<T: Key> = {
-    held: Map<Held<T>>,
-    // How many keys it has.
-    size(self): int,
-    // Whether it has `key`.
-    has(self, key: Key): bool,
-    // This with `key`.
-    add(self, key: T): Set<T>,
-    // This without `key`.
-    remove(self, key: Key): Set<T>,
-    // The keys, in order.
-    keys(self): List<T>,
-    // The keys of this or `other`.
-    union(self, other: Set<T>): Set<T>,
-    // The keys of both this and `other`.
-    intersection(self, other: Set<T>): Set<T>,
-    // The keys of this that `other` lacks.
-    difference(self, other: Set<T>): Set<T>,
-};
+/// gives another and leaves the first as it was. Only this module sees
+/// what holds its keys. See "Sets" in `docs/spec/maps.md`.
+pub type(opaque) Set<T: Key> = { held: Map<Held<T>> };
 
 /// How a set holds a key: as a key of a map, under null.
 type Held<T> = map.Entry<T, null>;
 
 /// A set with nothing in it.
-pub fn empty<T: Key>(): Set<T> => over::<T>(map.empty::<Held<T>>());
+pub fn empty<T: Key>(): Set<T> => { held: map.empty::<Held<T>>() };
 
 /// A set of each key.
 pub fn of<T: Key>(keys: List<T>): Set<T> =>
-    over::<T>(map.of::<Held<T>>(keys.map(fn(key: T): Held<T> => (key, null))));
+    { held: map.of::<Held<T>>(keys.map(fn(key: T): Held<T> => (key, null))) };
 
-fn over<T: Key>(held: Map<Held<T>>): Set<T> => {
-    held,
-    size(self): int => self.held.size(),
-    has(self, key: Key): bool => self.held.has(key),
-    add(self, key: T): Set<T> => over(self.held.set((key, null))),
-    remove(self, key: Key): Set<T> => over(self.held.remove(key)),
-    keys(self): List<T> => self.held.keys(),
-    union(self, other: Set<T>): Set<T> => of(self.keys() + other.keys()),
-    intersection(self, other: Set<T>): Set<T> =>
-        of(self.keys().filter(fn(key: T): bool => other.has(key))),
-    difference(self, other: Set<T>): Set<T> =>
-        of(self.keys().filter(fn(key: T): bool => !other.has(key))),
-};
+/// How many keys it has.
+pub fn size<T: Key>(self: Set<T>): int => self.held.size();
+
+/// Whether it has `key`.
+pub fn has<T: Key>(self: Set<T>, key: Key): bool => self.held.has(key);
+
+/// This with `key`.
+pub fn add<T: Key>(self: Set<T>, key: T): Set<T> => { held: self.held.set((key, null)) };
+
+/// This without `key`.
+pub fn remove<T: Key>(self: Set<T>, key: Key): Set<T> => { held: self.held.remove(key) };
+
+/// The keys, in order.
+pub fn keys<T: Key>(self: Set<T>): List<T> => self.held.keys();
+
+/// The keys of this or `other`.
+pub fn union<T: Key>(self: Set<T>, other: Set<T>): Set<T> =>
+    other.keys().iter().fold(self, fn(found: Set<T>, key: T): Set<T> => found.add(key));
+
+/// The keys of both this and `other`.
+pub fn intersection<T: Key>(self: Set<T>, other: Set<T>): Set<T> =>
+    of(self.keys().filter(fn(key: T): bool => other.has(key)));
+
+/// The keys of this that `other` lacks.
+pub fn difference<T: Key>(self: Set<T>, other: Set<T>): Set<T> =>
+    of(self.keys().filter(fn(key: T): bool => !other.has(key)));

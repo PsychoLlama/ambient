@@ -70,6 +70,12 @@ impl Env {
             let mut changed = false;
             for (symbol, body) in &bodies {
                 let mut found = self.types[symbol].variance.clone();
+                // An opaque type is held to its arguments, whatever its
+                // content does with them: see "Opaque types" in
+                // `docs/spec/types.md`.
+                if self.types[symbol].opaque {
+                    found.fill(Variance::Invariant);
+                }
                 self.varies(body, Variance::Covariant, &mut found);
                 if let Some(info) = self.types.get_mut(symbol)
                     && info.variance != found
